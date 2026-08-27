@@ -44,7 +44,6 @@ Application web de démonstration complète avec authentification (locale + Acti
 ### Prérequis
 - Python 3.11+
 - MySQL 8.4 (ou Docker)
-- Node.js 20+ (pour le frontend original, optionnel)
 
 ### Configuration
 

@@ -45,6 +45,8 @@ class Settings(BaseSettings):
     AD_ADMIN_GROUP: str = ""
     AD_BIND_USER: str = ""
     AD_BIND_PASSWORD: str = ""
+    AD_CONNECT_TIMEOUT: int = 10
+    AD_RECEIVE_TIMEOUT: int = 10
     AD_GROUP_MAPPING: dict = Field(
         default_factory=lambda: {
             "admin": "AD_GROUP_ADMIN",

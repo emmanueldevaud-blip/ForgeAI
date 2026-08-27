@@ -29,7 +29,7 @@ class User(Base):
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     is_admin: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     role: Mapped[UserRole] = mapped_column(
-        SQLEnum(UserRole), default=UserRole.USER, nullable=False
+        SQLEnum(UserRole, native_enum=False), default=UserRole.USER, nullable=False
     )
     source: Mapped[str] = mapped_column(String(20), default="local", nullable=False)
     ad_dn: Mapped[str] = mapped_column(String(500), nullable=True, unique=True)

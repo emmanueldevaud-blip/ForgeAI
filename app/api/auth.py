@@ -67,21 +67,26 @@ async def login(
     await db.refresh(user)
     tokens = create_tokens(user)
 
+    cookie_secure = not settings.DEBUG
+    cookie_samesite = "lax" if settings.DEBUG else "none"
+
     response.set_cookie(
         key="access_token",
         value=tokens.access_token,
         httponly=True,
-        secure=not settings.DEBUG,
-        samesite="lax",
+        secure=cookie_secure,
+        samesite=cookie_samesite,
         max_age=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+        path="/",
     )
     response.set_cookie(
         key="refresh_token",
         value=tokens.refresh_token,
         httponly=True,
-        secure=not settings.DEBUG,
-        samesite="lax",
+        secure=cookie_secure,
+        samesite=cookie_samesite,
         max_age=settings.REFRESH_TOKEN_EXPIRE_DAYS * 24 * 60 * 60,
+        path="/",
     )
 
     return LoginResponse(user=UserResponse.model_validate(user), tokens=tokens)
@@ -89,8 +94,8 @@ async def login(
 
 @router.post("/logout", response_model=MessageResponse)
 async def logout(response: Response):
-    response.delete_cookie("access_token")
-    response.delete_cookie("refresh_token")
+    response.delete_cookie("access_token", path="/")
+    response.delete_cookie("refresh_token", path="/")
     return MessageResponse(message="Déconnexion réussie")
 
 
@@ -116,21 +121,26 @@ async def refresh_token(
 
     tokens = create_tokens(user)
 
+    cookie_secure = not settings.DEBUG
+    cookie_samesite = "lax" if settings.DEBUG else "none"
+
     response.set_cookie(
         key="access_token",
         value=tokens.access_token,
         httponly=True,
-        secure=not settings.DEBUG,
-        samesite="lax",
+        secure=cookie_secure,
+        samesite=cookie_samesite,
         max_age=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+        path="/",
     )
     response.set_cookie(
         key="refresh_token",
         value=tokens.refresh_token,
         httponly=True,
-        secure=not settings.DEBUG,
-        samesite="lax",
+        secure=cookie_secure,
+        samesite=cookie_samesite,
         max_age=settings.REFRESH_TOKEN_EXPIRE_DAYS * 24 * 60 * 60,
+        path="/",
     )
 
     return tokens
@@ -213,6 +223,21 @@ async def list_users(
     result = await db.execute(select(User).order_by(User.created_at.desc()))
     users = result.scalars().all()
     return [UserResponse.model_validate(u) for u in users]
+
+
+@router.get("/users/{user_id}", response_model=UserResponse)
+async def get_user_admin(
+    user_id: int,
+    current_user: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    user = await get_user_by_id(db, user_id)
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Utilisateur non trouvé",
+        )
+    return UserResponse.model_validate(user)
 
 
 @router.post("/users", response_model=UserResponse, status_code=status.HTTP_201_CREATED)

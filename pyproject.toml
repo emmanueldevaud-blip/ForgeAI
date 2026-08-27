@@ -6,6 +6,9 @@ readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
     "fastapi>=0.109.0",
+    "email-validator>=2.1.0",
+    "asyncmy>=0.2.9",
+    "slowapi>=0.1.9",    
     "uvicorn[standard]>=0.27.0",
     "sqlalchemy>=2.0.25",
     "alembic>=1.13.0",
@@ -31,6 +34,9 @@ testpaths = ["tests"]
 python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
+markers = [
+    "integration: marks tests as integration tests requiring MySQL",
+]
 
 [tool.ruff]
 line-length = 100
@@ -41,3 +47,8 @@ python_version = "3.11"
 warn_return_any = true
 warn_unused_configs = true
 disallow_untyped_defs = false
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["app*"]
+exclude = ["tests*", "src*"]

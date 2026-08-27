@@ -519,3 +519,103 @@ class TestSettings:
         data = response.json()
         assert "auth_local_enabled" in data
         assert "ad_enabled" in data
+
+
+class TestUserIsolation:
+    @pytest.mark.asyncio
+    async def test_todos_isolation_between_users(self, client, db_session):
+        user1_data = {
+            "username": "isolation_user1",
+            "email": "user1@example.com",
+            "password": "password123",
+            "is_active": True,
+            "is_admin": False,
+            "role": UserRole.USER,
+            "source": "local",
+        }
+        user2_data = {
+            "username": "isolation_user2",
+            "email": "user2@example.com",
+            "password": "password123",
+            "is_active": True,
+            "is_admin": False,
+            "role": UserRole.USER,
+            "source": "local",
+        }
+        user1 = await create_user(db_session, user1_data)
+        user2 = await create_user(db_session, user2_data)
+
+        login1 = await client.post("/auth/login", json={"username": "isolation_user1", "password": "password123"})
+        login2 = await client.post("/auth/login", json={"username": "isolation_user2", "password": "password123"})
+        
+        token1 = login1.cookies.get("access_token")
+        token2 = login2.cookies.get("access_token")
+        
+        headers1 = {"Authorization": f"Bearer {token1}"}
+        headers2 = {"Authorization": f"Bearer {token2}"}
+
+        create1 = await client.post("/api/todos", headers=headers1, json={"title": "User1 Todo"})
+        assert create1.status_code == 201
+        todo1_id = create1.json()["id"]
+
+        create2 = await client.post("/api/todos", headers=headers2, json={"title": "User2 Todo"})
+        assert create2.status_code == 201
+        todo2_id = create2.json()["id"]
+
+        list1 = await client.get("/api/todos", headers=headers1)
+        assert list1.status_code == 200
+        todos1 = list1.json()
+        assert len(todos1) == 1
+        assert todos1[0]["title"] == "User1 Todo"
+
+        list2 = await client.get("/api/todos", headers=headers2)
+        assert list2.status_code == 200
+        todos2 = list2.json()
+        assert len(todos2) == 1
+        assert todos2[0]["title"] == "User2 Todo"
+
+        get_other = await client.get(f"/api/todos/{todo2_id}", headers=headers1)
+        assert get_other.status_code == 404
+
+        get_own = await client.get(f"/api/todos/{todo1_id}", headers=headers1)
+        assert get_own.status_code == 200
+        assert get_own.json()["title"] == "User1 Todo"
+
+        update_other = await client.patch(f"/api/todos/{todo2_id}", headers=headers1, json={"title": "Hacked"})
+        assert update_other.status_code == 404
+
+        delete_other = await client.delete(f"/api/todos/{todo2_id}", headers=headers1)
+        assert delete_other.status_code == 404
+
+        delete_own = await client.delete(f"/api/todos/{todo1_id}", headers=headers1)
+        assert delete_own.status_code == 204
+
+    @pytest.mark.asyncio
+    async def test_user_cannot_access_other_user_profile(self, client, db_session):
+        user1_data = {
+            "username": "profile_user1",
+            "email": "profile1@example.com",
+            "password": "password123",
+            "is_active": True,
+            "is_admin": False,
+            "role": UserRole.USER,
+            "source": "local",
+        }
+        user2_data = {
+            "username": "profile_user2",
+            "email": "profile2@example.com",
+            "password": "password123",
+            "is_active": True,
+            "is_admin": False,
+            "role": UserRole.USER,
+            "source": "local",
+        }
+        user1 = await create_user(db_session, user1_data)
+        user2 = await create_user(db_session, user2_data)
+
+        login1 = await client.post("/auth/login", json={"username": "profile_user1", "password": "password123"})
+        token1 = login1.cookies.get("access_token")
+        headers1 = {"Authorization": f"Bearer {token1}"}
+
+        response = await client.get(f"/auth/users/{user2.id}", headers=headers1)
+        assert response.status_code == 403

@@ -122,6 +122,8 @@ class LDAPAuthService:
             self.settings.ad_url,
             use_ssl=self.settings.AD_USE_SSL,
             get_info=ALL,
+            connect_timeout=self.settings.AD_CONNECT_TIMEOUT,
+            receive_timeout=self.settings.AD_RECEIVE_TIMEOUT,
         )
 
     def _create_connection(self, user_dn: str, password: str) -> Connection:
@@ -131,6 +133,7 @@ class LDAPAuthService:
             password=password,
             authentication=NTLM,
             auto_bind=True,
+            receive_timeout=self.settings.AD_RECEIVE_TIMEOUT,
         )
 
     def authenticate(self, username: str, password: str) -> Tuple[Optional[str], Optional[List[str]]]:
@@ -151,6 +154,7 @@ class LDAPAuthService:
                 password=bind_password,
                 authentication=NTLM,
                 auto_bind=True,
+                receive_timeout=self.settings.AD_RECEIVE_TIMEOUT,
             )
 
             search_filter = self.settings.AD_USER_SEARCH_FILTER.format(username=username)
@@ -239,6 +243,7 @@ async def authenticate_ad(db: AsyncSession, username: str, password: str) -> Opt
             password=bind_password,
             authentication=NTLM,
             auto_bind=True,
+            receive_timeout=settings.AD_RECEIVE_TIMEOUT,
         )
         admin_conn.search(
             search_base=settings.AD_BASE_DN,

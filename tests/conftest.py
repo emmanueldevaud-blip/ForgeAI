@@ -3,6 +3,7 @@ import pytest_asyncio
 from httpx import AsyncClient, ASGITransport
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
 from sqlalchemy.pool import StaticPool
+import os
 
 from app.main import app
 from app.db.session import Base, get_db
@@ -19,14 +20,35 @@ def event_loop():
     loop.close()
 
 
+def _get_test_database_url():
+    """Get test database URL - supports MySQL for integration tests."""
+    mysql_url = os.getenv("TEST_DATABASE_URL")
+    if mysql_url:
+        return mysql_url
+    return "sqlite+aiosqlite:///:memory:"
+
+
 @pytest.fixture(scope="function")
 async def test_engine():
-    engine = create_async_engine(
-        "sqlite+aiosqlite:///:memory:",
-        poolclass=StaticPool,
-        connect_args={"check_same_thread": False},
-        echo=False,
-    )
+    database_url = _get_test_database_url()
+    is_mysql = database_url.startswith("mysql")
+    
+    if is_mysql:
+        engine = create_async_engine(
+            database_url,
+            pool_size=5,
+            max_overflow=10,
+            pool_pre_ping=True,
+            echo=False,
+        )
+    else:
+        engine = create_async_engine(
+            "sqlite+aiosqlite:///:memory:",
+            poolclass=StaticPool,
+            connect_args={"check_same_thread": False},
+            echo=False,
+        )
+    
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
     yield engine

@@ -1,3 +1,4 @@
+from datetime import datetime
 from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -29,7 +30,7 @@ class TodoResponse(TodoBase):
 
     id: int
     completed: bool
-    created_at: str
+    created_at: datetime
 
 
 @router.get("/todos", response_model=List[TodoResponse])

@@ -14,7 +14,12 @@ from app.schemas.auth import Token, TokenData, UserResponse
 
 settings = get_settings()
 
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto", bcrypt__rounds=settings.BCRYPT_ROUNDS)
+pwd_context = CryptContext(
+    schemes=["bcrypt_sha256", "bcrypt"],
+    deprecated="auto",
+    bcrypt_sha256__rounds=settings.BCRYPT_ROUNDS,
+    bcrypt__rounds=settings.BCRYPT_ROUNDS,
+)
 
 
 def hash_password(password: str) -> str:
@@ -117,18 +122,18 @@ class LDAPAuthService:
     def __init__(self):
         self.settings = get_settings()
 
-    def _create_server(self) -> Server:
+    def _create_server(self, server_url: str = None, use_ssl: bool = None, connect_timeout: int = None) -> Server:
+        settings = self.settings
         return Server(
-            self.settings.ad_url,
-            use_ssl=self.settings.AD_USE_SSL,
+            server_url or settings.ad_url,
+            use_ssl=use_ssl if use_ssl is not None else settings.AD_USE_SSL,
             get_info=ALL,
-            connect_timeout=self.settings.AD_CONNECT_TIMEOUT,
-            receive_timeout=self.settings.AD_RECEIVE_TIMEOUT,
+            connect_timeout=connect_timeout or settings.AD_CONNECT_TIMEOUT,
         )
 
-    def _create_connection(self, user_dn: str, password: str) -> Connection:
+    def _create_connection(self, server: Server, user_dn: str, password: str) -> Connection:
         return Connection(
-            self._create_server(),
+            server,
             user=user_dn,
             password=password,
             authentication=NTLM,
@@ -206,6 +211,47 @@ class LDAPAuthService:
             role = UserRole.ADMIN
 
         return is_admin, role
+
+    def test_connection(
+        self,
+        server_url: str,
+        use_ssl: bool,
+        base_dn: str,
+        bind_user: str,
+        bind_password: str,
+        connect_timeout: int,
+        receive_timeout: int,
+    ) -> Tuple[bool, str, Optional[str]]:
+        try:
+            server = self._create_server(
+                server_url=server_url,
+                use_ssl=use_ssl,
+                connect_timeout=connect_timeout,
+            )
+            conn = Connection(
+                server,
+                user=bind_user,
+                password=bind_password,
+                authentication=NTLM,
+                auto_bind=True,
+                receive_timeout=receive_timeout,
+            )
+
+            conn.search(
+                search_base=base_dn,
+                search_filter="(objectClass=*)",
+                search_scope=SUBTREE,
+                attributes=["distinguishedName"],
+                size_limit=1,
+            )
+
+            conn.unbind()
+            return True, "Connexion à l'Active Directory réussie", None
+
+        except LDAPException as e:
+            return False, "Échec de la connexion LDAP", str(e)
+        except Exception as e:
+            return False, "Erreur lors du test de connexion", str(e)
 
 
 ldap_service = LDAPAuthService()

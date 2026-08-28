@@ -10,6 +10,7 @@ from app.services.auth import (
     get_user_by_id,
     update_last_login,
 )
+from app.services.rbac import RBACService
 from app.models.user import User, UserRole
 from app.schemas.auth import TokenData
 
@@ -81,6 +82,53 @@ async def require_super_admin(
             detail="Accès super administrateur requis",
         )
     return current_user
+
+
+async def require_permission(
+    permission_code: str,
+    current_user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
+) -> User:
+    rbac = RBACService(db)
+    has_perm = await rbac.user_has_permission(current_user, permission_code)
+    if not has_perm:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Permission '{permission_code}' requise"
+        )
+    return current_user
+
+
+def require_any_permission(*permission_codes: str):
+    async def dependency(
+        current_user: User = Depends(get_current_active_user),
+        db: AsyncSession = Depends(get_db),
+    ) -> User:
+        rbac = RBACService(db)
+        has_perm = await rbac.user_has_any_permission(current_user, list(permission_codes))
+        if not has_perm:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"L'une des permissions suivantes est requise: {', '.join(permission_codes)}"
+            )
+        return current_user
+    return dependency
+
+
+def require_all_permissions(*permission_codes: str):
+    async def dependency(
+        current_user: User = Depends(get_current_active_user),
+        db: AsyncSession = Depends(get_db),
+    ) -> User:
+        rbac = RBACService(db)
+        has_perm = await rbac.user_has_all_permissions(current_user, list(permission_codes))
+        if not has_perm:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Toutes les permissions suivantes sont requises: {', '.join(permission_codes)}"
+            )
+        return current_user
+    return dependency
 
 
 def get_optional_user(

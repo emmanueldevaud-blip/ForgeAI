@@ -1,9 +1,11 @@
 from datetime import datetime
 from enum import Enum as PyEnum
+from typing import List, Optional
 from sqlalchemy import (
     String,
     Boolean,
     DateTime,
+    ForeignKey,
     func,
     Index,
     Enum as SQLEnum,
@@ -44,6 +46,20 @@ class User(Base):
     __table_args__ = (
         Index("ix_users_email_active", "email", "is_active"),
         Index("ix_users_username_active", "username", "is_active"),
+    )
+
+    roles: Mapped[List["Role"]] = relationship(
+        "Role", 
+        secondary="user_roles", 
+        back_populates="users",
+        primaryjoin="User.id == UserRoleAssignment.user_id",
+        secondaryjoin="Role.id == UserRoleAssignment.role_id"
+    )
+    groups: Mapped[List["Group"]] = relationship("Group", secondary="user_groups", back_populates="users")
+    assigned_user_roles: Mapped[List["UserRoleAssignment"]] = relationship(
+        "UserRoleAssignment", 
+        foreign_keys="UserRoleAssignment.assigned_by", 
+        back_populates="assigned_by_user"
     )
 
     @property

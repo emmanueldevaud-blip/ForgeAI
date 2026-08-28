@@ -92,3 +92,58 @@ class MessageResponse(BaseModel):
 
 class ErrorResponse(BaseModel):
     detail: str
+
+
+class ADSettingsBase(BaseModel):
+    ad_enabled: bool = False
+    ad_server: str = Field("", max_length=255)
+    ad_port: int = Field(636, ge=1, le=65535)
+    ad_use_ssl: bool = True
+    ad_base_dn: str = Field("", max_length=500)
+    ad_user_dn: str = Field("", max_length=500)
+    ad_user_search_filter: str = Field("(sAMAccountName={username})", max_length=255)
+    ad_group_search_base: str = Field("", max_length=500)
+    ad_admin_group: str = Field("", max_length=255)
+    ad_bind_user: str = Field("", max_length=255)
+    ad_bind_password: str = Field("", max_length=255)
+    ad_connect_timeout: int = Field(10, ge=1, le=60)
+    ad_receive_timeout: int = Field(10, ge=1, le=60)
+
+
+class ADSettingsResponse(ADSettingsBase):
+    model_config = ConfigDict(from_attributes=True)
+
+    ad_bind_password: str = ""
+
+
+class ADSettingsUpdate(BaseModel):
+    ad_enabled: Optional[bool] = None
+    ad_server: Optional[str] = Field(None, max_length=255)
+    ad_port: Optional[int] = Field(None, ge=1, le=65535)
+    ad_use_ssl: Optional[bool] = None
+    ad_base_dn: Optional[str] = Field(None, max_length=500)
+    ad_user_dn: Optional[str] = Field(None, max_length=500)
+    ad_user_search_filter: Optional[str] = Field(None, max_length=255)
+    ad_group_search_base: Optional[str] = Field(None, max_length=500)
+    ad_admin_group: Optional[str] = Field(None, max_length=255)
+    ad_bind_user: Optional[str] = Field(None, max_length=255)
+    ad_bind_password: Optional[str] = Field(None, max_length=255)
+    ad_connect_timeout: Optional[int] = Field(None, ge=1, le=60)
+    ad_receive_timeout: Optional[int] = Field(None, ge=1, le=60)
+
+
+class ADTestRequest(BaseModel):
+    ad_server: str = Field(..., max_length=255)
+    ad_port: int = Field(..., ge=1, le=65535)
+    ad_use_ssl: bool = True
+    ad_base_dn: str = Field(..., max_length=500)
+    ad_bind_user: str = Field(..., max_length=255)
+    ad_bind_password: str = Field(..., max_length=255)
+    ad_connect_timeout: int = Field(10, ge=1, le=60)
+    ad_receive_timeout: int = Field(10, ge=1, le=60)
+
+
+class ADTestResponse(BaseModel):
+    success: bool
+    message: str
+    details: Optional[str] = None

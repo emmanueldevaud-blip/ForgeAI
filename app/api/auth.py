@@ -32,6 +32,10 @@ from app.schemas.auth import (
     AdminPasswordReset,
     MessageResponse,
     ErrorResponse,
+    ADSettingsResponse,
+    ADSettingsUpdate,
+    ADTestRequest,
+    ADTestResponse,
 )
 
 class AuthSettingsResponse(BaseModel):
@@ -339,3 +343,151 @@ async def get_auth_settings():
         auth_local_enabled=settings.AUTH_LOCAL_ENABLED,
         ad_enabled=settings.AD_ENABLED,
     )
+
+
+@router.get("/ad-settings", response_model=ADSettingsResponse)
+async def get_ad_settings(current_user: User = Depends(require_admin)):
+    return ADSettingsResponse(
+        ad_enabled=settings.AD_ENABLED,
+        ad_server=settings.AD_SERVER,
+        ad_port=settings.AD_PORT,
+        ad_use_ssl=settings.AD_USE_SSL,
+        ad_base_dn=settings.AD_BASE_DN,
+        ad_user_dn=settings.AD_USER_DN,
+        ad_user_search_filter=settings.AD_USER_SEARCH_FILTER,
+        ad_group_search_base=settings.AD_GROUP_SEARCH_BASE,
+        ad_admin_group=settings.AD_ADMIN_GROUP,
+        ad_bind_user=settings.AD_BIND_USER,
+        ad_bind_password="",
+        ad_connect_timeout=settings.AD_CONNECT_TIMEOUT,
+        ad_receive_timeout=settings.AD_RECEIVE_TIMEOUT,
+    )
+
+
+@router.put("/ad-settings", response_model=ADSettingsResponse)
+async def update_ad_settings(
+    updates: ADSettingsUpdate,
+    current_user: User = Depends(require_admin),
+):
+    import os
+    from pathlib import Path
+
+    env_path = Path(".env")
+    env_vars = {}
+
+    def strip_quotes(value: str) -> str:
+        value = value.strip()
+        if (value.startswith('"') and value.endswith('"')) or (value.startswith("'") and value.endswith("'")):
+            return value[1:-1]
+        return value
+
+    if env_path.exists():
+        with open(env_path, "r") as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith("#") and "=" in line:
+                    key, value = line.split("=", 1)
+                    env_vars[key.strip()] = strip_quotes(value.strip())
+
+    update_data = updates.model_dump(exclude_unset=True)
+    for key, value in update_data.items():
+        env_key = key.upper()
+        if value is not None:
+            if isinstance(value, bool):
+                env_vars[env_key] = "true" if value else "false"
+            else:
+                env_vars[env_key] = str(value)
+
+    def quote_value(key: str, value: str) -> str:
+        if key in {"APP_NAME", "APP_VERSION", "SECRET_KEY", "ALGORITHM", "DATABASE_URL", "AD_SERVER", "AD_BASE_DN", "AD_USER_DN", "AD_USER_SEARCH_FILTER", "AD_GROUP_SEARCH_BASE", "AD_ADMIN_GROUP", "AD_BIND_USER", "AD_BIND_PASSWORD"}:
+            return f'"{value}"'
+        if key in {"CORS_ORIGINS", "AD_GROUP_MAPPING"}:
+            return f"'{value}'"
+        return value
+
+    with open(env_path, "w") as f:
+        f.write("# Application\n")
+        f.write(f'APP_NAME={quote_value("APP_NAME", env_vars.get("APP_NAME", "ForgeAI Demo"))}\n')
+        f.write(f'APP_VERSION={quote_value("APP_VERSION", env_vars.get("APP_VERSION", "1.0.0"))}\n')
+        f.write(f'DEBUG={env_vars.get("DEBUG", "true")}\n\n')
+
+        f.write("# SECURITY\n")
+        f.write(f'SECRET_KEY={quote_value("SECRET_KEY", env_vars.get("SECRET_KEY", ""))}\n\n')
+
+        f.write("# JWT\n")
+        f.write(f'ALGORITHM={quote_value("ALGORITHM", env_vars.get("ALGORITHM", "HS256"))}\n')
+        f.write(f'ACCESS_TOKEN_EXPIRE_MINUTES={env_vars.get("ACCESS_TOKEN_EXPIRE_MINUTES", "30")}\n')
+        f.write(f'REFRESH_TOKEN_EXPIRE_DAYS={env_vars.get("REFRESH_TOKEN_EXPIRE_DAYS", "7")}\n\n')
+
+        f.write("# Database\n")
+        f.write(f'DATABASE_URL={quote_value("DATABASE_URL", env_vars.get("DATABASE_URL", ""))}\n')
+        f.write(f'DATABASE_POOL_SIZE={env_vars.get("DATABASE_POOL_SIZE", "5")}\n')
+        f.write(f'DATABASE_MAX_OVERFLOW={env_vars.get("DATABASE_MAX_OVERFLOW", "10")}\n\n')
+
+        f.write("# CORS\n")
+        f.write(f'CORS_ORIGINS={quote_value("CORS_ORIGINS", env_vars.get("CORS_ORIGINS", '["http://localhost:3000"]'))}\n\n')
+
+        f.write("# Local Authentication\n")
+        f.write(f'AUTH_LOCAL_ENABLED={env_vars.get("AUTH_LOCAL_ENABLED", "true")}\n')
+        f.write(f'BCRYPT_ROUNDS={env_vars.get("BCRYPT_ROUNDS", "12")}\n\n')
+
+        f.write("# Active Directory / LDAP Configuration\n")
+        f.write(f'AD_ENABLED={env_vars.get("AD_ENABLED", "false")}\n')
+        f.write(f'AD_SERVER={quote_value("AD_SERVER", env_vars.get("AD_SERVER", ""))}\n')
+        f.write(f'AD_PORT={env_vars.get("AD_PORT", "636")}\n')
+        f.write(f'AD_USE_SSL={env_vars.get("AD_USE_SSL", "true")}\n')
+        f.write(f'AD_BASE_DN={quote_value("AD_BASE_DN", env_vars.get("AD_BASE_DN", ""))}\n')
+        f.write(f'AD_USER_DN={quote_value("AD_USER_DN", env_vars.get("AD_USER_DN", ""))}\n')
+        f.write(f'AD_USER_SEARCH_FILTER={quote_value("AD_USER_SEARCH_FILTER", env_vars.get("AD_USER_SEARCH_FILTER", "(sAMAccountName={username})"))}\n')
+        f.write(f'AD_GROUP_SEARCH_BASE={quote_value("AD_GROUP_SEARCH_BASE", env_vars.get("AD_GROUP_SEARCH_BASE", ""))}\n')
+        f.write(f'AD_ADMIN_GROUP={quote_value("AD_ADMIN_GROUP", env_vars.get("AD_ADMIN_GROUP", ""))}\n')
+        f.write(f'AD_BIND_USER={quote_value("AD_BIND_USER", env_vars.get("AD_BIND_USER", ""))}\n')
+        f.write(f'AD_BIND_PASSWORD={quote_value("AD_BIND_PASSWORD", env_vars.get("AD_BIND_PASSWORD", ""))}\n')
+        f.write(f'AD_CONNECT_TIMEOUT={env_vars.get("AD_CONNECT_TIMEOUT", "10")}\n')
+        f.write(f'AD_RECEIVE_TIMEOUT={env_vars.get("AD_RECEIVE_TIMEOUT", "10")}\n')
+        f.write(f'AD_GROUP_MAPPING={quote_value("AD_GROUP_MAPPING", env_vars.get("AD_GROUP_MAPPING", '{"admin": "AppAdmins", "user": "AppUsers"}'))}\n\n')
+
+        f.write("# Rate Limiting\n")
+        f.write(f'RATE_LIMIT_ENABLED={env_vars.get("RATE_LIMIT_ENABLED", "true")}\n')
+        f.write(f'RATE_LIMIT_REQUESTS={env_vars.get("RATE_LIMIT_REQUESTS", "10")}\n')
+        f.write(f'RATE_LIMIT_WINDOW_SECONDS={env_vars.get("RATE_LIMIT_WINDOW_SECONDS", "60")}\n')
+
+    get_settings.cache_clear()
+
+    new_settings = get_settings()
+
+    return ADSettingsResponse(
+        ad_enabled=new_settings.AD_ENABLED,
+        ad_server=new_settings.AD_SERVER,
+        ad_port=new_settings.AD_PORT,
+        ad_use_ssl=new_settings.AD_USE_SSL,
+        ad_base_dn=new_settings.AD_BASE_DN,
+        ad_user_dn=new_settings.AD_USER_DN,
+        ad_user_search_filter=new_settings.AD_USER_SEARCH_FILTER,
+        ad_group_search_base=new_settings.AD_GROUP_SEARCH_BASE,
+        ad_admin_group=new_settings.AD_ADMIN_GROUP,
+        ad_bind_user=new_settings.AD_BIND_USER,
+        ad_bind_password="",
+        ad_connect_timeout=new_settings.AD_CONNECT_TIMEOUT,
+        ad_receive_timeout=new_settings.AD_RECEIVE_TIMEOUT,
+    )
+
+
+@router.post("/ad-test", response_model=ADTestResponse)
+async def test_ad_connection(
+    test_data: ADTestRequest,
+    current_user: User = Depends(require_admin),
+):
+    from app.services.auth import ldap_service
+
+    success, message, details = ldap_service.test_connection(
+        server_url=f"{'ldaps' if test_data.ad_use_ssl else 'ldap'}://{test_data.ad_server}:{test_data.ad_port}",
+        use_ssl=test_data.ad_use_ssl,
+        base_dn=test_data.ad_base_dn,
+        bind_user=test_data.ad_bind_user,
+        bind_password=test_data.ad_bind_password,
+        connect_timeout=test_data.ad_connect_timeout,
+        receive_timeout=test_data.ad_receive_timeout,
+    )
+
+    return ADTestResponse(success=success, message=message, details=details)

@@ -174,6 +174,7 @@
             <h2>👑 Administration</h2>
             <div class="admin-actions">
               <button id="manage-users-btn" class="btn btn-outline">Gérer les utilisateurs</button>
+              <button id="manage-ad-btn" class="btn btn-outline">Configurer Active Directory</button>
             </div>
           </div>
           
@@ -281,6 +282,102 @@
               </thead>
               <tbody id="users-table-body"></tbody>
             </table>
+          </div>
+
+          <div id="ad-config-panel" class="ad-config-panel hidden">
+            <h3>Configuration Active Directory</h3>
+            <div id="ad-config-error" class="error-message hidden"></div>
+            <div id="ad-config-success" class="success-message hidden"></div>
+
+            <div class="ad-status">
+              <label class="toggle-switch">
+                <input type="checkbox" id="ad-enabled" name="ad_enabled">
+                <span class="toggle-slider"></span>
+                <span class="toggle-label">Activer l'authentification Active Directory</span>
+              </label>
+              <p class="ad-status-hint">L'authentification locale reste disponible en parallèle</p>
+            </div>
+
+            <form id="ad-config-form" class="modal-form">
+              <div class="form-row">
+                <div class="form-group">
+                  <label for="ad-server">Serveur AD *</label>
+                  <input type="text" id="ad-server" name="ad_server" placeholder="ad.example.com" required maxlength="255">
+                </div>
+                <div class="form-group">
+                  <label for="ad-port">Port LDAP *</label>
+                  <input type="number" id="ad-port" name="ad_port" min="1" max="65535" value="636" required>
+                </div>
+              </div>
+
+              <div class="form-row">
+                <div class="form-group checkbox-group">
+                  <label>
+                    <input type="checkbox" id="ad-use-ssl" name="ad_use_ssl" checked>
+                    Utiliser LDAPS (SSL/TLS)
+                  </label>
+                </div>
+              </div>
+
+              <div class="form-group">
+                <label for="ad-base-dn">Base DN *</label>
+                <input type="text" id="ad-base-dn" name="ad_base_dn" placeholder="DC=example,DC=com" required maxlength="500">
+              </div>
+
+              <div class="form-group">
+                <label for="ad-user-dn">User DN (optionnel)</label>
+                <input type="text" id="ad-user-dn" name="ad_user_dn" placeholder="OU=Users,DC=example,DC=com" maxlength="500">
+                <small class="form-hint">Laisser vide pour utiliser la Base DN</small>
+              </div>
+
+              <div class="form-group">
+                <label for="ad-user-search-filter">Filtre de recherche utilisateur</label>
+                <input type="text" id="ad-user-search-filter" name="ad_user_search_filter" placeholder="(sAMAccountName={username})" maxlength="255" value="(sAMAccountName={username})">
+              </div>
+
+              <div class="form-group">
+                <label for="ad-group-search-base">Base de recherche des groupes (optionnel)</label>
+                <input type="text" id="ad-group-search-base" name="ad_group_search_base" placeholder="OU=Groups,DC=example,DC=com" maxlength="500">
+              </div>
+
+              <div class="form-group">
+                <label for="ad-admin-group">Groupe d'administrateurs AD (optionnel)</label>
+                <input type="text" id="ad-admin-group" name="ad_admin_group" placeholder="CN=AppAdmins,OU=Groups,DC=example,DC=com" maxlength="255">
+                <small class="form-hint">Les membres de ce groupe seront administrateurs dans ForgeAI</small>
+              </div>
+
+              <hr class="modal-divider">
+
+              <h4>Compte de service (Bind)</h4>
+              <div class="form-group">
+                <label for="ad-bind-user">Bind User DN *</label>
+                <input type="text" id="ad-bind-user" name="ad_bind_user" placeholder="CN=svc_forgeai,OU=ServiceAccounts,DC=example,DC=com" required maxlength="255">
+              </div>
+
+              <div class="form-group">
+                <label for="ad-bind-password">Mot de passe du compte de service *</label>
+                <input type="password" id="ad-bind-password" name="ad_bind_password" required maxlength="255" autocomplete="new-password">
+                <small class="form-hint">Non affiché après enregistrement. Laisser vide pour ne pas modifier.</small>
+              </div>
+
+              <div class="form-row">
+                <div class="form-group">
+                  <label for="ad-connect-timeout">Timeout connexion (s)</label>
+                  <input type="number" id="ad-connect-timeout" name="ad_connect_timeout" min="1" max="60" value="10">
+                </div>
+                <div class="form-group">
+                  <label for="ad-receive-timeout">Timeout réception (s)</label>
+                  <input type="number" id="ad-receive-timeout" name="ad_receive_timeout" min="1" max="60" value="10">
+                </div>
+              </div>
+
+              <div class="form-actions">
+                <button type="button" id="ad-test-btn" class="btn btn-outline">Tester la connexion</button>
+                <button type="submit" class="btn btn-primary">Enregistrer la configuration</button>
+              </div>
+            </form>
+
+            <div id="ad-test-result" class="ad-test-result hidden"></div>
           </div>
         </div>
       </div>

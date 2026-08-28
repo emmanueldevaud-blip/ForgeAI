@@ -23,6 +23,7 @@ const elements = {
   userRoleBadge: document.getElementById('user-role-badge'),
   adminPanel: document.getElementById('admin-panel'),
   manageUsersBtn: document.getElementById('manage-users-btn'),
+  manageAdBtn: document.getElementById('manage-ad-btn'),
   todoForm: document.getElementById('todo-form'),
   todoInput: document.getElementById('todo-input'),
   todoList: document.getElementById('todo-list'),
@@ -37,6 +38,14 @@ const elements = {
   modalError: document.getElementById('modal-error'),
   modalSuccess: document.getElementById('modal-success'),
   usersTableBody: document.getElementById('users-table-body'),
+  usersList: document.getElementById('users-list'),
+  adConfigPanel: document.getElementById('ad-config-panel'),
+  adConfigForm: document.getElementById('ad-config-form'),
+  adConfigError: document.getElementById('ad-config-error'),
+  adConfigSuccess: document.getElementById('ad-config-success'),
+  adEnabled: document.getElementById('ad-enabled'),
+  adTestBtn: document.getElementById('ad-test-btn'),
+  adTestResult: document.getElementById('ad-test-result'),
   adNotice: document.getElementById('ad-notice'),
   registerLink: document.getElementById('register-link'),
 };
@@ -245,7 +254,7 @@ function renderTodos() {
     `;
   } else {
     elements.todoList.innerHTML = filtered.map(todo => `
-      <li class="todo-item ${todo.completed ? 'completed : ''}" data-id="${todo.id}">
+      <li class="todo-item ${todo.completed ? 'completed' : ''}" data-id="${todo.id}">
         <input 
           type="checkbox" 
           class="todo-checkbox" 
@@ -349,6 +358,153 @@ function openUserModal() {
 function closeUserModal() {
   elements.userModal.classList.add('hidden');
   elements.createUserForm.reset();
+}
+
+function showAdConfigError(message) {
+  elements.adConfigError.textContent = message;
+  elements.adConfigError.classList.remove('hidden');
+  elements.adConfigSuccess.classList.add('hidden');
+}
+
+function showAdConfigSuccess(message) {
+  elements.adConfigSuccess.textContent = message;
+  elements.adConfigSuccess.classList.remove('hidden');
+  elements.adConfigError.classList.add('hidden');
+}
+
+function hideAdConfigMessages() {
+  elements.adConfigError.classList.add('hidden');
+  elements.adConfigSuccess.classList.add('hidden');
+}
+
+function showAdTestResult(success, message, details) {
+  elements.adTestResult.classList.remove('hidden');
+  elements.adTestResult.innerHTML = `
+    <div class="ad-test-result ${success ? 'success' : 'error'}">
+      <strong>${success ? '✓ Succès' : '✗ Échec'} :</strong> ${message}
+      ${details ? `<pre>${escapeHtml(details)}</pre>` : ''}
+    </div>
+  `;
+}
+
+function hideAdTestResult() {
+  elements.adTestResult.classList.add('hidden');
+}
+
+async function loadAdSettings() {
+  try {
+    const settings = await apiRequest('/ad-settings');
+    populateAdForm(settings);
+  } catch (error) {
+    console.error('Erreur chargement config AD:', error);
+    showAdConfigError('Impossible de charger la configuration AD');
+  }
+}
+
+function populateAdForm(settings) {
+  elements.adEnabled.checked = settings.ad_enabled;
+  document.getElementById('ad-server').value = settings.ad_server || '';
+  document.getElementById('ad-port').value = settings.ad_port || 636;
+  document.getElementById('ad-use-ssl').checked = settings.ad_use_ssl !== false;
+  document.getElementById('ad-base-dn').value = settings.ad_base_dn || '';
+  document.getElementById('ad-user-dn').value = settings.ad_user_dn || '';
+  document.getElementById('ad-user-search-filter').value = settings.ad_user_search_filter || '(sAMAccountName={username})';
+  document.getElementById('ad-group-search-base').value = settings.ad_group_search_base || '';
+  document.getElementById('ad-admin-group').value = settings.ad_admin_group || '';
+  document.getElementById('ad-bind-user').value = settings.ad_bind_user || '';
+  document.getElementById('ad-bind-password').value = '';
+  document.getElementById('ad-connect-timeout').value = settings.ad_connect_timeout || 10;
+  document.getElementById('ad-receive-timeout').value = settings.ad_receive_timeout || 10;
+}
+
+function getAdFormData() {
+  const formData = new FormData(elements.adConfigForm);
+  const data = {};
+  for (const [key, value] of formData.entries()) {
+    if (key === 'ad_enabled') {
+      data[key] = elements.adEnabled.checked;
+    } else if (key === 'ad_port' || key === 'ad_connect_timeout' || key === 'ad_receive_timeout') {
+      data[key] = parseInt(value, 10);
+    } else if (key === 'ad_use_ssl') {
+      data[key] = document.getElementById('ad-use-ssl').checked;
+    } else if (key === 'ad_bind_password' && value === '') {
+      continue;
+    } else {
+      data[key] = value;
+    }
+  }
+  return data;
+}
+
+async function saveAdSettings() {
+  hideAdConfigMessages();
+  hideAdTestResult();
+
+  const data = getAdFormData();
+
+  try {
+    await apiRequest('/ad-settings', {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+    showAdConfigSuccess('Configuration AD enregistrée avec succès');
+    await loadAdSettings();
+  } catch (error) {
+    showAdConfigError(error.message);
+  }
+}
+
+async function testAdConnection() {
+  hideAdTestResult();
+
+  const formData = new FormData(elements.adConfigForm);
+  const testData = {
+    ad_server: formData.get('ad_server') || document.getElementById('ad-server').value,
+    ad_port: parseInt(formData.get('ad_port') || document.getElementById('ad-port').value, 10),
+    ad_use_ssl: document.getElementById('ad-use-ssl').checked,
+    ad_base_dn: formData.get('ad_base_dn') || document.getElementById('ad-base-dn').value,
+    ad_bind_user: formData.get('ad_bind_user') || document.getElementById('ad-bind-user').value,
+    ad_bind_password: formData.get('ad_bind_password') || document.getElementById('ad-bind-password').value,
+    ad_connect_timeout: parseInt(formData.get('ad_connect_timeout') || document.getElementById('ad-connect-timeout').value, 10),
+    ad_receive_timeout: parseInt(formData.get('ad_receive_timeout') || document.getElementById('ad-receive-timeout').value, 10),
+  };
+
+  if (!testData.ad_server || !testData.ad_base_dn || !testData.ad_bind_user || !testData.ad_bind_password) {
+    showAdTestResult(false, 'Veuillez remplir tous les champs obligatoires (serveur, base DN, bind user, mot de passe)');
+    return;
+  }
+
+  elements.adTestBtn.disabled = true;
+  elements.adTestBtn.textContent = 'Test en cours...';
+
+  try {
+    const result = await apiRequest('/ad-test', {
+      method: 'POST',
+      body: JSON.stringify(testData),
+    });
+    showAdTestResult(result.success, result.message, result.details);
+  } catch (error) {
+    showAdTestResult(false, error.message);
+  } finally {
+    elements.adTestBtn.disabled = false;
+    elements.adTestBtn.textContent = 'Tester la connexion';
+  }
+}
+
+function showAdConfigPanel() {
+  elements.usersList.classList.add('hidden');
+  elements.adConfigPanel.classList.remove('hidden');
+  elements.createUserForm.closest('.modal-form').style.display = 'none';
+  document.querySelector('.modal-divider').style.display = 'none';
+  loadAdSettings();
+}
+
+function showUsersList() {
+  elements.usersList.classList.remove('hidden');
+  elements.adConfigPanel.classList.add('hidden');
+  elements.createUserForm.closest('.modal-form').style.display = 'block';
+  document.querySelector('.modal-divider').style.display = 'block';
+  loadUsersForModal();
 }
 
 async function loadUsersForModal() {
@@ -536,10 +692,25 @@ elements.showLogin.addEventListener('click', (e) => {
   hideError(elements.registerError);
 });
 
-elements.manageUsersBtn.addEventListener('click', openUserModal);
+elements.manageUsersBtn.addEventListener('click', () => {
+  showUsersList();
+  openUserModal();
+});
+
+elements.manageAdBtn.addEventListener('click', () => {
+  showAdConfigPanel();
+  openUserModal();
+});
 
 elements.modalClose.addEventListener('click', closeUserModal);
 elements.modalOverlay.addEventListener('click', closeUserModal);
+
+elements.adConfigForm.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  await saveAdSettings();
+});
+
+elements.adTestBtn.addEventListener('click', testAdConnection);
 
 elements.createUserForm.addEventListener('submit', async (e) => {
   e.preventDefault();

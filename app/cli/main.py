@@ -8,7 +8,7 @@ from app.db.session import AsyncSessionLocal, init_db
 from app.services.auth import create_user, hash_password
 from app.services.rbac import RBACService
 from app.models.user import User, UserRole
-from app.models.rbac import Role, PermissionModel, Permission, Group, RolePermission
+from app.models.rbac import Role, PermissionModel, Permission, Group, RolePermission, UserRoleAssignment
 from app.core.config import get_settings
 
 
@@ -163,6 +163,84 @@ async def seed_command():
         print(f"  Rôles créés: {result['roles_created']}")
         print(f"  Rôles existants: {result['roles_existing']}")
         print(f"  Affectations rôle-permission créées: {result['role_permissions_created']}")
+
+
+async def create_admin(username: str, email: str, password: str, first_name: str = "", last_name: str = "") -> User:
+    await init_db()
+    
+    async with AsyncSessionLocal() as db:
+        await seed_rbac(db)
+        
+        existing_user = await db.execute(select(User).where(User.username == username))
+        if existing_user.scalar_one_or_none():
+            raise ValueError(f"Un utilisateur avec le nom d'utilisateur '{username}' existe déjà")
+        
+        existing_email = await db.execute(select(User).where(User.email == email))
+        if existing_email.scalar_one_or_none():
+            raise ValueError(f"Un utilisateur avec l'email '{email}' existe déjà")
+        
+        user = User(
+            username=username,
+            email=email,
+            first_name=first_name or None,
+            last_name=last_name or None,
+            password_hash=hash_password(password),
+            is_active=True,
+            is_admin=True,
+            role=UserRole.ADMIN,
+            source="local",
+        )
+        db.add(user)
+        await db.flush()
+        
+        super_admin_role = await db.execute(select(Role).where(Role.code == "super_admin"))
+        super_admin_role = super_admin_role.scalar_one_or_none()
+        
+        if super_admin_role:
+            assignment = UserRoleAssignment(user_id=user.id, role_id=super_admin_role.id)
+            db.add(assignment)
+        
+        await db.commit()
+        await db.refresh(user, attribute_names=["roles"])
+        
+        return user
+
+
+async def interactive_create_admin():
+    print("=== Création du premier administrateur ===\n")
+    
+    username = input("Nom d'utilisateur: ").strip()
+    while not username:
+        print("Le nom d'utilisateur est requis.")
+        username = input("Nom d'utilisateur: ").strip()
+    
+    email = input("Email: ").strip()
+    while not email:
+        print("L'email est requis.")
+        email = input("Email: ").strip()
+    
+    while True:
+        password = getpass.getpass("Mot de passe: ")
+        if len(password) < 8:
+            print("Le mot de passe doit contenir au moins 8 caractères.")
+            continue
+        confirm = getpass.getpass("Confirmer le mot de passe: ")
+        if password != confirm:
+            print("Les mots de passe ne correspondent pas.")
+            continue
+        break
+    
+    first_name = input("Prénom (optionnel): ").strip()
+    last_name = input("Nom (optionnel): ").strip()
+    
+    try:
+        user = await create_admin(username, email, password, first_name, last_name)
+        print(f"\n✓ Administrateur '{user.username}' créé avec succès !")
+        print(f"  Email: {user.email}")
+        print(f"  Rôle: super_admin")
+    except ValueError as e:
+        print(f"\n✗ Erreur: {e}")
+        sys.exit(1)
 
 
 def main():

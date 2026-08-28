@@ -2,14 +2,19 @@ from typing import List, Optional, Dict, Any
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
+from fastapi import Depends
 
-from app.models import Module, ModuleConfig, ModuleStatus
+from app.models import Module, ModuleConfig, ModuleStatus, User
 from app.modules import module_registry, BaseModule
+from app.services.audit import AuditService, get_audit_service
+from app.api.deps import get_current_active_user
 
 
 class ModuleService:
-    def __init__(self, db: AsyncSession):
+    def __init__(self, db: AsyncSession, audit: Optional[AuditService] = None, current_user: Optional[User] = None):
         self.db = db
+        self.audit = audit
+        self.current_user = current_user
 
     async def sync_modules(self) -> Dict[str, Any]:
         registered_modules = module_registry.get_all()
@@ -29,6 +34,20 @@ class ModuleService:
                 module = existing.scalar_one_or_none()
 
                 if module:
+                    old_values = {
+                        "name": module.name,
+                        "description": module.description,
+                        "icon": module.icon,
+                        "order": module.order,
+                        "status": module.status.value if hasattr(module.status, 'value') else module.status,
+                        "version": module.version,
+                        "route_path": module.route_path,
+                        "component_path": module.component_path,
+                        "required_permissions": module.required_permissions,
+                        "settings": module.settings,
+                        "is_core": module.is_core,
+                        "dependencies": module.dependencies,
+                    }
                     module.name = info.name
                     module.description = info.description
                     module.icon = info.icon
@@ -42,6 +61,33 @@ class ModuleService:
                     module.is_core = info.is_core
                     module.dependencies = info.dependencies
                     result["updated"] += 1
+
+                    if self.audit:
+                        new_values = {
+                            "name": module.name,
+                            "description": module.description,
+                            "icon": module.icon,
+                            "order": module.order,
+                            "status": module.status.value if hasattr(module.status, 'value') else module.status,
+                            "version": module.version,
+                            "route_path": module.route_path,
+                            "component_path": module.component_path,
+                            "required_permissions": module.required_permissions,
+                            "settings": module.settings,
+                            "is_core": module.is_core,
+                            "dependencies": module.dependencies,
+                        }
+                        await self.audit.log(
+                            action="module_update",
+                            module="modules",
+                            user=self.current_user,
+                            object_type="module",
+                            object_id=str(module.id),
+                            object_repr=module.code,
+                            old_values=old_values,
+                            new_values=new_values,
+                            status="success",
+                        )
                 else:
                     module = Module(
                         code=info.code,
@@ -60,6 +106,32 @@ class ModuleService:
                     )
                     self.db.add(module)
                     result["created"] += 1
+
+                    if self.audit:
+                        await self.audit.log(
+                            action="module_create",
+                            module="modules",
+                            user=self.current_user,
+                            object_type="module",
+                            object_id=info.code,
+                            object_repr=info.code,
+                            new_values={
+                                "code": module.code,
+                                "name": module.name,
+                                "description": module.description,
+                                "icon": module.icon,
+                                "order": module.order,
+                                "status": module.status.value if hasattr(module.status, 'value') else module.status,
+                                "version": module.version,
+                                "route_path": module.route_path,
+                                "component_path": module.component_path,
+                                "required_permissions": module.required_permissions,
+                                "settings": module.settings,
+                                "is_core": module.is_core,
+                                "dependencies": module.dependencies,
+                            },
+                            status="success",
+                        )
 
                 result["synced"] += 1
 
@@ -94,23 +166,51 @@ class ModuleService:
     async def enable_module(self, code: str) -> Optional[Module]:
         module = await self.get_module(code)
         if module:
+            old_status = module.status.value if hasattr(module.status, 'value') else module.status
             module.status = ModuleStatus.ACTIVE
             reg_module = module_registry.get(code)
             if reg_module:
                 await reg_module.on_enable(self.db)
             await self.db.commit()
             await self.db.refresh(module)
+
+            if self.audit:
+                await self.audit.log(
+                    action="module_enable",
+                    module="modules",
+                    user=self.current_user,
+                    object_type="module",
+                    object_id=str(module.id),
+                    object_repr=module.code,
+                    old_values={"status": old_status},
+                    new_values={"status": "active"},
+                    status="success",
+                )
         return module
 
     async def disable_module(self, code: str) -> Optional[Module]:
         module = await self.get_module(code)
         if module:
+            old_status = module.status.value if hasattr(module.status, 'value') else module.status
             module.status = ModuleStatus.INACTIVE
             reg_module = module_registry.get(code)
             if reg_module:
                 await reg_module.on_disable(self.db)
             await self.db.commit()
             await self.db.refresh(module)
+
+            if self.audit:
+                await self.audit.log(
+                    action="module_disable",
+                    module="modules",
+                    user=self.current_user,
+                    object_type="module",
+                    object_id=str(module.id),
+                    object_repr=module.code,
+                    old_values={"status": old_status},
+                    new_values={"status": "inactive"},
+                    status="success",
+                )
         return module
 
     async def update_module_config(self, module_code: str, configs: Dict[str, Any]) -> Module:
@@ -145,6 +245,14 @@ class ModuleService:
             config = existing.scalar_one_or_none()
 
             if config:
+                old_values = {
+                    "value": config.value,
+                    "value_type": config.value_type,
+                    "description": config.description,
+                    "is_secret": config.is_secret,
+                    "is_required": config.is_required,
+                    "validation": config.validation,
+                }
                 config.value = str(config_value) if config_value is not None else None
                 config.value_type = config_type
                 if config_description:
@@ -152,6 +260,28 @@ class ModuleService:
                 config.is_secret = config_is_secret
                 config.is_required = config_is_required
                 config.validation = config_validation
+
+                new_values = {
+                    "value": config.value,
+                    "value_type": config.value_type,
+                    "description": config.description,
+                    "is_secret": config.is_secret,
+                    "is_required": config.is_required,
+                    "validation": config.validation,
+                }
+
+                if self.audit:
+                    await self.audit.log(
+                        action="module_config_update",
+                        module="modules",
+                        user=self.current_user,
+                        object_type="module_config",
+                        object_id=str(config.id),
+                        object_repr=f"{module.code}.{config.key}",
+                        old_values=old_values,
+                        new_values=new_values,
+                        status="success",
+                    )
             else:
                 config = ModuleConfig(
                     module_id=module.id,
@@ -164,6 +294,26 @@ class ModuleService:
                     validation=config_validation,
                 )
                 self.db.add(config)
+
+                if self.audit:
+                    await self.audit.log(
+                        action="module_config_create",
+                        module="modules",
+                        user=self.current_user,
+                        object_type="module_config",
+                        object_id=f"{module.code}.{config_key}",
+                        object_repr=f"{module.code}.{config_key}",
+                        new_values={
+                            "key": config.key,
+                            "value": config.value,
+                            "value_type": config.value_type,
+                            "description": config.description,
+                            "is_secret": config.is_secret,
+                            "is_required": config.is_required,
+                            "validation": config.validation,
+                        },
+                        status="success",
+                    )
 
         await self.db.commit()
         await self.db.refresh(module)
@@ -207,12 +357,38 @@ class ModuleService:
         try:
             success = await reg_module.install(self.db)
             if success:
+                old_status = db_module.status.value if hasattr(db_module.status, 'value') else db_module.status
                 db_module.status = ModuleStatus.ACTIVE
                 await self.db.commit()
+
+                if self.audit:
+                    await self.audit.log(
+                        action="module_install",
+                        module="modules",
+                        user=self.current_user,
+                        object_type="module",
+                        object_id=str(db_module.id),
+                        object_repr=db_module.code,
+                        old_values={"status": old_status},
+                        new_values={"status": "active"},
+                        status="success",
+                    )
             return success
-        except Exception:
+        except Exception as e:
             db_module.status = ModuleStatus.ERROR
             await self.db.commit()
+
+            if self.audit:
+                await self.audit.log(
+                    action="module_install",
+                    module="modules",
+                    user=self.current_user,
+                    object_type="module",
+                    object_id=str(db_module.id),
+                    object_repr=db_module.code,
+                    status="failure",
+                    error_message=str(e),
+                )
             return False
 
     async def uninstall_module(self, code: str) -> bool:
@@ -230,12 +406,38 @@ class ModuleService:
         try:
             success = await reg_module.uninstall(self.db)
             if success:
+                old_status = db_module.status.value if hasattr(db_module.status, 'value') else db_module.status
                 db_module.status = ModuleStatus.INACTIVE
                 await self.db.commit()
+
+                if self.audit:
+                    await self.audit.log(
+                        action="module_uninstall",
+                        module="modules",
+                        user=self.current_user,
+                        object_type="module",
+                        object_id=str(db_module.id),
+                        object_repr=db_module.code,
+                        old_values={"status": old_status},
+                        new_values={"status": "inactive"},
+                        status="success",
+                    )
             return success
-        except Exception:
+        except Exception as e:
             db_module.status = ModuleStatus.ERROR
             await self.db.commit()
+
+            if self.audit:
+                await self.audit.log(
+                    action="module_uninstall",
+                    module="modules",
+                    user=self.current_user,
+                    object_type="module",
+                    object_id=str(db_module.id),
+                    object_repr=db_module.code,
+                    status="failure",
+                    error_message=str(e),
+                )
             return False
 
     async def is_core_module(self, code: str) -> bool:
@@ -243,5 +445,9 @@ class ModuleService:
         return module.is_core if module else False
 
 
-async def get_module_service(db: AsyncSession) -> ModuleService:
-    return ModuleService(db)
+async def get_module_service(
+    db: AsyncSession,
+    current_user: User = Depends(get_current_active_user),
+) -> ModuleService:
+    audit = await get_audit_service(db)
+    return ModuleService(db, audit=audit, current_user=current_user)

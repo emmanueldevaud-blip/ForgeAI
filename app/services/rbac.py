@@ -2,13 +2,17 @@ from typing import List, Optional, Set
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
+from fastapi import Depends
 
 from app.models import User, Role, PermissionModel, Group, UserRoleAssignment, UserGroup, GroupRole
+from app.services.audit import AuditService, get_audit_service
 
 
 class RBACService:
-    def __init__(self, db: AsyncSession):
+    def __init__(self, db: AsyncSession, audit: Optional[AuditService] = None, current_user: Optional[User] = None):
         self.db = db
+        self.audit = audit
+        self.current_user = current_user
 
     async def get_user_permissions(self, user: User) -> Set[str]:
         permissions = set()
@@ -58,6 +62,9 @@ class RBACService:
         if existing.scalar_one_or_none():
             raise ValueError("Role already assigned to user")
 
+        user = await self.db.get(User, user_id)
+        role = await self.db.get(Role, role_id)
+
         assignment = UserRoleAssignment(
             user_id=user_id,
             role_id=role_id,
@@ -66,6 +73,24 @@ class RBACService:
         self.db.add(assignment)
         await self.db.commit()
         await self.db.refresh(assignment)
+
+        if self.audit and user and role:
+            await self.audit.log(
+                action="role_assign",
+                module="rbac",
+                user=self.current_user,
+                object_type="user_role",
+                object_id=str(user_id),
+                object_repr=f"{user.username} -> {role.code}",
+                new_values={
+                    "user_id": user_id,
+                    "user_username": user.username,
+                    "role_id": role_id,
+                    "role_code": role.code,
+                    "assigned_by": assigned_by,
+                },
+                status="success",
+            )
         return assignment
 
     async def remove_role_from_user(self, user_id: int, role_id: int) -> bool:
@@ -77,8 +102,27 @@ class RBACService:
         )
         assignment = result.scalar_one_or_none()
         if assignment:
+            user = await self.db.get(User, user_id)
+            role = await self.db.get(Role, role_id)
             await self.db.delete(assignment)
             await self.db.commit()
+
+            if self.audit and user and role:
+                await self.audit.log(
+                    action="role_remove",
+                    module="rbac",
+                    user=self.current_user,
+                    object_type="user_role",
+                    object_id=str(user_id),
+                    object_repr=f"{user.username} -> {role.code}",
+                    old_values={
+                        "user_id": user_id,
+                        "user_username": user.username,
+                        "role_id": role_id,
+                        "role_code": role.code,
+                    },
+                    status="success",
+                )
             return True
         return False
 
@@ -92,10 +136,30 @@ class RBACService:
         if existing.scalar_one_or_none():
             raise ValueError("User already in group")
 
+        user = await self.db.get(User, user_id)
+        group = await self.db.get(Group, group_id)
+
         membership = UserGroup(user_id=user_id, group_id=group_id)
         self.db.add(membership)
         await self.db.commit()
         await self.db.refresh(membership)
+
+        if self.audit and user and group:
+            await self.audit.log(
+                action="group_add_user",
+                module="rbac",
+                user=self.current_user,
+                object_type="user_group",
+                object_id=str(user_id),
+                object_repr=f"{user.username} -> {group.code}",
+                new_values={
+                    "user_id": user_id,
+                    "user_username": user.username,
+                    "group_id": group_id,
+                    "group_code": group.code,
+                },
+                status="success",
+            )
         return membership
 
     async def remove_user_from_group(self, user_id: int, group_id: int) -> bool:
@@ -107,8 +171,27 @@ class RBACService:
         )
         membership = result.scalar_one_or_none()
         if membership:
+            user = await self.db.get(User, user_id)
+            group = await self.db.get(Group, group_id)
             await self.db.delete(membership)
             await self.db.commit()
+
+            if self.audit and user and group:
+                await self.audit.log(
+                    action="group_remove_user",
+                    module="rbac",
+                    user=self.current_user,
+                    object_type="user_group",
+                    object_id=str(user_id),
+                    object_repr=f"{user.username} -> {group.code}",
+                    old_values={
+                        "user_id": user_id,
+                        "user_username": user.username,
+                        "group_id": group_id,
+                        "group_code": group.code,
+                    },
+                    status="success",
+                )
             return True
         return False
 
@@ -122,10 +205,30 @@ class RBACService:
         if existing.scalar_one_or_none():
             raise ValueError("Role already assigned to group")
 
+        group = await self.db.get(Group, group_id)
+        role = await self.db.get(Role, role_id)
+
         assignment = GroupRole(group_id=group_id, role_id=role_id)
         self.db.add(assignment)
         await self.db.commit()
         await self.db.refresh(assignment)
+
+        if self.audit and group and role:
+            await self.audit.log(
+                action="group_role_assign",
+                module="rbac",
+                user=self.current_user,
+                object_type="group_role",
+                object_id=str(group_id),
+                object_repr=f"{group.code} -> {role.code}",
+                new_values={
+                    "group_id": group_id,
+                    "group_code": group.code,
+                    "role_id": role_id,
+                    "role_code": role.code,
+                },
+                status="success",
+            )
         return assignment
 
     async def remove_role_from_group(self, group_id: int, role_id: int) -> bool:
@@ -137,8 +240,27 @@ class RBACService:
         )
         assignment = result.scalar_one_or_none()
         if assignment:
+            group = await self.db.get(Group, group_id)
+            role = await self.db.get(Role, role_id)
             await self.db.delete(assignment)
             await self.db.commit()
+
+            if self.audit and group and role:
+                await self.audit.log(
+                    action="group_role_remove",
+                    module="rbac",
+                    user=self.current_user,
+                    object_type="group_role",
+                    object_id=str(group_id),
+                    object_repr=f"{group.code} -> {role.code}",
+                    old_values={
+                        "group_id": group_id,
+                        "group_code": group.code,
+                        "role_id": role_id,
+                        "role_code": role.code,
+                    },
+                    status="success",
+                )
             return True
         return False
 
@@ -161,6 +283,23 @@ class RBACService:
         self.db.add(role)
         await self.db.commit()
         await self.db.refresh(role)
+
+        if self.audit:
+            await self.audit.log(
+                action="role_create",
+                module="rbac",
+                user=self.current_user,
+                object_type="role",
+                object_id=str(role.id),
+                object_repr=role.code,
+                new_values={
+                    "code": role.code,
+                    "name": role.name,
+                    "description": role.description,
+                    "is_system": role.is_system,
+                },
+                status="success",
+            )
         return role
 
     async def create_permission(self, code: str, name: str, description: Optional[str] = None, module: Optional[str] = None, is_system: bool = False) -> PermissionModel:
@@ -168,6 +307,24 @@ class RBACService:
         self.db.add(perm)
         await self.db.commit()
         await self.db.refresh(perm)
+
+        if self.audit:
+            await self.audit.log(
+                action="permission_create",
+                module="rbac",
+                user=self.current_user,
+                object_type="permission",
+                object_id=str(perm.id),
+                object_repr=perm.code,
+                new_values={
+                    "code": perm.code,
+                    "name": perm.name,
+                    "description": perm.description,
+                    "module": perm.module,
+                    "is_system": perm.is_system,
+                },
+                status="success",
+            )
         return perm
 
     async def assign_permission_to_role(self, role_id: int, permission_id: int):
@@ -180,9 +337,30 @@ class RBACService:
         )
         if existing.scalar_one_or_none():
             return
+
+        role = await self.db.get(Role, role_id)
+        permission = await self.db.get(PermissionModel, permission_id)
+
         assignment = RolePermission(role_id=role_id, permission_id=permission_id)
         self.db.add(assignment)
         await self.db.commit()
+
+        if self.audit and role and permission:
+            await self.audit.log(
+                action="permission_assign",
+                module="rbac",
+                user=self.current_user,
+                object_type="role_permission",
+                object_id=str(role_id),
+                object_repr=f"{role.code} -> {permission.code}",
+                new_values={
+                    "role_id": role_id,
+                    "role_code": role.code,
+                    "permission_id": permission_id,
+                    "permission_code": permission.code,
+                },
+                status="success",
+            )
 
     async def remove_permission_from_role(self, role_id: int, permission_id: int) -> bool:
         from app.models import RolePermission
@@ -194,14 +372,37 @@ class RBACService:
         )
         assignment = result.scalar_one_or_none()
         if assignment:
+            role = await self.db.get(Role, role_id)
+            permission = await self.db.get(PermissionModel, permission_id)
             await self.db.delete(assignment)
             await self.db.commit()
+
+            if self.audit and role and permission:
+                await self.audit.log(
+                    action="permission_remove",
+                    module="rbac",
+                    user=self.current_user,
+                    object_type="role_permission",
+                    object_id=str(role_id),
+                    object_repr=f"{role.code} -> {permission.code}",
+                    old_values={
+                        "role_id": role_id,
+                        "role_code": role.code,
+                        "permission_id": permission_id,
+                        "permission_code": permission.code,
+                    },
+                    status="success",
+                )
             return True
         return False
 
 
-async def get_rbac_service(db: AsyncSession) -> RBACService:
-    return RBACService(db)
+async def get_rbac_service(
+    db: AsyncSession,
+    current_user: User,
+) -> RBACService:
+    audit = await get_audit_service(db)
+    return RBACService(db, audit=audit, current_user=current_user)
 
 
 async def require_permission(permission_code: str, current_user: User = None, db: AsyncSession = None):

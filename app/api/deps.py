@@ -84,19 +84,20 @@ async def require_super_admin(
     return current_user
 
 
-async def require_permission(
-    permission_code: str,
-    current_user: User = Depends(get_current_active_user),
-    db: AsyncSession = Depends(get_db),
-) -> User:
-    rbac = RBACService(db)
-    has_perm = await rbac.user_has_permission(current_user, permission_code)
-    if not has_perm:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail=f"Permission '{permission_code}' requise"
-        )
-    return current_user
+def require_permission(permission_code: str):
+    async def dependency(
+        current_user: User = Depends(get_current_active_user),
+        db: AsyncSession = Depends(get_db),
+    ) -> User:
+        rbac = RBACService(db)
+        has_perm = await rbac.user_has_permission(current_user, permission_code)
+        if not has_perm:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Permission '{permission_code}' requise"
+            )
+        return current_user
+    return dependency
 
 
 def require_any_permission(*permission_codes: str):
@@ -131,7 +132,7 @@ def require_all_permissions(*permission_codes: str):
     return dependency
 
 
-def get_optional_user(
+async def get_optional_user(
     request: Request,
     db: AsyncSession = Depends(get_db),
 ) -> Optional[User]:
@@ -148,4 +149,8 @@ def get_optional_user(
     if not token_data:
         return None
 
-    return None
+    user = await get_user_by_id(db, token_data.user_id)
+    if not user or not user.is_active:
+        return None
+
+    return user

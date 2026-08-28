@@ -4,11 +4,12 @@ from pydantic import BaseModel, ConfigDict
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import get_db
-from app.api.deps import require_admin
+from app.api.deps import require_admin, require_permission
 from app.services.modules import ModuleService, get_module_service
 from app.modules import module_registry, register_all_modules
 from app.models import Module, ModuleStatus
 from app.services.rbac import RBACService
+from app.services.audit import get_audit_service
 
 router = APIRouter(prefix="/modules", tags=["modules"])
 
@@ -61,20 +62,15 @@ class ModuleEnableRequest(BaseModel):
 
 
 async def require_module_access(
-    current_user = Depends(require_admin),
+    current_user = Depends(require_permission("modules.view")),
     db: AsyncSession = Depends(get_db),
 ):
     return current_user
 
 
-@router.on_event("startup")
-async def startup_modules():
-    register_all_modules()
-
-
 @router.get("", response_model=ModuleListResponse)
 async def list_modules(
-    current_user = Depends(require_admin),
+    current_user = Depends(require_permission("modules.view")),
     db: AsyncSession = Depends(get_db),
 ):
     service = await get_module_service(db)
@@ -82,6 +78,27 @@ async def list_modules(
     return ModuleListResponse(
         modules=[ModuleResponse.model_validate(m) for m in modules],
         total=len(modules)
+    )
+
+
+@router.get("/available", response_model=ModuleListResponse)
+async def list_available_modules(
+    current_user = Depends(require_permission("modules.view")),
+    db: AsyncSession = Depends(get_db),
+):
+    rbac = RBACService(db)
+    permissions = await rbac.get_user_permissions(current_user)
+    service = await get_module_service(db)
+    all_modules = await service.get_all_modules()
+    available_modules = [
+        m for m in all_modules
+        if m.status == ModuleStatus.ACTIVE and (
+            not m.required_permissions or all(p in permissions for p in m.required_permissions)
+        )
+    ]
+    return ModuleListResponse(
+        modules=[ModuleResponse.model_validate(m) for m in available_modules],
+        total=len(available_modules)
     )
 
 
@@ -112,7 +129,7 @@ async def get_navigation(
 @router.get("/{module_code}", response_model=ModuleResponse)
 async def get_module(
     module_code: str,
-    current_user = Depends(require_admin),
+    current_user = Depends(require_permission("modules.view")),
     db: AsyncSession = Depends(get_db),
 ):
     service = await get_module_service(db)
@@ -124,7 +141,7 @@ async def get_module(
 
 @router.post("/sync")
 async def sync_modules(
-    current_user = Depends(require_admin),
+    current_user = Depends(require_permission("modules.manage")),
     db: AsyncSession = Depends(get_db),
 ):
     service = await get_module_service(db)
@@ -135,7 +152,7 @@ async def sync_modules(
 @router.post("/{module_code}/enable")
 async def enable_module(
     module_code: str,
-    current_user = Depends(require_admin),
+    current_user = Depends(require_permission("modules.enable")),
     db: AsyncSession = Depends(get_db),
 ):
     service = await get_module_service(db)
@@ -148,7 +165,7 @@ async def enable_module(
 @router.post("/{module_code}/disable")
 async def disable_module(
     module_code: str,
-    current_user = Depends(require_admin),
+    current_user = Depends(require_permission("modules.disable")),
     db: AsyncSession = Depends(get_db),
 ):
     service = await get_module_service(db)
@@ -161,7 +178,7 @@ async def disable_module(
 @router.get("/{module_code}/config")
 async def get_module_config(
     module_code: str,
-    current_user = Depends(require_admin),
+    current_user = Depends(require_permission("modules.configure")),
     db: AsyncSession = Depends(get_db),
 ):
     service = await get_module_service(db)
@@ -173,7 +190,7 @@ async def get_module_config(
 async def update_module_config(
     module_code: str,
     config: dict,
-    current_user = Depends(require_admin),
+    current_user = Depends(require_permission("modules.configure")),
     db: AsyncSession = Depends(get_db),
 ):
     service = await get_module_service(db)
@@ -186,7 +203,7 @@ async def update_module_config(
 @router.get("/{module_code}/permissions")
 async def get_module_permissions(
     module_code: str,
-    current_user = Depends(require_admin),
+    current_user = Depends(require_permission("modules.view")),
     db: AsyncSession = Depends(get_db),
 ):
     service = await get_module_service(db)

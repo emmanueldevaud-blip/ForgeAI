@@ -11,6 +11,8 @@ from ldap3.core.exceptions import LDAPException
 from app.core.config import get_settings
 from app.models.user import User, UserRole
 from app.schemas.auth import Token, TokenData, UserResponse
+from app.services.audit import AuditService, get_audit_service
+from app.services.ad import DatabaseADService
 
 settings = get_settings()
 
@@ -103,18 +105,78 @@ async def get_user_by_id(db: AsyncSession, user_id: int) -> Optional[User]:
     return user
 
 
-async def authenticate_local(db: AsyncSession, username: str, password: str) -> Optional[User]:
+async def authenticate_local(db: AsyncSession, username: str, password: str, audit: Optional[AuditService] = None, ip_address: Optional[str] = None, user_agent: Optional[str] = None) -> Optional[User]:
     user = await get_user_by_username(db, username)
     if not user:
+        if audit:
+            await audit.log(
+                action="login",
+                module="auth",
+                username=username,
+                status="failure",
+                error_message="User not found",
+                ip_address=ip_address,
+                user_agent=user_agent,
+            )
         return None
     if not user.is_active:
+        if audit:
+            await audit.log(
+                action="login",
+                module="auth",
+                user=user,
+                status="failure",
+                error_message="Account disabled",
+                ip_address=ip_address,
+                user_agent=user_agent,
+            )
         return None
     if user.source != "local":
+        if audit:
+            await audit.log(
+                action="login",
+                module="auth",
+                user=user,
+                status="failure",
+                error_message="Not a local account",
+                ip_address=ip_address,
+                user_agent=user_agent,
+            )
         return None
     if not user.password_hash:
+        if audit:
+            await audit.log(
+                action="login",
+                module="auth",
+                user=user,
+                status="failure",
+                error_message="No password set",
+                ip_address=ip_address,
+                user_agent=user_agent,
+            )
         return None
     if not verify_password(password, user.password_hash):
+        if audit:
+            await audit.log(
+                action="login",
+                module="auth",
+                user=user,
+                status="failure",
+                error_message="Invalid password",
+                ip_address=ip_address,
+                user_agent=user_agent,
+            )
         return None
+
+    if audit:
+        await audit.log(
+            action="login",
+            module="auth",
+            user=user,
+            status="success",
+            ip_address=ip_address,
+            user_agent=user_agent,
+        )
     return user
 
 
@@ -257,42 +319,75 @@ class LDAPAuthService:
 ldap_service = LDAPAuthService()
 
 
-async def authenticate_ad(db: AsyncSession, username: str, password: str) -> Optional[User]:
-    if not settings.AD_ENABLED:
-        return None
-
-    user_dn, groups = ldap_service.authenticate(username, password)
+async def authenticate_ad(
+    db: AsyncSession,
+    username: str,
+    password: str,
+    audit: Optional[AuditService] = None,
+    ip_address: Optional[str] = None,
+    user_agent: Optional[str] = None,
+) -> Optional[User]:
+    ad_service = DatabaseADService(db, audit=audit)
+    
+    user_dn, groups, config = await ad_service.authenticate(username, password)
     if not user_dn:
+        if audit:
+            await audit.log(
+                action="login",
+                module="auth",
+                username=username,
+                status="failure",
+                error_message="AD authentication failed",
+                ip_address=ip_address,
+                user_agent=user_agent,
+            )
         return None
 
-    is_admin, role = ldap_service.map_groups_to_roles(groups or [])
+    is_admin, role = ad_service.map_groups_to_roles(groups or [], config) if config else (False, UserRole.USER)
 
     result = await db.execute(select(User).where(User.ad_dn == user_dn))
     user = result.scalar_one_or_none()
 
     if user:
+        old_values = {
+            "is_admin": user.is_admin,
+            "role": user.role.value,
+        }
         user.is_active = True
         user.is_admin = is_admin
         user.role = role
         user.last_login = datetime.now(timezone.utc)
         await db.commit()
         await db.refresh(user)
+
+        if audit:
+            await audit.log(
+                action="login",
+                module="auth",
+                user=user,
+                status="success",
+                old_values=old_values,
+                new_values={"is_admin": user.is_admin, "role": user.role.value},
+                ip_address=ip_address,
+                user_agent=user_agent,
+            )
         return user
 
+    if not config:
+        return None
+
     try:
-        server = ldap_service._create_server()
-        bind_user = settings.AD_BIND_USER
-        bind_password = settings.AD_BIND_PASSWORD
+        server = ad_service._create_server(config)
         admin_conn = Connection(
             server,
-            user=bind_user,
-            password=bind_password,
+            user=config.bind_user,
+            password=config.bind_password,
             authentication=NTLM,
             auto_bind=True,
-            receive_timeout=settings.AD_RECEIVE_TIMEOUT,
+            receive_timeout=config.receive_timeout,
         )
         admin_conn.search(
-            search_base=settings.AD_BASE_DN,
+            search_base=config.base_dn,
             search_filter=f"(distinguishedName={user_dn})",
             search_scope=SUBTREE,
             attributes=["sAMAccountName", "mail", "givenName", "sn"],
@@ -321,13 +416,40 @@ async def authenticate_ad(db: AsyncSession, username: str, password: str) -> Opt
         db.add(user)
         await db.commit()
         await db.refresh(user)
+
+        if audit:
+            await audit.log(
+                action="login",
+                module="auth",
+                user=user,
+                status="success",
+                new_values={
+                    "username": user.username,
+                    "email": user.email,
+                    "is_admin": user.is_admin,
+                    "role": user.role.value,
+                    "source": "ad",
+                },
+                ip_address=ip_address,
+                user_agent=user_agent,
+            )
         return user
 
-    except Exception:
+    except Exception as e:
+        if audit:
+            await audit.log(
+                action="login",
+                module="auth",
+                username=username,
+                status="failure",
+                error_message=f"AD user creation failed: {str(e)}",
+                ip_address=ip_address,
+                user_agent=user_agent,
+            )
         return None
 
 
-async def create_user(db: AsyncSession, user_data: dict) -> User:
+async def create_user(db: AsyncSession, user_data: dict, audit: Optional[AuditService] = None, current_user: Optional[User] = None) -> User:
     user = User(
         username=user_data["username"],
         email=user_data["email"],
@@ -342,10 +464,48 @@ async def create_user(db: AsyncSession, user_data: dict) -> User:
     db.add(user)
     await db.commit()
     await db.refresh(user)
+
+    if audit:
+        await audit.log(
+            action="user_create",
+            module="users",
+            user=current_user,
+            object_type="user",
+            object_id=str(user.id),
+            object_repr=user.username,
+            new_values={
+                "username": user.username,
+                "email": user.email,
+                "first_name": user.first_name,
+                "last_name": user.last_name,
+                "is_active": user.is_active,
+                "is_admin": user.is_admin,
+                "role": user.role.value,
+                "source": user.source,
+            },
+            status="success",
+        )
     return user
 
 
-async def update_user(db: AsyncSession, user: User, updates: dict) -> User:
+async def update_user(
+    db: AsyncSession,
+    user: User,
+    updates: dict,
+    audit: Optional[AuditService] = None,
+    current_user: Optional[User] = None,
+) -> User:
+    old_values = {
+        "username": user.username,
+        "email": user.email,
+        "first_name": user.first_name,
+        "last_name": user.last_name,
+        "is_active": user.is_active,
+        "is_admin": user.is_admin,
+        "role": user.role.value,
+        "source": user.source,
+    }
+
     for key, value in updates.items():
         if value is None:
             continue
@@ -356,12 +516,46 @@ async def update_user(db: AsyncSession, user: User, updates: dict) -> User:
     user.updated_at = datetime.now(timezone.utc)
     await db.commit()
     await db.refresh(user)
+
+    new_values = {
+        "username": user.username,
+        "email": user.email,
+        "first_name": user.first_name,
+        "last_name": user.last_name,
+        "is_active": user.is_active,
+        "is_admin": user.is_admin,
+        "role": user.role.value,
+        "source": user.source,
+    }
+
+    if audit:
+        await audit.log(
+            action="user_update",
+            module="users",
+            user=current_user,
+            object_type="user",
+            object_id=str(user.id),
+            object_repr=user.username,
+            old_values=old_values,
+            new_values=new_values,
+            status="success",
+        )
     return user
 
 
 async def update_last_login(db: AsyncSession, user: User) -> None:
     user.last_login = datetime.now(timezone.utc)
     await db.commit()
+
+
+async def logout_user(db: AsyncSession, user: User, audit: Optional[AuditService] = None) -> None:
+    if audit:
+        await audit.log(
+            action="logout",
+            module="auth",
+            user=user,
+            status="success",
+        )
 
 
 def create_tokens(user: User) -> Token:

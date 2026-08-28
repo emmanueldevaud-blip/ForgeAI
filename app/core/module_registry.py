@@ -1,14 +1,8 @@
 from typing import Dict, List, Optional, Any
 from dataclasses import dataclass, field
 from abc import ABC, abstractmethod
-from enum import Enum
 
-
-class ModuleStatus(str, Enum):
-    ACTIVE = "active"
-    INACTIVE = "inactive"
-    INSTALLING = "installing"
-    ERROR = "error"
+from app.models.module import ModuleStatus
 
 
 @dataclass

@@ -1,6 +1,6 @@
 from datetime import datetime
-from typing import Optional, List
-from pydantic import BaseModel, EmailStr, Field, ConfigDict
+
+from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
 
 class TokenBase(BaseModel):
@@ -10,7 +10,7 @@ class TokenBase(BaseModel):
 
 
 class Token(TokenBase):
-    refresh_token: Optional[str] = None
+    refresh_token: str | None = None
 
 
 class TokenData(BaseModel):
@@ -23,8 +23,8 @@ class TokenData(BaseModel):
 class UserBase(BaseModel):
     username: str = Field(..., min_length=3, max_length=50)
     email: EmailStr
-    first_name: Optional[str] = Field(None, max_length=100)
-    last_name: Optional[str] = Field(None, max_length=100)
+    first_name: str | None = Field(None, max_length=100)
+    last_name: str | None = Field(None, max_length=100)
 
 
 class UserCreate(UserBase):
@@ -32,17 +32,15 @@ class UserCreate(UserBase):
 
 
 class UserCreateAdmin(UserCreate):
-    is_admin: bool = False
     role: str = "user"
 
 
 class UserUpdate(BaseModel):
-    email: Optional[EmailStr] = None
-    first_name: Optional[str] = Field(None, max_length=100)
-    last_name: Optional[str] = Field(None, max_length=100)
-    is_active: Optional[bool] = None
-    is_admin: Optional[bool] = None
-    role: Optional[str] = None
+    email: EmailStr | None = None
+    first_name: str | None = Field(None, max_length=100)
+    last_name: str | None = Field(None, max_length=100)
+    is_active: bool | None = None
+    role: str | None = None
 
 
 class UserPasswordUpdate(BaseModel):
@@ -59,16 +57,15 @@ class UserResponse(UserBase):
 
     id: int
     is_active: bool
-    is_admin: bool
     role: str
     source: str
-    last_login: Optional[datetime]
+    last_login: datetime | None
     created_at: datetime
     updated_at: datetime
 
 
 class UserListResponse(BaseModel):
-    users: List[UserResponse]
+    users: list[UserResponse]
     total: int
 
 
@@ -117,19 +114,19 @@ class ADSettingsResponse(ADSettingsBase):
 
 
 class ADSettingsUpdate(BaseModel):
-    ad_enabled: Optional[bool] = None
-    ad_server: Optional[str] = Field(None, max_length=255)
-    ad_port: Optional[int] = Field(None, ge=1, le=65535)
-    ad_use_ssl: Optional[bool] = None
-    ad_base_dn: Optional[str] = Field(None, max_length=500)
-    ad_user_dn: Optional[str] = Field(None, max_length=500)
-    ad_user_search_filter: Optional[str] = Field(None, max_length=255)
-    ad_group_search_base: Optional[str] = Field(None, max_length=500)
-    ad_admin_group: Optional[str] = Field(None, max_length=255)
-    ad_bind_user: Optional[str] = Field(None, max_length=255)
-    ad_bind_password: Optional[str] = Field(None, max_length=255)
-    ad_connect_timeout: Optional[int] = Field(None, ge=1, le=60)
-    ad_receive_timeout: Optional[int] = Field(None, ge=1, le=60)
+    ad_enabled: bool | None = None
+    ad_server: str | None = Field(None, max_length=255)
+    ad_port: int | None = Field(None, ge=1, le=65535)
+    ad_use_ssl: bool | None = None
+    ad_base_dn: str | None = Field(None, max_length=500)
+    ad_user_dn: str | None = Field(None, max_length=500)
+    ad_user_search_filter: str | None = Field(None, max_length=255)
+    ad_group_search_base: str | None = Field(None, max_length=500)
+    ad_admin_group: str | None = Field(None, max_length=255)
+    ad_bind_user: str | None = Field(None, max_length=255)
+    ad_bind_password: str | None = Field(None, max_length=255)
+    ad_connect_timeout: int | None = Field(None, ge=1, le=60)
+    ad_receive_timeout: int | None = Field(None, ge=1, le=60)
 
 
 class ADTestRequest(BaseModel):
@@ -146,4 +143,4 @@ class ADTestRequest(BaseModel):
 class ADTestResponse(BaseModel):
     success: bool
     message: str
-    details: Optional[str] = None
+    details: str | None = None

@@ -1,22 +1,23 @@
-from typing import List, Optional, Dict, Any
+from typing import Any
+
+from fastapi import Depends
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
-from fastapi import Depends
 
-from app.models import Module, ModuleConfig, ModuleStatus, User
-from app.modules import module_registry, BaseModule
-from app.services.audit import AuditService, get_audit_service
 from app.api.deps import get_current_active_user
+from app.models import Module, ModuleConfig, ModuleStatus, User
+from app.modules import module_registry
+from app.services.audit import AuditService, get_audit_service
 
 
 class ModuleService:
-    def __init__(self, db: AsyncSession, audit: Optional[AuditService] = None, current_user: Optional[User] = None):
+    def __init__(self, db: AsyncSession, audit: AuditService | None = None, current_user: User | None = None):
         self.db = db
         self.audit = audit
         self.current_user = current_user
 
-    async def sync_modules(self) -> Dict[str, Any]:
+    async def sync_modules(self) -> dict[str, Any]:
         registered_modules = module_registry.get_all()
         result = {
             "synced": 0,
@@ -136,12 +137,12 @@ class ModuleService:
                 result["synced"] += 1
 
             except Exception as e:
-                result["errors"].append(f"Module {info.code}: {str(e)}")
+                result["errors"].append(f"Module {info.code}: {e!s}")
 
         await self.db.commit()
         return result
 
-    async def get_module(self, code: str) -> Optional[Module]:
+    async def get_module(self, code: str) -> Module | None:
         result = await self.db.execute(
             select(Module)
             .options(selectinload(Module.configs))
@@ -149,13 +150,13 @@ class ModuleService:
         )
         return result.scalar_one_or_none()
 
-    async def get_all_modules(self) -> List[Module]:
+    async def get_all_modules(self) -> list[Module]:
         result = await self.db.execute(
             select(Module).order_by(Module.order)
         )
         return list(result.scalars().all())
 
-    async def get_active_modules(self) -> List[Module]:
+    async def get_active_modules(self) -> list[Module]:
         result = await self.db.execute(
             select(Module)
             .where(Module.status == ModuleStatus.ACTIVE)
@@ -163,7 +164,7 @@ class ModuleService:
         )
         return list(result.scalars().all())
 
-    async def enable_module(self, code: str) -> Optional[Module]:
+    async def enable_module(self, code: str) -> Module | None:
         module = await self.get_module(code)
         if module:
             old_status = module.status.value if hasattr(module.status, 'value') else module.status
@@ -188,7 +189,7 @@ class ModuleService:
                 )
         return module
 
-    async def disable_module(self, code: str) -> Optional[Module]:
+    async def disable_module(self, code: str) -> Module | None:
         module = await self.get_module(code)
         if module:
             old_status = module.status.value if hasattr(module.status, 'value') else module.status
@@ -213,7 +214,7 @@ class ModuleService:
                 )
         return module
 
-    async def update_module_config(self, module_code: str, configs: Dict[str, Any]) -> Module:
+    async def update_module_config(self, module_code: str, configs: dict[str, Any]) -> Module:
         module = await self.get_module(module_code)
         if not module:
             raise ValueError(f"Module {module_code} not found")
@@ -319,7 +320,7 @@ class ModuleService:
         await self.db.refresh(module)
         return module
 
-    async def get_module_config(self, module_code: str) -> Dict[str, Any]:
+    async def get_module_config(self, module_code: str) -> dict[str, Any]:
         module = await self.get_module(module_code)
         if not module:
             return {}
@@ -333,7 +334,7 @@ class ModuleService:
 
         return config_dict
 
-    async def get_module_with_registry(self, code: str) -> Optional[Dict[str, Any]]:
+    async def get_module_with_registry(self, code: str) -> dict[str, Any] | None:
         db_module = await self.get_module(code)
         if not db_module:
             return None

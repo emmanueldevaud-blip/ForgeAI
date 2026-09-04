@@ -1,15 +1,15 @@
-import pytest
-import pytest_asyncio
-from httpx import AsyncClient, ASGITransport
-from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
-from sqlalchemy.pool import StaticPool
 import os
 
-from app.main import app
+import pytest
+from httpx import ASGITransport, AsyncClient
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.pool import StaticPool
+
 from app.db.session import Base, get_db
-from app.core.config import get_settings
+from app.main import app
+from app.models.user import UserRole
 from app.services.auth import create_user
-from app.models.user import User, UserRole
+from app.services.rbac import seed_default_rbac
 
 
 @pytest.fixture(scope="session")
@@ -62,6 +62,12 @@ async def db_session(test_engine):
         yield session
 
 
+@pytest.fixture(scope="function", autouse=True)
+async def seed_rbac(db_session):
+    """Seed default RBAC data for each test."""
+    await seed_default_rbac(db_session)
+
+
 @pytest.fixture(scope="function")
 async def client(db_session):
     def override_get_db():
@@ -81,7 +87,6 @@ async def auth_user(db_session):
         "email": "testauth@example.com",
         "password": "testpassword123",
         "is_active": True,
-        "is_admin": False,
         "role": UserRole.USER,
         "source": "local",
     }
@@ -105,7 +110,6 @@ async def admin_user(db_session):
         "email": "admin@example.com",
         "password": "adminpassword123",
         "is_active": True,
-        "is_admin": True,
         "role": UserRole.ADMIN,
         "source": "local",
     }

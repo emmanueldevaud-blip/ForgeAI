@@ -1,23 +1,22 @@
-from typing import List, Optional
-from fastapi import APIRouter, Depends, HTTPException, status
+
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.deps import require_permission
 from app.db.session import get_db
-from app.api.deps import require_admin, require_permission
-from app.services.modules import ModuleService, get_module_service
-from app.modules import module_registry, register_all_modules
-from app.models import Module, ModuleStatus
+from app.models import ModuleStatus
+from app.modules import module_registry
+from app.services.modules import get_module_service
 from app.services.rbac import RBACService
-from app.services.audit import get_audit_service
 
 router = APIRouter(prefix="/modules", tags=["modules"])
 
 
 class ModuleConfigValue(BaseModel):
-    value: Optional[str] = None
+    value: str | None = None
     type: str = "string"
-    description: Optional[str] = None
+    description: str | None = None
     is_secret: bool = False
     is_required: bool = False
     validation: dict = {}
@@ -29,29 +28,29 @@ class ModuleResponse(BaseModel):
     id: int
     code: str
     name: str
-    description: Optional[str]
-    icon: Optional[str]
+    description: str | None
+    icon: str | None
     order: int
     status: str
     version: str
-    route_path: Optional[str]
-    component_path: Optional[str]
-    required_permissions: List[str]
+    route_path: str | None
+    component_path: str | None
+    required_permissions: list[str]
     settings: dict
     is_core: bool
-    dependencies: List[str]
+    dependencies: list[str]
 
 
 class ModuleListResponse(BaseModel):
-    modules: List[ModuleResponse]
+    modules: list[ModuleResponse]
     total: int
 
 
 class ModuleConfigResponse(BaseModel):
     key: str
-    value: Optional[str]
+    value: str | None
     value_type: str
-    description: Optional[str]
+    description: str | None
     is_secret: bool
     is_required: bool
     validation: dict

@@ -1,22 +1,24 @@
 from datetime import datetime
 from enum import Enum as PyEnum
-from typing import Optional
+
 from sqlalchemy import (
-    String,
+    JSON,
     Boolean,
     DateTime,
     ForeignKey,
-    func,
     Index,
-    Text,
-    Enum as SQLEnum,
     Integer,
-    JSON,
+    String,
+    Text,
     UniqueConstraint,
+    func,
+)
+from sqlalchemy import (
+    Enum as SQLEnum,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
+
 from app.db.session import Base
-from typing import Optional, List
 
 
 class ADSyncStatus(str, PyEnum):
@@ -37,9 +39,9 @@ class ADConfig(Base):
     port: Mapped[int] = mapped_column(Integer, default=636, nullable=False)
     use_ssl: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     base_dn: Mapped[str] = mapped_column(String(500), nullable=False)
-    user_dn: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    user_dn: Mapped[str | None] = mapped_column(String(500), nullable=True)
     user_search_filter: Mapped[str] = mapped_column(String(255), default="(sAMAccountName={username})", nullable=False)
-    group_search_base: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    group_search_base: Mapped[str | None] = mapped_column(String(500), nullable=True)
     bind_user: Mapped[str] = mapped_column(String(255), nullable=False)
     bind_password: Mapped[str] = mapped_column(String(255), nullable=False)
     connect_timeout: Mapped[int] = mapped_column(Integer, default=10, nullable=False)
@@ -47,13 +49,13 @@ class ADConfig(Base):
     page_size: Mapped[int] = mapped_column(Integer, default=1000, nullable=False)
     follow_referrals: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
-    last_sync_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
-    last_sync_status: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
+    last_sync_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_sync_status: Mapped[str | None] = mapped_column(String(20), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
 
-    group_mappings: Mapped[List["ADGroupMapping"]] = relationship("ADGroupMapping", back_populates="ad_config", cascade="all, delete-orphan")
-    sync_logs: Mapped[List["ADSyncLog"]] = relationship("ADSyncLog", back_populates="ad_config", cascade="all, delete-orphan")
+    group_mappings: Mapped[list["ADGroupMapping"]] = relationship("ADGroupMapping", back_populates="ad_config", cascade="all, delete-orphan")
+    sync_logs: Mapped[list["ADSyncLog"]] = relationship("ADSyncLog", back_populates="ad_config", cascade="all, delete-orphan")
 
     __table_args__ = (
         Index("ix_ad_configs_active", "is_active"),
@@ -69,7 +71,7 @@ class ADGroupMapping(Base):
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     ad_config_id: Mapped[int] = mapped_column(ForeignKey("ad_configs.id", ondelete="CASCADE"), nullable=False, index=True)
     ad_group_cn: Mapped[str] = mapped_column(String(255), nullable=False)
-    ad_group_dn: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    ad_group_dn: Mapped[str | None] = mapped_column(String(500), nullable=True)
     role_code: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
@@ -93,7 +95,7 @@ class ADSyncLog(Base):
     ad_config_id: Mapped[int] = mapped_column(ForeignKey("ad_configs.id", ondelete="CASCADE"), nullable=False, index=True)
     status: Mapped[ADSyncStatus] = mapped_column(SQLEnum(ADSyncStatus, native_enum=False), default=ADSyncStatus.PENDING, nullable=False)
     started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
-    completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     users_processed: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     users_created: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     users_updated: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
@@ -101,9 +103,9 @@ class ADSyncLog(Base):
     groups_processed: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     groups_created: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     groups_updated: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
-    error_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    details: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
-    triggered_by: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    details: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    triggered_by: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
 
     ad_config: Mapped["ADConfig"] = relationship("ADConfig", back_populates="sync_logs")
 

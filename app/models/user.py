@@ -1,16 +1,18 @@
 from datetime import datetime
 from enum import Enum as PyEnum
-from typing import List, Optional
+
 from sqlalchemy import (
-    String,
     Boolean,
     DateTime,
-    ForeignKey,
-    func,
     Index,
+    String,
+    func,
+)
+from sqlalchemy import (
     Enum as SQLEnum,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
+
 from app.db.session import Base
 
 
@@ -29,7 +31,6 @@ class User(Base):
     last_name: Mapped[str] = mapped_column(String(100), nullable=True)
     password_hash: Mapped[str] = mapped_column(String(255), nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
-    is_admin: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     role: Mapped[UserRole] = mapped_column(
         SQLEnum(UserRole, native_enum=False), default=UserRole.USER, nullable=False
     )
@@ -48,15 +49,15 @@ class User(Base):
         Index("ix_users_username_active", "username", "is_active"),
     )
 
-    roles: Mapped[List["Role"]] = relationship(
+    roles: Mapped[list["Role"]] = relationship(
         "Role", 
         secondary="user_roles", 
         back_populates="users",
         primaryjoin="User.id == UserRoleAssignment.user_id",
         secondaryjoin="Role.id == UserRoleAssignment.role_id"
     )
-    groups: Mapped[List["Group"]] = relationship("Group", secondary="user_groups", back_populates="users")
-    assigned_user_roles: Mapped[List["UserRoleAssignment"]] = relationship(
+    groups: Mapped[list["Group"]] = relationship("Group", secondary="user_groups", back_populates="users")
+    assigned_user_roles: Mapped[list["UserRoleAssignment"]] = relationship(
         "UserRoleAssignment", 
         foreign_keys="UserRoleAssignment.assigned_by", 
         back_populates="assigned_by_user"

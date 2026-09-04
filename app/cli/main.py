@@ -1,16 +1,19 @@
 import asyncio
 import getpass
 import sys
+
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import AsyncSessionLocal, init_db
-from app.services.auth import create_user, hash_password
-from app.services.rbac import RBACService
+from app.models.rbac import (
+    Role,
+    RolePermission,
+    UserRoleAssignment,
+)
 from app.models.user import User, UserRole
-from app.models.rbac import Role, PermissionModel, Permission, Group, RolePermission, UserRoleAssignment
-from app.core.config import get_settings
-
+from app.services.auth import hash_password
+from app.services.rbac import RBACService
 
 DEFAULT_PERMISSIONS = [
     # Dashboard
@@ -157,7 +160,7 @@ async def seed_command():
     async with AsyncSessionLocal() as db:
         print("Création des permissions...")
         result = await seed_rbac(db)
-        print(f"\n✓ Initialisation RBAC terminée !")
+        print("\n✓ Initialisation RBAC terminée !")
         print(f"  Permissions créées: {result['permissions_created']}")
         print(f"  Permissions existantes: {result['permissions_existing']}")
         print(f"  Rôles créés: {result['roles_created']}")
@@ -186,7 +189,6 @@ async def create_admin(username: str, email: str, password: str, first_name: str
             last_name=last_name or None,
             password_hash=hash_password(password),
             is_active=True,
-            is_admin=True,
             role=UserRole.ADMIN,
             source="local",
         )
@@ -237,7 +239,7 @@ async def interactive_create_admin():
         user = await create_admin(username, email, password, first_name, last_name)
         print(f"\n✓ Administrateur '{user.username}' créé avec succès !")
         print(f"  Email: {user.email}")
-        print(f"  Rôle: super_admin")
+        print("  Rôle: super_admin")
     except ValueError as e:
         print(f"\n✗ Erreur: {e}")
         sys.exit(1)

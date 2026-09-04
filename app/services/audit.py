@@ -1,11 +1,10 @@
 from datetime import datetime
-from typing import Optional, Dict, Any, List
-from sqlalchemy.ext.asyncio import AsyncSession
+from typing import Any
+
 from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import AuditLog, User
-from app.core.config import get_settings
-
 
 SENSITIVE_FIELDS = {
     "password",
@@ -25,7 +24,7 @@ SENSITIVE_FIELDS = {
 }
 
 
-def sanitize_values(values: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+def sanitize_values(values: dict[str, Any] | None) -> dict[str, Any] | None:
     if values is None:
         return None
     sanitized = {}
@@ -33,11 +32,13 @@ def sanitize_values(values: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]
         key_lower = key.lower()
         if any(sensitive in key_lower for sensitive in SENSITIVE_FIELDS):
             sanitized[key] = "********"
+        elif isinstance(value, datetime):
+            sanitized[key] = value.isoformat()
         elif isinstance(value, dict):
             sanitized[key] = sanitize_values(value)
         elif isinstance(value, list):
             sanitized[key] = [
-                sanitize_values(v) if isinstance(v, dict) else v
+                sanitize_values(v) if isinstance(v, dict) else (v.isoformat() if isinstance(v, datetime) else v)
                 for v in value
             ]
         else:
@@ -54,18 +55,18 @@ class AuditService:
         *,
         action: str,
         module: str,
-        user: Optional[User] = None,
-        username: Optional[str] = None,
-        object_type: Optional[str] = None,
-        object_id: Optional[str] = None,
-        object_repr: Optional[str] = None,
-        old_values: Optional[Dict[str, Any]] = None,
-        new_values: Optional[Dict[str, Any]] = None,
-        ip_address: Optional[str] = None,
-        user_agent: Optional[str] = None,
-        request_id: Optional[str] = None,
+        user: User | None = None,
+        username: str | None = None,
+        object_type: str | None = None,
+        object_id: str | None = None,
+        object_repr: str | None = None,
+        old_values: dict[str, Any] | None = None,
+        new_values: dict[str, Any] | None = None,
+        ip_address: str | None = None,
+        user_agent: str | None = None,
+        request_id: str | None = None,
         status: str = "success",
-        error_message: Optional[str] = None,
+        error_message: str | None = None,
     ) -> AuditLog:
         log_username = username or (user.username if user else "anonymous")
         log_user_id = user.id if user else None
@@ -95,18 +96,18 @@ class AuditService:
     async def get_logs(
         self,
         *,
-        user_id: Optional[int] = None,
-        username: Optional[str] = None,
-        action: Optional[str] = None,
-        module: Optional[str] = None,
-        object_type: Optional[str] = None,
-        object_id: Optional[str] = None,
-        status: Optional[str] = None,
-        start_date: Optional[datetime] = None,
-        end_date: Optional[datetime] = None,
+        user_id: int | None = None,
+        username: str | None = None,
+        action: str | None = None,
+        module: str | None = None,
+        object_type: str | None = None,
+        object_id: str | None = None,
+        status: str | None = None,
+        start_date: datetime | None = None,
+        end_date: datetime | None = None,
         limit: int = 100,
         offset: int = 0,
-    ) -> List[AuditLog]:
+    ) -> list[AuditLog]:
         query = select(AuditLog).order_by(AuditLog.created_at.desc())
 
         if user_id is not None:
@@ -135,15 +136,15 @@ class AuditService:
     async def count_logs(
         self,
         *,
-        user_id: Optional[int] = None,
-        username: Optional[str] = None,
-        action: Optional[str] = None,
-        module: Optional[str] = None,
-        object_type: Optional[str] = None,
-        object_id: Optional[str] = None,
-        status: Optional[str] = None,
-        start_date: Optional[datetime] = None,
-        end_date: Optional[datetime] = None,
+        user_id: int | None = None,
+        username: str | None = None,
+        action: str | None = None,
+        module: str | None = None,
+        object_type: str | None = None,
+        object_id: str | None = None,
+        status: str | None = None,
+        start_date: datetime | None = None,
+        end_date: datetime | None = None,
     ) -> int:
         from sqlalchemy import func
         query = select(func.count(AuditLog.id))

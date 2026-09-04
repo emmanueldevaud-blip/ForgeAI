@@ -8,14 +8,13 @@ Example:
     pytest tests/test_integration_mysql.py -v
 """
 import pytest
-import pytest_asyncio
-from httpx import AsyncClient, ASGITransport
-from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
+from httpx import ASGITransport, AsyncClient
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
-from app.main import app
 from app.db.session import Base, get_db
+from app.main import app
+from app.models.user import UserRole
 from app.services.auth import create_user
-from app.models.user import User, UserRole
 
 
 @pytest.fixture(scope="session")

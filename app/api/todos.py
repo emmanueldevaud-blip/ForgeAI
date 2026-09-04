@@ -1,12 +1,12 @@
 from datetime import datetime
-from typing import List, Optional
-from fastapi import APIRouter, Depends, HTTPException, status, Query
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
-from pydantic import BaseModel, ConfigDict
 
-from app.db.session import get_db
+from fastapi import APIRouter, Depends, HTTPException, status
+from pydantic import BaseModel, ConfigDict
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from app.api.deps import get_current_active_user
+from app.db.session import get_db
 from app.models.user import User
 
 router = APIRouter(prefix="/api", tags=["todos"])
@@ -21,8 +21,8 @@ class TodoCreate(TodoBase):
 
 
 class TodoUpdate(BaseModel):
-    title: Optional[str] = None
-    completed: Optional[bool] = None
+    title: str | None = None
+    completed: bool | None = None
 
 
 class TodoResponse(TodoBase):
@@ -33,7 +33,7 @@ class TodoResponse(TodoBase):
     created_at: datetime
 
 
-@router.get("/todos", response_model=List[TodoResponse])
+@router.get("/todos", response_model=list[TodoResponse])
 async def list_todos(
     current_user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),

@@ -1,20 +1,20 @@
-from typing import List, Optional, Set
+
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
-from fastapi import Depends
 
-from app.models import User, Role, PermissionModel, Group, UserRoleAssignment, UserGroup, GroupRole
+from app.models import Group, GroupRole, PermissionModel, Role, User, UserGroup, UserRoleAssignment
+from app.models.user import UserRole
 from app.services.audit import AuditService, get_audit_service
 
 
 class RBACService:
-    def __init__(self, db: AsyncSession, audit: Optional[AuditService] = None, current_user: Optional[User] = None):
+    def __init__(self, db: AsyncSession, audit: AuditService | None = None, current_user: User | None = None):
         self.db = db
         self.audit = audit
         self.current_user = current_user
 
-    async def get_user_permissions(self, user: User) -> Set[str]:
+    async def get_user_permissions(self, user: User) -> set[str]:
         permissions = set()
 
         for role in user.roles:
@@ -29,7 +29,7 @@ class RBACService:
                         for perm in role.permissions:
                             permissions.add(perm.code)
 
-        if user.is_admin:
+        if user.role == UserRole.ADMIN:
             permissions.add("*")
 
         return permissions
@@ -38,21 +38,21 @@ class RBACService:
         permissions = await self.get_user_permissions(user)
         return "*" in permissions or permission_code in permissions
 
-    async def user_has_any_permission(self, user: User, permission_codes: List[str]) -> bool:
+    async def user_has_any_permission(self, user: User, permission_codes: list[str]) -> bool:
         permissions = await self.get_user_permissions(user)
         return "*" in permissions or any(p in permissions for p in permission_codes)
 
-    async def user_has_all_permissions(self, user: User, permission_codes: List[str]) -> bool:
+    async def user_has_all_permissions(self, user: User, permission_codes: list[str]) -> bool:
         permissions = await self.get_user_permissions(user)
         return "*" in permissions or all(p in permissions for p in permission_codes)
 
-    async def get_user_roles(self, user: User) -> List[Role]:
+    async def get_user_roles(self, user: User) -> list[Role]:
         return [r for r in user.roles if r.is_active]
 
-    async def get_user_groups(self, user: User) -> List[Group]:
+    async def get_user_groups(self, user: User) -> list[Group]:
         return [g for g in user.groups if g.is_active]
 
-    async def assign_role_to_user(self, user_id: int, role_id: int, assigned_by: Optional[int] = None) -> UserRoleAssignment:
+    async def assign_role_to_user(self, user_id: int, role_id: int, assigned_by: int | None = None) -> UserRoleAssignment:
         existing = await self.db.execute(
             select(UserRoleAssignment).where(
                 UserRoleAssignment.user_id == user_id,
@@ -264,7 +264,7 @@ class RBACService:
             return True
         return False
 
-    async def get_role_by_code(self, code: str) -> Optional[Role]:
+    async def get_role_by_code(self, code: str) -> Role | None:
         result = await self.db.execute(
             select(Role)
             .options(selectinload(Role.permissions))
@@ -272,13 +272,13 @@ class RBACService:
         )
         return result.scalar_one_or_none()
 
-    async def get_permission_by_code(self, code: str) -> Optional[PermissionModel]:
+    async def get_permission_by_code(self, code: str) -> PermissionModel | None:
         result = await self.db.execute(
             select(PermissionModel).where(PermissionModel.code == code)
         )
         return result.scalar_one_or_none()
 
-    async def create_role(self, code: str, name: str, description: Optional[str] = None, is_system: bool = False) -> Role:
+    async def create_role(self, code: str, name: str, description: str | None = None, is_system: bool = False) -> Role:
         role = Role(code=code, name=name, description=description, is_system=is_system)
         self.db.add(role)
         await self.db.commit()
@@ -302,7 +302,7 @@ class RBACService:
             )
         return role
 
-    async def create_permission(self, code: str, name: str, description: Optional[str] = None, module: Optional[str] = None, is_system: bool = False) -> PermissionModel:
+    async def create_permission(self, code: str, name: str, description: str | None = None, module: str | None = None, is_system: bool = False) -> PermissionModel:
         perm = PermissionModel(code=code, name=name, description=description, module=module, is_system=is_system)
         self.db.add(perm)
         await self.db.commit()
@@ -405,9 +405,87 @@ async def get_rbac_service(
     return RBACService(db, audit=audit, current_user=current_user)
 
 
+async def seed_default_rbac(db: AsyncSession) -> None:
+    """Seed default roles and permissions if they don't exist."""
+    rbac = RBACService(db)
+    
+    default_permissions = [
+        ("user_view", "Voir les utilisateurs", "rbac"),
+        ("user_create", "Créer des utilisateurs", "rbac"),
+        ("user_update", "Modifier des utilisateurs", "rbac"),
+        ("user_delete", "Supprimer des utilisateurs", "rbac"),
+        ("user_manage_roles", "Gérer les rôles utilisateurs", "rbac"),
+        ("group_view", "Voir les groupes", "rbac"),
+        ("group_create", "Créer des groupes", "rbac"),
+        ("group_update", "Modifier des groupes", "rbac"),
+        ("group_delete", "Supprimer des groupes", "rbac"),
+        ("group_manage_members", "Gérer les membres des groupes", "rbac"),
+        ("role_view", "Voir les rôles", "rbac"),
+        ("role_create", "Créer des rôles", "rbac"),
+        ("role_update", "Modifier des rôles", "rbac"),
+        ("role_delete", "Supprimer des rôles", "rbac"),
+        ("role_manage_permissions", "Gérer les permissions des rôles", "rbac"),
+        ("module_view", "Voir les modules", "module"),
+        ("module_enable", "Activer des modules", "module"),
+        ("module_disable", "Désactiver des modules", "module"),
+        ("module_configure", "Configurer des modules", "module"),
+        ("ad_config", "Configurer l'AD", "ad"),
+        ("ad_sync", "Synchroniser l'AD", "ad"),
+        ("ad_test", "Tester la connexion AD", "ad"),
+        ("audit_log_view", "Voir les logs d'audit", "audit"),
+        ("settings_view", "Voir les paramètres", "settings"),
+        ("settings_update", "Modifier les paramètres", "settings"),
+        ("admin.access", "Accès à l'administration", "admin"),
+        ("dashboard.view", "Voir le tableau de bord", "dashboard"),
+    ]
+    
+    for code, name, module in default_permissions:
+        perm = await rbac.get_permission_by_code(code)
+        if not perm:
+            await rbac.create_permission(code, name, module=module, is_system=True)
+    
+    default_roles = [
+        ("admin", "Administrateur", "Rôle administrateur avec tous les droits", True),
+        ("user", "Utilisateur", "Rôle utilisateur standard", True),
+    ]
+    
+    for code, name, description, is_system in default_roles:
+        role = await rbac.get_role_by_code(code)
+        if not role:
+            role = await rbac.create_role(code, name, description=description, is_system=is_system)
+
+        if code == "admin":
+            all_perms = await db.execute(select(PermissionModel))
+            all_perms = all_perms.scalars().all()
+            for perm in all_perms:
+                await rbac.assign_permission_to_role(role.id, perm.id)
+
+        # Seed default groups
+        default_groups = [
+            ("administrators", "Administrateurs", "Groupe des administrateurs système"),
+            ("users", "Utilisateurs", "Groupe des utilisateurs standards"),
+        ]
+
+        for code, name, description in default_groups:
+            result = await db.execute(select(Group).where(Group.code == code))
+            group = result.scalar_one_or_none()
+            if not group:
+                group = Group(code=code, name=name, description=description)
+                db.add(group)
+                await db.commit()
+                await db.refresh(group)
+
+            if code == "administrators":
+                admin_role = await rbac.get_role_by_code("admin")
+                if admin_role:
+                    try:
+                        await rbac.assign_role_to_group(group.id, admin_role.id)
+                    except ValueError:
+                        # Role already assigned to group, ignore
+                        pass
+
 async def require_permission(permission_code: str, current_user: User = None, db: AsyncSession = None):
     if current_user is None or db is None:
-        from app.api.deps import get_current_active_user, get_db
         raise RuntimeError("require_permission should be used as a FastAPI dependency")
 
     rbac = RBACService(db)
@@ -427,7 +505,6 @@ def require_permissions(*permission_codes: str):
         db: AsyncSession = None
     ):
         if current_user is None or db is None:
-            from app.api.deps import get_current_active_user, get_db
             raise RuntimeError("require_permissions should be used as a FastAPI dependency")
 
         rbac = RBACService(db)

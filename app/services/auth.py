@@ -1,18 +1,17 @@
-from datetime import datetime, timedelta, timezone
-from typing import Optional, Tuple, List, Dict
-from jose import jwt, JWTError
+from datetime import UTC, datetime, timedelta
+
+from jose import JWTError, jwt
+from ldap3 import ALL, NTLM, SUBTREE, Connection, Server
+from ldap3.core.exceptions import LDAPException
 from passlib.context import CryptContext
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-import ldap3
-from ldap3 import Server, Connection, ALL, SUBTREE, NTLM, SASL, KERBEROS
-from ldap3.core.exceptions import LDAPException
 
 from app.core.config import get_settings
 from app.models.user import User, UserRole
-from app.schemas.auth import Token, TokenData, UserResponse
-from app.services.audit import AuditService, get_audit_service
+from app.schemas.auth import Token, TokenData
 from app.services.ad import DatabaseADService
+from app.services.audit import AuditService
 
 settings = get_settings()
 
@@ -37,21 +36,21 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
         return False
 
 
-def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
+def create_access_token(data: dict, expires_delta: timedelta | None = None) -> str:
     to_encode = data.copy()
-    expire = datetime.now(timezone.utc) + (expires_delta or timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES))
+    expire = datetime.now(UTC) + (expires_delta or timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES))
     to_encode.update({"exp": expire, "type": "access"})
     return jwt.encode(to_encode, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
 
 
 def create_refresh_token(data: dict) -> str:
     to_encode = data.copy()
-    expire = datetime.now(timezone.utc) + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS)
+    expire = datetime.now(UTC) + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS)
     to_encode.update({"exp": expire, "type": "refresh"})
     return jwt.encode(to_encode, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
 
 
-def decode_token(token: str) -> Optional[TokenData]:
+def decode_token(token: str) -> TokenData | None:
     try:
         payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
         if payload.get("type") != "access":
@@ -66,7 +65,7 @@ def decode_token(token: str) -> Optional[TokenData]:
         return None
 
 
-def decode_refresh_token(token: str) -> Optional[TokenData]:
+def decode_refresh_token(token: str) -> TokenData | None:
     try:
         payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
         if payload.get("type") != "refresh":
@@ -81,7 +80,7 @@ def decode_refresh_token(token: str) -> Optional[TokenData]:
         return None
 
 
-async def get_user_by_username(db: AsyncSession, username: str) -> Optional[User]:
+async def get_user_by_username(db: AsyncSession, username: str) -> User | None:
     result = await db.execute(select(User).where(User.username == username))
     user = result.scalar_one_or_none()
     if user:
@@ -89,7 +88,7 @@ async def get_user_by_username(db: AsyncSession, username: str) -> Optional[User
     return user
 
 
-async def get_user_by_email(db: AsyncSession, email: str) -> Optional[User]:
+async def get_user_by_email(db: AsyncSession, email: str) -> User | None:
     result = await db.execute(select(User).where(User.email == email))
     user = result.scalar_one_or_none()
     if user:
@@ -97,15 +96,23 @@ async def get_user_by_email(db: AsyncSession, email: str) -> Optional[User]:
     return user
 
 
-async def get_user_by_id(db: AsyncSession, user_id: int) -> Optional[User]:
-    result = await db.execute(select(User).where(User.id == user_id))
+async def get_user_by_id(db: AsyncSession, user_id: int) -> User | None:
+    from sqlalchemy.orm import selectinload
+
+    from app.models import Group, Role
+    result = await db.execute(
+        select(User)
+        .options(
+            selectinload(User.roles).selectinload(Role.permissions),
+            selectinload(User.groups).selectinload(Group.roles).selectinload(Role.permissions)
+        )
+        .where(User.id == user_id)
+    )
     user = result.scalar_one_or_none()
-    if user:
-        await db.refresh(user)
     return user
 
 
-async def authenticate_local(db: AsyncSession, username: str, password: str, audit: Optional[AuditService] = None, ip_address: Optional[str] = None, user_agent: Optional[str] = None) -> Optional[User]:
+async def authenticate_local(db: AsyncSession, username: str, password: str, audit: AuditService | None = None, ip_address: str | None = None, user_agent: str | None = None) -> User | None:
     user = await get_user_by_username(db, username)
     if not user:
         if audit:
@@ -203,7 +210,7 @@ class LDAPAuthService:
             receive_timeout=self.settings.AD_RECEIVE_TIMEOUT,
         )
 
-    def authenticate(self, username: str, password: str) -> Tuple[Optional[str], Optional[List[str]]]:
+    def authenticate(self, username: str, password: str) -> tuple[str | None, list[str] | None]:
         if not self.settings.AD_ENABLED:
             return None, None
 
@@ -263,16 +270,14 @@ class LDAPAuthService:
         except Exception:
             return None, None
 
-    def map_groups_to_roles(self, ad_groups: List[str]) -> Tuple[bool, UserRole]:
-        is_admin = False
+    def map_groups_to_roles(self, ad_groups: list[str]) -> UserRole:
         role = UserRole.USER
 
         admin_group = self.settings.AD_ADMIN_GROUP
         if admin_group and admin_group in ad_groups:
-            is_admin = True
             role = UserRole.ADMIN
 
-        return is_admin, role
+        return role
 
     def test_connection(
         self,
@@ -283,7 +288,7 @@ class LDAPAuthService:
         bind_password: str,
         connect_timeout: int,
         receive_timeout: int,
-    ) -> Tuple[bool, str, Optional[str]]:
+    ) -> tuple[bool, str, str | None]:
         try:
             server = self._create_server(
                 server_url=server_url,
@@ -323,10 +328,10 @@ async def authenticate_ad(
     db: AsyncSession,
     username: str,
     password: str,
-    audit: Optional[AuditService] = None,
-    ip_address: Optional[str] = None,
-    user_agent: Optional[str] = None,
-) -> Optional[User]:
+    audit: AuditService | None = None,
+    ip_address: str | None = None,
+    user_agent: str | None = None,
+) -> User | None:
     ad_service = DatabaseADService(db, audit=audit)
     
     user_dn, groups, config = await ad_service.authenticate(username, password)
@@ -343,20 +348,18 @@ async def authenticate_ad(
             )
         return None
 
-    is_admin, role = ad_service.map_groups_to_roles(groups or [], config) if config else (False, UserRole.USER)
+    _, role = ad_service.map_groups_to_roles(groups or [], config) if config else (False, UserRole.USER)
 
     result = await db.execute(select(User).where(User.ad_dn == user_dn))
     user = result.scalar_one_or_none()
 
     if user:
         old_values = {
-            "is_admin": user.is_admin,
             "role": user.role.value,
         }
         user.is_active = True
-        user.is_admin = is_admin
         user.role = role
-        user.last_login = datetime.now(timezone.utc)
+        user.last_login = datetime.now(UTC)
         await db.commit()
         await db.refresh(user)
 
@@ -367,7 +370,7 @@ async def authenticate_ad(
                 user=user,
                 status="success",
                 old_values=old_values,
-                new_values={"is_admin": user.is_admin, "role": user.role.value},
+                new_values={"role": user.role.value},
                 ip_address=ip_address,
                 user_agent=user_agent,
             )
@@ -407,11 +410,10 @@ async def authenticate_ad(
             last_name=str(entry.sn) if entry.sn else None,
             password_hash=None,
             is_active=True,
-            is_admin=is_admin,
             role=role,
             source="ad",
             ad_dn=user_dn,
-            last_login=datetime.now(timezone.utc),
+            last_login=datetime.now(UTC),
         )
         db.add(user)
         await db.commit()
@@ -426,7 +428,6 @@ async def authenticate_ad(
                 new_values={
                     "username": user.username,
                     "email": user.email,
-                    "is_admin": user.is_admin,
                     "role": user.role.value,
                     "source": "ad",
                 },
@@ -442,14 +443,14 @@ async def authenticate_ad(
                 module="auth",
                 username=username,
                 status="failure",
-                error_message=f"AD user creation failed: {str(e)}",
+                error_message=f"AD user creation failed: {e!s}",
                 ip_address=ip_address,
                 user_agent=user_agent,
             )
         return None
 
 
-async def create_user(db: AsyncSession, user_data: dict, audit: Optional[AuditService] = None, current_user: Optional[User] = None) -> User:
+async def create_user(db: AsyncSession, user_data: dict, audit: AuditService | None = None, current_user: User | None = None) -> User:
     user = User(
         username=user_data["username"],
         email=user_data["email"],
@@ -457,7 +458,6 @@ async def create_user(db: AsyncSession, user_data: dict, audit: Optional[AuditSe
         last_name=user_data.get("last_name"),
         password_hash=hash_password(user_data["password"]) if user_data.get("password") else None,
         is_active=user_data.get("is_active", True),
-        is_admin=user_data.get("is_admin", False),
         role=UserRole(user_data.get("role", "user")),
         source=user_data.get("source", "local"),
     )
@@ -479,7 +479,6 @@ async def create_user(db: AsyncSession, user_data: dict, audit: Optional[AuditSe
                 "first_name": user.first_name,
                 "last_name": user.last_name,
                 "is_active": user.is_active,
-                "is_admin": user.is_admin,
                 "role": user.role.value,
                 "source": user.source,
             },
@@ -492,8 +491,8 @@ async def update_user(
     db: AsyncSession,
     user: User,
     updates: dict,
-    audit: Optional[AuditService] = None,
-    current_user: Optional[User] = None,
+    audit: AuditService | None = None,
+    current_user: User | None = None,
 ) -> User:
     old_values = {
         "username": user.username,
@@ -501,7 +500,6 @@ async def update_user(
         "first_name": user.first_name,
         "last_name": user.last_name,
         "is_active": user.is_active,
-        "is_admin": user.is_admin,
         "role": user.role.value,
         "source": user.source,
     }
@@ -510,10 +508,10 @@ async def update_user(
         if value is None:
             continue
         if key == "password":
-            setattr(user, "password_hash", hash_password(value))
+            user.password_hash = hash_password(value)
         elif hasattr(user, key):
             setattr(user, key, value)
-    user.updated_at = datetime.now(timezone.utc)
+    user.updated_at = datetime.now(UTC)
     await db.commit()
     await db.refresh(user)
 
@@ -523,7 +521,6 @@ async def update_user(
         "first_name": user.first_name,
         "last_name": user.last_name,
         "is_active": user.is_active,
-        "is_admin": user.is_admin,
         "role": user.role.value,
         "source": user.source,
     }
@@ -544,11 +541,11 @@ async def update_user(
 
 
 async def update_last_login(db: AsyncSession, user: User) -> None:
-    user.last_login = datetime.now(timezone.utc)
+    user.last_login = datetime.now(UTC)
     await db.commit()
 
 
-async def logout_user(db: AsyncSession, user: User, audit: Optional[AuditService] = None) -> None:
+async def logout_user(db: AsyncSession, user: User, audit: AuditService | None = None) -> None:
     if audit:
         await audit.log(
             action="logout",

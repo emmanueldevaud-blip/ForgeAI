@@ -1,19 +1,18 @@
 from datetime import datetime
 from enum import Enum as PyEnum
-from typing import Optional, List
+from typing import Optional
+
 from sqlalchemy import (
-    String,
     Boolean,
     DateTime,
     ForeignKey,
-    func,
     Index,
-    UniqueConstraint,
+    String,
     Text,
-    Enum as SQLEnum,
-    Integer,
+    func,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
+
 from app.db.session import Base
 
 
@@ -53,21 +52,21 @@ class Role(Base):
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     code: Mapped[str] = mapped_column(String(50), unique=True, nullable=False, index=True)
     name: Mapped[str] = mapped_column(String(100), nullable=False)
-    description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
     is_system: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
 
-    permissions: Mapped[List["PermissionModel"]] = relationship("PermissionModel", secondary="role_permissions", back_populates="roles")
-    users: Mapped[List["User"]] = relationship(
+    permissions: Mapped[list["PermissionModel"]] = relationship("PermissionModel", secondary="role_permissions", back_populates="roles")
+    users: Mapped[list["User"]] = relationship(
         "User", 
         secondary="user_roles", 
         back_populates="roles",
         primaryjoin="Role.id == UserRoleAssignment.role_id",
         secondaryjoin="User.id == UserRoleAssignment.user_id"
     )
-    groups: Mapped[List["Group"]] = relationship("Group", secondary="group_roles", back_populates="roles")
+    groups: Mapped[list["Group"]] = relationship("Group", secondary="group_roles", back_populates="roles")
 
     __table_args__ = (
         Index("ix_roles_code_active", "code", "is_active"),
@@ -83,12 +82,12 @@ class PermissionModel(Base):
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     code: Mapped[str] = mapped_column(String(100), unique=True, nullable=False, index=True)
     name: Mapped[str] = mapped_column(String(150), nullable=False)
-    description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    module: Mapped[Optional[str]] = mapped_column(String(50), nullable=True, index=True)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    module: Mapped[str | None] = mapped_column(String(50), nullable=True, index=True)
     is_system: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
-    roles: Mapped[List["Role"]] = relationship("Role", secondary="role_permissions", back_populates="permissions")
+    roles: Mapped[list["Role"]] = relationship("Role", secondary="role_permissions", back_populates="permissions")
 
     __table_args__ = (
         Index("ix_permissions_module_code", "module", "code"),
@@ -115,14 +114,14 @@ class Group(Base):
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     code: Mapped[str] = mapped_column(String(50), unique=True, nullable=False, index=True)
     name: Mapped[str] = mapped_column(String(100), nullable=False)
-    description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    ad_dn: Mapped[Optional[str]] = mapped_column(String(500), nullable=True, unique=True, index=True)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    ad_dn: Mapped[str | None] = mapped_column(String(500), nullable=True, unique=True, index=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
 
-    roles: Mapped[List["Role"]] = relationship("Role", secondary="group_roles", back_populates="groups")
-    users: Mapped[List["User"]] = relationship("User", secondary="user_groups", back_populates="groups")
+    roles: Mapped[list["Role"]] = relationship("Role", secondary="group_roles", back_populates="groups")
+    users: Mapped[list["User"]] = relationship("User", secondary="user_groups", back_populates="groups")
 
     __table_args__ = (
         Index("ix_groups_code_active", "code", "is_active"),
@@ -148,7 +147,7 @@ class UserRoleAssignment(Base):
 
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
     role_id: Mapped[int] = mapped_column(ForeignKey("roles.id", ondelete="CASCADE"), primary_key=True)
-    assigned_by: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id"), nullable=True)
+    assigned_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
     assigned_by_user: Mapped[Optional["User"]] = relationship("User", foreign_keys=[assigned_by], back_populates="assigned_user_roles")

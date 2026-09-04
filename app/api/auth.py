@@ -1,46 +1,45 @@
-from datetime import timedelta
-from fastapi import APIRouter, Depends, HTTPException, status, Response, Request
-from fastapi.security import OAuth2PasswordRequestForm
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import text
-from pydantic import BaseModel, ConfigDict
-from typing import Optional, List
 
+from datetime import datetime
+
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
+from pydantic import BaseModel, ConfigDict
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.api.deps import get_current_active_user, require_admin
 from app.db.session import get_db
-from app.api.deps import get_current_user, get_current_active_user, require_admin
-from app.services.auth import (
-    authenticate_local,
-    authenticate_ad,
-    create_tokens,
-    decode_refresh_token,
-    get_user_by_id,
-    update_last_login,
-    create_user,
-    update_user,
-    logout_user,
-    hash_password,
-    verify_password,
-)
-from app.services.audit import get_audit_service
-from app.services.ad import DatabaseADService
 from app.schemas.auth import (
-    Token,
-    LoginRequest,
-    LoginResponse,
-    RefreshTokenRequest,
-    UserResponse,
-    UserCreate,
-    UserCreateAdmin,
-    UserUpdate,
-    UserPasswordUpdate,
     AdminPasswordReset,
-    MessageResponse,
-    ErrorResponse,
     ADSettingsResponse,
     ADSettingsUpdate,
     ADTestRequest,
     ADTestResponse,
+    LoginRequest,
+    LoginResponse,
+    MessageResponse,
+    RefreshTokenRequest,
+    Token,
+    UserCreate,
+    UserCreateAdmin,
+    UserPasswordUpdate,
+    UserResponse,
+    UserUpdate,
 )
+from app.services.ad import DatabaseADService
+from app.services.audit import get_audit_service
+from app.services.auth import (
+    authenticate_ad,
+    authenticate_local,
+    create_tokens,
+    create_user,
+    decode_refresh_token,
+    get_user_by_id,
+    logout_user,
+    update_last_login,
+    update_user,
+    verify_password,
+)
+
 
 class AuthSettingsResponse(BaseModel):
     auth_local_enabled: bool
@@ -54,9 +53,9 @@ class ADConfigBase(BaseModel):
     port: int = 636
     use_ssl: bool = True
     base_dn: str
-    user_dn: Optional[str] = None
+    user_dn: str | None = None
     user_search_filter: str = "(sAMAccountName={username})"
-    group_search_base: Optional[str] = None
+    group_search_base: str | None = None
     bind_user: str
     bind_password: str
     connect_timeout: int = 10
@@ -71,30 +70,30 @@ class ADConfigCreate(ADConfigBase):
 
 
 class ADConfigUpdate(BaseModel):
-    name: Optional[str] = None
-    is_default: Optional[bool] = None
-    server: Optional[str] = None
-    port: Optional[int] = None
-    use_ssl: Optional[bool] = None
-    base_dn: Optional[str] = None
-    user_dn: Optional[str] = None
-    user_search_filter: Optional[str] = None
-    group_search_base: Optional[str] = None
-    bind_user: Optional[str] = None
-    bind_password: Optional[str] = None
-    connect_timeout: Optional[int] = None
-    receive_timeout: Optional[int] = None
-    page_size: Optional[int] = None
-    follow_referrals: Optional[bool] = None
-    is_active: Optional[bool] = None
+    name: str | None = None
+    is_default: bool | None = None
+    server: str | None = None
+    port: int | None = None
+    use_ssl: bool | None = None
+    base_dn: str | None = None
+    user_dn: str | None = None
+    user_search_filter: str | None = None
+    group_search_base: str | None = None
+    bind_user: str | None = None
+    bind_password: str | None = None
+    connect_timeout: int | None = None
+    receive_timeout: int | None = None
+    page_size: int | None = None
+    follow_referrals: bool | None = None
+    is_active: bool | None = None
 
 
 class ADConfigResponse(ADConfigBase):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
-    last_sync_at: Optional[datetime]
-    last_sync_status: Optional[str]
+    last_sync_at: datetime | None
+    last_sync_status: str | None
     created_at: datetime
     updated_at: datetime
     bind_password: str = ""
@@ -102,7 +101,7 @@ class ADConfigResponse(ADConfigBase):
 
 class ADGroupMappingBase(BaseModel):
     ad_group_cn: str
-    ad_group_dn: Optional[str] = None
+    ad_group_dn: str | None = None
     role_code: str
     is_active: bool = True
 
@@ -112,10 +111,10 @@ class ADGroupMappingCreate(ADGroupMappingBase):
 
 
 class ADGroupMappingUpdate(BaseModel):
-    ad_group_cn: Optional[str] = None
-    ad_group_dn: Optional[str] = None
-    role_code: Optional[str] = None
-    is_active: Optional[bool] = None
+    ad_group_cn: str | None = None
+    ad_group_dn: str | None = None
+    role_code: str | None = None
+    is_active: bool | None = None
 
 
 class ADGroupMappingResponse(ADGroupMappingBase):
@@ -134,7 +133,7 @@ class ADSyncLogResponse(BaseModel):
     ad_config_id: int
     status: str
     started_at: datetime
-    completed_at: Optional[datetime]
+    completed_at: datetime | None
     users_processed: int
     users_created: int
     users_updated: int
@@ -142,14 +141,15 @@ class ADSyncLogResponse(BaseModel):
     groups_processed: int
     groups_created: int
     groups_updated: int
-    error_message: Optional[str]
-    details: Optional[dict]
-    triggered_by: Optional[int]
+    error_message: str | None
+    details: dict | None
+    triggered_by: int | None
 
 
-from app.models.user import User
-from app.core.config import get_settings
 from datetime import datetime
+
+from app.core.config import get_settings
+from app.models.user import User
 
 settings = get_settings()
 router = APIRouter(prefix="/auth", tags=["authentication"])
@@ -322,9 +322,9 @@ async def update_me(
     db: AsyncSession = Depends(get_db),
 ):
     update_data = updates.model_dump(exclude_unset=True)
-    if "role" in update_data and not current_user.is_admin:
+    if "role" in update_data and current_user.role != UserRole.ADMIN:
         del update_data["role"]
-    if "is_active" in update_data and not current_user.is_admin:
+    if "is_active" in update_data and current_user.role != UserRole.ADMIN:
         del update_data["is_active"]
 
     audit = await get_audit_service(db)
@@ -485,7 +485,6 @@ async def delete_user_admin(
             "first_name": user.first_name,
             "last_name": user.last_name,
             "is_active": user.is_active,
-            "is_admin": user.is_admin,
             "role": user.role.value,
             "source": user.source,
         },
@@ -530,7 +529,6 @@ async def update_ad_settings(
     current_user: User = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ):
-    import os
     from pathlib import Path
 
     audit = await get_audit_service(db)
@@ -683,8 +681,8 @@ async def test_ad_connection(
     current_user: User = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ):
-    from app.services.auth import ldap_service
     from app.services.audit import get_audit_service
+    from app.services.auth import ldap_service
 
     audit = await get_audit_service(db)
 
@@ -720,7 +718,7 @@ async def test_ad_connection(
     return ADTestResponse(success=success, message=message, details=details)
 
 
-@router.get("/ad-configs", response_model=List[ADConfigResponse])
+@router.get("/ad-configs", response_model=list[ADConfigResponse])
 async def list_ad_configs(
     current_user: User = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
@@ -849,7 +847,7 @@ async def update_ad_config(
     }
 
     update_data = updates.model_dump(exclude_unset=True)
-    if "is_default" in update_data and update_data["is_default"]:
+    if update_data.get("is_default"):
         await db.execute(
             select(ADConfig).where(ADConfig.is_default == True)
         )
@@ -941,7 +939,7 @@ async def delete_ad_config(
     return MessageResponse(message="Configuration AD supprimée")
 
 
-@router.get("/ad-configs/{config_id}/mappings", response_model=List[ADGroupMappingResponse])
+@router.get("/ad-configs/{config_id}/mappings", response_model=list[ADGroupMappingResponse])
 async def list_ad_group_mappings(
     config_id: int,
     current_user: User = Depends(require_admin),
@@ -1114,7 +1112,7 @@ async def sync_ad_config(
     return ADSyncLogResponse.model_validate(sync_log)
 
 
-@router.get("/ad-configs/{config_id}/sync-logs", response_model=List[ADSyncLogResponse])
+@router.get("/ad-configs/{config_id}/sync-logs", response_model=list[ADSyncLogResponse])
 async def list_ad_sync_logs(
     config_id: int,
     current_user: User = Depends(require_admin),

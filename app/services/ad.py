@@ -1,26 +1,25 @@
-from datetime import datetime, timezone
-from typing import Optional, Tuple, List
-from ldap3 import Server, Connection, ALL, SUBTREE, NTLM
+from datetime import UTC, datetime
+
+from ldap3 import ALL, NTLM, SUBTREE, Connection, Server
 from ldap3.core.exceptions import LDAPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.models import ADConfig, ADGroupMapping, ADSyncLog, ADSyncStatus, User, UserRole
-from app.services.audit import AuditService, get_audit_service
 from app.core.config import get_settings
-
+from app.models import ADConfig, ADSyncLog, ADSyncStatus, User, UserRole
+from app.services.audit import AuditService, get_audit_service
 
 settings = get_settings()
 
 
 class DatabaseADService:
-    def __init__(self, db: AsyncSession, audit: Optional[AuditService] = None, current_user: Optional[User] = None):
+    def __init__(self, db: AsyncSession, audit: AuditService | None = None, current_user: User | None = None):
         self.db = db
         self.audit = audit
         self.current_user = current_user
 
-    async def get_default_config(self) -> Optional[ADConfig]:
+    async def get_default_config(self) -> ADConfig | None:
         result = await self.db.execute(
             select(ADConfig)
             .options(selectinload(ADConfig.group_mappings))
@@ -28,7 +27,7 @@ class DatabaseADService:
         )
         return result.scalar_one_or_none()
 
-    async def get_active_configs(self) -> List[ADConfig]:
+    async def get_active_configs(self) -> list[ADConfig]:
         result = await self.db.execute(
             select(ADConfig)
             .options(selectinload(ADConfig.group_mappings))
@@ -36,7 +35,7 @@ class DatabaseADService:
         )
         return list(result.scalars().all())
 
-    async def get_config_by_id(self, config_id: int) -> Optional[ADConfig]:
+    async def get_config_by_id(self, config_id: int) -> ADConfig | None:
         result = await self.db.execute(
             select(ADConfig)
             .options(selectinload(ADConfig.group_mappings))
@@ -71,7 +70,7 @@ class DatabaseADService:
         bind_password: str,
         connect_timeout: int,
         receive_timeout: int,
-    ) -> Tuple[bool, str, Optional[str]]:
+    ) -> tuple[bool, str, str | None]:
         try:
             protocol = "ldaps" if use_ssl else "ldap"
             full_url = f"{protocol}://{server_url}"
@@ -110,8 +109,8 @@ class DatabaseADService:
         self,
         username: str,
         password: str,
-        config: Optional[ADConfig] = None,
-    ) -> Tuple[Optional[str], Optional[List[str]], Optional[ADConfig]]:
+        config: ADConfig | None = None,
+    ) -> tuple[str | None, list[str] | None, ADConfig | None]:
         if config is None:
             config = await self.get_default_config()
         
@@ -167,8 +166,7 @@ class DatabaseADService:
         except Exception:
             return None, None, None
 
-    def map_groups_to_roles(self, ad_groups: List[str], config: ADConfig) -> Tuple[bool, UserRole]:
-        is_admin = False
+    def map_groups_to_roles(self, ad_groups: list[str], config: ADConfig) -> UserRole:
         role = UserRole.USER
 
         for mapping in config.group_mappings:
@@ -176,19 +174,18 @@ class DatabaseADService:
                 continue
             if mapping.ad_group_cn in ad_groups:
                 if mapping.role_code == "admin":
-                    is_admin = True
                     role = UserRole.ADMIN
                     break
-                elif mapping.role_code == "user" and not is_admin:
+                elif mapping.role_code == "user" and role == UserRole.USER:
                     role = UserRole.USER
 
-        return is_admin, role
+        return role
 
     async def sync_users(self, config: ADConfig) -> ADSyncLog:
         sync_log = ADSyncLog(
             ad_config_id=config.id,
             status=ADSyncStatus.RUNNING,
-            started_at=datetime.now(timezone.utc),
+            started_at=datetime.now(UTC),
             triggered_by=self.current_user.id if self.current_user else None,
         )
         self.db.add(sync_log)
@@ -223,21 +220,19 @@ class DatabaseADService:
                 users_processed += 1
                 user_dn = str(entry.distinguishedName)
                 
-                is_admin = False
                 role = UserRole.USER
                 groups = []
                 if entry.memberOf:
                     groups = [str(g) for g in entry.memberOf]
-                    is_admin, role = self.map_groups_to_roles(groups, config)
+                    role = self.map_groups_to_roles(groups, config)
 
                 result = await self.db.execute(select(User).where(User.ad_dn == user_dn))
                 user = result.scalar_one_or_none()
 
                 if user:
                     user.is_active = True
-                    user.is_admin = is_admin
                     user.role = role
-                    user.last_login = datetime.now(timezone.utc)
+                    user.last_login = datetime.now(UTC)
                     if entry.mail:
                         user.email = str(entry.mail)
                     if entry.givenName:
@@ -256,11 +251,10 @@ class DatabaseADService:
                         last_name=str(entry.sn) if entry.sn else None,
                         password_hash=None,
                         is_active=True,
-                        is_admin=is_admin,
                         role=role,
                         source="ad",
                         ad_dn=user_dn,
-                        last_login=datetime.now(timezone.utc),
+                        last_login=datetime.now(UTC),
                     )
                     self.db.add(user)
                     users_created += 1
@@ -268,13 +262,13 @@ class DatabaseADService:
             admin_conn.unbind()
 
             sync_log.status = ADSyncStatus.SUCCESS
-            sync_log.completed_at = datetime.now(timezone.utc)
+            sync_log.completed_at = datetime.now(UTC)
             sync_log.users_processed = users_processed
             sync_log.users_created = users_created
             sync_log.users_updated = users_updated
             sync_log.users_deactivated = users_deactivated
 
-            config.last_sync_at = datetime.now(timezone.utc)
+            config.last_sync_at = datetime.now(UTC)
             config.last_sync_status = "success"
 
             await self.db.commit()
@@ -301,7 +295,7 @@ class DatabaseADService:
 
         except Exception as e:
             sync_log.status = ADSyncStatus.FAILED
-            sync_log.completed_at = datetime.now(timezone.utc)
+            sync_log.completed_at = datetime.now(UTC)
             sync_log.error_message = str(e)
             config.last_sync_status = "failed"
             await self.db.commit()
@@ -322,7 +316,7 @@ class DatabaseADService:
 
 async def get_ad_service(
     db: AsyncSession,
-    current_user: Optional[User] = None,
+    current_user: User | None = None,
 ) -> DatabaseADService:
     audit = await get_audit_service(db)
     return DatabaseADService(db, audit=audit, current_user=current_user)

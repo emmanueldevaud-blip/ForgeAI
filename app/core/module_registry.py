@@ -1,6 +1,6 @@
-from typing import Dict, List, Optional, Any
-from dataclasses import dataclass, field
 from abc import ABC, abstractmethod
+from dataclasses import dataclass, field
+from typing import Any
 
 from app.models.module import ModuleStatus
 
@@ -16,10 +16,10 @@ class ModuleInfo:
     version: str = "1.0.0"
     route_path: str = ""
     component_path: str = ""
-    required_permissions: List[str] = field(default_factory=list)
-    settings: Dict[str, Any] = field(default_factory=dict)
+    required_permissions: list[str] = field(default_factory=list)
+    settings: dict[str, Any] = field(default_factory=dict)
     is_core: bool = False
-    dependencies: List[str] = field(default_factory=list)
+    dependencies: list[str] = field(default_factory=list)
 
 
 class BaseModule(ABC):
@@ -53,9 +53,12 @@ class BaseModule(ABC):
     def get_permissions(self):
         return self.info.required_permissions
 
-    def get_navigation_items(self, user_permissions: List[str]):
-        if self.info.required_permissions and not all(p in user_permissions for p in self.info.required_permissions):
-            return []
+    def get_navigation_items(self, user_permissions: list[str]):
+        if self.info.required_permissions:
+            if "*" in user_permissions:
+                pass
+            elif not all(p in user_permissions for p in self.info.required_permissions):
+                return []
         return [{
             "code": self.info.code,
             "name": self.info.name,
@@ -71,7 +74,7 @@ class ModuleRegistry:
     def __new__(cls):
         if cls._instance is None:
             cls._instance = super().__new__(cls)
-            cls._instance._modules: Dict[str, BaseModule] = {}
+            cls._instance._modules: dict[str, BaseModule] = {}
         return cls._instance
 
     def register(self, module: BaseModule):
@@ -81,19 +84,19 @@ class ModuleRegistry:
         if code in self._modules:
             del self._modules[code]
 
-    def get(self, code: str) -> Optional[BaseModule]:
+    def get(self, code: str) -> BaseModule | None:
         return self._modules.get(code)
 
-    def get_all(self) -> List[BaseModule]:
+    def get_all(self) -> list[BaseModule]:
         return list(self._modules.values())
 
-    def get_active(self) -> List[BaseModule]:
+    def get_active(self) -> list[BaseModule]:
         return [m for m in self._modules.values() if m.info.status == ModuleStatus.ACTIVE]
 
-    def get_ordered_active(self) -> List[BaseModule]:
+    def get_ordered_active(self) -> list[BaseModule]:
         return sorted(self.get_active(), key=lambda m: m.info.order)
 
-    def get_navigation(self, user_permissions: List[str]) -> List[Dict[str, Any]]:
+    def get_navigation(self, user_permissions: list[str]) -> list[dict[str, Any]]:
         nav_items = []
         for module in self.get_ordered_active():
             items = module.get_navigation_items(user_permissions)

@@ -1,28 +1,23 @@
-import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
-from datetime import datetime, timezone, timedelta
-from jose import jwt
+from datetime import timedelta
 
+import pytest
+
+from app.core.config import get_settings
+from app.models.user import UserRole
 from app.services.auth import (
-    hash_password,
-    verify_password,
+    LDAPAuthService,
+    authenticate_ad,
+    authenticate_local,
     create_access_token,
     create_refresh_token,
-    decode_token,
-    decode_refresh_token,
-    authenticate_local,
-    authenticate_ad,
     create_user,
-    update_user,
-    update_last_login,
-    get_user_by_id,
-    get_user_by_username,
-    get_user_by_email,
+    decode_refresh_token,
+    decode_token,
+    hash_password,
     ldap_service,
-    LDAPAuthService,
+    update_user,
+    verify_password,
 )
-from app.models.user import User, UserRole
-from app.core.config import get_settings
 
 
 class TestPasswordHashing:
@@ -125,9 +120,7 @@ class TestUserCRUD:
             "password": "password123",
             "first_name": "Test",
             "last_name": "User",
-            "is_active": True,
-            "is_admin": False,
-            "role": UserRole.USER,
+            "is_active": True,            "role": UserRole.USER,
             "source": "local",
         }
         user = await create_user(db_session, user_data)
@@ -137,7 +130,7 @@ class TestUserCRUD:
         assert user.first_name == "Test"
         assert user.last_name == "User"
         assert user.is_active is True
-        assert user.is_admin is False
+        assert user.role == UserRole.USER
         assert user.role == UserRole.USER
         assert user.source == "local"
         assert user.password_hash is not None
@@ -150,9 +143,7 @@ class TestUserCRUD:
             "email": "ad@example.com",
             "first_name": "AD",
             "last_name": "User",
-            "is_active": True,
-            "is_admin": False,
-            "role": UserRole.USER,
+            "is_active": True,            "role": UserRole.USER,
             "source": "ad",
         }
         user = await create_user(db_session, user_data)
@@ -165,9 +156,7 @@ class TestUserCRUD:
             "username": "updateuser",
             "email": "update@example.com",
             "password": "password123",
-            "is_active": True,
-            "is_admin": False,
-            "role": UserRole.USER,
+            "is_active": True,            "role": UserRole.USER,
             "source": "local",
         }
         user = await create_user(db_session, user_data)
@@ -184,9 +173,7 @@ class TestUserCRUD:
             "username": "passuser",
             "email": "pass@example.com",
             "password": "oldpassword",
-            "is_active": True,
-            "is_admin": False,
-            "role": UserRole.USER,
+            "is_active": True,            "role": UserRole.USER,
             "source": "local",
         }
         user = await create_user(db_session, user_data)
@@ -204,9 +191,7 @@ class TestLocalAuthentication:
             "username": "authuser",
             "email": "auth@example.com",
             "password": "correctpassword",
-            "is_active": True,
-            "is_admin": False,
-            "role": UserRole.USER,
+            "is_active": True,            "role": UserRole.USER,
             "source": "local",
         }
         await create_user(db_session, user_data)
@@ -221,9 +206,7 @@ class TestLocalAuthentication:
             "username": "authuser2",
             "email": "auth2@example.com",
             "password": "correctpassword",
-            "is_active": True,
-            "is_admin": False,
-            "role": UserRole.USER,
+            "is_active": True,            "role": UserRole.USER,
             "source": "local",
         }
         await create_user(db_session, user_data)
@@ -242,9 +225,7 @@ class TestLocalAuthentication:
             "username": "inactiveuser",
             "email": "inactive@example.com",
             "password": "password123",
-            "is_active": False,
-            "is_admin": False,
-            "role": UserRole.USER,
+            "is_active": False,            "role": UserRole.USER,
             "source": "local",
         }
         await create_user(db_session, user_data)
@@ -259,9 +240,7 @@ class TestLocalAuthentication:
             "email": "ad@example.com",
             "first_name": "AD",
             "last_name": "User",
-            "is_active": True,
-            "is_admin": False,
-            "role": UserRole.USER,
+            "is_active": True,            "role": UserRole.USER,
             "source": "ad",
         }
         await create_user(db_session, user_data)
@@ -295,8 +274,8 @@ class TestADAuthentication:
         monkeypatch.setattr(settings, 'AD_ADMIN_GROUP', 'AppAdmins')
         monkeypatch.setattr(settings, 'AD_GROUP_MAPPING', {"admin": "AppAdmins", "user": "AppUsers"})
 
-        is_admin, role = ldap_service.map_groups_to_roles(["AppUsers", "AppAdmins"])
-        assert is_admin is True
+        role = ldap_service.map_groups_to_roles(["AppUsers", "AppAdmins"])
+        
         assert role == UserRole.ADMIN
 
     @pytest.mark.asyncio
@@ -305,8 +284,8 @@ class TestADAuthentication:
         monkeypatch.setattr(settings, 'AD_ADMIN_GROUP', 'AppAdmins')
         monkeypatch.setattr(settings, 'AD_GROUP_MAPPING', {"admin": "AppAdmins", "user": "AppUsers"})
 
-        is_admin, role = ldap_service.map_groups_to_roles(["AppUsers"])
-        assert is_admin is False
+        role = ldap_service.map_groups_to_roles(["AppUsers"])
+        
         assert role == UserRole.USER
 
     @pytest.mark.asyncio
@@ -315,8 +294,8 @@ class TestADAuthentication:
         monkeypatch.setattr(settings, 'AD_ADMIN_GROUP', 'AppAdmins')
         monkeypatch.setattr(settings, 'AD_GROUP_MAPPING', {"admin": "AppAdmins", "user": "AppUsers"})
 
-        is_admin, role = ldap_service.map_groups_to_roles(["OtherGroup"])
-        assert is_admin is False
+        role = ldap_service.map_groups_to_roles(["OtherGroup"])
+        
         assert role == UserRole.USER
 
 
@@ -327,9 +306,7 @@ class TestAuthEndpoints:
             "username": "loginuser",
             "email": "login@example.com",
             "password": "loginpassword",
-            "is_active": True,
-            "is_admin": False,
-            "role": UserRole.USER,
+            "is_active": True,            "role": UserRole.USER,
             "source": "local",
         }
         await create_user(db_session, user_data)
@@ -361,9 +338,7 @@ class TestAuthEndpoints:
             "username": "inactivelogin",
             "email": "inactivelogin@example.com",
             "password": "password123",
-            "is_active": False,
-            "is_admin": False,
-            "role": UserRole.USER,
+            "is_active": False,            "role": UserRole.USER,
             "source": "local",
         }
         await create_user(db_session, user_data)
@@ -394,9 +369,7 @@ class TestAuthEndpoints:
             "username": "duplicate",
             "email": "dup1@example.com",
             "password": "password123",
-            "is_active": True,
-            "is_admin": False,
-            "role": UserRole.USER,
+            "is_active": True,            "role": UserRole.USER,
             "source": "local",
         }
         await create_user(db_session, user_data)
@@ -471,14 +444,12 @@ class TestAuthorization:
         response = await client.post("/auth/users", headers=admin_headers, json={
             "username": "admincreated",
             "email": "admincreated@example.com",
-            "password": "password123",
-            "is_admin": True,
-            "role": "admin",
+            "password": "password123",            "role": "admin",
         })
         assert response.status_code == 201
         data = response.json()
         assert data["username"] == "admincreated"
-        assert data["is_admin"] is True
+        
 
     @pytest.mark.asyncio
     async def test_update_user_admin(self, client, admin_headers, db_session):
@@ -486,21 +457,17 @@ class TestAuthorization:
             "username": "toupdate",
             "email": "toupdate@example.com",
             "password": "password123",
-            "is_active": True,
-            "is_admin": False,
-            "role": UserRole.USER,
+            "is_active": True,            "role": UserRole.USER,
             "source": "local",
         }
         user = await create_user(db_session, user_data)
 
         response = await client.patch(f"/auth/users/{user.id}", headers=admin_headers, json={
-            "first_name": "Updated",
-            "is_admin": True,
-        })
+            "first_name": "Updated",        })
         assert response.status_code == 200
         data = response.json()
         assert data["first_name"] == "Updated"
-        assert data["is_admin"] is True
+        
 
     @pytest.mark.asyncio
     async def test_reset_password_admin(self, client, admin_headers, db_session):
@@ -508,9 +475,7 @@ class TestAuthorization:
             "username": "toreset",
             "email": "toreset@example.com",
             "password": "oldpassword",
-            "is_active": True,
-            "is_admin": False,
-            "role": UserRole.USER,
+            "is_active": True,            "role": UserRole.USER,
             "source": "local",
         }
         user = await create_user(db_session, user_data)
@@ -524,9 +489,7 @@ class TestAuthorization:
             "username": "todelete",
             "email": "todelete@example.com",
             "password": "password123",
-            "is_active": True,
-            "is_admin": False,
-            "role": UserRole.USER,
+            "is_active": True,            "role": UserRole.USER,
             "source": "local",
         }
         user = await create_user(db_session, user_data)
@@ -557,18 +520,14 @@ class TestUserIsolation:
             "username": "isolation_user1",
             "email": "user1@example.com",
             "password": "password123",
-            "is_active": True,
-            "is_admin": False,
-            "role": UserRole.USER,
+            "is_active": True,            "role": UserRole.USER,
             "source": "local",
         }
         user2_data = {
             "username": "isolation_user2",
             "email": "user2@example.com",
             "password": "password123",
-            "is_active": True,
-            "is_admin": False,
-            "role": UserRole.USER,
+            "is_active": True,            "role": UserRole.USER,
             "source": "local",
         }
         user1 = await create_user(db_session, user1_data)
@@ -625,18 +584,14 @@ class TestUserIsolation:
             "username": "profile_user1",
             "email": "profile1@example.com",
             "password": "password123",
-            "is_active": True,
-            "is_admin": False,
-            "role": UserRole.USER,
+            "is_active": True,            "role": UserRole.USER,
             "source": "local",
         }
         user2_data = {
             "username": "profile_user2",
             "email": "profile2@example.com",
             "password": "password123",
-            "is_active": True,
-            "is_admin": False,
-            "role": UserRole.USER,
+            "is_active": True,            "role": UserRole.USER,
             "source": "local",
         }
         user1 = await create_user(db_session, user1_data)
@@ -766,7 +721,6 @@ class TestADSettings:
 class TestLDAPService:
     @pytest.mark.asyncio
     async def test_ldap_test_connection_invalid_server(self, monkeypatch):
-        from app.services.auth import LDAPAuthService
         service = LDAPAuthService()
 
         success, message, details = service.test_connection(

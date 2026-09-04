@@ -338,7 +338,7 @@ function attachTodoEventListeners() {
 function updateUserUI() {
   if (!currentUser) return;
   elements.userDisplay.textContent = currentUser.full_name || currentUser.username;
-  if (currentUser.is_admin || currentUser.role === 'admin') {
+  if (currentUser.role === 'admin') {
     elements.userRoleBadge.textContent = 'Admin';
     elements.userRoleBadge.classList.add('admin');
     elements.userRoleBadge.classList.remove('hidden');

@@ -1,8 +1,7 @@
 from datetime import UTC, datetime, timedelta
 
 from jose import JWTError, jwt
-from ldap3 import ALL, NTLM, SUBTREE, Connection, Server
-from ldap3.core.exceptions import LDAPException
+from ldap3 import NTLM, SUBTREE, Connection
 from passlib.context import CryptContext
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -187,141 +186,6 @@ async def authenticate_local(db: AsyncSession, username: str, password: str, aud
     return user
 
 
-class LDAPAuthService:
-    def __init__(self):
-        self.settings = get_settings()
-
-    def _create_server(self, server_url: str = None, use_ssl: bool = None, connect_timeout: int = None) -> Server:
-        settings = self.settings
-        return Server(
-            server_url or settings.ad_url,
-            use_ssl=use_ssl if use_ssl is not None else settings.AD_USE_SSL,
-            get_info=ALL,
-            connect_timeout=connect_timeout or settings.AD_CONNECT_TIMEOUT,
-        )
-
-    def _create_connection(self, server: Server, user_dn: str, password: str) -> Connection:
-        return Connection(
-            server,
-            user=user_dn,
-            password=password,
-            authentication=NTLM,
-            auto_bind=True,
-            receive_timeout=self.settings.AD_RECEIVE_TIMEOUT,
-        )
-
-    def authenticate(self, username: str, password: str) -> tuple[str | None, list[str] | None]:
-        if not self.settings.AD_ENABLED:
-            return None, None
-
-        try:
-            bind_user = self.settings.AD_BIND_USER
-            bind_password = self.settings.AD_BIND_PASSWORD
-
-            if not bind_user or not bind_password:
-                return None, None
-
-            server = self._create_server()
-            admin_conn = Connection(
-                server,
-                user=bind_user,
-                password=bind_password,
-                authentication=NTLM,
-                auto_bind=True,
-                receive_timeout=self.settings.AD_RECEIVE_TIMEOUT,
-            )
-
-            search_filter = self.settings.AD_USER_SEARCH_FILTER.format(username=username)
-            admin_conn.search(
-                search_base=self.settings.AD_BASE_DN,
-                search_filter=search_filter,
-                search_scope=SUBTREE,
-                attributes=["distinguishedName", "sAMAccountName", "mail", "givenName", "sn", "memberOf", "userAccountControl"],
-            )
-
-            if not admin_conn.entries:
-                admin_conn.unbind()
-                return None, None
-
-            entry = admin_conn.entries[0]
-            user_dn = str(entry.distinguishedName)
-            admin_conn.unbind()
-
-            user_conn = self._create_connection(user_dn, password)
-            if not user_conn.bound:
-                return None, None
-
-            groups = []
-            if self.settings.AD_GROUP_SEARCH_BASE and self.settings.AD_ADMIN_GROUP:
-                user_conn.search(
-                    search_base=self.settings.AD_GROUP_SEARCH_BASE,
-                    search_filter=f"(member={user_dn})",
-                    search_scope=SUBTREE,
-                    attributes=["cn"],
-                )
-                groups = [str(entry.cn) for entry in user_conn.entries]
-
-            user_conn.unbind()
-
-            return user_dn, groups
-
-        except LDAPException:
-            return None, None
-        except Exception:
-            return None, None
-
-    def map_groups_to_roles(self, ad_groups: list[str]) -> UserRole:
-        role = UserRole.USER
-
-        admin_group = self.settings.AD_ADMIN_GROUP
-        if admin_group and admin_group in ad_groups:
-            role = UserRole.ADMIN
-
-        return role
-
-    def test_connection(
-        self,
-        server_url: str,
-        use_ssl: bool,
-        base_dn: str,
-        bind_user: str,
-        bind_password: str,
-        connect_timeout: int,
-        receive_timeout: int,
-    ) -> tuple[bool, str, str | None]:
-        try:
-            server = self._create_server(
-                server_url=server_url,
-                use_ssl=use_ssl,
-                connect_timeout=connect_timeout,
-            )
-            conn = Connection(
-                server,
-                user=bind_user,
-                password=bind_password,
-                authentication=NTLM,
-                auto_bind=True,
-                receive_timeout=receive_timeout,
-            )
-
-            conn.search(
-                search_base=base_dn,
-                search_filter="(objectClass=*)",
-                search_scope=SUBTREE,
-                attributes=["distinguishedName"],
-                size_limit=1,
-            )
-
-            conn.unbind()
-            return True, "Connexion à l'Active Directory réussie", None
-
-        except LDAPException as e:
-            return False, "Échec de la connexion LDAP", str(e)
-        except Exception as e:
-            return False, "Erreur lors du test de connexion", str(e)
-
-
-ldap_service = LDAPAuthService()
 
 
 async def authenticate_ad(
@@ -348,7 +212,7 @@ async def authenticate_ad(
             )
         return None
 
-    _, role = ad_service.map_groups_to_roles(groups or [], config) if config else (False, UserRole.USER)
+    role = ad_service.map_groups_to_roles(groups or [], config) if config else UserRole.USER
 
     result = await db.execute(select(User).where(User.ad_dn == user_dn))
     user = result.scalar_one_or_none()

@@ -79,7 +79,10 @@ async function initializeApp() {
     }, { requiresAuth: true, permissions: ['role_view'] })
     .addRoute('/administration/permissions', async (route) => {
       await showAdministrationPage(route);
-    }, { requiresAuth: true, permissions: ['permission_view'] });
+    }, { requiresAuth: true, permissions: ['permission_view'] })
+    .addRoute('/administration/active-directory', async (route) => {
+      await showAdministrationPage(route);
+    }, { requiresAuth: true, permissions: ['ad_config'] });
 
   moduleRoutes.forEach(module => {
     if (module === 'dashboard' || module === 'administration') return;

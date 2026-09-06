@@ -192,6 +192,11 @@ class DatabaseADService:
         await self.db.commit()
         await self.db.refresh(sync_log)
 
+        found_ad_dns = set()
+        groups_processed = 0
+        groups_created = 0
+        groups_updated = 0
+
         try:
             server = self._create_server(config)
             admin_conn = Connection(
@@ -219,6 +224,7 @@ class DatabaseADService:
             for entry in admin_conn.entries:
                 users_processed += 1
                 user_dn = str(entry.distinguishedName)
+                found_ad_dns.add(user_dn)
                 
                 role = UserRole.USER
                 groups = []
@@ -228,6 +234,9 @@ class DatabaseADService:
 
                 result = await self.db.execute(select(User).where(User.ad_dn == user_dn))
                 user = result.scalar_one_or_none()
+
+                sam_account = str(entry.sAMAccountName) if entry.sAMAccountName else f"ad_user_{users_processed}"
+                email = str(entry.mail) if entry.mail else f"{sam_account}@ad.local"
 
                 if user:
                     user.is_active = True
@@ -243,9 +252,8 @@ class DatabaseADService:
                         user.username = str(entry.sAMAccountName)
                     users_updated += 1
                 else:
-                    email = str(entry.mail) if entry.mail else f"{username}@ad.local"
                     user = User(
-                        username=str(entry.sAMAccountName) if entry.sAMAccountName else f"ad_user_{users_processed}",
+                        username=sam_account,
                         email=email,
                         first_name=str(entry.givenName) if entry.givenName else None,
                         last_name=str(entry.sn) if entry.sn else None,
@@ -259,6 +267,53 @@ class DatabaseADService:
                     self.db.add(user)
                     users_created += 1
 
+            if config.group_search_base:
+                admin_conn.search(
+                    search_base=config.group_search_base,
+                    search_filter="(objectClass=group)",
+                    search_scope=SUBTREE,
+                    attributes=["cn", "distinguishedName", "member"],
+                    paged_size=config.page_size,
+                )
+
+                for entry in admin_conn.entries:
+                    groups_processed += 1
+                    group_cn = str(entry.cn) if entry.cn else None
+                    group_dn = str(entry.distinguishedName) if entry.distinguishedName else None
+                    
+                    if not group_cn:
+                        continue
+
+                    from app.models import Group
+                    result = await self.db.execute(select(Group).where(Group.ad_dn == group_dn))
+                    group = result.scalar_one_or_none()
+
+                    if group:
+                        group.name = group_cn
+                        groups_updated += 1
+                    else:
+                        group = Group(
+                            code=group_cn.lower().replace(" ", "_"),
+                            name=group_cn,
+                            ad_dn=group_dn,
+                            is_active=True,
+                        )
+                        self.db.add(group)
+                        groups_created += 1
+
+            if found_ad_dns:
+                result = await self.db.execute(
+                    select(User).where(
+                        User.source == "ad",
+                        User.ad_dn.notin_(list(found_ad_dns)),
+                        User.is_active == True
+                    )
+                )
+                ad_users_not_found = result.scalars().all()
+                for user in ad_users_not_found:
+                    user.is_active = False
+                    users_deactivated += 1
+
             admin_conn.unbind()
 
             sync_log.status = ADSyncStatus.SUCCESS
@@ -267,6 +322,9 @@ class DatabaseADService:
             sync_log.users_created = users_created
             sync_log.users_updated = users_updated
             sync_log.users_deactivated = users_deactivated
+            sync_log.groups_processed = groups_processed
+            sync_log.groups_created = groups_created
+            sync_log.groups_updated = groups_updated
 
             config.last_sync_at = datetime.now(UTC)
             config.last_sync_status = "success"
@@ -287,6 +345,9 @@ class DatabaseADService:
                         "users_created": users_created,
                         "users_updated": users_updated,
                         "users_deactivated": users_deactivated,
+                        "groups_processed": groups_processed,
+                        "groups_created": groups_created,
+                        "groups_updated": groups_updated,
                     },
                     status="success",
                 )

@@ -5,7 +5,6 @@ import pytest
 from app.core.config import get_settings
 from app.models.user import UserRole
 from app.services.auth import (
-    LDAPAuthService,
     authenticate_ad,
     authenticate_local,
     create_access_token,
@@ -14,7 +13,6 @@ from app.services.auth import (
     decode_refresh_token,
     decode_token,
     hash_password,
-    ldap_service,
     update_user,
     verify_password,
 )
@@ -248,55 +246,6 @@ class TestLocalAuthentication:
         user = await authenticate_local(db_session, "aduser", "anypassword")
         assert user is None
 
-
-class TestADAuthentication:
-    @pytest.mark.asyncio
-    async def test_authenticate_ad_disabled(self, db_session, monkeypatch):
-        settings = get_settings()
-        monkeypatch.setattr(settings, 'AD_ENABLED', False)
-
-        user = await authenticate_ad(db_session, "aduser", "password")
-        assert user is None
-
-    @pytest.mark.asyncio
-    async def test_authenticate_ad_no_bind_credentials(self, db_session, monkeypatch):
-        settings = get_settings()
-        monkeypatch.setattr(settings, 'AD_ENABLED', True)
-        monkeypatch.setattr(settings, 'AD_BIND_USER', '')
-        monkeypatch.setattr(settings, 'AD_BIND_PASSWORD', '')
-
-        user = await authenticate_ad(db_session, "aduser", "password")
-        assert user is None
-
-    @pytest.mark.asyncio
-    async def test_ldap_map_groups_to_roles_admin(self, monkeypatch):
-        settings = get_settings()
-        monkeypatch.setattr(settings, 'AD_ADMIN_GROUP', 'AppAdmins')
-        monkeypatch.setattr(settings, 'AD_GROUP_MAPPING', {"admin": "AppAdmins", "user": "AppUsers"})
-
-        role = ldap_service.map_groups_to_roles(["AppUsers", "AppAdmins"])
-        
-        assert role == UserRole.ADMIN
-
-    @pytest.mark.asyncio
-    async def test_ldap_map_groups_to_roles_user(self, monkeypatch):
-        settings = get_settings()
-        monkeypatch.setattr(settings, 'AD_ADMIN_GROUP', 'AppAdmins')
-        monkeypatch.setattr(settings, 'AD_GROUP_MAPPING', {"admin": "AppAdmins", "user": "AppUsers"})
-
-        role = ldap_service.map_groups_to_roles(["AppUsers"])
-        
-        assert role == UserRole.USER
-
-    @pytest.mark.asyncio
-    async def test_ldap_map_groups_to_roles_no_match(self, monkeypatch):
-        settings = get_settings()
-        monkeypatch.setattr(settings, 'AD_ADMIN_GROUP', 'AppAdmins')
-        monkeypatch.setattr(settings, 'AD_GROUP_MAPPING', {"admin": "AppAdmins", "user": "AppUsers"})
-
-        role = ldap_service.map_groups_to_roles(["OtherGroup"])
-        
-        assert role == UserRole.USER
 
 
 class TestAuthEndpoints:
@@ -605,132 +554,3 @@ class TestUserIsolation:
         assert response.status_code == 403
 
 
-class TestADSettings:
-    @pytest.mark.asyncio
-    async def test_get_ad_settings_admin(self, client, admin_headers):
-        response = await client.get("/auth/ad-settings", headers=admin_headers)
-        assert response.status_code == 200
-        data = response.json()
-        assert "ad_enabled" in data
-        assert "ad_server" in data
-        assert "ad_port" in data
-        assert "ad_use_ssl" in data
-        assert "ad_base_dn" in data
-        assert "ad_bind_user" in data
-        assert "ad_bind_password" in data
-        assert data["ad_bind_password"] == ""
-
-    @pytest.mark.asyncio
-    async def test_get_ad_settings_denied_for_user(self, client, auth_headers):
-        response = await client.get("/auth/ad-settings", headers=auth_headers)
-        assert response.status_code == 403
-
-    @pytest.mark.asyncio
-    async def test_update_ad_settings_admin(self, client, admin_headers):
-        update_data = {
-            "ad_enabled": True,
-            "ad_server": "ad.test.com",
-            "ad_port": 389,
-            "ad_use_ssl": False,
-            "ad_base_dn": "DC=test,DC=com",
-            "ad_bind_user": "CN=svc_test,OU=ServiceAccounts,DC=test,DC=com",
-            "ad_bind_password": "newpassword",
-            "ad_connect_timeout": 15,
-            "ad_receive_timeout": 15,
-        }
-        response = await client.put("/auth/ad-settings", headers=admin_headers, json=update_data)
-        assert response.status_code == 200
-        data = response.json()
-        assert data["ad_enabled"] is True
-        assert data["ad_server"] == "ad.test.com"
-        assert data["ad_port"] == 389
-        assert data["ad_use_ssl"] is False
-        assert data["ad_base_dn"] == "DC=test,DC=com"
-        assert data["ad_bind_user"] == "CN=svc_test,OU=ServiceAccounts,DC=test,DC=com"
-        assert data["ad_bind_password"] == ""
-        assert data["ad_connect_timeout"] == 15
-        assert data["ad_receive_timeout"] == 15
-
-    @pytest.mark.asyncio
-    async def test_update_ad_settings_partial(self, client, admin_headers):
-        update_data = {
-            "ad_enabled": False,
-        }
-        response = await client.put("/auth/ad-settings", headers=admin_headers, json=update_data)
-        assert response.status_code == 200
-        data = response.json()
-        assert data["ad_enabled"] is False
-
-    @pytest.mark.asyncio
-    async def test_update_ad_settings_denied_for_user(self, client, auth_headers):
-        response = await client.put("/auth/ad-settings", headers=auth_headers, json={"ad_enabled": True})
-        assert response.status_code == 403
-
-    @pytest.mark.asyncio
-    async def test_test_ad_connection_admin(self, client, admin_headers):
-        test_data = {
-            "ad_server": "nonexistent.ad.com",
-            "ad_port": 636,
-            "ad_use_ssl": True,
-            "ad_base_dn": "DC=test,DC=com",
-            "ad_bind_user": "CN=svc_test,OU=ServiceAccounts,DC=test,DC=com",
-            "ad_bind_password": "password",
-            "ad_connect_timeout": 5,
-            "ad_receive_timeout": 5,
-        }
-        response = await client.post("/auth/ad-test", headers=admin_headers, json=test_data)
-        assert response.status_code == 200
-        data = response.json()
-        assert "success" in data
-        assert "message" in data
-        assert data["success"] is False
-
-    @pytest.mark.asyncio
-    async def test_test_ad_connection_missing_fields(self, client, admin_headers):
-        test_data = {
-            "ad_server": "",
-            "ad_port": 636,
-            "ad_use_ssl": True,
-            "ad_base_dn": "",
-            "ad_bind_user": "",
-            "ad_bind_password": "",
-            "ad_connect_timeout": 5,
-            "ad_receive_timeout": 5,
-        }
-        response = await client.post("/auth/ad-test", headers=admin_headers, json=test_data)
-        assert response.status_code == 200
-        data = response.json()
-        assert data["success"] is False
-
-    @pytest.mark.asyncio
-    async def test_test_ad_connection_denied_for_user(self, client, auth_headers):
-        test_data = {
-            "ad_server": "ad.test.com",
-            "ad_port": 636,
-            "ad_use_ssl": True,
-            "ad_base_dn": "DC=test,DC=com",
-            "ad_bind_user": "CN=svc_test,OU=ServiceAccounts,DC=test,DC=com",
-            "ad_bind_password": "password",
-            "ad_connect_timeout": 5,
-            "ad_receive_timeout": 5,
-        }
-        response = await client.post("/auth/ad-test", headers=auth_headers, json=test_data)
-        assert response.status_code == 403
-
-
-class TestLDAPService:
-    @pytest.mark.asyncio
-    async def test_ldap_test_connection_invalid_server(self, monkeypatch):
-        service = LDAPAuthService()
-
-        success, message, details = service.test_connection(
-            server_url="ldaps://invalid-server:636",
-            use_ssl=True,
-            base_dn="DC=test,DC=com",
-            bind_user="CN=test,DC=test,DC=com",
-            bind_password="password",
-            connect_timeout=2,
-            receive_timeout=2,
-        )
-        assert success is False
-        assert "Échec" in message or "Erreur" in message or "invalid" in message.lower()

@@ -15,11 +15,13 @@ export class AdministrationPage {
       { id: 'roles', label: 'Rôles', permission: 'role_view', component: null },
       { id: 'permissions', label: 'Permissions', permission: 'permission_view', component: null },
       { id: 'audit', label: 'Audit', permission: 'audit_log_view', component: null },
+      { id: 'active-directory', label: 'Active Directory', permission: 'ad_config', component: null },
     ];
     this.usersPage = null;
     this.groupsPage = null;
     this.rolesPage = null;
     this.permissionsPage = null;
+    this.adPage = null;
     this._authUnsubscribe = null;
   }
 
@@ -50,6 +52,11 @@ export class AdministrationPage {
     this.permissionsPage = createPermissionsPage(this.router);
     await this.permissionsPage.initialize();
     this.tabs[3].component = this.permissionsPage;
+
+    const { createActiveDirectoryPage } = await import('./ActiveDirectoryPage.js');
+    this.adPage = createActiveDirectoryPage(this.router);
+    await this.adPage.initialize();
+    this.tabs[5].component = this.adPage;
 
     this.currentTab = this._getTabFromPath();
 
@@ -187,6 +194,12 @@ export class AdministrationPage {
       permissionsPanel.appendChild(this.permissionsPage.render());
     }
 
+    const adPanel = this.element.querySelector('[data-tab-panel="active-directory"]');
+    if (adPanel && this.adPage) {
+      adPanel.innerHTML = '';
+      adPanel.appendChild(this.adPage.render());
+    }
+
     return this.element;
   }
 
@@ -203,6 +216,7 @@ export class AdministrationPage {
     this.groupsPage?.destroy?.();
     this.rolesPage?.destroy?.();
     this.permissionsPage?.destroy?.();
+    this.adPage?.destroy?.();
   }
 }
 

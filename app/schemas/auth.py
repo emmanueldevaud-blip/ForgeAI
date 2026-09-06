@@ -91,44 +91,6 @@ class ErrorResponse(BaseModel):
     detail: str
 
 
-class ADSettingsBase(BaseModel):
-    ad_enabled: bool = False
-    ad_server: str = Field("", max_length=255)
-    ad_port: int = Field(636, ge=1, le=65535)
-    ad_use_ssl: bool = True
-    ad_base_dn: str = Field("", max_length=500)
-    ad_user_dn: str = Field("", max_length=500)
-    ad_user_search_filter: str = Field("(sAMAccountName={username})", max_length=255)
-    ad_group_search_base: str = Field("", max_length=500)
-    ad_admin_group: str = Field("", max_length=255)
-    ad_bind_user: str = Field("", max_length=255)
-    ad_bind_password: str = Field("", max_length=255)
-    ad_connect_timeout: int = Field(10, ge=1, le=60)
-    ad_receive_timeout: int = Field(10, ge=1, le=60)
-
-
-class ADSettingsResponse(ADSettingsBase):
-    model_config = ConfigDict(from_attributes=True)
-
-    ad_bind_password: str = ""
-
-
-class ADSettingsUpdate(BaseModel):
-    ad_enabled: bool | None = None
-    ad_server: str | None = Field(None, max_length=255)
-    ad_port: int | None = Field(None, ge=1, le=65535)
-    ad_use_ssl: bool | None = None
-    ad_base_dn: str | None = Field(None, max_length=500)
-    ad_user_dn: str | None = Field(None, max_length=500)
-    ad_user_search_filter: str | None = Field(None, max_length=255)
-    ad_group_search_base: str | None = Field(None, max_length=500)
-    ad_admin_group: str | None = Field(None, max_length=255)
-    ad_bind_user: str | None = Field(None, max_length=255)
-    ad_bind_password: str | None = Field(None, max_length=255)
-    ad_connect_timeout: int | None = Field(None, ge=1, le=60)
-    ad_receive_timeout: int | None = Field(None, ge=1, le=60)
-
-
 class ADTestRequest(BaseModel):
     ad_server: str = Field(..., max_length=255)
     ad_port: int = Field(..., ge=1, le=65535)

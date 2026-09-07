@@ -239,7 +239,10 @@ class DatabaseADService:
 
             admin_conn.search(
                 search_base=config.user_dn or config.base_dn,
-                search_filter=config.user_search_filter.format(username="*"),
+                search_filter=(
+                    "(&(objectCategory=person)(objectClass=user)"
+                    f"{config.user_search_filter.format(username='*')})"
+                ),
                 search_scope=SUBTREE,
                 attributes=["distinguishedName", "sAMAccountName", "mail", "givenName", "sn", "memberOf", "userAccountControl"],
                 paged_size=config.page_size,

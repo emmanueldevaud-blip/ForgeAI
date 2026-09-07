@@ -1,594 +1,396 @@
-import { 
-  getAdConfigs,
+import {
   createAdConfig,
-  getAdConfig,
-  updateAdConfig,
-  deleteAdConfig,
-  getAdMappings,
   createAdMapping,
-  updateAdMapping,
+  deleteAdConfig,
   deleteAdMapping,
-  syncAdConfig,
+  getAdConfig,
+  getAdConfigs,
+  getAdMappings,
   getAdSyncLogs,
-  testAdConfig
+  syncAdConfig,
+  testAdConfig,
+  updateAdConfig,
+  updateAdMapping,
 } from '../services/adApi.js';
+import { ConfirmDialog } from '../components/ConfirmDialog.js';
+
+const DEFAULT_CONFIG = {
+  name: '', is_default: false, server: '', port: 636, use_ssl: true,
+  base_dn: '', user_dn: '', user_search_filter: '(sAMAccountName={username})',
+  group_search_base: '', bind_user: '', bind_password: '', connect_timeout: 10,
+  receive_timeout: 10, page_size: 1000, follow_referrals: false, is_active: true,
+};
+
+const BOOLEAN_FIELDS = ['is_default', 'use_ssl', 'is_active', 'follow_referrals'];
+const NUMBER_FIELDS = ['port', 'connect_timeout', 'receive_timeout', 'page_size'];
 
 export class ActiveDirectoryPage {
   constructor(router) {
     this.router = router;
     this.element = null;
     this.configs = [];
-    this.selectedConfigId = null;
-    this.syncLogs = [];
-    this.mappings = [];
-    this.currentAdTab = 'config';
+    this.loading = false;
+    this.loadError = null;
+    this.modal = null;
+    this.modalKeydown = null;
+    this.lastFocusedElement = null;
+    this.notice = null;
   }
 
   async initialize() {
-    await this.loadConfigs();
+    await this.refreshConfigs();
   }
 
-  async loadConfigs() {
+  async refreshConfigs() {
+    this.loading = true;
+    this.loadError = null;
+    this.render();
     try {
-      const configs = await getAdConfigs();
-      if (configs.length > 0 && !this.selectedConfigId) {
-        await this.loadConfigDetails(configs[0].id, { config: configs[0], configs });
-      } else {
-        this.configs = configs;
-      }
+      this.configs = await getAdConfigs();
+      this.loadError = null;
     } catch (error) {
-      console.error('Failed to load AD configs:', error);
+      this.loadError = `Impossible de charger les configurations AD : ${this.safeMessage(error.message)}`;
+    } finally {
+      this.loading = false;
+      this.render();
     }
   }
 
-  async loadConfigDetails(configId, { config = null, configs = null } = {}) {
-    const [loadedConfig, mappings, syncLogs] = await Promise.all([
-      config ? Promise.resolve(config) : getAdConfig(configId),
-      getAdMappings(configId),
-      getAdSyncLogs(configId)
-    ]);
-    if (configs) this.configs = configs;
-    this.selectedConfigId = configId;
-    this.currentConfig = loadedConfig;
-    this.mappings = mappings;
-    this.syncLogs = syncLogs;
-    if (this.element) this.render();
+  escape(value = '') {
+    const node = document.createElement('div');
+    node.textContent = value ?? '';
+    return node.innerHTML;
   }
 
-  async refreshConfigsAndDetails(preferredConfigId = this.selectedConfigId) {
-    const configs = await getAdConfigs();
-    const config = configs.find(item => item.id === preferredConfigId) || configs[0];
-
-    if (!config) {
-      this.configs = configs;
-      this.selectedConfigId = null;
-      this.currentConfig = null;
-      this.mappings = [];
-      this.syncLogs = [];
-      if (this.element) this.render();
-      return;
-    }
-
-    await this.loadConfigDetails(config.id, { config, configs });
+  formatDate(value) {
+    if (!value) return 'Jamais';
+    const date = new Date(value);
+    return Number.isNaN(date.getTime()) ? '—' : date.toLocaleString('fr-FR');
   }
 
-  async refreshMappings() {
-    const mappings = await getAdMappings(this.selectedConfigId);
-    this.mappings = mappings;
-    if (this.element) this.render();
+  safeMessage(value = '') {
+    return String(value)
+      .replace(/(bind_password|password|mot de passe)(\s*[:=]\s*)[^\s,;]+/gi, '$1$2[masqué]');
   }
 
-  async refreshSyncState() {
-    const [config, syncLogs] = await Promise.all([
-      getAdConfig(this.selectedConfigId),
-      getAdSyncLogs(this.selectedConfigId)
-    ]);
-    this.currentConfig = config;
-    this.syncLogs = syncLogs;
-    if (this.element) this.render();
-  }
-
-  async handleConfigSelect(configId) {
-    try {
-      await this.loadConfigDetails(configId);
-    } catch (error) {
-      alert('Erreur: ' + error.message);
-    }
-  }
-
-  async handleCreateConfig() {
-    const name = prompt('Nom de la configuration :');
-    if (!name) return;
-
-    try {
-      const config = await createAdConfig({
-        name,
-        is_default: this.configs.length === 0,
-        server: '',
-        port: 636,
-        use_ssl: true,
-        base_dn: '',
-        user_dn: '',
-        user_search_filter: '(sAMAccountName={username})',
-        group_search_base: '',
-        bind_user: '',
-        bind_password: '',
-        connect_timeout: 10,
-        receive_timeout: 10,
-        page_size: 1000,
-        follow_referrals: false,
-        is_active: true
-      });
-      await this.refreshConfigsAndDetails(config.id);
-    } catch (error) {
-      alert('Erreur: ' + error.message);
-    }
-  }
-
-  async handleUpdateConfig(updates) {
-    try {
-      const config = await updateAdConfig(this.selectedConfigId, updates);
-      await this.refreshConfigsAndDetails(config.id);
-    } catch (error) {
-      alert('Erreur: ' + error.message);
-    }
-  }
-
-  async handleDeleteConfig() {
-    if (!confirm('Supprimer cette configuration ?')) return;
-    try {
-      await deleteAdConfig(this.selectedConfigId);
-      await this.refreshConfigsAndDetails();
-    } catch (error) {
-      alert('Erreur: ' + error.message);
-    }
-  }
-
-  async handleTestConnection() {
-    if (!this.currentConfig) return;
-    const form = this.element?.querySelector('[data-form="config"]');
-    const formData = form ? new FormData(form) : null;
-    const bindPassword = formData?.get('bind_password');
-    try {
-      const result = await testAdConfig({
-        ad_config_id: this.selectedConfigId,
-        ad_server: formData.get('server'),
-        ad_port: parseInt(formData.get('port'), 10),
-        ad_use_ssl: form.querySelector('[name="use_ssl"]').checked,
-        ad_base_dn: formData.get('base_dn'),
-        ad_bind_user: formData.get('bind_user'),
-        ad_bind_password: bindPassword || '',
-        ad_connect_timeout: parseInt(formData.get('connect_timeout'), 10),
-        ad_receive_timeout: parseInt(formData.get('receive_timeout'), 10),
-        ad_follow_referrals: form.querySelector('[name="follow_referrals"]').checked,
-      });
-      alert(result.success ? '✓ Connexion réussie' : '✗ Échec: ' + result.message + (result.details ? '\n' + result.details : ''));
-    } catch (error) {
-      alert('Erreur: ' + error.message);
-    }
-  }
-
-  async handleSync() {
-    if (!this.selectedConfigId) return;
-    try {
-      const result = await syncAdConfig(this.selectedConfigId);
-      await this.refreshSyncState();
-      alert(`Synchronisation terminée: ${result.users_processed} utilisateurs traités, ${result.users_created} créés, ${result.users_updated} mis à jour, ${result.users_deactivated} désactivés`);
-    } catch (error) {
-      alert('Erreur: ' + error.message);
-    }
-  }
-
-  async handleCreateMapping() {
-    if (!this.selectedConfigId) return;
-    const adGroupCn = prompt('CN du groupe AD :');
-    if (!adGroupCn) return;
-    const adGroupDn = prompt('DN du groupe AD (optionnel) :');
-    const roleCode = prompt('Code rôle ForgeAI (admin/user) :');
-    if (!roleCode) return;
-
-    try {
-      await createAdMapping(this.selectedConfigId, {
-        ad_group_cn: adGroupCn,
-        ad_group_dn: adGroupDn || null,
-        role_code: roleCode,
-        is_active: true,
-      });
-      await this.refreshMappings();
-    } catch (error) {
-      alert('Erreur: ' + error.message);
-    }
-  }
-
-  async handleUpdateMapping(mapping) {
-    const adGroupCn = prompt('CN du groupe AD :', mapping.ad_group_cn);
-    if (!adGroupCn) return;
-    const adGroupDn = prompt('DN du groupe AD (optionnel) :', mapping.ad_group_dn || '');
-    if (adGroupDn === null) return;
-    const roleCode = prompt('Code rôle ForgeAI (admin/user) :', mapping.role_code);
-    if (!roleCode) return;
-    const activeValue = prompt('Mapping actif (oui/non) :', mapping.is_active ? 'oui' : 'non');
-    if (activeValue === null) return;
-    const normalizedActiveValue = activeValue.trim().toLowerCase();
-    if (normalizedActiveValue !== 'oui' && normalizedActiveValue !== 'non') {
-      alert('Répondez « oui » ou « non » pour l’état du mapping.');
-      return;
-    }
-
-    try {
-      await updateAdMapping(this.selectedConfigId, mapping.id, {
-        ad_group_cn: adGroupCn,
-        ad_group_dn: adGroupDn || null,
-        role_code: roleCode,
-        is_active: normalizedActiveValue === 'oui',
-      });
-      await this.refreshMappings();
-    } catch (error) {
-      alert('Erreur: ' + error.message);
-    }
-  }
-
-  async handleDeleteMapping(mappingId) {
-    if (!confirm('Supprimer ce mapping ?')) return;
-    try {
-      await deleteAdMapping(this.selectedConfigId, mappingId);
-      await this.refreshMappings();
-    } catch (error) {
-      alert('Erreur: ' + error.message);
-    }
+  setNotice(type, message) {
+    this.notice = { type, message };
+    this.render();
   }
 
   render() {
     const previousElement = this.element;
-    this.element = document.createElement('div');
-    this.element.className = 'ad-page';
-
-    if (!this.currentConfig) {
-      this.element.innerHTML = `
-        <div class="ad-empty">
-          <h2>Active Directory</h2>
-          <p>Aucune configuration AD. Créez-en une pour commencer.</p>
-          <button class="btn btn-primary" data-action="create-config">Créer une configuration</button>
-        </div>
-      `;
-      this.element.querySelector('[data-action="create-config"]').addEventListener('click', () => this.handleCreateConfig());
-      if (previousElement?.parentNode) previousElement.replaceWith(this.element);
-      return this.element;
-    }
-
-    const isDefault = this.currentConfig.is_default;
-    const lastSync = this.currentConfig.last_sync_at ? new Date(this.currentConfig.last_sync_at).toLocaleString('fr-FR') : 'Jamais';
-    const lastSyncStatus = this.currentConfig.last_sync_status || '—';
+    this.element = document.createElement('section');
+    this.element.className = 'ad-page ad-management-page';
+    const notice = this.notice ? `<div class="ad-management-notice ${this.notice.type}" role="status">${this.escape(this.notice.message)}</div>` : '';
+    const content = this.loading
+      ? '<div class="ad-empty-state ad-load-state" role="status">Chargement des configurations Active Directory…</div>'
+      : this.loadError
+        ? `<div class="ad-empty-state ad-load-state ad-load-error" role="alert">${this.escape(this.loadError)}</div>`
+        : this.configs.length
+          ? this.configs.map(config => this.renderConfigCard(config)).join('')
+          : `<div class="ad-empty-state"><h3>Aucune configuration Active Directory</h3><p>Créez une configuration avec le bouton ci-dessus pour connecter ForgeAI à votre annuaire.</p></div>`;
 
     this.element.innerHTML = `
-      <div class="ad-header">
-        <div class="ad-title-area">
-          <h2>Active Directory</h2>
-          <p class="ad-description">Gestion de la connexion et synchronisation Active Directory</p>
+      <header class="ad-management-header">
+        <div>
+          <h2>Configuration Active Directory</h2>
+          <p>Gérez les connexions, mappings, synchronisations et historiques Active Directory.</p>
         </div>
-        <div class="ad-actions">
-          <button class="btn btn-secondary" data-action="create-config">Nouvelle config</button>
-          <button class="btn btn-danger" data-action="delete-config">Supprimer</button>
-        </div>
-      </div>
-
-      <div class="ad-content">
-        <div class="ad-sidebar">
-          <div class="ad-config-list">
-            <h3>Configurations</h3>
-            <ul>
-              ${this.configs.map(cfg => `
-                <li class="${cfg.id === this.selectedConfigId ? 'active' : ''}" data-config-id="${cfg.id}">
-                  <span class="config-name">${cfg.name}</span>
-                  ${cfg.is_default ? '<span class="badge badge-default">Défaut</span>' : ''}
-                  ${cfg.is_active ? '<span class="badge badge-active">Actif</span>' : '<span class="badge badge-inactive">Inactif</span>'}
-                </li>
-              `).join('')}
-            </ul>
-          </div>
-        </div>
-
-        <div class="ad-main">
-          <div class="ad-tabs">
-            <button class="ad-tab ${this.currentAdTab === 'config' ? 'active' : ''}" data-ad-tab="config">Configuration</button>
-            <button class="ad-tab ${this.currentAdTab === 'mappings' ? 'active' : ''}" data-ad-tab="mappings">Mappings Groupes → Rôles</button>
-            <button class="ad-tab ${this.currentAdTab === 'sync' ? 'active' : ''}" data-ad-tab="sync">Synchronisation</button>
-            <button class="ad-tab ${this.currentAdTab === 'logs' ? 'active' : ''}" data-ad-tab="logs">Historique</button>
-          </div>
-
-          <div class="ad-tab-panels">
-            <div class="ad-tab-panel ${this.currentAdTab === 'config' ? 'active' : ''}" data-ad-panel="config">
-              <form class="ad-form" data-form="config">
-                <div class="form-row">
-                  <label>
-                    <span>Nom</span>
-                    <input type="text" name="name" value="${this.currentConfig.name}" required>
-                  </label>
-                  <label>
-                    <span>Configuration par défaut</span>
-                    <input type="checkbox" name="is_default" ${isDefault ? 'checked' : ''}>
-                  </label>
-                </div>
-
-                <fieldset>
-                  <legend>Connexion LDAP</legend>
-                  <div class="form-row">
-                    <label>
-                      <span>Serveur</span>
-                      <input type="text" name="server" value="${this.currentConfig.server}" required placeholder="ad.example.com">
-                    </label>
-                    <label>
-                      <span>Port</span>
-                      <input type="number" name="port" value="${this.currentConfig.port}" min="1" max="65535">
-                    </label>
-                    <label>
-                      <span>LDAPS (SSL/TLS)</span>
-                      <input type="checkbox" name="use_ssl" ${this.currentConfig.use_ssl ? 'checked' : ''}>
-                    </label>
-                  </div>
-                  <div class="form-row">
-                    <label>
-                      <span>Base DN</span>
-                      <input type="text" name="base_dn" value="${this.currentConfig.base_dn}" required placeholder="DC=example,DC=com">
-                    </label>
-                    <label>
-                      <span>User DN (optionnel)</span>
-                      <input type="text" name="user_dn" value="${this.currentConfig.user_dn || ''}" placeholder="OU=Users,DC=example,DC=com">
-                    </label>
-                  </div>
-                  <div class="form-row">
-                    <label>
-                      <span>Filtre recherche utilisateur</span>
-                      <input type="text" name="user_search_filter" value="${this.currentConfig.user_search_filter}" placeholder="(sAMAccountName={username})">
-                    </label>
-                  </div>
-                  <div class="form-row">
-                    <label>
-                      <span>Base recherche groupes</span>
-                      <input type="text" name="group_search_base" value="${this.currentConfig.group_search_base || ''}" placeholder="OU=Groups,DC=example,DC=com">
-                    </label>
-                  </div>
-                </fieldset>
-
-                <fieldset>
-                  <legend>Compte de service (Bind)</legend>
-                  <div class="form-row">
-                    <label>
-                      <span>Bind User</span>
-                      <input type="text" name="bind_user" value="${this.currentConfig.bind_user}" required placeholder="CN=svc_forgeai,OU=ServiceAccounts,DC=example,DC=com">
-                    </label>
-                    <label>
-                      <span>Bind Password</span>
-                      <input type="password" name="bind_password" placeholder="Laisser vide pour ne pas changer" autocomplete="new-password">
-                    </label>
-                  </div>
-                </fieldset>
-
-                <fieldset>
-                  <legend>Timeouts</legend>
-                  <div class="form-row">
-                    <label>
-                      <span>Connexion (s)</span>
-                      <input type="number" name="connect_timeout" value="${this.currentConfig.connect_timeout}" min="1" max="60">
-                    </label>
-                    <label>
-                      <span>Réception (s)</span>
-                      <input type="number" name="receive_timeout" value="${this.currentConfig.receive_timeout}" min="1" max="60">
-                    </label>
-                    <label>
-                      <span>Taille page</span>
-                      <input type="number" name="page_size" value="${this.currentConfig.page_size}" min="100" max="5000">
-                    </label>
-                  </div>
-                </fieldset>
-
-                <div class="form-row">
-                  <label>
-                    <span>Configuration active</span>
-                    <input type="checkbox" name="is_active" ${this.currentConfig.is_active ? 'checked' : ''}>
-                  </label>
-                  <label>
-                    <span>Suivre les références</span>
-                    <input type="checkbox" name="follow_referrals" ${this.currentConfig.follow_referrals ? 'checked' : ''}>
-                  </label>
-                </div>
-
-                <div class="form-actions">
-                  <button type="submit" class="btn btn-primary">Enregistrer</button>
-                  <button type="button" class="btn btn-secondary" data-action="test-connection">Tester la connexion</button>
-                </div>
-              </form>
-            </div>
-
-            <div class="ad-tab-panel ${this.currentAdTab === 'mappings' ? 'active' : ''}" data-ad-panel="mappings">
-              <div class="mappings-toolbar">
-                <h3>Mapping Groupes AD → Rôles ForgeAI</h3>
-                <button class="btn btn-primary" data-action="create-mapping">Ajouter un mapping</button>
-              </div>
-              <table class="ad-table">
-                <thead>
-                  <tr>
-                    <th>Groupe AD (CN)</th>
-                    <th>DN Groupe AD</th>
-                    <th>Rôle ForgeAI</th>
-                    <th>Actif</th>
-                    <th>Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  ${this.mappings.length === 0 ? `
-                    <tr><td colspan="5" class="empty">Aucun mapping configuré</td></tr>
-                  ` : this.mappings.map(m => `
-                    <tr data-mapping-id="${m.id}">
-                      <td>${m.ad_group_cn}</td>
-                      <td>${m.ad_group_dn || '—'}</td>
-                      <td><span class="role-badge ${m.role_code}">${m.role_code}</span></td>
-                      <td>${m.is_active ? '<span class="badge badge-active">Oui</span>' : '<span class="badge badge-inactive">Non</span>'}</td>
-                      <td>
-                        <button class="btn btn-icon" data-action="update-mapping" data-mapping-id="${m.id}" title="Modifier">✏️</button>
-                        <button class="btn btn-icon btn-danger" data-action="delete-mapping" data-mapping-id="${m.id}" title="Supprimer">🗑️</button>
-                      </td>
-                    </tr>
-                  `).join('')}
-                </tbody>
-              </table>
-            </div>
-
-            <div class="ad-tab-panel ${this.currentAdTab === 'sync' ? 'active' : ''}" data-ad-panel="sync">
-              <div class="sync-status">
-                <h3>État de la synchronisation</h3>
-                <div class="sync-info">
-                  <div class="sync-item">
-                    <span class="sync-label">Dernière synchronisation</span>
-                    <span class="sync-value">${lastSync}</span>
-                  </div>
-                  <div class="sync-item">
-                    <span class="sync-label">Statut</span>
-                    <span class="sync-value status-${lastSyncStatus}">${lastSyncStatus}</span>
-                  </div>
-                </div>
-              </div>
-              <div class="sync-actions">
-                <button class="btn btn-primary btn-lg" data-action="sync" ${!this.currentConfig.is_active ? 'disabled' : ''}>
-                  Lancer la synchronisation
-                </button>
-                ${!this.currentConfig.is_active ? '<p class="text-muted">Activez la configuration pour synchroniser</p>' : ''}
-              </div>
-
-              ${this.syncLogs.length > 0 ? `
-                <div class="sync-recent">
-                  <h3>Dernières synchronisations</h3>
-                  <table class="ad-table">
-                    <thead>
-                      <tr>
-                        <th>Date</th>
-                        <th>Statut</th>
-                        <th>Utilisateurs traités</th>
-                        <th>Créés</th>
-                        <th>Mis à jour</th>
-                        <th>Désactivés</th>
-                        <th>Groupes</th>
-                        <th>Erreur</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      ${this.syncLogs.slice(0, 10).map(log => `
-                        <tr>
-                          <td>${new Date(log.started_at).toLocaleString('fr-FR')}</td>
-                          <td><span class="badge badge-${log.status}">${log.status}</span></td>
-                          <td>${log.users_processed}</td>
-                          <td>${log.users_created}</td>
-                          <td>${log.users_updated}</td>
-                          <td>${log.users_deactivated}</td>
-                          <td>${log.groups_processed || 0}</td>
-                          <td>${log.error_message || '—'}</td>
-                        </tr>
-                      `).join('')}
-                    </tbody>
-                  </table>
-                </div>
-              ` : ''}
-            </div>
-
-            <div class="ad-tab-panel ${this.currentAdTab === 'logs' ? 'active' : ''}" data-ad-panel="logs">
-              <h3>Historique complet des synchronisations</h3>
-              ${this.syncLogs.length === 0 ? `
-                <p class="text-muted">Aucun historique</p>
-              ` : `
-                <table class="ad-table">
-                  <thead>
-                    <tr>
-                      <th>Date</th>
-                      <th>Statut</th>
-                      <th>Utilisateurs traités</th>
-                      <th>Créés</th>
-                      <th>Mis à jour</th>
-                      <th>Désactivés</th>
-                      <th>Groupes</th>
-                      <th>Erreur</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    ${this.syncLogs.map(log => `
-                      <tr>
-                        <td>${new Date(log.started_at).toLocaleString('fr-FR')}</td>
-                        <td><span class="badge badge-${log.status}">${log.status}</span></td>
-                        <td>${log.users_processed}</td>
-                        <td>${log.users_created}</td>
-                        <td>${log.users_updated}</td>
-                        <td>${log.users_deactivated}</td>
-                        <td>${log.groups_processed || 0}</td>
-                        <td>${log.error_message || '—'}</td>
-                      </tr>
-                    `).join('')}
-                  </tbody>
-                </table>
-              `}
-            </div>
-          </div>
-        </div>
-      </div>
+        <button type="button" class="btn btn-primary" data-action="create-config">+ Ajouter une configuration</button>
+      </header>
+      ${notice}
+      <div class="ad-config-cards">${content}</div>
     `;
 
-    this.bindEvents();
+    this.bindPageEvents();
     if (previousElement?.parentNode) previousElement.replaceWith(this.element);
     return this.element;
   }
 
-  bindEvents() {
-    this.element.querySelectorAll('[data-config-id]').forEach(li => {
-      li.addEventListener('click', () => this.handleConfigSelect(parseInt(li.dataset.configId)));
-    });
+  renderConfigCard(config) {
+    const status = config.is_active ? 'Actif' : 'Inactif';
+    return `
+      <article class="ad-config-card" data-config-id="${config.id}">
+        <div class="ad-config-card__heading">
+          <div>
+            <h3>${this.escape(config.name)}</h3>
+            ${config.is_default ? '<span class="badge badge-default">Par défaut</span>' : ''}
+          </div>
+          <span class="badge ${config.is_active ? 'badge-active' : 'badge-inactive'}">${status}</span>
+        </div>
+        <dl class="ad-config-summary">
+          <div><dt>Serveur</dt><dd>${this.escape(config.server)}</dd></div>
+          <div><dt>Port</dt><dd>${this.escape(String(config.port))}</dd></div>
+          <div><dt>SSL / LDAPS</dt><dd>${config.use_ssl ? 'Activé' : 'Désactivé'}</dd></div>
+          <div><dt>Compte Bind</dt><dd>${this.escape(config.bind_user)}</dd></div>
+          <div><dt>Dernière synchronisation</dt><dd>${this.escape(this.formatDate(config.last_sync_at))}</dd></div>
+        </dl>
+        <div class="ad-config-card__actions">
+          <button type="button" class="btn btn-secondary" data-action="edit-config" data-config-id="${config.id}">Modifier</button>
+          <button type="button" class="btn btn-secondary" data-action="test-config" data-config-id="${config.id}">Tester</button>
+          <button type="button" class="btn btn-secondary" data-action="mappings" data-config-id="${config.id}">Mappings</button>
+          <button type="button" class="btn btn-secondary" data-action="logs" data-config-id="${config.id}">Logs</button>
+          <button type="button" class="btn btn-primary" data-action="sync" data-config-id="${config.id}" ${config.is_active ? '' : 'disabled'}>Synchroniser</button>
+          <button type="button" class="btn btn-secondary" data-action="toggle-config" data-config-id="${config.id}">${config.is_active ? 'Désactiver' : 'Activer'}</button>
+          <button type="button" class="btn btn-danger" data-action="delete-config" data-config-id="${config.id}">Supprimer</button>
+        </div>
+      </article>
+    `;
+  }
 
-    this.element.querySelector('[data-action="create-config"]')?.addEventListener('click', () => this.handleCreateConfig());
-    this.element.querySelector('[data-action="delete-config"]')?.addEventListener('click', () => this.handleDeleteConfig());
-    this.element.querySelector('[data-action="test-connection"]')?.addEventListener('click', () => this.handleTestConnection());
-    this.element.querySelector('[data-action="sync"]')?.addEventListener('click', () => this.handleSync());
-    this.element.querySelector('[data-action="create-mapping"]')?.addEventListener('click', () => this.handleCreateMapping());
-
-    this.element.querySelectorAll('[data-action="update-mapping"]').forEach(btn => {
-      btn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        const mapping = this.mappings.find(item => item.id === parseInt(btn.dataset.mappingId));
-        if (mapping) this.handleUpdateMapping(mapping);
-      });
-    });
-
-    this.element.querySelectorAll('[data-action="delete-mapping"]').forEach(btn => {
-      btn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        this.handleDeleteMapping(parseInt(btn.dataset.mappingId));
-      });
-    });
-
-    this.element.querySelectorAll('[data-ad-tab]').forEach(btn => {
-      btn.addEventListener('click', () => {
-        this.currentAdTab = btn.dataset.adTab;
-        this.render();
-      });
-    });
-
-    const form = this.element.querySelector('[data-form="config"]');
-    form?.addEventListener('submit', (e) => {
-      e.preventDefault();
-      const formData = new FormData(form);
-      const updates = {};
-      for (const [key, value] of formData.entries()) {
-        if (key === 'is_default' || key === 'use_ssl' || key === 'is_active' || key === 'follow_referrals') {
-          updates[key] = form.querySelector(`[name="${key}"]`).checked;
-        } else if (key === 'port' || key === 'connect_timeout' || key === 'receive_timeout' || key === 'page_size') {
-          updates[key] = parseInt(value, 10);
-        } else if (key === 'bind_password' && value === '') {
-          continue;
-        } else {
-          updates[key] = value;
-        }
-      }
-      this.handleUpdateConfig(updates);
+  bindPageEvents() {
+    this.element.querySelectorAll('[data-action="create-config"]').forEach(button => button.addEventListener('click', () => this.openConfigModal()));
+    this.element.querySelectorAll('[data-config-id]').forEach(button => {
+      const id = Number(button.dataset.configId);
+      const action = button.dataset.action;
+      if (action === 'edit-config') button.addEventListener('click', () => this.openConfigModal(id));
+      if (action === 'test-config') button.addEventListener('click', () => this.openTestModal(id));
+      if (action === 'mappings') button.addEventListener('click', () => this.openMappingsModal(id));
+      if (action === 'logs') button.addEventListener('click', () => this.openLogsModal(id));
+      if (action === 'sync') button.addEventListener('click', () => this.confirmSync(id));
+      if (action === 'toggle-config') button.addEventListener('click', () => this.toggleConfig(id));
+      if (action === 'delete-config') button.addEventListener('click', () => this.confirmDeleteConfig(id));
     });
   }
 
+  openModal({ title, content, onMount, closeOnOverlay = true, closeOnEscape = true }) {
+    this.closeModal();
+    this.lastFocusedElement = document.activeElement;
+    const overlay = document.createElement('div');
+    overlay.className = 'modal-overlay ad-modal-overlay';
+    const dialog = document.createElement('div');
+    dialog.className = 'modal ad-modal';
+    dialog.setAttribute('role', 'dialog');
+    dialog.setAttribute('aria-modal', 'true');
+    dialog.setAttribute('aria-labelledby', 'ad-modal-title');
+    dialog.innerHTML = `
+      <div class="modal-content ad-modal-content">
+        <div class="modal-header">
+          <h2 id="ad-modal-title">${this.escape(title)}</h2>
+          <button type="button" class="modal-close" aria-label="Fermer" data-action="close-modal">×</button>
+        </div>
+        <div class="modal-body ad-modal-body">${content}</div>
+      </div>
+    `;
+    overlay.appendChild(dialog);
+    document.body.appendChild(overlay);
+    this.modal = { overlay, dialog, closeOnOverlay, closeOnEscape };
+    dialog.querySelector('[data-action="close-modal"]').addEventListener('click', () => this.closeModal());
+    overlay.addEventListener('click', event => { if (closeOnOverlay && event.target === overlay) this.closeModal(); });
+    this.modalKeydown = event => this.handleModalKeydown(event);
+    document.addEventListener('keydown', this.modalKeydown);
+    requestAnimationFrame(() => { overlay.classList.add('open'); dialog.classList.add('open'); });
+    setTimeout(() => (dialog.querySelector('[autofocus], input, select, button') || dialog).focus(), 0);
+    onMount?.(dialog);
+    return dialog;
+  }
+
+  handleModalKeydown(event) {
+    if (!this.modal) return;
+    if (event.key === 'Escape' && this.modal.closeOnEscape) { event.preventDefault(); this.closeModal(); return; }
+    if (event.key !== 'Tab') return;
+    const focusable = [...this.modal.dialog.querySelectorAll('button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])')];
+    if (!focusable.length) return;
+    const first = focusable[0];
+    const last = focusable.at(-1);
+    if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+    if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+  }
+
+  closeModal() {
+    if (!this.modal) return;
+    const { overlay, dialog } = this.modal;
+    document.removeEventListener('keydown', this.modalKeydown);
+    overlay.classList.remove('open');
+    dialog.classList.remove('open');
+    setTimeout(() => overlay.remove(), 200);
+    this.modal = null;
+    this.modalKeydown = null;
+    if (this.lastFocusedElement?.isConnected) this.lastFocusedElement.focus();
+    this.lastFocusedElement = null;
+  }
+
+  configForm(config, isNew) {
+    const value = (key) => this.escape(String(config[key] ?? ''));
+    const checked = key => config[key] ? 'checked' : '';
+    return `
+      <form class="ad-modal-form" data-form="config" novalidate>
+        <div class="form-row"><label><span>Nom</span><input name="name" value="${value('name')}" required autofocus></label><label class="ad-check"><input type="checkbox" name="is_default" ${checked('is_default')}><span>Configuration par défaut</span></label></div>
+        <fieldset><legend>Connexion LDAP</legend>
+          <div class="form-row"><label><span>Serveur</span><input name="server" value="${value('server')}" required placeholder="ad.example.com"></label><label><span>Port</span><input type="number" name="port" value="${value('port')}" min="1" max="65535" required></label><label class="ad-check"><input type="checkbox" name="use_ssl" ${checked('use_ssl')}><span>LDAPS (SSL/TLS)</span></label></div>
+          <div class="form-row"><label><span>Base DN</span><input name="base_dn" value="${value('base_dn')}" required placeholder="DC=example,DC=com"></label><label><span>User DN (optionnel)</span><input name="user_dn" value="${value('user_dn')}"></label></div>
+          <div class="form-row"><label><span>Filtre recherche utilisateur</span><input name="user_search_filter" value="${value('user_search_filter')}" required></label><label><span>Base recherche groupes</span><input name="group_search_base" value="${value('group_search_base')}"></label></div>
+        </fieldset>
+        <fieldset><legend>Compte de service (Bind)</legend><div class="form-row"><label><span>Utilisateur de connexion</span><input name="bind_user" value="${value('bind_user')}" required></label><label><span>Mot de passe</span><input type="password" name="bind_password" placeholder="${isNew ? 'Mot de passe du compte de service' : 'Laisser vide pour conserver le mot de passe'}" autocomplete="new-password"></label></div></fieldset>
+        <fieldset><legend>Paramètres avancés</legend><div class="form-row"><label><span>Connexion (s)</span><input type="number" name="connect_timeout" value="${value('connect_timeout')}" min="1" max="60" required></label><label><span>Réception (s)</span><input type="number" name="receive_timeout" value="${value('receive_timeout')}" min="1" max="60" required></label><label><span>Taille page</span><input type="number" name="page_size" value="${value('page_size')}" min="100" max="5000" required></label></div><div class="form-row"><label class="ad-check"><input type="checkbox" name="is_active" ${checked('is_active')}><span>Configuration active</span></label><label class="ad-check"><input type="checkbox" name="follow_referrals" ${checked('follow_referrals')}><span>Suivre les références</span></label></div></fieldset>
+        <p class="ad-modal-feedback" aria-live="polite" data-feedback></p>
+        <div class="form-actions"><button type="button" class="btn btn-secondary" data-action="test-form">Tester la connexion</button><button type="button" class="btn btn-secondary" data-action="close-modal">Annuler</button><button type="submit" class="btn btn-primary">Enregistrer</button></div>
+      </form>
+    `;
+  }
+
+  formPayload(form, isNew) {
+    const data = new FormData(form);
+    const payload = {};
+    for (const [key, rawValue] of data.entries()) {
+      if (BOOLEAN_FIELDS.includes(key)) payload[key] = form.elements[key].checked;
+      else if (NUMBER_FIELDS.includes(key)) payload[key] = Number(rawValue);
+      else if (key !== 'bind_password' || rawValue || isNew) payload[key] = rawValue;
+    }
+    for (const key of BOOLEAN_FIELDS) if (!(key in payload)) payload[key] = false;
+    return payload;
+  }
+
+  async openConfigModal(configId = null) {
+    let config = { ...DEFAULT_CONFIG, is_default: this.configs.length === 0 };
+    if (configId) {
+      try { config = await getAdConfig(configId); } catch (error) { this.setNotice('error', this.safeMessage(error.message)); return; }
+    }
+    const isNew = !configId;
+    const dialog = this.openModal({ title: isNew ? 'Nouvelle configuration AD' : 'Modifier la configuration AD', content: this.configForm(config, isNew), closeOnOverlay: false, closeOnEscape: false });
+    const form = dialog.querySelector('[data-form="config"]');
+    dialog.querySelector('[data-action="close-modal"]').addEventListener('click', () => this.closeModal());
+    dialog.querySelector('[data-action="test-form"]').addEventListener('click', () => this.testFormConnection(form, configId));
+    form.addEventListener('submit', async event => {
+      event.preventDefault();
+      if (!form.reportValidity()) return;
+      const feedback = form.querySelector('[data-feedback]');
+      const submit = form.querySelector('[type="submit"]');
+      submit.disabled = true; feedback.textContent = 'Enregistrement…';
+      try {
+        const payload = this.formPayload(form, isNew);
+        const saved = isNew ? await createAdConfig(payload) : await updateAdConfig(configId, payload);
+        this.closeModal();
+        await this.refreshConfigs();
+        this.setNotice('success', `Configuration « ${saved.name} » enregistrée.`);
+      } catch (error) { feedback.textContent = this.safeMessage(error.message); feedback.classList.add('error'); }
+      finally { submit.disabled = false; }
+    });
+  }
+
+  testPayload(form, configId = null) {
+    const payload = this.formPayload(form, false);
+    return {
+      ad_config_id: configId || undefined,
+      ad_server: payload.server,
+      ad_port: payload.port,
+      ad_use_ssl: payload.use_ssl,
+      ad_base_dn: payload.base_dn,
+      ad_bind_user: payload.bind_user,
+      ad_bind_password: payload.bind_password || '',
+      ad_connect_timeout: payload.connect_timeout,
+      ad_receive_timeout: payload.receive_timeout,
+      ad_follow_referrals: payload.follow_referrals,
+    };
+  }
+
+  testResultMarkup(result) {
+    return `<div class="ad-test-state ${result.success ? 'success' : 'error'}"><strong>${result.success ? 'Connexion réussie' : 'Connexion échouée'}</strong><p>${this.escape(this.safeMessage(result.message))}</p>${result.details ? `<pre>${this.escape(this.safeMessage(result.details))}</pre>` : ''}</div>`;
+  }
+
+  async testFormConnection(form, configId = null) {
+    if (!form.reportValidity()) return;
+    const feedback = form.querySelector('[data-feedback]');
+    const button = form.querySelector('[data-action="test-form"]');
+    button.disabled = true;
+    feedback.className = 'ad-modal-feedback is-loading';
+    feedback.textContent = 'Test de la connexion LDAP en cours…';
+    try {
+      const result = await testAdConfig(this.testPayload(form, configId));
+      feedback.className = 'ad-modal-feedback';
+      feedback.innerHTML = this.testResultMarkup(result);
+    } catch (error) {
+      feedback.className = 'ad-modal-feedback';
+      feedback.innerHTML = `<div class="ad-test-state error"><strong>Test indisponible</strong><p>${this.escape(this.safeMessage(error.message))}</p></div>`;
+    } finally {
+      button.disabled = false;
+    }
+  }
+
+  async openTestModal(configId) {
+    let config;
+    try {
+      config = await getAdConfig(configId);
+    } catch (error) {
+      this.setNotice('error', this.safeMessage(error.message));
+      return;
+    }
+    const dialog = this.openModal({ title: 'Tester la connexion', content: '<div class="ad-test-state is-loading" role="status">Test de la connexion LDAP en cours…</div>', closeOnOverlay: false, closeOnEscape: false });
+    const form = document.createElement('form');
+    form.innerHTML = this.configForm(config, false);
+    try {
+      const result = await testAdConfig(this.testPayload(form.querySelector('form') || form, configId));
+      dialog.querySelector('.ad-modal-body').innerHTML = `${this.testResultMarkup(result)}<div class="form-actions"><button type="button" class="btn btn-primary" data-action="close-modal">Fermer</button></div>`;
+    } catch (error) {
+      dialog.querySelector('.ad-modal-body').innerHTML = `<div class="ad-test-state error"><strong>Test indisponible</strong><p>${this.escape(this.safeMessage(error.message))}</p></div><div class="form-actions"><button type="button" class="btn btn-primary" data-action="close-modal">Fermer</button></div>`;
+    }
+    dialog.querySelector('.ad-modal-body [data-action="close-modal"]').addEventListener('click', () => this.closeModal());
+  }
+
+  async toggleConfig(id) {
+    const config = this.configs.find(item => item.id === id);
+    try { await updateAdConfig(id, { is_active: !config.is_active }); await this.refreshConfigs(); this.setNotice('success', `Configuration ${config.is_active ? 'désactivée' : 'activée'}.`); }
+    catch (error) { this.setNotice('error', this.safeMessage(error.message)); }
+  }
+
+  confirmDeleteConfig(id) {
+    const config = this.configs.find(item => item.id === id);
+    new ConfirmDialog({ onConfirm: async () => { try { await deleteAdConfig(id); await this.refreshConfigs(); this.setNotice('success', `Configuration « ${config.name} » supprimée.`); } catch (error) { this.setNotice('error', this.safeMessage(error.message)); } } }).open({ title: 'Supprimer la configuration', message: `Supprimer définitivement « ${config.name} » ?`, confirmText: 'Supprimer', variant: 'danger' });
+  }
+
+  confirmSync(id) {
+    const config = this.configs.find(item => item.id === id);
+    new ConfirmDialog({ onConfirm: () => this.runSync(id, config.name) }).open({ title: 'Lancer la synchronisation', message: `Lancer la synchronisation de « ${config.name} » ?`, confirmText: 'Lancer', variant: 'primary' });
+  }
+
+  async runSync(id, name) {
+    const dialog = this.openModal({ title: 'Synchronisation Active Directory', content: '<div class="ad-test-state is-loading" role="status">Synchronisation en cours…</div>', closeOnOverlay: false, closeOnEscape: false });
+    try {
+      const result = await syncAdConfig(id);
+      await this.refreshConfigs();
+      dialog.querySelector('.ad-modal-body').innerHTML = `<div class="ad-sync-result success"><strong>Synchronisation terminée</strong><dl><div><dt>Utilisateurs traités</dt><dd>${result.users_processed || 0}</dd></div><div><dt>Créés</dt><dd>${result.users_created || 0}</dd></div><div><dt>Mis à jour</dt><dd>${result.users_updated || 0}</dd></div><div><dt>Ignorés / désactivés</dt><dd>${result.users_ignored ?? result.users_skipped ?? result.users_deactivated ?? 0}</dd></div><div><dt>Erreurs</dt><dd>${result.errors_count ?? result.users_errors ?? 0}</dd></div><div><dt>Groupes</dt><dd>${result.groups_processed || 0}</dd></div></dl></div><div class="form-actions"><button type="button" class="btn btn-primary" data-action="close-modal">Fermer</button></div>`;
+      dialog.querySelector('.ad-modal-body [data-action="close-modal"]').addEventListener('click', () => this.closeModal());
+      this.setNotice('success', `Synchronisation de « ${name} » terminée.`);
+    } catch (error) {
+      dialog.querySelector('.ad-modal-body').innerHTML = `<div class="ad-test-state error"><strong>Synchronisation échouée</strong><p>${this.escape(this.safeMessage(error.message))}</p></div><div class="form-actions"><button type="button" class="btn btn-primary" data-action="close-modal">Fermer</button></div>`;
+      dialog.querySelector('.ad-modal-body [data-action="close-modal"]').addEventListener('click', () => this.closeModal());
+    }
+  }
+
+  async openMappingsModal(id) {
+    let mappings;
+    try { mappings = await getAdMappings(id); } catch (error) { this.setNotice('error', this.safeMessage(error.message)); return; }
+    const config = this.configs.find(item => item.id === id);
+    const content = `<div class="ad-modal-toolbar"><p>${this.escape(config.name)}</p><button class="btn btn-primary" data-action="add-mapping">+ Ajouter un mapping</button></div><div class="ad-modal-table-wrap"><table class="ad-table"><thead><tr><th>Groupe AD</th><th>Rôle</th><th>Actif</th><th></th></tr></thead><tbody>${mappings.length ? mappings.map(mapping => `<tr><td>${this.escape(mapping.ad_group_cn)}${mapping.ad_group_dn ? `<small>${this.escape(mapping.ad_group_dn)}</small>` : ''}</td><td>${this.escape(mapping.role_code)}</td><td>${mapping.is_active ? 'Oui' : 'Non'}</td><td><button class="btn btn-secondary" data-action="edit-mapping" data-mapping-id="${mapping.id}">Modifier</button> <button class="btn btn-danger" data-action="delete-mapping" data-mapping-id="${mapping.id}">Supprimer</button></td></tr>`).join('') : '<tr><td colspan="4" class="empty">Aucun mapping configuré</td></tr>'}</tbody></table></div>`;
+    const dialog = this.openModal({ title: 'Mappings AD', content });
+    dialog.querySelector('[data-action="add-mapping"]')?.addEventListener('click', () => this.openMappingEditor(id));
+    dialog.querySelectorAll('[data-action="edit-mapping"]').forEach(button => button.addEventListener('click', () => this.openMappingEditor(id, mappings.find(item => item.id === Number(button.dataset.mappingId)))));
+    dialog.querySelectorAll('[data-action="delete-mapping"]').forEach(button => button.addEventListener('click', () => this.confirmDeleteMapping(id, Number(button.dataset.mappingId))));
+  }
+
+  openMappingEditor(configId, mapping = null) {
+    const isNew = !mapping;
+    const content = `<form class="ad-modal-form" data-form="mapping"><label><span>Groupe AD (CN)</span><input name="ad_group_cn" value="${this.escape(mapping?.ad_group_cn || '')}" required autofocus></label><label><span>DN du groupe (optionnel)</span><input name="ad_group_dn" value="${this.escape(mapping?.ad_group_dn || '')}"></label><label><span>Rôle ForgeAI</span><select name="role_code"><option value="user" ${mapping?.role_code === 'user' ? 'selected' : ''}>Utilisateur</option><option value="admin" ${mapping?.role_code === 'admin' ? 'selected' : ''}>Administrateur</option></select></label><label class="ad-check"><input type="checkbox" name="is_active" ${mapping?.is_active !== false ? 'checked' : ''}><span>Mapping actif</span></label><p class="ad-modal-feedback" data-feedback></p><div class="form-actions"><button type="button" class="btn btn-secondary" data-action="close-modal">Annuler</button><button type="submit" class="btn btn-primary">Enregistrer</button></div></form>`;
+    const dialog = this.openModal({ title: isNew ? 'Nouveau mapping AD' : 'Modifier le mapping AD', content, closeOnOverlay: false, closeOnEscape: false });
+    const form = dialog.querySelector('form');
+    form.addEventListener('submit', async event => { event.preventDefault(); if (!form.reportValidity()) return; const payload = { ad_group_cn: form.ad_group_cn.value, ad_group_dn: form.ad_group_dn.value || null, role_code: form.role_code.value, is_active: form.is_active.checked }; const submit = form.querySelector('[type="submit"]'); submit.disabled = true; try { if (isNew) await createAdMapping(configId, payload); else await updateAdMapping(configId, mapping.id, payload); this.closeModal(); await this.openMappingsModal(configId); await this.refreshConfigs(); } catch (error) { form.querySelector('[data-feedback]').textContent = this.safeMessage(error.message); } finally { submit.disabled = false; } });
+  }
+
+  confirmDeleteMapping(configId, mappingId) {
+    new ConfirmDialog({ onConfirm: async () => { try { await deleteAdMapping(configId, mappingId); await this.openMappingsModal(configId); await this.refreshConfigs(); } catch (error) { this.setNotice('error', this.safeMessage(error.message)); } } }).open({ title: 'Supprimer le mapping', message: 'Supprimer ce mapping de groupe AD ?', confirmText: 'Supprimer', variant: 'danger' });
+  }
+
+  async openLogsModal(id) {
+    try {
+      const logs = await getAdSyncLogs(id);
+      const content = `<div class="ad-modal-table-wrap"><table class="ad-table"><thead><tr><th>Date</th><th>Statut</th><th>Utilisateurs</th><th>Résumé</th></tr></thead><tbody>${logs.length ? logs.map(log => `<tr><td>${this.escape(this.formatDate(log.started_at))}</td><td>${this.escape(log.status)}</td><td>${log.users_processed || 0}</td><td>Créés : ${log.users_created || 0} · Mis à jour : ${log.users_updated || 0}${log.error_message ? `<details><summary>Erreur</summary><span>${this.escape(this.safeMessage(log.error_message))}</span></details>` : ''}</td></tr>`).join('') : '<tr><td colspan="4" class="empty">Aucun historique de synchronisation</td></tr>'}</tbody></table></div>`;
+      this.openModal({ title: 'Logs de synchronisation', content });
+    } catch (error) { this.setNotice('error', this.safeMessage(error.message)); }
+  }
+
   destroy() {
+    this.closeModal();
     this.element = null;
   }
 }

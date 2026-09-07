@@ -1,6 +1,7 @@
-import { ApiClient, ApiError } from './api.js';
+import { api, ApiError } from './api.js';
 
-const adApi = new ApiClient('/auth');
+// Utilise le même client authentifié que le reste des appels /auth.
+const adApi = api;
 
 export async function getAdConfigs() {
   return adApi.get('/ad-configs');

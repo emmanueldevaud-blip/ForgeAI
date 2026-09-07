@@ -4,6 +4,7 @@ from jose import JWTError, jwt
 from ldap3 import NTLM, SUBTREE, Connection
 from passlib.context import CryptContext
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
@@ -218,12 +219,16 @@ async def authenticate_ad(
     user = result.scalar_one_or_none()
 
     if user:
+        if user.source != "ad":
+            # A local account may not be claimed by an AD identity.
+            return None
         old_values = {
             "role": user.role.value,
         }
         user.is_active = True
         user.role = role
         user.last_login = datetime.now(UTC)
+        await ad_service._sync_user_ad_groups(user, groups or [], config)
         await db.commit()
         await db.refresh(user)
 
@@ -268,8 +273,24 @@ async def authenticate_ad(
         entry = admin_conn.entries[0]
         email = str(entry.mail) if entry.mail else f"{username}@ad.local"
 
+        ad_username = str(entry.sAMAccountName) if entry.sAMAccountName else username
+
+        # DN is the primary AD identity; username is the fallback for an AD
+        # account whose DN changed.  A local identity must never be converted.
+        username_owner = (await db.execute(select(User).where(User.username == ad_username))).scalar_one_or_none()
+        if username_owner is not None:
+            if username_owner.source != "ad":
+                return None
+            username_owner.ad_dn = user_dn
+            username_owner.is_active = True
+            username_owner.last_login = datetime.now(UTC)
+            await ad_service._sync_user_ad_groups(username_owner, groups or [], config)
+            await db.commit()
+            await db.refresh(username_owner)
+            return username_owner
+
         user = User(
-            username=str(entry.sAMAccountName) if entry.sAMAccountName else username,
+            username=ad_username,
             email=email,
             first_name=str(entry.givenName) if entry.givenName else None,
             last_name=str(entry.sn) if entry.sn else None,
@@ -280,9 +301,20 @@ async def authenticate_ad(
             ad_dn=user_dn,
             last_login=datetime.now(UTC),
         )
-        db.add(user)
-        await db.commit()
-        await db.refresh(user)
+        try:
+            async with db.begin_nested():
+                db.add(user)
+                await db.flush()
+                await ad_service._sync_user_ad_groups(user, groups or [], config)
+            await db.commit()
+            await db.refresh(user)
+        except IntegrityError:
+            # A concurrent login/sync may have created the same AD account.
+            # The savepoint keeps the outer session usable for the fallback.
+            existing = (await db.execute(select(User).where(User.ad_dn == user_dn))).scalar_one_or_none()
+            if existing is None or existing.source != "ad":
+                return None
+            return existing
 
         if audit:
             await audit.log(

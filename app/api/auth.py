@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_active_user, require_admin, require_permission
 from app.db.session import get_db
-from app.models import ADConfig, ADGroupMapping, ADSyncLog
+from app.models import ADConfig, ADGroupMapping, ADSyncLog, Role
 from app.schemas.auth import (
     AdminPasswordReset,
     ADTestRequest,
@@ -38,6 +38,7 @@ from app.services.auth import (
     update_user,
     verify_password,
 )
+from app.services.rbac import RBACService
 
 
 class AuthSettingsResponse(BaseModel):
@@ -145,6 +146,27 @@ class ADSyncLogResponse(BaseModel):
     triggered_by: int | None
 
 
+async def user_response_with_authorization(db: AsyncSession, user: User) -> UserResponse:
+    """Return identity and backend-computed RBAC data for the authenticated UI."""
+    permissions = await RBACService(db).get_user_permissions(user)
+    return UserResponse(
+        id=user.id,
+        username=user.username,
+        email=user.email,
+        first_name=user.first_name,
+        last_name=user.last_name,
+        is_active=user.is_active,
+        role=user.role.value,
+        source=user.source,
+        last_login=user.last_login,
+        created_at=user.created_at,
+        updated_at=user.updated_at,
+        roles=sorted(role.code for role in user.roles if role.is_active),
+        groups=sorted(group.code for group in user.groups if group.is_active),
+        permissions=sorted(permissions),
+    )
+
+
 from datetime import datetime
 
 from app.core.config import get_settings
@@ -192,7 +214,9 @@ async def login(
         )
 
     await update_last_login(db, user)
-    await db.refresh(user)
+    # Authentication helpers may have loaded only the scalar user.  Reload the
+    # RBAC graph before serialising effective permissions for the client.
+    user = await get_user_by_id(db, user.id)
     tokens = create_tokens(user)
 
     cookie_secure = not settings.DEBUG
@@ -217,7 +241,7 @@ async def login(
         path="/",
     )
 
-    return LoginResponse(user=UserResponse.model_validate(user), tokens=tokens)
+    return LoginResponse(user=await user_response_with_authorization(db, user), tokens=tokens)
 
 
 @router.post("/logout", response_model=MessageResponse)
@@ -281,8 +305,11 @@ async def refresh_token(
 
 
 @router.get("/me", response_model=UserResponse)
-async def get_me(current_user: User = Depends(get_current_active_user)):
-    return UserResponse.model_validate(current_user)
+async def get_me(
+    current_user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
+):
+    return await user_response_with_authorization(db, current_user)
 
 
 @router.post("/register", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
@@ -797,10 +824,11 @@ async def create_ad_group_mapping(
     config = await db.get(ADConfig, config_id)
     if not config:
         raise HTTPException(status_code=404, detail="Configuration AD non trouvée")
-    if mapping_data.role_code not in {role.value for role in UserRole}:
+    role = (await db.execute(select(Role).where(Role.code == mapping_data.role_code))).scalar_one_or_none()
+    if role is None:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="Le rôle ForgeAI doit être 'admin' ou 'user'",
+            detail="Le rôle ForgeAI indiqué n'existe pas",
         )
 
     mapping = ADGroupMapping(
@@ -872,14 +900,13 @@ async def update_ad_group_mapping(
     }
 
     update_data = updates.model_dump(exclude_unset=True)
-    if (
-        "role_code" in update_data
-        and update_data["role_code"] not in {role.value for role in UserRole}
-    ):
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="Le rôle ForgeAI doit être 'admin' ou 'user'",
-        )
+    if "role_code" in update_data:
+        role = (await db.execute(select(Role).where(Role.code == update_data["role_code"]))).scalar_one_or_none()
+        if role is None:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Le rôle ForgeAI indiqué n'existe pas",
+            )
     for key, value in update_data.items():
         setattr(mapping, key, value)
 

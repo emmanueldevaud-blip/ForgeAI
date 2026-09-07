@@ -68,6 +68,14 @@ export class GroupsPage {
           sortable: true,
         },
         {
+          key: 'source',
+          label: 'Source',
+          sortable: false,
+          render: (group) => group.source === 'ad'
+            ? '<span class="status-badge status-active">AD</span>'
+            : '<span class="status-badge status-inactive">Local</span>',
+        },
+        {
           key: 'description',
           label: 'Description',
           sortable: false,

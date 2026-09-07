@@ -3,13 +3,13 @@ from datetime import UTC, datetime
 from ldap3 import ALL, NTLM, SIMPLE, SUBTREE, Connection, Server
 from ldap3.core.exceptions import LDAPException
 from ldap3.utils.conv import escape_filter_chars
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.core.config import get_settings
-from app.models import ADConfig, ADSyncLog, ADSyncStatus, User, UserRole
+from app.models import ADConfig, ADSyncLog, ADSyncStatus, Group, GroupRole, Role, User, UserGroup, UserRole
 from app.services.audit import AuditService, get_audit_service
 
 settings = get_settings()
@@ -192,25 +192,94 @@ class DatabaseADService:
 
     def map_groups_to_roles(self, ad_groups: list[str], config: ADConfig) -> UserRole:
         role = UserRole.USER
-        normalized_groups = {group.casefold() for group in ad_groups}
-
-        for mapping in config.group_mappings:
-            if not mapping.is_active:
-                continue
-            if (
-                mapping.ad_group_cn.casefold() in normalized_groups
-                or (
-                    mapping.ad_group_dn is not None
-                    and mapping.ad_group_dn.casefold() in normalized_groups
-                )
-            ):
+        for group_dn in ad_groups:
+            for mapping in self._matching_mappings(group_dn, config):
+                # Keep the historical enum only as a compatibility marker.  The
+                # actual permissions are granted by the group-role relation.
                 if mapping.role_code == "admin":
-                    role = UserRole.ADMIN
-                    break
-                elif mapping.role_code == "user" and role == UserRole.USER:
-                    role = UserRole.USER
+                    return UserRole.ADMIN
 
         return role
+
+    @staticmethod
+    def _group_cn(group_dn: str) -> str:
+        """Extract the CN without assuming a particular AD OU layout."""
+        first_part = group_dn.split(",", 1)[0]
+        return first_part[3:] if first_part.casefold().startswith("cn=") else group_dn
+
+    def _matching_mappings(self, group_dn: str, config: ADConfig):
+        group_cn = self._group_cn(group_dn).casefold()
+        normalized_dn = group_dn.casefold()
+        return [
+            mapping for mapping in config.group_mappings
+            if mapping.is_active and (
+                mapping.ad_group_cn.casefold() == group_cn
+                or (mapping.ad_group_dn and mapping.ad_group_dn.casefold() == normalized_dn)
+            )
+        ]
+
+    async def _unique_ad_group_code(self, group_cn: str) -> str:
+        base = "".join(c.lower() if c.isalnum() else "_" for c in group_cn).strip("_")[:45] or "ad_group"
+        code = f"ad_{base}"[:50]
+        suffix = 1
+        while (await self.db.execute(select(Group.id).where(Group.code == code))).scalar_one_or_none() is not None:
+            suffix += 1
+            code = f"ad_{base[:45]}_{suffix}"[:50]
+        return code
+
+    async def _ensure_ad_groups(self, group_dns: list[str], config: ADConfig) -> dict[str, Group]:
+        """Upsert only AD-owned groups; local groups are never repurposed."""
+        groups: dict[str, Group] = {}
+        for group_dn in dict.fromkeys(group_dns):
+            result = await self.db.execute(select(Group).where(Group.ad_dn == group_dn))
+            group = result.scalar_one_or_none()
+            group_cn = self._group_cn(group_dn)
+            if group is None:
+                group = Group(
+                    code=await self._unique_ad_group_code(group_cn),
+                    name=group_cn,
+                    ad_dn=group_dn,
+                    source="ad",
+                    is_active=True,
+                )
+                self.db.add(group)
+                await self.db.flush()
+            else:
+                group.name = group_cn
+                group.source = "ad"
+                group.is_active = True
+            groups[group_dn.casefold()] = group
+
+            # A configured AD mapping grants its ForgeAI role through the AD group.
+            for mapping in self._matching_mappings(group_dn, config):
+                role = (await self.db.execute(select(Role).where(Role.code == mapping.role_code))).scalar_one_or_none()
+                if role is None:
+                    continue
+                assigned = await self.db.execute(
+                    select(GroupRole).where(GroupRole.group_id == group.id, GroupRole.role_id == role.id)
+                )
+                if assigned.scalar_one_or_none() is None:
+                    self.db.add(GroupRole(group_id=group.id, role_id=role.id))
+        return groups
+
+    async def _sync_user_ad_groups(self, user: User, group_dns: list[str], config: ADConfig) -> None:
+        groups = await self._ensure_ad_groups(group_dns, config)
+        desired_ids = {group.id for group in groups.values()}
+        result = await self.db.execute(
+            select(UserGroup.group_id)
+            .join(Group, Group.id == UserGroup.group_id)
+            .where(UserGroup.user_id == user.id, Group.source == "ad")
+        )
+        current_ids = set(result.scalars().all())
+        for group_id in desired_ids - current_ids:
+            self.db.add(UserGroup(user_id=user.id, group_id=group_id))
+        if current_ids - desired_ids:
+            await self.db.execute(
+                delete(UserGroup).where(
+                    UserGroup.user_id == user.id,
+                    UserGroup.group_id.in_(current_ids - desired_ids),
+                )
+            )
 
     async def sync_users(self, config: ADConfig) -> ADSyncLog:
         sync_log = ADSyncLog(
@@ -340,6 +409,10 @@ class DatabaseADService:
                         # Une création concurrente ne doit pas rendre la session invalide.
                         continue
 
+                # Local group memberships remain untouched.  Only memberships
+                # managed from AD are reconciled here.
+                await self._sync_user_ad_groups(user, groups, config)
+
             if config.group_search_base:
                 admin_conn.search(
                     search_base=config.group_search_base,
@@ -357,21 +430,12 @@ class DatabaseADService:
                     if not group_cn:
                         continue
 
-                    from app.models import Group
-                    result = await self.db.execute(select(Group).where(Group.ad_dn == group_dn))
-                    group = result.scalar_one_or_none()
-
-                    if group:
-                        group.name = group_cn
+                    result = await self.db.execute(select(Group.id).where(Group.ad_dn == group_dn))
+                    existed = result.scalar_one_or_none() is not None
+                    await self._ensure_ad_groups([group_dn], config)
+                    if existed:
                         groups_updated += 1
                     else:
-                        group = Group(
-                            code=group_cn.lower().replace(" ", "_"),
-                            name=group_cn,
-                            ad_dn=group_dn,
-                            is_active=True,
-                        )
-                        self.db.add(group)
                         groups_created += 1
 
             if found_ad_dns:

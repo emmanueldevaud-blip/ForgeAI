@@ -85,6 +85,16 @@ class UserWithRolesResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
     roles: List[RoleResponse] = []
+    groups: List["GroupSummaryResponse"] = []
+
+
+class GroupSummaryResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    code: str
+    name: str
+    source: str
 
 
 class UserListResponse(BaseModel):
@@ -134,6 +144,8 @@ class GroupResponse(BaseModel):
     name: str
     description: Optional[str] = None
     is_active: bool
+    source: str
+    ad_dn: Optional[str] = None
     created_at: datetime
     updated_at: datetime
     user_count: int = 0

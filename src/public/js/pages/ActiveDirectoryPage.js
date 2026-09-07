@@ -250,7 +250,7 @@ export class ActiveDirectoryPage {
     const isNew = !configId;
     const dialog = this.openModal({ title: isNew ? 'Nouvelle configuration AD' : 'Modifier la configuration AD', content: this.configForm(config, isNew), closeOnOverlay: false, closeOnEscape: false });
     const form = dialog.querySelector('[data-form="config"]');
-    dialog.querySelector('[data-action="close-modal"]').addEventListener('click', () => this.closeModal());
+    dialog.querySelector('.ad-modal-body [data-action="close-modal"]').addEventListener('click', () => this.closeModal());
     dialog.querySelector('[data-action="test-form"]').addEventListener('click', () => this.testFormConnection(form, configId));
     form.addEventListener('submit', async event => {
       event.preventDefault();
@@ -371,9 +371,10 @@ export class ActiveDirectoryPage {
 
   openMappingEditor(configId, mapping = null) {
     const isNew = !mapping;
-    const content = `<form class="ad-modal-form" data-form="mapping"><label><span>Groupe AD (CN)</span><input name="ad_group_cn" value="${this.escape(mapping?.ad_group_cn || '')}" required autofocus></label><label><span>DN du groupe (optionnel)</span><input name="ad_group_dn" value="${this.escape(mapping?.ad_group_dn || '')}"></label><label><span>Rôle ForgeAI</span><select name="role_code"><option value="user" ${mapping?.role_code === 'user' ? 'selected' : ''}>Utilisateur</option><option value="admin" ${mapping?.role_code === 'admin' ? 'selected' : ''}>Administrateur</option></select></label><label class="ad-check"><input type="checkbox" name="is_active" ${mapping?.is_active !== false ? 'checked' : ''}><span>Mapping actif</span></label><p class="ad-modal-feedback" data-feedback></p><div class="form-actions"><button type="button" class="btn btn-secondary" data-action="close-modal">Annuler</button><button type="submit" class="btn btn-primary">Enregistrer</button></div></form>`;
+    const content = `<form class="ad-modal-form" data-form="mapping"><label><span>Groupe AD (CN)</span><input name="ad_group_cn" value="${this.escape(mapping?.ad_group_cn || '')}" required autofocus></label><label><span>DN du groupe (optionnel)</span><input name="ad_group_dn" value="${this.escape(mapping?.ad_group_dn || '')}"></label><label><span>Code du rôle ForgeAI</span><input name="role_code" value="${this.escape(mapping?.role_code || 'user')}" required placeholder="bureau_etudes"></label><label class="ad-check"><input type="checkbox" name="is_active" ${mapping?.is_active !== false ? 'checked' : ''}><span>Mapping actif</span></label><p class="ad-modal-feedback" data-feedback></p><div class="form-actions"><button type="button" class="btn btn-secondary" data-action="close-modal">Annuler</button><button type="submit" class="btn btn-primary">Enregistrer</button></div></form>`;
     const dialog = this.openModal({ title: isNew ? 'Nouveau mapping AD' : 'Modifier le mapping AD', content, closeOnOverlay: false, closeOnEscape: false });
     const form = dialog.querySelector('form');
+    dialog.querySelector('.ad-modal-body [data-action="close-modal"]').addEventListener('click', () => this.closeModal());
     form.addEventListener('submit', async event => { event.preventDefault(); if (!form.reportValidity()) return; const payload = { ad_group_cn: form.ad_group_cn.value, ad_group_dn: form.ad_group_dn.value || null, role_code: form.role_code.value, is_active: form.is_active.checked }; const submit = form.querySelector('[type="submit"]'); submit.disabled = true; try { if (isNew) await createAdMapping(configId, payload); else await updateAdMapping(configId, mapping.id, payload); this.closeModal(); await this.openMappingsModal(configId); await this.refreshConfigs(); } catch (error) { form.querySelector('[data-feedback]').textContent = this.safeMessage(error.message); } finally { submit.disabled = false; } });
   }
 

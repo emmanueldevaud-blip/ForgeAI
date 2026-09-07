@@ -116,6 +116,9 @@ class Group(Base):
     name: Mapped[str] = mapped_column(String(100), nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     ad_dn: Mapped[str | None] = mapped_column(String(500), nullable=True, unique=True, index=True)
+    # A group imported from AD must remain distinguishable from a local group even
+    # when its DN is no longer available (for example after an AD cleanup).
+    source: Mapped[str] = mapped_column(String(20), default="local", nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)

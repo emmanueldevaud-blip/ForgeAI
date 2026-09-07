@@ -117,6 +117,8 @@ async def list_groups(
                 name=g.name,
                 description=g.description,
                 is_active=g.is_active,
+                source=g.source,
+                ad_dn=g.ad_dn,
                 created_at=g.created_at,
                 updated_at=g.updated_at,
                 user_count=len(group_with_details.users),

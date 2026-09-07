@@ -62,6 +62,10 @@ class UserResponse(UserBase):
     last_login: datetime | None
     created_at: datetime
     updated_at: datetime
+    # These values are computed by the backend from direct and group roles.
+    roles: list[str] = []
+    groups: list[str] = []
+    permissions: list[str] = []
 
 
 class UserListResponse(BaseModel):

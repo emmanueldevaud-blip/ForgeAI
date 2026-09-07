@@ -10,6 +10,8 @@ export class UserModal {
     this.currentMode = 'create';
     this.currentUser = null;
     this.form = null;
+    this._boundKeydown = null;
+    this._boundOverlayClick = null;
   }
 
   async open(options = {}) {
@@ -28,8 +30,10 @@ export class UserModal {
       this.element.classList.add('open');
     });
 
-    document.addEventListener('keydown', this._handleKeydown.bind(this));
-    this.overlay.addEventListener('click', this._handleOverlayClick.bind(this));
+    this._boundKeydown = this._handleKeydown.bind(this);
+    this._boundOverlayClick = this._handleOverlayClick.bind(this);
+    document.addEventListener('keydown', this._boundKeydown);
+    this.overlay.addEventListener('click', this._boundOverlayClick);
   }
 
   _createModal() {
@@ -104,6 +108,9 @@ export class UserModal {
   close() {
     if (!this.overlay) return;
 
+    document.removeEventListener('keydown', this._boundKeydown);
+    this.overlay.removeEventListener('click', this._boundOverlayClick);
+
     this.overlay.classList.remove('open');
     this.element.classList.remove('open');
 
@@ -112,6 +119,8 @@ export class UserModal {
       this.overlay = null;
       this.element = null;
       this.form = null;
+      this._boundKeydown = null;
+      this._boundOverlayClick = null;
       this.onClose();
     }, 200);
   }

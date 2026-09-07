@@ -51,7 +51,8 @@ class AdminUserService:
     ) -> tuple[List[User], int]:
 
         query = select(User).options(
-            selectinload(User.roles).selectinload(Role.permissions)
+            selectinload(User.roles).selectinload(Role.permissions),
+            selectinload(User.groups),
         )
 
         conditions = []
@@ -161,8 +162,9 @@ class AdminUserService:
         result = await self.db.execute(
             select(User)
             .options(
-                selectinload(User.roles)
-                .selectinload(Role.permissions)
+            selectinload(User.roles)
+            .selectinload(Role.permissions),
+            selectinload(User.groups)
             )
             .where(User.id == user.id)
         )
@@ -228,8 +230,9 @@ class AdminUserService:
         result = await self.db.execute(
             select(User)
             .options(
-                selectinload(User.roles)
-                .selectinload(Role.permissions)
+            selectinload(User.roles)
+            .selectinload(Role.permissions),
+            selectinload(User.groups)
             )
             .where(User.id == user.id)
         )
@@ -280,8 +283,9 @@ class AdminUserService:
         result = await self.db.execute(
             select(User)
             .options(
-                selectinload(User.roles)
-                .selectinload(Role.permissions)
+            selectinload(User.roles)
+            .selectinload(Role.permissions),
+            selectinload(User.groups)
             )
             .where(User.id == user.id)
         )

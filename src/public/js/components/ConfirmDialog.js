@@ -5,6 +5,8 @@ export class ConfirmDialog {
     this.overlay = null;
     this.element = null;
     this.modalContent = null;
+    this._boundKeydown = null;
+    this._boundOverlayClick = null;
   }
 
   open(options = {}) {
@@ -16,8 +18,10 @@ export class ConfirmDialog {
       this.element.classList.add('open');
     });
 
-    document.addEventListener('keydown', this._handleKeydown.bind(this));
-    this.overlay.addEventListener('click', this._handleOverlayClick.bind(this));
+    this._boundKeydown = this._handleKeydown.bind(this);
+    this._boundOverlayClick = this._handleOverlayClick.bind(this);
+    document.addEventListener('keydown', this._boundKeydown);
+    this.overlay.addEventListener('click', this._boundOverlayClick);
 
     setTimeout(() => {
       const confirmBtn = this.element.querySelector('[data-action="confirm"]');
@@ -91,6 +95,9 @@ export class ConfirmDialog {
   close() {
     if (!this.overlay) return;
 
+    document.removeEventListener('keydown', this._boundKeydown);
+    this.overlay.removeEventListener('click', this._boundOverlayClick);
+
     this.overlay.classList.remove('open');
     this.element.classList.remove('open');
 
@@ -98,6 +105,8 @@ export class ConfirmDialog {
       this.overlay?.remove();
       this.overlay = null;
       this.element = null;
+      this._boundKeydown = null;
+      this._boundOverlayClick = null;
     }, 200);
   }
 

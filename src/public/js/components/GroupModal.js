@@ -95,6 +95,7 @@ export class GroupModal {
     if (!this.overlay) return;
 
     document.removeEventListener('keydown', this._handleKeydown);
+    this.overlay.removeEventListener('click', this._handleOverlayClick);
 
     this.overlay.classList.remove('open');
     this.element.classList.remove('open');

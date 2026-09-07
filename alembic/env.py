@@ -15,7 +15,15 @@ from app.db.session import Base
 
 config = context.config
 settings = get_settings()
-config.set_main_option("sqlalchemy.url", settings.DATABASE_URL.replace("mysql://", "mysql+pymysql://"))
+# Alembic runs through SQLAlchemy's async engine below, so it must use the
+# same async driver as the application.  DATABASE_URL may be supplied as a
+# generic mysql:// URL by Docker Compose or as the legacy pymysql URL.
+config.set_main_option(
+    "sqlalchemy.url",
+    settings.DATABASE_URL
+    .replace("mysql+pymysql://", "mysql+asyncmy://")
+    .replace("mysql://", "mysql+asyncmy://"),
+)
 
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)

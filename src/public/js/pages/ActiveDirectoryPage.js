@@ -6,6 +6,7 @@ import {
   deleteAdConfig,
   getAdMappings,
   createAdMapping,
+  updateAdMapping,
   deleteAdMapping,
   syncAdConfig,
   getAdSyncLogs,
@@ -20,6 +21,7 @@ export class ActiveDirectoryPage {
     this.selectedConfigId = null;
     this.syncLogs = [];
     this.mappings = [];
+    this.currentAdTab = 'config';
   }
 
   async initialize() {
@@ -28,35 +30,70 @@ export class ActiveDirectoryPage {
 
   async loadConfigs() {
     try {
-      this.configs = await getAdConfigs();
-      if (this.configs.length > 0 && !this.selectedConfigId) {
-        this.selectedConfigId = this.configs[0].id;
-        await this.loadConfigDetails(this.selectedConfigId);
+      const configs = await getAdConfigs();
+      if (configs.length > 0 && !this.selectedConfigId) {
+        await this.loadConfigDetails(configs[0].id, { config: configs[0], configs });
+      } else {
+        this.configs = configs;
       }
     } catch (error) {
       console.error('Failed to load AD configs:', error);
     }
   }
 
-  async loadConfigDetails(configId) {
-    try {
-      const [config, mappings, syncLogs] = await Promise.all([
-        getAdConfig(configId),
-        getAdMappings(configId),
-        getAdSyncLogs(configId)
-      ]);
-      this.selectedConfigId = configId;
-      this.currentConfig = config;
-      this.mappings = mappings;
-      this.syncLogs = syncLogs;
+  async loadConfigDetails(configId, { config = null, configs = null } = {}) {
+    const [loadedConfig, mappings, syncLogs] = await Promise.all([
+      config ? Promise.resolve(config) : getAdConfig(configId),
+      getAdMappings(configId),
+      getAdSyncLogs(configId)
+    ]);
+    if (configs) this.configs = configs;
+    this.selectedConfigId = configId;
+    this.currentConfig = loadedConfig;
+    this.mappings = mappings;
+    this.syncLogs = syncLogs;
+    if (this.element) this.render();
+  }
+
+  async refreshConfigsAndDetails(preferredConfigId = this.selectedConfigId) {
+    const configs = await getAdConfigs();
+    const config = configs.find(item => item.id === preferredConfigId) || configs[0];
+
+    if (!config) {
+      this.configs = configs;
+      this.selectedConfigId = null;
+      this.currentConfig = null;
+      this.mappings = [];
+      this.syncLogs = [];
       if (this.element) this.render();
-    } catch (error) {
-      console.error('Failed to load config details:', error);
+      return;
     }
+
+    await this.loadConfigDetails(config.id, { config, configs });
+  }
+
+  async refreshMappings() {
+    const mappings = await getAdMappings(this.selectedConfigId);
+    this.mappings = mappings;
+    if (this.element) this.render();
+  }
+
+  async refreshSyncState() {
+    const [config, syncLogs] = await Promise.all([
+      getAdConfig(this.selectedConfigId),
+      getAdSyncLogs(this.selectedConfigId)
+    ]);
+    this.currentConfig = config;
+    this.syncLogs = syncLogs;
+    if (this.element) this.render();
   }
 
   async handleConfigSelect(configId) {
-    await this.loadConfigDetails(configId);
+    try {
+      await this.loadConfigDetails(configId);
+    } catch (error) {
+      alert('Erreur: ' + error.message);
+    }
   }
 
   async handleCreateConfig() {
@@ -82,8 +119,7 @@ export class ActiveDirectoryPage {
         follow_referrals: false,
         is_active: true
       });
-      this.configs.push(config);
-      await this.loadConfigDetails(config.id);
+      await this.refreshConfigsAndDetails(config.id);
     } catch (error) {
       alert('Erreur: ' + error.message);
     }
@@ -92,10 +128,7 @@ export class ActiveDirectoryPage {
   async handleUpdateConfig(updates) {
     try {
       const config = await updateAdConfig(this.selectedConfigId, updates);
-      const idx = this.configs.findIndex(c => c.id === this.selectedConfigId);
-      if (idx >= 0) this.configs[idx] = config;
-      this.currentConfig = config;
-      this.render();
+      await this.refreshConfigsAndDetails(config.id);
     } catch (error) {
       alert('Erreur: ' + error.message);
     }
@@ -105,15 +138,7 @@ export class ActiveDirectoryPage {
     if (!confirm('Supprimer cette configuration ?')) return;
     try {
       await deleteAdConfig(this.selectedConfigId);
-      this.configs = this.configs.filter(c => c.id !== this.selectedConfigId);
-      this.selectedConfigId = this.configs[0]?.id || null;
-      this.currentConfig = null;
-      this.mappings = [];
-      this.syncLogs = [];
-      if (this.selectedConfigId) {
-        await this.loadConfigDetails(this.selectedConfigId);
-      }
-      this.render();
+      await this.refreshConfigsAndDetails();
     } catch (error) {
       alert('Erreur: ' + error.message);
     }
@@ -121,16 +146,21 @@ export class ActiveDirectoryPage {
 
   async handleTestConnection() {
     if (!this.currentConfig) return;
+    const form = this.element?.querySelector('[data-form="config"]');
+    const formData = form ? new FormData(form) : null;
+    const bindPassword = formData?.get('bind_password');
     try {
       const result = await testAdConfig({
-        ad_server: this.currentConfig.server,
-        ad_port: this.currentConfig.port,
-        ad_use_ssl: this.currentConfig.use_ssl,
-        ad_base_dn: this.currentConfig.base_dn,
-        ad_bind_user: this.currentConfig.bind_user,
-        ad_bind_password: this.currentConfig.bind_password,
-        ad_connect_timeout: this.currentConfig.connect_timeout,
-        ad_receive_timeout: this.currentConfig.receive_timeout,
+        ad_config_id: this.selectedConfigId,
+        ad_server: formData.get('server'),
+        ad_port: parseInt(formData.get('port'), 10),
+        ad_use_ssl: form.querySelector('[name="use_ssl"]').checked,
+        ad_base_dn: formData.get('base_dn'),
+        ad_bind_user: formData.get('bind_user'),
+        ad_bind_password: bindPassword || '',
+        ad_connect_timeout: parseInt(formData.get('connect_timeout'), 10),
+        ad_receive_timeout: parseInt(formData.get('receive_timeout'), 10),
+        ad_follow_referrals: form.querySelector('[name="follow_referrals"]').checked,
       });
       alert(result.success ? '✓ Connexion réussie' : '✗ Échec: ' + result.message + (result.details ? '\n' + result.details : ''));
     } catch (error) {
@@ -142,7 +172,7 @@ export class ActiveDirectoryPage {
     if (!this.selectedConfigId) return;
     try {
       const result = await syncAdConfig(this.selectedConfigId);
-      await this.loadConfigDetails(this.selectedConfigId);
+      await this.refreshSyncState();
       alert(`Synchronisation terminée: ${result.users_processed} utilisateurs traités, ${result.users_created} créés, ${result.users_updated} mis à jour, ${result.users_deactivated} désactivés`);
     } catch (error) {
       alert('Erreur: ' + error.message);
@@ -153,12 +183,46 @@ export class ActiveDirectoryPage {
     if (!this.selectedConfigId) return;
     const adGroupCn = prompt('CN du groupe AD :');
     if (!adGroupCn) return;
+    const adGroupDn = prompt('DN du groupe AD (optionnel) :');
     const roleCode = prompt('Code rôle ForgeAI (admin/user) :');
     if (!roleCode) return;
 
     try {
-      await createAdMapping(this.selectedConfigId, { ad_group_cn: adGroupCn, role_code: roleCode, is_active: true });
-      await this.loadConfigDetails(this.selectedConfigId);
+      await createAdMapping(this.selectedConfigId, {
+        ad_group_cn: adGroupCn,
+        ad_group_dn: adGroupDn || null,
+        role_code: roleCode,
+        is_active: true,
+      });
+      await this.refreshMappings();
+    } catch (error) {
+      alert('Erreur: ' + error.message);
+    }
+  }
+
+  async handleUpdateMapping(mapping) {
+    const adGroupCn = prompt('CN du groupe AD :', mapping.ad_group_cn);
+    if (!adGroupCn) return;
+    const adGroupDn = prompt('DN du groupe AD (optionnel) :', mapping.ad_group_dn || '');
+    if (adGroupDn === null) return;
+    const roleCode = prompt('Code rôle ForgeAI (admin/user) :', mapping.role_code);
+    if (!roleCode) return;
+    const activeValue = prompt('Mapping actif (oui/non) :', mapping.is_active ? 'oui' : 'non');
+    if (activeValue === null) return;
+    const normalizedActiveValue = activeValue.trim().toLowerCase();
+    if (normalizedActiveValue !== 'oui' && normalizedActiveValue !== 'non') {
+      alert('Répondez « oui » ou « non » pour l’état du mapping.');
+      return;
+    }
+
+    try {
+      await updateAdMapping(this.selectedConfigId, mapping.id, {
+        ad_group_cn: adGroupCn,
+        ad_group_dn: adGroupDn || null,
+        role_code: roleCode,
+        is_active: normalizedActiveValue === 'oui',
+      });
+      await this.refreshMappings();
     } catch (error) {
       alert('Erreur: ' + error.message);
     }
@@ -168,13 +232,14 @@ export class ActiveDirectoryPage {
     if (!confirm('Supprimer ce mapping ?')) return;
     try {
       await deleteAdMapping(this.selectedConfigId, mappingId);
-      await this.loadConfigDetails(this.selectedConfigId);
+      await this.refreshMappings();
     } catch (error) {
       alert('Erreur: ' + error.message);
     }
   }
 
   render() {
+    const previousElement = this.element;
     this.element = document.createElement('div');
     this.element.className = 'ad-page';
 
@@ -187,6 +252,7 @@ export class ActiveDirectoryPage {
         </div>
       `;
       this.element.querySelector('[data-action="create-config"]').addEventListener('click', () => this.handleCreateConfig());
+      if (previousElement?.parentNode) previousElement.replaceWith(this.element);
       return this.element;
     }
 
@@ -293,7 +359,7 @@ export class ActiveDirectoryPage {
                     </label>
                     <label>
                       <span>Bind Password</span>
-                      <input type="password" name="bind_password" placeholder="${this.currentConfig.bind_password ? '••••••••' : 'Laisser vide pour ne pas changer'}" autocomplete="new-password">
+                      <input type="password" name="bind_password" placeholder="Laisser vide pour ne pas changer" autocomplete="new-password">
                     </label>
                   </div>
                 </fieldset>
@@ -358,7 +424,10 @@ export class ActiveDirectoryPage {
                       <td>${m.ad_group_dn || '—'}</td>
                       <td><span class="role-badge ${m.role_code}">${m.role_code}</span></td>
                       <td>${m.is_active ? '<span class="badge badge-active">Oui</span>' : '<span class="badge badge-inactive">Non</span>'}</td>
-                      <td><button class="btn btn-icon btn-danger" data-action="delete-mapping" data-mapping-id="${m.id}" title="Supprimer">🗑️</button></td>
+                      <td>
+                        <button class="btn btn-icon" data-action="update-mapping" data-mapping-id="${m.id}" title="Modifier">✏️</button>
+                        <button class="btn btn-icon btn-danger" data-action="delete-mapping" data-mapping-id="${m.id}" title="Supprimer">🗑️</button>
+                      </td>
                     </tr>
                   `).join('')}
                 </tbody>
@@ -462,6 +531,7 @@ export class ActiveDirectoryPage {
     `;
 
     this.bindEvents();
+    if (previousElement?.parentNode) previousElement.replaceWith(this.element);
     return this.element;
   }
 
@@ -475,6 +545,14 @@ export class ActiveDirectoryPage {
     this.element.querySelector('[data-action="test-connection"]')?.addEventListener('click', () => this.handleTestConnection());
     this.element.querySelector('[data-action="sync"]')?.addEventListener('click', () => this.handleSync());
     this.element.querySelector('[data-action="create-mapping"]')?.addEventListener('click', () => this.handleCreateMapping());
+
+    this.element.querySelectorAll('[data-action="update-mapping"]').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const mapping = this.mappings.find(item => item.id === parseInt(btn.dataset.mappingId));
+        if (mapping) this.handleUpdateMapping(mapping);
+      });
+    });
 
     this.element.querySelectorAll('[data-action="delete-mapping"]').forEach(btn => {
       btn.addEventListener('click', (e) => {

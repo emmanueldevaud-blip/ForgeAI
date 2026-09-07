@@ -51,3 +51,5 @@ logs/
 
 # Docker
 .docker/
+.aider*
+new_cookies.txt

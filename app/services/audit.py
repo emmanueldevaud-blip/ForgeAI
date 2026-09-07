@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 from sqlalchemy import select
@@ -86,7 +86,7 @@ class AuditService:
             request_id=request_id,
             status=status,
             error_message=error_message,
-            created_at=datetime.now(),
+            created_at=datetime.now(timezone.utc),
         )
 
         self.db.add(audit_log)

@@ -3,11 +3,12 @@ from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from pydantic import BaseModel, ConfigDict
-from sqlalchemy import text
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_active_user, require_admin, require_permission
 from app.db.session import get_db
+from app.models import ADConfig, ADGroupMapping, ADSyncLog
 from app.schemas.auth import (
     AdminPasswordReset,
     ADTestRequest,
@@ -23,7 +24,7 @@ from app.schemas.auth import (
     UserResponse,
     UserUpdate,
 )
-from app.services.ad import DatabaseADService
+from app.services.ad import DatabaseADService, get_ad_service
 from app.services.audit import get_audit_service
 from app.services.auth import (
     authenticate_ad,
@@ -147,7 +148,7 @@ class ADSyncLogResponse(BaseModel):
 from datetime import datetime
 
 from app.core.config import get_settings
-from app.models.user import User
+from app.models.user import User, UserRole
 
 settings = get_settings()
 router = APIRouter(prefix="/auth", tags=["authentication"])
@@ -511,7 +512,10 @@ async def list_ad_configs(
 ):
     ad_service = DatabaseADService(db)
     configs = await ad_service.get_active_configs()
-    return [ADConfigResponse.model_validate(c) for c in configs]
+    responses = [ADConfigResponse.model_validate(c) for c in configs]
+    for response in responses:
+        response.bind_password = ""
+    return responses
 
 
 @router.post("/ad-configs", response_model=ADConfigResponse, status_code=status.HTTP_201_CREATED)
@@ -596,6 +600,7 @@ async def create_ad_config(
         },
         status="success",
     )
+    await db.commit()
 
     response = ADConfigResponse.model_validate(config)
     response.bind_password = ""
@@ -652,6 +657,8 @@ async def update_ad_config(
     }
 
     update_data = updates.model_dump(exclude_unset=True)
+    if update_data.get("bind_password") == "":
+        update_data.pop("bind_password")
     if update_data.get("is_default"):
         existing_default = await db.execute(
             select(ADConfig).where(ADConfig.is_default == True)
@@ -714,6 +721,7 @@ async def update_ad_config(
         new_values=new_values,
         status="success",
     )
+    await db.commit()
 
     response = ADConfigResponse.model_validate(config)
     response.bind_password = ""
@@ -765,7 +773,9 @@ async def list_ad_group_mappings(
     current_user: User = Depends(require_permission("ad_config")),
     db: AsyncSession = Depends(get_db),
 ):
-    from sqlalchemy import select
+    if not await db.get(ADConfig, config_id):
+        raise HTTPException(status_code=404, detail="Configuration AD non trouvée")
+
     result = await db.execute(
         select(ADGroupMapping).where(ADGroupMapping.ad_config_id == config_id)
     )
@@ -781,11 +791,17 @@ async def create_ad_group_mapping(
     db: AsyncSession = Depends(get_db),
 ):
     from app.services.audit import get_audit_service
+    from sqlalchemy.exc import IntegrityError
     audit = await get_audit_service(db)
 
     config = await db.get(ADConfig, config_id)
     if not config:
         raise HTTPException(status_code=404, detail="Configuration AD non trouvée")
+    if mapping_data.role_code not in {role.value for role in UserRole}:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Le rôle ForgeAI doit être 'admin' ou 'user'",
+        )
 
     mapping = ADGroupMapping(
         ad_config_id=config_id,
@@ -795,8 +811,15 @@ async def create_ad_group_mapping(
         is_active=mapping_data.is_active,
     )
     db.add(mapping)
-    await db.commit()
-    await db.refresh(mapping)
+    try:
+        await db.commit()
+        await db.refresh(mapping)
+    except IntegrityError:
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Un mapping existe déjà pour ce groupe AD",
+        )
 
     await audit.log(
         action="ad_group_mapping_create",
@@ -814,6 +837,7 @@ async def create_ad_group_mapping(
         },
         status="success",
     )
+    await db.commit()
 
     return ADGroupMappingResponse.model_validate(mapping)
 
@@ -827,6 +851,7 @@ async def update_ad_group_mapping(
     db: AsyncSession = Depends(get_db),
 ):
     from app.services.audit import get_audit_service
+    from sqlalchemy.exc import IntegrityError
     audit = await get_audit_service(db)
 
     result = await db.execute(
@@ -847,12 +872,27 @@ async def update_ad_group_mapping(
     }
 
     update_data = updates.model_dump(exclude_unset=True)
+    if (
+        "role_code" in update_data
+        and update_data["role_code"] not in {role.value for role in UserRole}
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Le rôle ForgeAI doit être 'admin' ou 'user'",
+        )
     for key, value in update_data.items():
         setattr(mapping, key, value)
 
     mapping.updated_at = datetime.now(timezone.utc)
-    await db.commit()
-    await db.refresh(mapping)
+    try:
+        await db.commit()
+        await db.refresh(mapping)
+    except IntegrityError:
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Un mapping existe déjà pour ce groupe AD",
+        )
 
     new_values = {
         "ad_group_cn": mapping.ad_group_cn,
@@ -867,11 +907,12 @@ async def update_ad_group_mapping(
         user=current_user,
         object_type="ad_group_mapping",
         object_id=str(mapping.id),
-        object_repr=f"{config.name} -> {mapping.ad_group_cn}",
+        object_repr=f"{mapping.ad_group_cn}",
         old_values=old_values,
         new_values=new_values,
         status="success",
     )
+    await db.commit()
 
     return ADGroupMappingResponse.model_validate(mapping)
 
@@ -923,10 +964,12 @@ async def sync_ad_config(
     current_user: User = Depends(require_permission("ad_sync")),
     db: AsyncSession = Depends(get_db),
 ):
-    ad_service = DatabaseADService(db, current_user=current_user)
+    ad_service = await get_ad_service(db, current_user)
     config = await ad_service.get_config_by_id(config_id)
     if not config:
         raise HTTPException(status_code=404, detail="Configuration AD non trouvée")
+    if not config.is_active:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Configuration AD inactive")
 
     sync_log = await ad_service.sync_users(config)
     return ADSyncLogResponse.model_validate(sync_log)
@@ -938,7 +981,9 @@ async def list_ad_sync_logs(
     current_user: User = Depends(require_permission("ad_sync")),
     db: AsyncSession = Depends(get_db),
 ):
-    from sqlalchemy import select
+    if not await db.get(ADConfig, config_id):
+        raise HTTPException(status_code=404, detail="Configuration AD non trouvée")
+
     result = await db.execute(
         select(ADSyncLog)
         .where(ADSyncLog.ad_config_id == config_id)
@@ -958,14 +1003,28 @@ async def test_ad_config(
     audit = await get_audit_service(db)
 
     ad_service = DatabaseADService(db)
+    bind_password = test_data.ad_bind_password
+    if not bind_password:
+        if test_data.ad_config_id is None:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Un mot de passe Bind ou une configuration AD existante est requis",
+            )
+        config = await ad_service.get_config_by_id(test_data.ad_config_id)
+        if not config:
+            raise HTTPException(status_code=404, detail="Configuration AD non trouvée")
+        bind_password = config.bind_password
+
     success, message, details = ad_service.test_connection(
-        server_url=f"{'ldaps' if test_data.ad_use_ssl else 'ldap'}://{test_data.ad_server}:{test_data.ad_port}",
+        server=test_data.ad_server,
+        port=test_data.ad_port,
         use_ssl=test_data.ad_use_ssl,
         base_dn=test_data.ad_base_dn,
         bind_user=test_data.ad_bind_user,
-        bind_password=test_data.ad_bind_password,
+        bind_password=bind_password,
         connect_timeout=test_data.ad_connect_timeout,
         receive_timeout=test_data.ad_receive_timeout,
+        follow_referrals=test_data.ad_follow_referrals,
     )
 
     await audit.log(
@@ -982,9 +1041,11 @@ async def test_ad_config(
             "ad_bind_user": test_data.ad_bind_user,
             "ad_connect_timeout": test_data.ad_connect_timeout,
             "ad_receive_timeout": test_data.ad_receive_timeout,
+            "ad_follow_referrals": test_data.ad_follow_referrals,
         },
         status="success" if success else "failure",
         error_message=details if not success else None,
     )
+    await db.commit()
 
     return ADTestResponse(success=success, message=message, details=details)

@@ -92,6 +92,7 @@ class ErrorResponse(BaseModel):
 
 
 class ADTestRequest(BaseModel):
+    ad_config_id: int | None = None
     ad_server: str = Field(..., max_length=255)
     ad_port: int = Field(..., ge=1, le=65535)
     ad_use_ssl: bool = True
@@ -100,6 +101,7 @@ class ADTestRequest(BaseModel):
     ad_bind_password: str = Field(..., max_length=255)
     ad_connect_timeout: int = Field(10, ge=1, le=60)
     ad_receive_timeout: int = Field(10, ge=1, le=60)
+    ad_follow_referrals: bool = False
 
 
 class ADTestResponse(BaseModel):

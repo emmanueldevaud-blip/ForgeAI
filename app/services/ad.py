@@ -1,7 +1,8 @@
 from datetime import UTC, datetime
 
-from ldap3 import ALL, NTLM, SUBTREE, Connection, Server
+from ldap3 import ALL, NTLM, SIMPLE, SUBTREE, Connection, Server
 from ldap3.core.exceptions import LDAPException
+from ldap3.utils.conv import escape_filter_chars
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -31,7 +32,6 @@ class DatabaseADService:
         result = await self.db.execute(
             select(ADConfig)
             .options(selectinload(ADConfig.group_mappings))
-            .where(ADConfig.is_active == True)
         )
         return list(result.scalars().all())
 
@@ -45,57 +45,79 @@ class DatabaseADService:
 
     def _create_server(self, config: ADConfig) -> Server:
         return Server(
-            config.ad_url,
+            config.server,
+            port=config.port,
             use_ssl=config.use_ssl,
             get_info=ALL,
             connect_timeout=config.connect_timeout,
         )
 
-    def _create_connection(self, server: Server, user_dn: str, password: str, config: ADConfig) -> Connection:
+    @staticmethod
+    def _bind_authentication(bind_user: str) -> str:
+        if "@" in bind_user:
+            return SIMPLE
+        if "\\" in bind_user:
+            return NTLM
+        raise ValueError("Le compte Bind doit utiliser un UPN ou le format DOMAINE\\utilisateur pour NTLM")
+
+    def _create_connection(
+        self,
+        server: Server,
+        user_dn: str,
+        password: str,
+        config: ADConfig,
+        authentication: str = NTLM,
+    ) -> Connection:
         return Connection(
             server,
             user=user_dn,
             password=password,
-            authentication=NTLM,
+            authentication=authentication,
             auto_bind=True,
             receive_timeout=config.receive_timeout,
+            auto_referrals=config.follow_referrals,
         )
 
     def test_connection(
         self,
-        server_url: str,
+        server: str,
+        port: int,
         use_ssl: bool,
         base_dn: str,
         bind_user: str,
         bind_password: str,
         connect_timeout: int,
         receive_timeout: int,
+        follow_referrals: bool = False,
     ) -> tuple[bool, str, str | None]:
         try:
-            protocol = "ldaps" if use_ssl else "ldap"
-            full_url = f"{protocol}://{server_url}"
-            server = Server(
-                full_url,
+            ldap_server = Server(
+                server,
+                port=port,
                 use_ssl=use_ssl,
                 get_info=ALL,
                 connect_timeout=connect_timeout,
             )
             conn = Connection(
-                server,
+                ldap_server,
                 user=bind_user,
                 password=bind_password,
-                authentication=NTLM,
+                authentication=self._bind_authentication(bind_user),
                 auto_bind=True,
                 receive_timeout=receive_timeout,
+                auto_referrals=follow_referrals,
             )
 
-            conn.search(
+            if not conn.search(
                 search_base=base_dn,
                 search_filter="(objectClass=*)",
                 search_scope=SUBTREE,
                 attributes=["distinguishedName"],
                 size_limit=1,
-            )
+            ):
+                details = conn.result.get("message") or conn.result.get("description")
+                conn.unbind()
+                return False, "Échec de la recherche LDAP", details
 
             conn.unbind()
             return True, "Connexion à l'Active Directory réussie", None
@@ -119,18 +141,19 @@ class DatabaseADService:
 
         try:
             server = self._create_server(config)
-            admin_conn = Connection(
+            admin_conn = self._create_connection(
                 server,
-                user=config.bind_user,
-                password=config.bind_password,
-                authentication=NTLM,
-                auto_bind=True,
-                receive_timeout=config.receive_timeout,
+                config.bind_user,
+                config.bind_password,
+                config,
+                authentication=self._bind_authentication(config.bind_user),
             )
 
-            search_filter = config.user_search_filter.format(username=username)
+            search_filter = config.user_search_filter.format(
+                username=escape_filter_chars(username)
+            )
             admin_conn.search(
-                search_base=config.base_dn,
+                search_base=config.user_dn or config.base_dn,
                 search_filter=search_filter,
                 search_scope=SUBTREE,
                 attributes=["distinguishedName", "sAMAccountName", "mail", "givenName", "sn", "memberOf", "userAccountControl"],
@@ -148,7 +171,7 @@ class DatabaseADService:
             if not user_conn.bound:
                 return None, None, None
 
-            groups = []
+            groups = [str(group) for group in entry.memberOf] if entry.memberOf else []
             if config.group_search_base:
                 user_conn.search(
                     search_base=config.group_search_base,
@@ -156,7 +179,7 @@ class DatabaseADService:
                     search_scope=SUBTREE,
                     attributes=["cn"],
                 )
-                groups = [str(entry.cn) for entry in user_conn.entries]
+                groups.extend(str(group_entry.cn) for group_entry in user_conn.entries)
 
             user_conn.unbind()
             return user_dn, groups, config
@@ -168,11 +191,18 @@ class DatabaseADService:
 
     def map_groups_to_roles(self, ad_groups: list[str], config: ADConfig) -> UserRole:
         role = UserRole.USER
+        normalized_groups = {group.casefold() for group in ad_groups}
 
         for mapping in config.group_mappings:
             if not mapping.is_active:
                 continue
-            if mapping.ad_group_cn in ad_groups:
+            if (
+                mapping.ad_group_cn.casefold() in normalized_groups
+                or (
+                    mapping.ad_group_dn is not None
+                    and mapping.ad_group_dn.casefold() in normalized_groups
+                )
+            ):
                 if mapping.role_code == "admin":
                     role = UserRole.ADMIN
                     break
@@ -199,17 +229,16 @@ class DatabaseADService:
 
         try:
             server = self._create_server(config)
-            admin_conn = Connection(
+            admin_conn = self._create_connection(
                 server,
-                user=config.bind_user,
-                password=config.bind_password,
-                authentication=NTLM,
-                auto_bind=True,
-                receive_timeout=config.receive_timeout,
+                config.bind_user,
+                config.bind_password,
+                config,
+                authentication=self._bind_authentication(config.bind_user),
             )
 
             admin_conn.search(
-                search_base=config.base_dn,
+                search_base=config.user_dn or config.base_dn,
                 search_filter=config.user_search_filter.format(username="*"),
                 search_scope=SUBTREE,
                 attributes=["distinguishedName", "sAMAccountName", "mail", "givenName", "sn", "memberOf", "userAccountControl"],
@@ -351,6 +380,7 @@ class DatabaseADService:
                     },
                     status="success",
                 )
+                await self.db.commit()
 
             return sync_log
 
@@ -371,6 +401,7 @@ class DatabaseADService:
                     status="failure",
                     error_message=str(e),
                 )
+                await self.db.commit()
 
             return sync_log
 

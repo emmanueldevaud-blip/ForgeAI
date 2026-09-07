@@ -252,9 +252,10 @@ async def authenticate_ad(
             authentication=NTLM,
             auto_bind=True,
             receive_timeout=config.receive_timeout,
+            auto_referrals=config.follow_referrals,
         )
         admin_conn.search(
-            search_base=config.base_dn,
+            search_base=config.user_dn or config.base_dn,
             search_filter=f"(distinguishedName={user_dn})",
             search_scope=SUBTREE,
             attributes=["sAMAccountName", "mail", "givenName", "sn"],

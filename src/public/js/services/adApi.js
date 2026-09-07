@@ -30,6 +30,10 @@ export async function createAdMapping(configId, mappingData) {
   return adApi.post(`/ad-configs/${configId}/mappings`, mappingData);
 }
 
+export async function updateAdMapping(configId, mappingId, updates) {
+  return adApi.patch(`/ad-configs/${configId}/mappings/${mappingId}`, updates);
+}
+
 export async function deleteAdMapping(configId, mappingId) {
   return adApi.delete(`/ad-configs/${configId}/mappings/${mappingId}`);
 }

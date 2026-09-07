@@ -8,7 +8,7 @@ from app.core.config import get_settings
 settings = get_settings()
 
 engine = create_async_engine(
-    settings.DATABASE_URL.replace("mysql://", "mysql+pymysql://"),
+    settings.DATABASE_URL.replace("mysql+pymysql://", "mysql+asyncmy://").replace("mysql://", "mysql+asyncmy://"),
     pool_size=settings.DATABASE_POOL_SIZE,
     max_overflow=settings.DATABASE_MAX_OVERFLOW,
     pool_pre_ping=True,

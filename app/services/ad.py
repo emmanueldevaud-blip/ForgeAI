@@ -4,6 +4,7 @@ from ldap3 import ALL, NTLM, SIMPLE, SUBTREE, Connection, Server
 from ldap3.core.exceptions import LDAPException
 from ldap3.utils.conv import escape_filter_chars
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -264,40 +265,80 @@ class DatabaseADService:
                     groups = [str(g) for g in entry.memberOf]
                     role = self.map_groups_to_roles(groups, config)
 
-                result = await self.db.execute(select(User).where(User.ad_dn == user_dn))
-                user = result.scalar_one_or_none()
-
                 sam_account = str(entry.sAMAccountName) if entry.sAMAccountName else f"ad_user_{users_processed}"
                 email = str(entry.mail) if entry.mail else f"{sam_account}@ad.local"
+
+                user = None
+                if user_dn:
+                    result = await self.db.execute(
+                        select(User).where(User.source == "ad", User.ad_dn == user_dn)
+                    )
+                    user = result.scalar_one_or_none()
+
+                if user is None:
+                    result = await self.db.execute(
+                        select(User).where(User.source == "ad", User.username == sam_account)
+                    )
+                    user = result.scalar_one_or_none()
+
+                username_owner = None
+                if user is None:
+                    result = await self.db.execute(select(User).where(User.username == sam_account))
+                    username_owner = result.scalar_one_or_none()
+
+                email_owner = None
+                if user is None and entry.mail:
+                    result = await self.db.execute(select(User).where(User.email == email))
+                    email_owner = result.scalar_one_or_none()
 
                 if user:
                     user.is_active = True
                     user.role = role
                     user.last_login = datetime.now(UTC)
                     if entry.mail:
-                        user.email = str(entry.mail)
+                        result = await self.db.execute(select(User).where(User.email == email))
+                        email_owner = result.scalar_one_or_none()
+                        if email_owner is None or email_owner.id == user.id:
+                            user.email = email
                     if entry.givenName:
                         user.first_name = str(entry.givenName)
                     if entry.sn:
                         user.last_name = str(entry.sn)
                     if entry.sAMAccountName:
-                        user.username = str(entry.sAMAccountName)
+                        result = await self.db.execute(select(User).where(User.username == sam_account))
+                        username_owner = result.scalar_one_or_none()
+                        if username_owner is None or username_owner.id == user.id:
+                            user.username = sam_account
+                    result = await self.db.execute(select(User).where(User.ad_dn == user_dn))
+                    ad_dn_owner = result.scalar_one_or_none()
+                    if ad_dn_owner is None or ad_dn_owner.id == user.id:
+                        user.ad_dn = user_dn
                     users_updated += 1
+                elif username_owner is not None or email_owner is not None:
+                    # Un compte local portant déjà cet identifiant ne doit jamais être
+                    # transformé en compte AD, ni provoquer une violation d'unicité.
+                    continue
                 else:
-                    user = User(
-                        username=sam_account,
-                        email=email,
-                        first_name=str(entry.givenName) if entry.givenName else None,
-                        last_name=str(entry.sn) if entry.sn else None,
-                        password_hash=None,
-                        is_active=True,
-                        role=role,
-                        source="ad",
-                        ad_dn=user_dn,
-                        last_login=datetime.now(UTC),
-                    )
-                    self.db.add(user)
-                    users_created += 1
+                    try:
+                        async with self.db.begin_nested():
+                            user = User(
+                                username=sam_account,
+                                email=email,
+                                first_name=str(entry.givenName) if entry.givenName else None,
+                                last_name=str(entry.sn) if entry.sn else None,
+                                password_hash=None,
+                                is_active=True,
+                                role=role,
+                                source="ad",
+                                ad_dn=user_dn,
+                                last_login=datetime.now(UTC),
+                            )
+                            self.db.add(user)
+                            await self.db.flush()
+                        users_created += 1
+                    except IntegrityError:
+                        # Une création concurrente ne doit pas rendre la session invalide.
+                        continue
 
             if config.group_search_base:
                 admin_conn.search(
@@ -388,6 +429,7 @@ class DatabaseADService:
             return sync_log
 
         except Exception as e:
+            await self.db.rollback()
             sync_log.status = ADSyncStatus.FAILED
             sync_log.completed_at = datetime.now(UTC)
             sync_log.error_message = str(e)

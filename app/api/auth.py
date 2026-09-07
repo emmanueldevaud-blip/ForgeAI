@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import get_current_active_user, require_admin, require_permission
 from app.db.session import get_db
 from app.models import ADConfig, ADGroupMapping, ADSyncLog, Role
+from app.models.user import User, UserRole
 from app.schemas.auth import (
     AdminPasswordReset,
     ADTestRequest,
@@ -167,10 +168,7 @@ async def user_response_with_authorization(db: AsyncSession, user: User) -> User
     )
 
 
-from datetime import datetime
-
 from app.core.config import get_settings
-from app.models.user import User, UserRole
 
 settings = get_settings()
 router = APIRouter(prefix="/auth", tags=["authentication"])

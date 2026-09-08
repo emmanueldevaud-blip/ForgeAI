@@ -315,7 +315,7 @@ class DatabaseADService:
                     f"{config.user_search_filter.format(username='*')})"
                 ),
                 search_scope=SUBTREE,
-                attributes=["distinguishedName", "sAMAccountName", "mail", "givenName", "sn", "memberOf", "userAccountControl"],
+                attributes=["distinguishedName", "sAMAccountName", "mail", "givenName", "sn", "memberOf", "userAccountControl", "objectClass"],
                 paged_size=config.page_size,
             )
 

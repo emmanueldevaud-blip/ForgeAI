@@ -116,6 +116,7 @@ class Group(Base):
     name: Mapped[str] = mapped_column(String(100), nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     ad_dn: Mapped[str | None] = mapped_column(String(500), nullable=True, unique=True, index=True)
+    ad_config_id: Mapped[int | None] = mapped_column(ForeignKey("ad_configs.id", ondelete="SET NULL"), nullable=True, index=True)
     # A group imported from AD must remain distinguishable from a local group even
     # when its DN is no longer available (for example after an AD cleanup).
     source: Mapped[str] = mapped_column(String(20), default="local", nullable=False)

@@ -239,6 +239,7 @@ class DatabaseADService:
                     code=await self._unique_ad_group_code(group_cn),
                     name=group_cn,
                     ad_dn=group_dn,
+                    ad_config_id=config.id,
                     source="ad",
                     is_active=True,
                 )
@@ -246,6 +247,7 @@ class DatabaseADService:
                 await self.db.flush()
             else:
                 group.name = group_cn
+                group.ad_config_id = config.id
                 group.source = "ad"
                 group.is_active = True
             groups[group_dn.casefold()] = group
@@ -451,19 +453,17 @@ class DatabaseADService:
 
                 groups_deleted = 0
                 if found_group_dns:
-                    scope_dn = config.group_search_base or config.base_dn
                     result = await self.db.execute(
                         select(Group).where(
                             Group.source == "ad",
-                            Group.ad_dn.isnot(None),
+                            Group.ad_config_id == config.id,
                             Group.ad_dn.notin_(list(found_group_dns)),
                         )
                     )
                     stale_groups = result.scalars().all()
                     for group in stale_groups:
-                        if group.ad_dn and group.ad_dn.casefold().endswith(scope_dn.casefold()):
-                            await self.db.delete(group)
-                            groups_deleted += 1
+                        await self.db.delete(group)
+                        groups_deleted += 1
                     if groups_deleted:
                         print(f"[AD-SYNC] {groups_deleted} groupes AD supprimés (absents de l'AD)")
 

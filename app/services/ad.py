@@ -293,6 +293,7 @@ class DatabaseADService:
         await self.db.refresh(sync_log)
 
         found_ad_dns = set()
+        found_group_dns = set()
         groups_processed = 0
         groups_created = 0
         groups_updated = 0
@@ -439,6 +440,7 @@ class DatabaseADService:
                     if not group_cn:
                         continue
 
+                    found_group_dns.add(group_dn)
                     result = await self.db.execute(select(Group.id).where(Group.ad_dn == group_dn))
                     existed = result.scalar_one_or_none() is not None
                     await self._ensure_ad_groups([group_dn], config)
@@ -446,6 +448,24 @@ class DatabaseADService:
                         groups_updated += 1
                     else:
                         groups_created += 1
+
+                groups_deleted = 0
+                if found_group_dns:
+                    scope_dn = config.group_search_base or config.base_dn
+                    result = await self.db.execute(
+                        select(Group).where(
+                            Group.source == "ad",
+                            Group.ad_dn.isnot(None),
+                            Group.ad_dn.notin_(list(found_group_dns)),
+                        )
+                    )
+                    stale_groups = result.scalars().all()
+                    for group in stale_groups:
+                        if group.ad_dn and group.ad_dn.casefold().endswith(scope_dn.casefold()):
+                            await self.db.delete(group)
+                            groups_deleted += 1
+                    if groups_deleted:
+                        print(f"[AD-SYNC] {groups_deleted} groupes AD supprimés (absents de l'AD)")
 
             if found_ad_dns:
                 result = await self.db.execute(
@@ -497,6 +517,7 @@ class DatabaseADService:
                         "groups_processed": groups_processed,
                         "groups_created": groups_created,
                         "groups_updated": groups_updated,
+                        "groups_deleted": groups_deleted,
                     },
                     status="success",
                 )

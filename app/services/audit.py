@@ -68,8 +68,8 @@ class AuditService:
         status: str = "success",
         error_message: str | None = None,
     ) -> AuditLog:
-        log_username = username or (user.username if user else "anonymous")
-        log_user_id = user.id if user else None
+        log_username = username or (user.__dict__.get("username", "anonymous") if user else "anonymous")
+        log_user_id = user.__dict__.get("id") if user else None
 
         audit_log = AuditLog(
             user_id=log_user_id,

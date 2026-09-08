@@ -146,6 +146,10 @@ export async function removePermissionFromRole(roleId, permissionId) {
   return adminApi.delete(`/users/roles/${roleId}/permissions/${permissionId}`);
 }
 
+export async function replaceRolePermissions(roleId, permissionIds) {
+  return adminApi.put(`/users/roles/${roleId}/permissions`, { permission_ids: permissionIds });
+}
+
 export async function listRolePermissions(roleId) {
   return adminApi.get(`/users/roles/${roleId}/permissions`);
 }

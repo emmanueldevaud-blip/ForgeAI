@@ -4,6 +4,7 @@ export class UserModal {
     this.onClose = options.onClose || (() => {});
     this.onAddRole = options.onAddRole || (() => {});
     this.onRemoveRole = options.onRemoveRole || (() => {});
+    this.onSavePermissions = options.onSavePermissions || (() => {});
     this.roles = options.roles || [];
     this.element = null;
     this.overlay = null;
@@ -19,12 +20,7 @@ export class UserModal {
     this.currentUser = options.user || null;
     this.roles = options.roles || this.roles;
 
-    console.log('[DEBUG] UserModal.open', {
-      mode: this.currentMode,
-      hasUser: !!this.currentUser,
-      hasGroup: !!options.group,
-      rolesCount: this.roles?.length,
-    });
+
 
     const { UserForm } = await import('./UserForm.js');
 
@@ -103,11 +99,7 @@ export class UserModal {
       userRoles: userRoles,
       onSubmit: (data, isEdit) => this.onSubmit(data, isEdit),
       onClose: () => this.close(),
-    });
-
-    console.log('[DEBUG] UserModal._renderForm', {
-      formMode: this.form.mode,
-      currentMode: this.currentMode,
+      onSavePermissions: (permissionIds) => this.onSavePermissions(permissionIds),
     });
 
     body.appendChild(this.form.render());
@@ -120,11 +112,10 @@ export class UserModal {
 
   close() {
     if (!this.overlay) {
-      console.log('[DEBUG] UserModal.close - no overlay, returning');
       return;
     }
 
-    console.log('[DEBUG] UserModal.close - overlay exists, closing. currentMode:', this.currentMode);
+
 
     document.removeEventListener('keydown', this._boundKeydown);
     this.overlay.removeEventListener('click', this._boundOverlayClick);
@@ -139,7 +130,6 @@ export class UserModal {
       this.form = null;
       this._boundKeydown = null;
       this._boundOverlayClick = null;
-      console.log('[DEBUG] UserModal.close - cleanup done, calling onClose');
       this.onClose();
     }, 200);
   }

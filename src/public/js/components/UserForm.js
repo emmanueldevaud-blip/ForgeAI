@@ -6,15 +6,11 @@ export class UserForm {
     this.userRoles = options.userRoles || [];
     this.onSubmit = options.onSubmit || (() => {});
     this.onClose = options.onClose || (() => {});
+    this.onSavePermissions = options.onSavePermissions || (() => {});
     this.element = null;
     this.submitting = false;
 
-    console.log('[DEBUG] UserForm constructor', {
-      mode: this.mode,
-      hasUser: !!this.user,
-      rolesCount: this.roles?.length,
-      userRolesCount: this.userRoles?.length,
-    });
+
   }
 
   _getRoleOptions(selectedRole = '') {
@@ -761,6 +757,107 @@ export class UserForm {
     `;
   }
 
+  _getManagePermissionsFieldsHtml() {
+    const roleName = this.user?.name || this.user?.code || '';
+    const rolePermissions = this.userRoles || [];
+    const assignedIds = new Set(rolePermissions.map(p => p.id));
+
+    const permissions = this.roles || [];
+
+    const modules = {};
+    permissions.forEach(p => {
+      const mod = p.module || 'Non assigné';
+      if (!modules[mod]) modules[mod] = [];
+      modules[mod].push(p);
+    });
+
+    const sortedModules = Object.keys(modules).sort();
+
+    let html = `
+      <div class="ad-status ad-status--info">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="12" cy="12" r="10"></circle>
+          <line x1="12" y1="16" x2="12" y2="12"></line>
+          <line x1="12" y1="8" x2="12.01" y2="8"></line>
+        </svg>
+        <div>
+          <strong>
+            Gestion des permissions pour ${this._escapeHtml(roleName)}
+          </strong>
+          <p>
+            ${rolePermissions.length} permission(s) assignée(s) sur ${permissions.length} disponible(s).
+          </p>
+        </div>
+      </div>
+
+      <div class="form-group">
+        <input
+          type="text"
+          id="permission-search"
+          name="permission-search"
+          placeholder="Rechercher une permission..."
+          autocomplete="off"
+          maxlength="100">
+      </div>
+
+      <div class="form-group" data-permissions-list>
+    `;
+
+    sortedModules.forEach(mod => {
+      const modPerms = modules[mod];
+      const modAssigned = modPerms.filter(p => assignedIds.has(p.id)).length;
+      const allChecked = modAssigned === modPerms.length;
+
+      html += `
+        <div class="permission-module" data-module="${this._escapeHtml(mod)}">
+          <div class="permission-module-header">
+            <label class="checkbox-group">
+              <input
+                type="checkbox"
+                data-action="toggle-module"
+                data-module="${this._escapeHtml(mod)}"
+                ${allChecked ? 'checked' : ''}>
+              <span>
+                ${this._escapeHtml(mod)}
+                <span class="permission-count">(${modAssigned}/${modPerms.length})</span>
+              </span>
+            </label>
+          </div>
+          <div class="permission-module-items">
+      `;
+
+      modPerms.forEach(p => {
+        const isChecked = assignedIds.has(p.id);
+        html += `
+          <label class="checkbox-group permission-item">
+            <input
+              type="checkbox"
+              name="permission"
+              value="${p.id}"
+              data-permission-id="${p.id}"
+              data-module="${this._escapeHtml(mod)}"
+              ${isChecked ? 'checked' : ''}>
+            <span>
+              <span class="permission-code">${this._escapeHtml(p.code)}</span>
+              <span class="permission-name">${this._escapeHtml(p.name || '')}</span>
+            </span>
+          </label>
+        `;
+      });
+
+      html += `
+          </div>
+        </div>
+      `;
+    });
+
+    html += `
+      </div>
+    `;
+
+    return html;
+  }
+
   render() {
     this.element =
       document.createElement('form');
@@ -792,14 +889,8 @@ export class UserForm {
     const isManageUsers =
       this.mode === 'manage-users';
 
-    console.log('[DEBUG] UserForm.render', {
-      mode: this.mode,
-      isCreate,
-      isEdit,
-      isResetPassword,
-      isManageRoles,
-      isManageUsers,
-    });
+    const isManagePermissions =
+      this.mode === 'manage-permissions';
 
     let fieldsHtml = '';
 
@@ -834,6 +925,11 @@ export class UserForm {
     ) {
       fieldsHtml =
         this._getManageUsersFieldsHtml();
+    } else if (
+      this.mode === 'manage-permissions'
+    ) {
+      fieldsHtml =
+        this._getManagePermissionsFieldsHtml();
     }
 
     this.element.innerHTML = `
@@ -848,6 +944,26 @@ export class UserForm {
             class="btn btn-secondary"
             data-action="cancel">
             Fermer
+          </button>
+        </div>
+      ` : isManagePermissions ? `
+        <div class="form-actions">
+          <button
+            type="button"
+            class="btn btn-secondary"
+            data-action="cancel">
+            Annuler
+          </button>
+          <button
+            type="submit"
+            class="btn btn-primary"
+            ${this.submitting ? 'disabled' : ''}>
+            <span class="btn-text">
+              Enregistrer
+            </span>
+            <span class="btn-loading">
+              <div class="spinner"></div>
+            </span>
           </button>
         </div>
       ` : `
@@ -877,8 +993,6 @@ export class UserForm {
       `}
     `;
 
-    console.log('[DEBUG] UserForm.render button HTML:', this.element.querySelector('.form-actions')?.innerHTML?.substring(0, 200));
-
     this.element.addEventListener(
       'submit',
       (e) => this._handleSubmit(e)
@@ -898,6 +1012,10 @@ export class UserForm {
       isManageUsers
     ) {
       this._bindRoleEvents();
+    }
+
+    if (isManagePermissions) {
+      this._bindPermissionEvents();
     }
 
     const firstInput =
@@ -922,7 +1040,25 @@ export class UserForm {
       return;
     }
 
-    if (this.mode === 'manage-roles' || this.mode === 'manage-users') {
+    if (
+      this.mode === 'manage-roles' ||
+      this.mode === 'manage-users'
+    ) {
+      return;
+    }
+
+    if (this.mode === 'manage-permissions') {
+      const checked =
+        this.element.querySelectorAll(
+          '.permission-item input[type="checkbox"]:checked'
+        );
+
+      const permissionIds =
+        Array.from(checked).map(
+          cb => parseInt(cb.value, 10)
+        );
+
+      this.onSavePermissions(permissionIds);
       return;
     }
 
@@ -1402,6 +1538,138 @@ export class UserForm {
               )
             )
         );
+      });
+  }
+
+  _bindPermissionEvents() {
+    const searchInput =
+      this.element.querySelector(
+        '#permission-search'
+      );
+
+    if (searchInput) {
+      searchInput.addEventListener(
+        'input',
+        (e) => {
+          const query =
+            e.target.value.toLowerCase();
+
+          this.element
+            .querySelectorAll(
+              '.permission-item'
+            )
+            .forEach(item => {
+              const code =
+                item
+                  .querySelector(
+                    '.permission-code'
+                  )
+                  ?.textContent.toLowerCase() ||
+                '';
+              const name =
+                item
+                  .querySelector(
+                    '.permission-name'
+                  )
+                  ?.textContent.toLowerCase() ||
+                '';
+
+              const match =
+                code.includes(query) ||
+                name.includes(query);
+
+              item.style.display = match
+                ? ''
+                : 'none';
+            });
+        }
+      );
+    }
+
+    this.element
+      .querySelectorAll(
+        '[data-action="toggle-module"]'
+      )
+      .forEach(checkbox => {
+        checkbox.addEventListener(
+          'change',
+          () => {
+            const mod =
+              checkbox.dataset.module;
+            const checked =
+              checkbox.checked;
+
+            this.element
+              .querySelectorAll(
+                `[data-module="${mod}"].permission-item input[type="checkbox"]`
+              )
+              .forEach(cb => {
+                if (
+                  cb.offsetParent !== null
+                ) {
+                  cb.checked = checked;
+                }
+              });
+
+            this._updateModuleCounts();
+          }
+        );
+      });
+
+    this.element
+      .querySelectorAll(
+        '.permission-item input[type="checkbox"]'
+      )
+      .forEach(cb => {
+        cb.addEventListener(
+          'change',
+          () => {
+            this._updateModuleCounts();
+          }
+        );
+      });
+  }
+
+  _updateModuleCounts() {
+    this.element
+      .querySelectorAll(
+        '[data-action="toggle-module"]'
+      )
+      .forEach(checkbox => {
+        const mod =
+          checkbox.dataset.module;
+        const items =
+          this.element.querySelectorAll(
+            `[data-module="${mod}"].permission-item input[type="checkbox"]`
+          );
+
+        let checkedCount = 0;
+        let visibleCount = 0;
+
+        items.forEach(cb => {
+          if (
+            cb.offsetParent !== null
+          ) {
+            visibleCount++;
+            if (cb.checked) {
+              checkedCount++;
+            }
+          }
+        });
+
+        checkbox.checked =
+          visibleCount > 0 &&
+          checkedCount === visibleCount;
+
+        const countEl =
+          checkbox.parentElement.querySelector(
+            '.permission-count'
+          );
+
+        if (countEl) {
+          countEl.textContent =
+            `(${checkedCount}/${visibleCount})`;
+        }
       });
   }
 

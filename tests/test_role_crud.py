@@ -96,3 +96,60 @@ class TestRoleCrud:
         assert "created_at" in data
         assert "updated_at" in data
         assert "permissions" in data
+
+    @pytest.mark.asyncio
+    async def test_replace_role_permissions_empty(
+        self, client, admin_headers
+    ):
+        """PUT /admin/users/roles/{id}/permissions with empty list
+        clears all permissions."""
+        create_resp = await client.post(
+            "/admin/users/roles",
+            headers=admin_headers,
+            json={"name": "Perm Test Role"},
+        )
+        assert create_resp.status_code == 201
+        role_id = create_resp.json()["id"]
+
+        put_resp = await client.put(
+            f"/admin/users/roles/{role_id}/permissions",
+            headers=admin_headers,
+            json={"permission_ids": []},
+        )
+        assert put_resp.status_code == 200
+        data = put_resp.json()
+        assert data["permissions"] == []
+
+    @pytest.mark.asyncio
+    async def test_replace_role_permissions_invalid_ids(
+        self, client, admin_headers
+    ):
+        """PUT /admin/users/roles/{id}/permissions with invalid IDs
+        returns 400."""
+        create_resp = await client.post(
+            "/admin/users/roles",
+            headers=admin_headers,
+            json={"name": "Perm Invalid Role"},
+        )
+        assert create_resp.status_code == 201
+        role_id = create_resp.json()["id"]
+
+        put_resp = await client.put(
+            f"/admin/users/roles/{role_id}/permissions",
+            headers=admin_headers,
+            json={"permission_ids": [99999]},
+        )
+        assert put_resp.status_code == 400
+
+    @pytest.mark.asyncio
+    async def test_replace_role_permissions_nonexistent_role(
+        self, client, admin_headers
+    ):
+        """PUT /admin/users/roles/{id}/permissions with nonexistent role
+        returns 400."""
+        put_resp = await client.put(
+            "/admin/users/roles/99999/permissions",
+            headers=admin_headers,
+            json={"permission_ids": []},
+        )
+        assert put_resp.status_code == 400

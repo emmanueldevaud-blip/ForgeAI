@@ -12,6 +12,7 @@ import {
   deleteRole,
   addPermissionToRole,
   listPermissions,
+  replaceRolePermissions,
 } from '../services/adminApi.js';
 
 export class RolesPage {
@@ -176,6 +177,9 @@ export class RolesPage {
 
       onClose: () =>
         this.closeRolePermissionModal(),
+
+      onSavePermissions: (permissionIds) =>
+        this.handleSavePermissions(permissionIds),
     });
 
     this.confirmDialog = new ConfirmDialog({
@@ -374,7 +378,6 @@ export class RolesPage {
   }
 
   async handleRoleSubmit(data, isEdit) {
-    console.log('[DEBUG] RolesPage.handleRoleSubmit', { data, isEdit, selectedRole: this.selectedRole });
     this.loading = true;
 
     try {
@@ -387,7 +390,6 @@ export class RolesPage {
         await createRole(data);
       }
 
-      console.log('[DEBUG] RolesPage.handleRoleSubmit SUCCESS');
       this.closeModal();
 
       await this.loadRoles();
@@ -452,6 +454,43 @@ export class RolesPage {
     }
   }
 
+  async handleSavePermissions(permissionIds) {
+    this.loading = true;
+
+    try {
+      await replaceRolePermissions(
+        this.selectedRole.id,
+        permissionIds
+      );
+
+      this.closeRolePermissionModal();
+
+      await this.loadRoleDetails(
+        this.selectedRole.id
+      );
+
+      this.showToast(
+        'Permissions mises à jour',
+        'success'
+      );
+
+    } catch (error) {
+      console.error(
+        'Erreur permissions:',
+        error
+      );
+
+      this.showToast(
+        error.message || 'Erreur',
+        'error'
+      );
+
+    } finally {
+      this.loading = false;
+      this.rolePermissionModal?.form?.setSubmitting(false);
+    }
+  }
+
   async loadRoleDetails(roleId) {
     try {
       const role = await getRole(roleId);
@@ -474,7 +513,6 @@ export class RolesPage {
   openCreateModal() {
     this.selectedRole = null;
 
-    console.log('[DEBUG] RolesPage.openCreateModal');
     this.roleModal.open({
       mode: 'create-role',
     });
@@ -483,7 +521,6 @@ export class RolesPage {
   openEditModal(role) {
     this.selectedRole = role;
 
-    console.log('[DEBUG] RolesPage.openEditModal', { role: role?.name, mode: 'edit-role' });
     this.roleModal.open({
       mode: 'edit-role',
       user: role,
@@ -665,7 +702,6 @@ export class RolesPage {
   }
 
   closeModal() {
-    console.log('[DEBUG] RolesPage.closeModal');
     this.roleModal?.close();
     this.selectedRole = null;
   }

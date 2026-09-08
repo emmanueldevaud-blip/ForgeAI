@@ -31,6 +31,7 @@ from app.schemas.admin import (
     RoleUpdate,
     RoleWithPermissionsResponse,
     RolePermissionAssign,
+    RolePermissionReplace,
     UserCreateAdmin,
     UserListParams,
     UserListResponse,
@@ -792,6 +793,43 @@ async def remove_permission_from_role(
 
     return MessageResponse(
         message="Permission retirée du rôle"
+    )
+
+
+@router.put(
+    "/roles/{role_id}/permissions",
+    response_model=RoleWithPermissionsResponse
+)
+async def replace_role_permissions(
+    role_id: int,
+    body: RolePermissionReplace,
+    current_user: User = Depends(
+        require_permission("role_manage_permissions")
+    ),
+    db: AsyncSession = Depends(get_db),
+):
+    audit = await get_audit_service(db)
+
+    service = AdminUserService(
+        db,
+        audit=audit,
+        current_user=current_user
+    )
+
+    try:
+        role = await service.replace_role_permissions(
+            role_id,
+            body.permission_ids
+        )
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        )
+
+    return RoleWithPermissionsResponse.model_validate(
+        role,
+        from_attributes=True
     )
 
 

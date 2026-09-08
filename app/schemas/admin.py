@@ -231,6 +231,10 @@ class RolePermissionAssign(BaseModel):
     permission_id: int
 
 
+class RolePermissionReplace(BaseModel):
+    permission_ids: List[int]
+
+
 class RoleWithPermissionsResponse(RoleResponse):
     pass
 

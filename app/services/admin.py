@@ -1231,6 +1231,76 @@ class AdminUserService:
 
         return result.scalar_one_or_none()
 
+    async def replace_role_permissions(
+        self,
+        role_id: int,
+        permission_ids: list[int]
+    ) -> Role:
+
+        role = await self.db.get(Role, role_id)
+
+        if not role:
+            raise ValueError("Rôle non trouvé")
+
+        if permission_ids:
+            result = await self.db.execute(
+                select(PermissionModel.id).where(
+                    PermissionModel.id.in_(permission_ids)
+                )
+            )
+            found_ids = {row[0] for row in result.all()}
+            missing = set(permission_ids) - found_ids
+            if missing:
+                raise ValueError(
+                    f"Permissions non trouvées: {sorted(missing)}"
+                )
+
+        from sqlalchemy import delete as sa_delete
+
+        await self.db.execute(
+            sa_delete(RolePermission).where(
+                RolePermission.role_id == role_id
+            )
+        )
+
+        for pid in permission_ids:
+            self.db.add(
+                RolePermission(
+                    role_id=role_id,
+                    permission_id=pid
+                )
+            )
+
+        await self.db.commit()
+
+        result = await self.db.execute(
+            select(Role)
+            .options(
+                selectinload(Role.permissions)
+            )
+            .where(Role.id == role_id)
+        )
+
+        role = result.scalar_one()
+
+        if self.audit:
+            await self.audit.log(
+                action="role_permissions_replace",
+                module="admin",
+                user=self.current_user,
+                object_type="role",
+                object_id=str(role.id),
+                object_repr=role.code,
+                new_values={
+                    "role_id": role.id,
+                    "role_code": role.code,
+                    "permission_ids": permission_ids,
+                },
+                status="success",
+            )
+
+        return role
+
     # ============================================================
     # PERMISSIONS
     # ============================================================

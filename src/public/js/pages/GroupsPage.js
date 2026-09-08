@@ -369,7 +369,7 @@ export class GroupsPage {
       mode: 'manage-roles',
       group,
       roles: this.roles,
-      groupRoles: this.selectedGroupRoles,
+      userRoles: this.selectedGroupRoles,
     });
   }
 

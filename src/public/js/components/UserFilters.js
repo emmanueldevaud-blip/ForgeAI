@@ -4,8 +4,11 @@ export class UserFilters {
     this.onRoleFilter = options.onRoleFilter || (() => {});
     this.onStatusFilter = options.onStatusFilter || (() => {});
     this.onSourceFilter = options.onSourceFilter || (() => {});
+    this.onModuleFilter = options.onModuleFilter || null;
+    this.onSystemFilter = options.onSystemFilter || null;
     this.onClearFilters = options.onClearFilters || (() => {});
     this.roles = options.roles || [];
+    this.modules = options.modules || [];
     this.element = null;
     this.searchDebounce = null;
     this.currentValues = {
@@ -13,6 +16,8 @@ export class UserFilters {
       role: '',
       is_active: '',
       source: '',
+      module: '',
+      is_system: '',
     };
   }
 
@@ -36,12 +41,17 @@ export class UserFilters {
   }
 
   reset() {
-    this.currentValues = { search: '', role: '', is_active: '', source: '' };
+    this.currentValues = { search: '', role: '', is_active: '', source: '', module: '', is_system: '' };
     if (this.element) {
       this.element.querySelector('[data-filter="search"]').value = '';
       this.element.querySelector('[data-filter="role"]').value = '';
       this.element.querySelector('[data-filter="status"]').value = '';
-      this.element.querySelector('[data-filter="source"]').value = '';
+      const sourceFilter = this.element.querySelector('[data-filter="source"]');
+      if (sourceFilter) sourceFilter.value = '';
+      const moduleFilter = this.element.querySelector('[data-filter="module"]');
+      if (moduleFilter) moduleFilter.value = '';
+      const systemFilter = this.element.querySelector('[data-filter="system"]');
+      if (systemFilter) systemFilter.value = '';
     }
   }
 
@@ -93,14 +103,37 @@ export class UserFilters {
           </select>
         </div>
 
-        <div class="filter-group">
-          <label for="filter-source" class="visually-hidden">Filtrer par source</label>
-          <select id="filter-source" class="filter-select" data-filter="source" aria-label="Filtrer par source">
-            <option value="">Toutes les sources</option>
-            <option value="local">Local</option>
-            <option value="ad">Active Directory</option>
-          </select>
-        </div>
+        ${this.onModuleFilter ? `
+          <div class="filter-group">
+            <label for="filter-module" class="visually-hidden">Filtrer par module</label>
+            <select id="filter-module" class="filter-select" data-filter="module" aria-label="Filtrer par module">
+              <option value="">Tous les modules</option>
+              ${this.modules.map(m => `<option value="${this._escapeHtml(m)}">${this._escapeHtml(m)}</option>`).join('')}
+            </select>
+          </div>
+        ` : ''}
+
+        ${this.onSystemFilter ? `
+          <div class="filter-group">
+            <label for="filter-system" class="visually-hidden">Filtrer par type</label>
+            <select id="filter-system" class="filter-select" data-filter="system" aria-label="Filtrer par type">
+              <option value="">Tous les types</option>
+              <option value="true">Système</option>
+              <option value="false">Personnalisé</option>
+            </select>
+          </div>
+        ` : ''}
+
+        ${!this.onModuleFilter && !this.onSystemFilter ? `
+          <div class="filter-group">
+            <label for="filter-source" class="visually-hidden">Filtrer par source</label>
+            <select id="filter-source" class="filter-select" data-filter="source" aria-label="Filtrer par source">
+              <option value="">Toutes les sources</option>
+              <option value="local">Local</option>
+              <option value="ad">Active Directory</option>
+            </select>
+          </div>
+        ` : ''}
 
         <div class="filter-group filter-actions">
           <button type="button" class="btn btn-secondary btn-sm" data-action="clear-all" ${!this._hasActiveFilters() ? 'disabled' : ''}>
@@ -136,11 +169,32 @@ export class UserFilters {
       this._updateClearButton();
     });
 
-    this.element.querySelector('[data-filter="source"]').addEventListener('change', (e) => {
-      this.currentValues.source = e.target.value;
-      this.onSourceFilter(e.target.value);
-      this._updateClearButton();
-    });
+    const moduleFilter = this.element.querySelector('[data-filter="module"]');
+    if (moduleFilter && this.onModuleFilter) {
+      moduleFilter.addEventListener('change', (e) => {
+        this.currentValues.module = e.target.value;
+        this.onModuleFilter(e.target.value);
+        this._updateClearButton();
+      });
+    }
+
+    const systemFilter = this.element.querySelector('[data-filter="system"]');
+    if (systemFilter && this.onSystemFilter) {
+      systemFilter.addEventListener('change', (e) => {
+        this.currentValues.is_system = e.target.value;
+        this.onSystemFilter(e.target.value);
+        this._updateClearButton();
+      });
+    }
+
+    const sourceFilter = this.element.querySelector('[data-filter="source"]');
+    if (sourceFilter) {
+      sourceFilter.addEventListener('change', (e) => {
+        this.currentValues.source = e.target.value;
+        this.onSourceFilter(e.target.value);
+        this._updateClearButton();
+      });
+    }
 
     this.element.querySelector('[data-action="clear-search"]')?.addEventListener('click', () => {
       searchInput.value = '';
@@ -160,7 +214,7 @@ export class UserFilters {
   }
 
   _hasActiveFilters() {
-    return this.currentValues.search || this.currentValues.role || this.currentValues.is_active || this.currentValues.source;
+    return this.currentValues.search || this.currentValues.role || this.currentValues.is_active || this.currentValues.source || this.currentValues.module || this.currentValues.is_system;
   }
 
   _updateClearButton() {

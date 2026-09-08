@@ -392,93 +392,59 @@ export class UserForm {
   }
 
   _getEditFieldsHtml() {
-    let fieldsHtml = `
-      <div class="form-row">
-
-        <div class="form-group">
-
-          <label for="username">
-            Nom d'utilisateur
-          </label>
-
-          <input
-            type="text"
-            id="username"
-            name="username"
-            value="${this._escapeHtml(this.user?.username || '')}"
-            disabled>
-
-          <p class="form-hint">
-            Le nom d'utilisateur ne peut pas être modifié
-          </p>
-
+    if (this.mode === 'edit-role') {
+      return `
+        <div class="form-row">
+          <div class="form-group">
+            <label for="name">Nom</label>
+            <input
+              type="text"
+              id="name"
+              name="name"
+              value="${this._escapeHtml(this.user?.name || '')}"
+              maxlength="100">
+          </div>
         </div>
-
         <div class="form-group">
-
-          <label for="email">
-            Email
-            <span class="required">*</span>
-          </label>
-
-          <input
-            type="email"
-            id="email"
-            name="email"
-            value="${this._escapeHtml(this.user?.email || '')}"
-            required
-            maxlength="255">
-
+          <label for="description">Description</label>
+          <textarea
+            id="description"
+            name="description"
+            maxlength="500"
+            rows="3">${this._escapeHtml(this.user?.description || '')}</textarea>
         </div>
+      `;
+    }
 
-      </div>
-
-      <div class="form-row">
-
+    if (this.mode === 'edit-group') {
+      return `
+        <div class="form-row">
+          <div class="form-group">
+            <label for="name">Nom</label>
+            <input
+              type="text"
+              id="name"
+              name="name"
+              value="${this._escapeHtml(this.user?.name || '')}"
+              maxlength="100">
+          </div>
+        </div>
         <div class="form-group">
-
-          <label for="first_name">
-            Prénom
-          </label>
-
-          <input
-            type="text"
-            id="first_name"
-            name="first_name"
-            value="${this._escapeHtml(this.user?.first_name || '')}"
-            maxlength="100">
-
+          <label for="description">Description</label>
+          <textarea
+            id="description"
+            name="description"
+            maxlength="500"
+            rows="3">${this._escapeHtml(this.user?.description || '')}</textarea>
         </div>
-
-        <div class="form-group">
-
-          <label for="last_name">
-            Nom
-          </label>
-
-          <input
-            type="text"
-            id="last_name"
-            name="last_name"
-            value="${this._escapeHtml(this.user?.last_name || '')}"
-            maxlength="100">
-
-        </div>
-
-      </div>
-    `;
+      `;
+    }
 
     if (this.mode === 'edit-permission') {
-      fieldsHtml += `
+      return `
         <div class="form-row">
-
           <div class="form-group">
-
-            <label for="name">
-              Nom
-              <span class="required">*</span>
-            </label>
-
+            <label for="name">Nom <span class="required">*</span></label>
             <input
               type="text"
               id="name"
@@ -487,128 +453,74 @@ export class UserForm {
               required
               maxlength="150"
               autocomplete="off">
-
           </div>
-
         </div>
-
         <div class="form-group">
-
-          <label for="module">
-            Module
-          </label>
-
-          <select
-            id="module"
-            name="module">
-
-            <option value="">
-              -- Sélectionner --
-            </option>
-
-            <option value="rbac">
-              RBAC
-            </option>
-
-            <option value="module">
-              Module
-            </option>
-
-            <option value="ad">
-              Active Directory
-            </option>
-
-            <option value="audit">
-              Audit
-            </option>
-
-            <option value="settings">
-              Paramètres
-            </option>
-
-            <option value="dashboard">
-              Tableau de bord
-            </option>
-
+          <label for="module">Module</label>
+          <select id="module" name="module">
+            <option value="">-- Sélectionner --</option>
+            <option value="rbac">RBAC</option>
+            <option value="module">Module</option>
+            <option value="ad">Active Directory</option>
+            <option value="audit">Audit</option>
+            <option value="settings">Paramètres</option>
+            <option value="dashboard">Tableau de bord</option>
           </select>
-
-        </div>
-      `;
-    } else if (
-      this.mode === 'edit-group' ||
-      this.mode === 'edit-role'
-    ) {
-      fieldsHtml += `
-        <div class="form-row">
-
-          <div class="form-group">
-
-            <label for="name">
-              Nom
-            </label>
-
-            <input
-              type="text"
-              id="name"
-              name="name"
-              value="${this._escapeHtml(this.user?.name || '')}"
-              maxlength="100">
-
-          </div>
-
-        </div>
-
-        <div class="form-group">
-
-          <label for="description">
-            Description
-          </label>
-
-          <textarea
-            id="description"
-            name="description"
-            maxlength="500"
-            rows="3">${this._escapeHtml(this.user?.description || '')}</textarea>
-
         </div>
       `;
     }
 
-    /*
-     * UTILISATEUR EN MODIFICATION
-     *
-     * Pas de case "Actif"
-     * Pas de case "Administrateur"
-     */
-    if (
-      this.mode !== 'edit-group' &&
-      this.mode !== 'edit-role' &&
-      this.mode !== 'edit-permission'
-    ) {
-      fieldsHtml += `
+    let fieldsHtml = `
+      <div class="form-row">
         <div class="form-group">
-
-          <label for="role">
-            Rôle
-          </label>
-
-          <select
-            id="role"
-            name="role">
-
-            <option value="">
-              Sélectionner un rôle
-            </option>
-
-            ${this._getRoleOptions(
-              this.user?.role
-            )}
-
-          </select>
-
+          <label for="username">Nom d'utilisateur</label>
+          <input
+            type="text"
+            id="username"
+            name="username"
+            value="${this._escapeHtml(this.user?.username || '')}"
+            disabled>
+          <p class="form-hint">Le nom d'utilisateur ne peut pas être modifié</p>
         </div>
-      `;
-    }
+        <div class="form-group">
+          <label for="email">Email <span class="required">*</span></label>
+          <input
+            type="email"
+            id="email"
+            name="email"
+            value="${this._escapeHtml(this.user?.email || '')}"
+            required
+            maxlength="255">
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label for="first_name">Prénom</label>
+          <input
+            type="text"
+            id="first_name"
+            name="first_name"
+            value="${this._escapeHtml(this.user?.first_name || '')}"
+            maxlength="100">
+        </div>
+        <div class="form-group">
+          <label for="last_name">Nom</label>
+          <input
+            type="text"
+            id="last_name"
+            name="last_name"
+            value="${this._escapeHtml(this.user?.last_name || '')}"
+            maxlength="100">
+        </div>
+      </div>
+      <div class="form-group">
+        <label for="role">Rôle</label>
+        <select id="role" name="role">
+          <option value="">Sélectionner un rôle</option>
+          ${this._getRoleOptions(this.user?.role)}
+        </select>
+      </div>
+    `;
 
     return fieldsHtml;
   }
@@ -1222,18 +1134,18 @@ export class UserForm {
          * Pas de is_active
          * Pas de is_admin
          */
-      }
 
-      if (
-        !data.email ||
-        !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(
-          data.email
-        )
-      ) {
-        this.showError(
-          "L'email est invalide"
-        );
-        return;
+        if (
+          !data.email ||
+          !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(
+            data.email
+          )
+        ) {
+          this.showError(
+            "L'email est invalide"
+          );
+          return;
+        }
       }
 
     } else if (

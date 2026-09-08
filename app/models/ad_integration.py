@@ -41,6 +41,7 @@ class ADConfig(Base):
     base_dn: Mapped[str] = mapped_column(String(500), nullable=False)
     user_dn: Mapped[str | None] = mapped_column(String(500), nullable=True)
     user_search_filter: Mapped[str] = mapped_column(String(255), default="(sAMAccountName={username})", nullable=False)
+    group_search_filter: Mapped[str] = mapped_column(String(255), default="(&(objectCategory=group)(cn=GG_FORGEAI*))", nullable=False)
     group_search_base: Mapped[str | None] = mapped_column(String(500), nullable=True)
     bind_user: Mapped[str] = mapped_column(String(255), nullable=False)
     bind_password: Mapped[str] = mapped_column(String(255), nullable=False)

@@ -56,6 +56,7 @@ class ADConfigBase(BaseModel):
     base_dn: str
     user_dn: str | None = None
     user_search_filter: str = "(sAMAccountName={username})"
+    group_search_filter: str = "(&(objectCategory=group)(cn=GG_FORGEAI*))"
     group_search_base: str | None = None
     bind_user: str
     bind_password: str
@@ -79,6 +80,7 @@ class ADConfigUpdate(BaseModel):
     base_dn: str | None = None
     user_dn: str | None = None
     user_search_filter: str | None = None
+    group_search_filter: str | None = None
     group_search_base: str | None = None
     bind_user: str | None = None
     bind_password: str | None = None

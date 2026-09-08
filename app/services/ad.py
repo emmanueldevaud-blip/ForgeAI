@@ -421,7 +421,7 @@ class DatabaseADService:
             if config.group_search_base:
                 admin_conn.search(
                     search_base=config.group_search_base,
-                    search_filter="(objectClass=group)",
+                    search_filter=config.group_search_filter,
                     search_scope=SUBTREE,
                     attributes=["cn", "distinguishedName", "member"],
                     paged_size=config.page_size,

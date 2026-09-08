@@ -69,7 +69,7 @@ class FakeLDAPConnection:
 
     def search(self, *, search_filter, **kwargs):
         self.search_filter = search_filter
-        if "(objectCategory=person)" in search_filter and "(objectClass=user)" in search_filter:
+        if "userAccountControl" in search_filter or "(objectCategory=person)" in search_filter:
             self.entries = [self.user_entry]
         else:
             self.entries = [self.user_entry, self.group_entry]
@@ -134,8 +134,8 @@ async def test_sync_users_excludes_ad_groups_from_user_sync(monkeypatch):
     assert sync_log.status == "success"
     assert sync_log.users_created == 1
     assert [user.username for user in db_session.users] == ["alice"]
-    assert "(objectCategory=person)" in ldap_connection.search_filter
-    assert "(objectClass=user)" in ldap_connection.search_filter
+    assert "(sAMAccountName=*)" in ldap_connection.search_filter
+    assert "userAccountControl" in ldap_connection.search_filter
 
 
 @pytest.mark.asyncio

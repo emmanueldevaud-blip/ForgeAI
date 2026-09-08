@@ -17,6 +17,7 @@ import { ConfirmDialog } from '../components/ConfirmDialog.js';
 const DEFAULT_CONFIG = {
   name: '', is_default: false, server: '', port: 636, use_ssl: true,
   base_dn: '', user_dn: '', user_search_filter: '(sAMAccountName={username})',
+  group_search_filter: '(&(objectCategory=group)(cn=GG_FORGEAI*))',
   group_search_base: '', bind_user: '', bind_password: '', connect_timeout: 10,
   receive_timeout: 10, page_size: 1000, follow_referrals: false, is_active: true,
 };
@@ -220,7 +221,8 @@ export class ActiveDirectoryPage {
         <fieldset><legend>Connexion LDAP</legend>
           <div class="form-row"><label><span>Serveur</span><input name="server" value="${value('server')}" required placeholder="ad.example.com"></label><label><span>Port</span><input type="number" name="port" value="${value('port')}" min="1" max="65535" required></label><label class="ad-check"><input type="checkbox" name="use_ssl" ${checked('use_ssl')}><span>LDAPS (SSL/TLS)</span></label></div>
           <div class="form-row"><label><span>Base DN</span><input name="base_dn" value="${value('base_dn')}" required placeholder="DC=example,DC=com"></label><label><span>User DN (optionnel)</span><input name="user_dn" value="${value('user_dn')}"></label></div>
-          <div class="form-row"><label><span>Filtre recherche utilisateur</span><input name="user_search_filter" value="${value('user_search_filter')}" required></label><label><span>Base recherche groupes</span><input name="group_search_base" value="${value('group_search_base')}"></label></div>
+          <div class="form-row"><label><span>Filtre recherche utilisateur</span><input name="user_search_filter" value="${value('user_search_filter')}" required></label><label><span>Filtre recherche groupes</span><input name="group_search_filter" value="${value('group_search_filter')}" required></label></div>
+          <div class="form-row"><label><span>Base recherche groupes</span><input name="group_search_base" value="${value('group_search_base')}"></label><label></label></div>
         </fieldset>
         <fieldset><legend>Compte de service (Bind)</legend><div class="form-row"><label><span>Utilisateur de connexion</span><input name="bind_user" value="${value('bind_user')}" required></label><label><span>Mot de passe</span><input type="password" name="bind_password" placeholder="${isNew ? 'Mot de passe du compte de service' : 'Laisser vide pour conserver le mot de passe'}" autocomplete="new-password"></label></div></fieldset>
         <fieldset><legend>Paramètres avancés</legend><div class="form-row"><label><span>Connexion (s)</span><input type="number" name="connect_timeout" value="${value('connect_timeout')}" min="1" max="60" required></label><label><span>Réception (s)</span><input type="number" name="receive_timeout" value="${value('receive_timeout')}" min="1" max="60" required></label><label><span>Taille page</span><input type="number" name="page_size" value="${value('page_size')}" min="100" max="5000" required></label></div><div class="form-row"><label class="ad-check"><input type="checkbox" name="is_active" ${checked('is_active')}><span>Configuration active</span></label><label class="ad-check"><input type="checkbox" name="follow_referrals" ${checked('follow_referrals')}><span>Suivre les références</span></label></div></fieldset>

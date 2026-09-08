@@ -130,3 +130,31 @@ async def test_ad_mappings_crud_endpoints(client, admin_headers):
     )
     assert list_after_del.status_code == 200
     assert list_after_del.json() == []
+
+
+@pytest.mark.asyncio
+async def test_create_ad_config_persists_group_search_filter(client, admin_headers):
+    """Test that group_search_filter is persisted when creating an AD config."""
+    custom_filter = "(&(objectCategory=group)(cn=GG_CUSTOM*))"
+    config_data = {
+        "name": "Test Config GroupFilter",
+        "is_default": False,
+        "server": "ad.example.com",
+        "port": 636,
+        "use_ssl": True,
+        "base_dn": "DC=example,DC=com",
+        "user_search_filter": "(sAMAccountName={username})",
+        "group_search_filter": custom_filter,
+        "group_search_base": "OU=Groups,DC=example,DC=com",
+        "bind_user": "CN=svc,DC=example,DC=com",
+        "bind_password": "pwd",
+    }
+
+    create_resp = await client.post("/auth/ad-configs", headers=admin_headers, json=config_data)
+    assert create_resp.status_code == 201
+    data = create_resp.json()
+    assert data["group_search_filter"] == custom_filter
+
+    get_resp = await client.get(f"/auth/ad-configs/{data['id']}", headers=admin_headers)
+    assert get_resp.status_code == 200
+    assert get_resp.json()["group_search_filter"] == custom_filter

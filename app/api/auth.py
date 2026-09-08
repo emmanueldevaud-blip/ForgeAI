@@ -573,6 +573,7 @@ async def create_ad_config(
         base_dn=config_data.base_dn,
         user_dn=config_data.user_dn,
         user_search_filter=config_data.user_search_filter,
+        group_search_filter=config_data.group_search_filter,
         group_search_base=config_data.group_search_base,
         bind_user=config_data.bind_user,
         bind_password=config_data.bind_password,

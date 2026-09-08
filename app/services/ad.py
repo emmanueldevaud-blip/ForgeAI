@@ -310,12 +310,12 @@ class DatabaseADService:
             admin_conn.search(
                 search_base=config.user_dn or config.base_dn,
                 search_filter=(
-                    "(&(objectCategory=person)(objectClass=user)"
+                    "(&"
                     "(!(userAccountControl:1.2.840.113556.1.4.803:=2))"
                     f"{config.user_search_filter.format(username='*')})"
                 ),
                 search_scope=SUBTREE,
-                attributes=["distinguishedName", "sAMAccountName", "mail", "givenName", "sn", "memberOf", "userAccountControl", "objectClass"],
+                attributes=["distinguishedName", "sAMAccountName", "mail", "givenName", "sn", "memberOf", "userAccountControl"],
                 paged_size=config.page_size,
             )
 
@@ -325,10 +325,8 @@ class DatabaseADService:
             users_deactivated = 0
 
             for entry in admin_conn.entries:
-                obj_classes = [str(c).lower() for c in entry.objectClass] if entry.objectClass else []
-                if "user" not in obj_classes or "person" not in obj_classes:
-                    entry_dn = str(entry.distinguishedName) if entry.distinguishedName else "unknown"
-                    print(f"[AD-SYNC] Entrée ignorée (objectClass={obj_classes}) : {entry_dn}")
+                if not entry.distinguishedName:
+                    print(f"[AD-SYNC] Entrée ignorée (pas de distinguishedName)")
                     continue
 
                 users_processed += 1
@@ -430,10 +428,8 @@ class DatabaseADService:
                 )
 
                 for entry in admin_conn.entries:
-                    obj_classes = [str(c).lower() for c in entry.objectClass] if entry.objectClass else []
-                    if "group" not in obj_classes:
-                        entry_dn = str(entry.distinguishedName) if entry.distinguishedName else "unknown"
-                        print(f"[AD-SYNC] Entrée groupe ignorée (objectClass={obj_classes}) : {entry_dn}")
+                    if not entry.cn or not entry.distinguishedName:
+                        print(f"[AD-SYNC] Entrée groupe ignorée (cn ou distinguishedName manquant)")
                         continue
 
                     groups_processed += 1

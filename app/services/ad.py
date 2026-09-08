@@ -311,6 +311,7 @@ class DatabaseADService:
                 search_base=config.user_dn or config.base_dn,
                 search_filter=(
                     "(&(objectCategory=person)(objectClass=user)"
+                    "(!(userAccountControl:1.2.840.113556.1.4.803:=2))"
                     f"{config.user_search_filter.format(username='*')})"
                 ),
                 search_scope=SUBTREE,
@@ -324,6 +325,12 @@ class DatabaseADService:
             users_deactivated = 0
 
             for entry in admin_conn.entries:
+                obj_classes = [str(c).lower() for c in entry.objectClass] if entry.objectClass else []
+                if "user" not in obj_classes or "person" not in obj_classes:
+                    entry_dn = str(entry.distinguishedName) if entry.distinguishedName else "unknown"
+                    print(f"[AD-SYNC] Entrée ignorée (objectClass={obj_classes}) : {entry_dn}")
+                    continue
+
                 users_processed += 1
                 user_dn = str(entry.distinguishedName)
                 found_ad_dns.add(user_dn)
@@ -423,6 +430,12 @@ class DatabaseADService:
                 )
 
                 for entry in admin_conn.entries:
+                    obj_classes = [str(c).lower() for c in entry.objectClass] if entry.objectClass else []
+                    if "group" not in obj_classes:
+                        entry_dn = str(entry.distinguishedName) if entry.distinguishedName else "unknown"
+                        print(f"[AD-SYNC] Entrée groupe ignorée (objectClass={obj_classes}) : {entry_dn}")
+                        continue
+
                     groups_processed += 1
                     group_cn = str(entry.cn) if entry.cn else None
                     group_dn = str(entry.distinguishedName) if entry.distinguishedName else None
@@ -448,8 +461,11 @@ class DatabaseADService:
                 )
                 ad_users_not_found = result.scalars().all()
                 for user in ad_users_not_found:
-                    user.is_active = False
+                    await self.db.delete(user)
                     users_deactivated += 1
+
+                if users_deactivated:
+                    print(f"[AD-SYNC] {users_deactivated} utilisateurs AD supprimés (absents de l'AD)")
 
             admin_conn.unbind()
 

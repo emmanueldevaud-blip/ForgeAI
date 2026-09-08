@@ -3,12 +3,12 @@ from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from pydantic import BaseModel, ConfigDict
-from sqlalchemy import select, text
+from sqlalchemy import delete, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_active_user, require_admin, require_permission
 from app.db.session import get_db
-from app.models import ADConfig, ADGroupMapping, ADSyncLog, Role
+from app.models import ADConfig, ADGroupMapping, ADSyncLog, Group, Role
 from app.models.user import User, UserRole
 from app.schemas.auth import (
     AdminPasswordReset,
@@ -767,6 +767,53 @@ async def delete_ad_config(
     if not config:
         raise HTTPException(status_code=404, detail="Configuration AD non trouvée")
 
+    print(f"[AD-DELETE] config_id={config.id} config_name={config.name} base_dn={config.base_dn}")
+
+    base_dn_lower = config.base_dn.casefold()
+
+    ad_users = await db.execute(
+        select(User).where(
+            User.source == "ad",
+            User.ad_dn.isnot(None),
+        )
+    )
+    all_ad_users = ad_users.scalars().all()
+    print(f"[AD-DELETE] total_ad_users_in_db={len(all_ad_users)}")
+
+    users_to_delete = []
+    for user in all_ad_users:
+        matches = user.ad_dn and user.ad_dn.casefold().endswith(base_dn_lower)
+        if matches:
+            users_to_delete.append(user)
+            print(f"[AD-DELETE] deleting user id={user.id} username={user.username} ad_dn={user.ad_dn}")
+        else:
+            print(f"[AD-DELETE] skipping user id={user.id} username={user.username} ad_dn={user.ad_dn} (base_dn mismatch)")
+
+    ad_groups = await db.execute(
+        select(Group).where(
+            Group.source == "ad",
+            Group.ad_dn.isnot(None),
+        )
+    )
+    all_ad_groups = ad_groups.scalars().all()
+    print(f"[AD-DELETE] total_ad_groups_in_db={len(all_ad_groups)}")
+
+    groups_to_delete = []
+    for group in all_ad_groups:
+        matches = group.ad_dn and group.ad_dn.casefold().endswith(base_dn_lower)
+        if matches:
+            groups_to_delete.append(group)
+            print(f"[AD-DELETE] deleting group id={group.id} name={group.name} ad_dn={group.ad_dn}")
+        else:
+            print(f"[AD-DELETE] skipping group id={group.id} name={group.name} ad_dn={group.ad_dn} (base_dn mismatch)")
+
+    for user in users_to_delete:
+        await db.delete(user)
+    for group in groups_to_delete:
+        await db.delete(group)
+
+    print(f"[AD-DELETE] users_to_delete={len(users_to_delete)} groups_to_delete={len(groups_to_delete)}")
+
     await audit.log(
         action="ad_config_delete",
         module="ad",
@@ -789,6 +836,7 @@ async def delete_ad_config(
 
     await db.delete(config)
     await db.commit()
+    print(f"[AD-DELETE] commit OK — config_id={config_id} deleted")
     return MessageResponse(message="Configuration AD supprimée")
 
 

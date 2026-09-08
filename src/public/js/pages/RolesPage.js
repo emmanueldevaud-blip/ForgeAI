@@ -374,6 +374,7 @@ export class RolesPage {
   }
 
   async handleRoleSubmit(data, isEdit) {
+    console.log('[DEBUG] RolesPage.handleRoleSubmit', { data, isEdit, selectedRole: this.selectedRole });
     this.loading = true;
 
     try {
@@ -386,6 +387,7 @@ export class RolesPage {
         await createRole(data);
       }
 
+      console.log('[DEBUG] RolesPage.handleRoleSubmit SUCCESS');
       this.closeModal();
 
       await this.loadRoles();
@@ -410,6 +412,7 @@ export class RolesPage {
 
     } finally {
       this.loading = false;
+      this.roleModal?.form?.setSubmitting(false);
     }
   }
 
@@ -471,6 +474,7 @@ export class RolesPage {
   openCreateModal() {
     this.selectedRole = null;
 
+    console.log('[DEBUG] RolesPage.openCreateModal');
     this.roleModal.open({
       mode: 'create-role',
     });
@@ -479,9 +483,10 @@ export class RolesPage {
   openEditModal(role) {
     this.selectedRole = role;
 
+    console.log('[DEBUG] RolesPage.openEditModal', { role: role?.name, mode: 'edit-role' });
     this.roleModal.open({
       mode: 'edit-role',
-      role,
+      user: role,
     });
   }
 
@@ -660,6 +665,7 @@ export class RolesPage {
   }
 
   closeModal() {
+    console.log('[DEBUG] RolesPage.closeModal');
     this.roleModal?.close();
     this.selectedRole = null;
   }

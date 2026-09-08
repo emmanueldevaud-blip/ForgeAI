@@ -316,6 +316,7 @@ export class GroupsPage {
       this.showToast(error.message || 'Erreur', 'error');
     } finally {
       this.loading = false;
+      this.groupRoleModal?.form?.setSubmitting(false);
     }
   }
 
@@ -398,6 +399,12 @@ export class GroupsPage {
     this.selectedGroup = group;
 
     await this.loadGroupDetails(group.id);
+
+    console.log('[DEBUG] GroupsPage.openManageRolesModal', {
+      group: group?.name,
+      rolesCount: this.roles?.length,
+      selectedGroupRoles: this.selectedGroupRoles,
+    });
 
     this.groupRoleModal.open({
       mode: 'manage-roles',
@@ -497,6 +504,7 @@ confirmDelete(group) {
   }
 
   closeGroupRoleModal() {
+    console.log('[DEBUG] GroupsPage.closeGroupRoleModal');
     this.groupRoleModal.close();
   }
 

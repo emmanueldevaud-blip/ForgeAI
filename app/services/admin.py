@@ -1003,6 +1003,7 @@ class AdminUserService:
 
         await self.db.commit()
 
+        await self.db.refresh(role)
         await self.db.refresh(
             role,
             attribute_names=[

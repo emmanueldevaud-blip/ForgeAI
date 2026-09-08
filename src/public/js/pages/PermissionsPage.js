@@ -321,7 +321,7 @@ export class PermissionsPage {
 
     this.permissionModal.open({
       mode: 'edit-permission',
-      permission,
+      user: permission,
       modules: this.modules,
     });
   }

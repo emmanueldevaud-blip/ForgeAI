@@ -8,6 +8,13 @@ export class UserForm {
     this.onClose = options.onClose || (() => {});
     this.element = null;
     this.submitting = false;
+
+    console.log('[DEBUG] UserForm constructor', {
+      mode: this.mode,
+      hasUser: !!this.user,
+      rolesCount: this.roles?.length,
+      userRolesCount: this.userRoles?.length,
+    });
   }
 
   _getRoleOptions(selectedRole = '') {
@@ -658,7 +665,7 @@ export class UserForm {
 
           <strong>
             Gestion des rôles pour
-            ${this._escapeHtml(this.user?.username || '')}
+            ${this._escapeHtml(this.user?.name || this.user?.username || '')}
           </strong>
 
           <p>
@@ -741,7 +748,7 @@ export class UserForm {
 
           <strong>
             Gestion des utilisateurs du groupe
-            ${this._escapeHtml(this.user?.username || '')}
+            ${this._escapeHtml(this.user?.name || this.user?.username || '')}
           </strong>
 
           <p>
@@ -785,6 +792,15 @@ export class UserForm {
     const isManageUsers =
       this.mode === 'manage-users';
 
+    console.log('[DEBUG] UserForm.render', {
+      mode: this.mode,
+      isCreate,
+      isEdit,
+      isResetPassword,
+      isManageRoles,
+      isManageUsers,
+    });
+
     let fieldsHtml = '';
 
     if (
@@ -825,38 +841,43 @@ export class UserForm {
         ${fieldsHtml}
       </div>
 
-      <div class="form-actions">
-
-        <button
-          type="button"
-          class="btn btn-secondary"
-          data-action="cancel">
-
-          Annuler
-
-        </button>
-
-        <button
-          type="submit"
-          class="btn btn-${isResetPassword ? 'danger' : 'primary'}"
-          ${this.submitting ? 'disabled' : ''}>
-
-          <span class="btn-text">
-            ${isResetPassword
-              ? 'Réinitialiser'
-              : this.mode.startsWith('edit')
-              ? 'Enregistrer'
-              : 'Créer'}
-          </span>
-
-          <span class="btn-loading">
-            <div class="spinner"></div>
-          </span>
-
-        </button>
-
-      </div>
+      ${isManageRoles ? `
+        <div class="form-actions">
+          <button
+            type="button"
+            class="btn btn-secondary"
+            data-action="cancel">
+            Fermer
+          </button>
+        </div>
+      ` : `
+        <div class="form-actions">
+          <button
+            type="button"
+            class="btn btn-secondary"
+            data-action="cancel">
+            Annuler
+          </button>
+          <button
+            type="submit"
+            class="btn btn-${isResetPassword ? 'danger' : 'primary'}"
+            ${this.submitting ? 'disabled' : ''}>
+            <span class="btn-text">
+              ${isResetPassword
+                ? 'Réinitialiser'
+                : this.mode.startsWith('edit')
+                ? 'Enregistrer'
+                : 'Créer'}
+            </span>
+            <span class="btn-loading">
+              <div class="spinner"></div>
+            </span>
+          </button>
+        </div>
+      `}
     `;
+
+    console.log('[DEBUG] UserForm.render button HTML:', this.element.querySelector('.form-actions')?.innerHTML?.substring(0, 200));
 
     this.element.addEventListener(
       'submit',
@@ -898,6 +919,10 @@ export class UserForm {
     e.preventDefault();
 
     if (this.submitting) {
+      return;
+    }
+
+    if (this.mode === 'manage-roles' || this.mode === 'manage-users') {
       return;
     }
 

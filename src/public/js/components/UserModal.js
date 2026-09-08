@@ -19,6 +19,13 @@ export class UserModal {
     this.currentUser = options.user || null;
     this.roles = options.roles || this.roles;
 
+    console.log('[DEBUG] UserModal.open', {
+      mode: this.currentMode,
+      hasUser: !!this.currentUser,
+      hasGroup: !!options.group,
+      rolesCount: this.roles?.length,
+    });
+
     const { UserForm } = await import('./UserForm.js');
 
     this._createModal();
@@ -97,6 +104,12 @@ export class UserModal {
       onSubmit: (data, isEdit) => this.onSubmit(data, isEdit),
       onClose: () => this.close(),
     });
+
+    console.log('[DEBUG] UserModal._renderForm', {
+      formMode: this.form.mode,
+      currentMode: this.currentMode,
+    });
+
     body.appendChild(this.form.render());
 
     if (this.currentMode === 'manage-roles') {
@@ -106,7 +119,12 @@ export class UserModal {
   }
 
   close() {
-    if (!this.overlay) return;
+    if (!this.overlay) {
+      console.log('[DEBUG] UserModal.close - no overlay, returning');
+      return;
+    }
+
+    console.log('[DEBUG] UserModal.close - overlay exists, closing. currentMode:', this.currentMode);
 
     document.removeEventListener('keydown', this._boundKeydown);
     this.overlay.removeEventListener('click', this._boundOverlayClick);
@@ -121,6 +139,7 @@ export class UserModal {
       this.form = null;
       this._boundKeydown = null;
       this._boundOverlayClick = null;
+      console.log('[DEBUG] UserModal.close - cleanup done, calling onClose');
       this.onClose();
     }, 200);
   }

@@ -241,6 +241,12 @@ async def update_group(
         exclude_unset=True
     )
 
+    if group.source == "ad":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Les informations d'un groupe AD ne peuvent pas être modifiées depuis ForgeAI",
+        )
+
     group = await service.update_group(
         group,
         update_data
@@ -279,6 +285,12 @@ async def delete_group(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Groupe non trouvé",
+        )
+
+    if group.source == "ad":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Un groupe AD ne peut pas être supprimé depuis ForgeAI",
         )
 
     await service.delete_group(group)
@@ -1272,6 +1284,15 @@ async def update_user(
         exclude_unset=True
     )
 
+    if user.source == "ad":
+        allowed_keys = {"role"}
+        blocked_keys = set(update_data.keys()) - allowed_keys
+        if blocked_keys:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Les informations d'un utilisateur AD ne peuvent pas être modifiées depuis ForgeAI. Seul le rôle est modifiable.",
+            )
+
     user = await service.update_user(
         user,
         update_data
@@ -1311,6 +1332,12 @@ async def toggle_user_active(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Impossible de désactiver son propre compte",
+        )
+
+    if user.source == "ad":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Le statut d'un utilisateur AD est géré par l'Active Directory",
         )
 
     user = await service.toggle_active(
@@ -1385,6 +1412,12 @@ async def delete_user(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Impossible de supprimer son propre compte",
+        )
+
+    if user.source == "ad":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Impossible de supprimer un utilisateur provenant de l'Active Directory",
         )
 
     await service.delete_user(user)

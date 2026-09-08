@@ -100,11 +100,13 @@ export class GroupsPage {
           key: 'edit',
           label: 'Modifier',
           icon: 'edit',
+          disabled: (group) => group.source === 'ad',
         },
         {
           key: 'toggle',
           label: 'Activer/Désactiver',
           icon: 'power',
+          disabled: (group) => group.source === 'ad',
         },
         {
           key: 'roles',
@@ -115,6 +117,7 @@ export class GroupsPage {
           key: 'delete',
           label: 'Supprimer',
           icon: 'trash',
+          disabled: (group) => group.source === 'ad',
         },
       ],
 

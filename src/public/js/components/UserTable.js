@@ -105,6 +105,7 @@ export class UserTable {
   _renderRow(user) {
     const fullName = [user.first_name, user.last_name].filter(Boolean).join(' ') || '—';
     const lastLogin = this._formatDate(user.last_login);
+    const isAD = user.source !== 'local';
 
     return `
       <tr data-user-id="${user.id}">
@@ -122,10 +123,10 @@ export class UserTable {
         <td>${lastLogin}</td>
         <td>
           <div class="action-buttons">
-            <button type="button" class="action-btn" data-action="edit" data-user-id="${user.id}" aria-label="Modifier ${this._escapeHtml(user.username)}" title="Modifier">
+            <button type="button" class="action-btn" data-action="edit" data-user-id="${user.id}" ${isAD ? 'disabled' : ''} aria-label="Modifier ${this._escapeHtml(user.username)}" title="${isAD ? 'Non disponible (compte AD)' : 'Modifier'}">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
             </button>
-            <button type="button" class="action-btn" data-action="toggle" data-user-id="${user.id}" aria-label="${user.is_active ? 'Désactiver' : 'Réactiver'} ${this._escapeHtml(user.username)}" title="${user.is_active ? 'Désactiver' : 'Réactiver'}">
+            <button type="button" class="action-btn" data-action="toggle" data-user-id="${user.id}" ${isAD ? 'disabled' : ''} aria-label="${user.is_active ? 'Désactiver' : 'Réactiver'} ${this._escapeHtml(user.username)}" title="${isAD ? 'Non disponible (compte AD)' : (user.is_active ? 'Désactiver' : 'Réactiver')}">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 ${user.is_active ? '<circle cx="12" cy="12" r="10"></circle><line x1="15" y1="9" x2="9" y2="15"></line><line x1="9" y1="9" x2="15" y2="15"></line>' : '<path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline>'}
               </svg>
@@ -136,7 +137,7 @@ export class UserTable {
             <button type="button" class="action-btn" data-action="roles" data-user-id="${user.id}" aria-label="Gérer les rôles" title="Gérer les rôles">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22c4.97 0 9-4.03 9-9s-4.03-9-9-9-9 4.03-9 9 4.03 9 9 9z"></path><path d="M9 12l2 2 4-4"></path></svg>
             </button>
-            <button type="button" class="action-btn delete" data-action="delete" data-user-id="${user.id}" aria-label="Supprimer ${this._escapeHtml(user.username)}" title="Supprimer">
+            <button type="button" class="action-btn delete" data-action="delete" data-user-id="${user.id}" ${isAD ? 'disabled' : ''} aria-label="Supprimer ${this._escapeHtml(user.username)}" title="${isAD ? 'Non disponible (compte AD)' : 'Supprimer'}">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
             </button>
           </div>
@@ -190,6 +191,7 @@ export class UserTable {
     });
 
     this.element.querySelectorAll('[data-action="edit"]').forEach(btn => {
+      if (btn.disabled) return;
       btn.addEventListener('click', () => {
         const userId = parseInt(btn.dataset.userId, 10);
         const user = this.data.users.find(u => u.id === userId);
@@ -198,6 +200,7 @@ export class UserTable {
     });
 
     this.element.querySelectorAll('[data-action="toggle"]').forEach(btn => {
+      if (btn.disabled) return;
       btn.addEventListener('click', () => {
         const userId = parseInt(btn.dataset.userId, 10);
         const user = this.data.users.find(u => u.id === userId);
@@ -223,6 +226,7 @@ export class UserTable {
     });
 
     this.element.querySelectorAll('[data-action="delete"]').forEach(btn => {
+      if (btn.disabled) return;
       btn.addEventListener('click', () => {
         const userId = parseInt(btn.dataset.userId, 10);
         const user = this.data.users.find(u => u.id === userId);

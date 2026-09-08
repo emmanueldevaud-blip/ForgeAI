@@ -154,7 +154,7 @@ _renderActions(item) {
       '" data-id="' + this.getItemId(item) +
       '" aria-label="' + this._escapeHtml(title) +
       '" title="' + this._escapeHtml(title) + '"' +
-      (action.disabled ? ' disabled' : '') +
+      ((typeof action.disabled === 'function' ? action.disabled(item) : action.disabled) ? ' disabled' : '') +
       '>' + icon + '</button>';
   }).join('');
 }
@@ -184,6 +184,7 @@ _renderActions(item) {
     });
 
     this.element.querySelectorAll('[data-action="edit"]').forEach(btn => {
+      if (btn.disabled) return;
       btn.addEventListener('click', () => {
         const id = parseInt(btn.dataset.id, 10);
         const item = this.data.items.find(u => u.id === id);
@@ -192,6 +193,7 @@ _renderActions(item) {
     });
 
     this.element.querySelectorAll('[data-action="toggle"]').forEach(btn => {
+      if (btn.disabled) return;
       btn.addEventListener('click', () => {
         const id = parseInt(btn.dataset.id, 10);
         const item = this.data.items.find(u => u.id === id);
@@ -200,6 +202,7 @@ _renderActions(item) {
     });
 
     this.element.querySelectorAll('[data-action="roles"]').forEach(btn => {
+      if (btn.disabled) return;
       btn.addEventListener('click', () => {
         const id = parseInt(btn.dataset.id, 10);
         const item = this.data.items.find(u => u.id === id);
@@ -208,6 +211,7 @@ _renderActions(item) {
     });
 
     this.element.querySelectorAll('[data-action="delete"]').forEach(btn => {
+      if (btn.disabled) return;
       btn.addEventListener('click', () => {
         const id = parseInt(btn.dataset.id, 10);
         const item = this.data.items.find(u => u.id === id);

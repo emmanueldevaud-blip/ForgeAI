@@ -165,6 +165,8 @@ export class GroupsPage {
     this.groupRoleModal = new UserModal({
       onSubmit: (data) => this.handleGroupRoleSubmit(data),
       onClose: () => this.closeGroupRoleModal(),
+      onAddRole: (roleId) => this.handleGroupRoleAdd(roleId),
+      onRemoveRole: (roleId) => this.handleGroupRoleRemove(roleId),
     });
 
     this.confirmDialog = new ConfirmDialog({
@@ -311,6 +313,35 @@ export class GroupsPage {
       this.showToast(error.message || 'Erreur', 'error');
     } finally {
       this.loading = false;
+    }
+  }
+
+  async handleGroupRoleAdd(roleId) {
+    try {
+      await addRoleToGroup(this.selectedGroup.id, roleId);
+
+      const addedRole = this.roles.find(r => r.id === roleId);
+      if (addedRole && !this.selectedGroupRoles.some(r => r.id === roleId)) {
+        this.selectedGroupRoles.push(addedRole);
+      }
+
+      this.groupRoleModal.updateUserRoles(this.selectedGroupRoles);
+      this.showToast('Rôle ajouté au groupe', 'success');
+    } catch (error) {
+      this.showToast(error.message || 'Erreur lors de l\'ajout du rôle', 'error');
+    }
+  }
+
+  async handleGroupRoleRemove(roleId) {
+    try {
+      await removeRoleFromGroup(this.selectedGroup.id, roleId);
+
+      this.selectedGroupRoles = this.selectedGroupRoles.filter(r => r.id !== roleId);
+
+      this.groupRoleModal.updateUserRoles(this.selectedGroupRoles);
+      this.showToast('Rôle retiré du groupe', 'success');
+    } catch (error) {
+      this.showToast(error.message || 'Erreur lors du retrait du rôle', 'error');
     }
   }
 

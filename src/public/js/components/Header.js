@@ -11,6 +11,7 @@ export class Header {
     this.showSearch = false;
     this.element = null;
     this.userMenuOpen = false;
+    this._boundHandleOutsideClick = this._handleOutsideClick.bind(this);
   }
 
   setUser(user) {
@@ -48,7 +49,7 @@ export class Header {
     const roleClass = this.user.role === 'admin' ? 'admin' : 'user';
 
     userMenu.innerHTML = `
-      <button class="header-user-btn" aria-expanded="false" aria-haspopup="true" data-action="toggle-user-menu">
+      <button class="header-user-btn" aria-expanded="${this.userMenuOpen}" aria-haspopup="true" data-action="toggle-user-menu">
         <div class="header-user-avatar">${this._getInitials(displayName)}</div>
         <div class="header-user-info">
           <span class="header-user-name">${this._escapeHtml(displayName)}</span>
@@ -56,7 +57,7 @@ export class Header {
         </div>
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="18 15 12 9 6 15"></polyline></svg>
       </button>
-      <div class="header-user-dropdown hidden" role="menu">
+      <div class="header-user-dropdown${this.userMenuOpen ? '' : ' hidden'}" role="menu">
         <div class="header-user-dropdown-header">
           <div class="header-user-avatar-lg">${this._getInitials(displayName)}</div>
           <div>
@@ -100,7 +101,7 @@ export class Header {
       this._closeUserMenu();
     });
 
-    document.addEventListener('click', this._handleOutsideClick.bind(this));
+    document.addEventListener('click', this._boundHandleOutsideClick);
   }
 
   _toggleUserMenu() {
@@ -206,7 +207,7 @@ export class Header {
   }
 
   destroy() {
-    document.removeEventListener('click', this._handleOutsideClick.bind(this));
+    document.removeEventListener('click', this._boundHandleOutsideClick);
     if (this.element) {
       this.element.innerHTML = '';
     }

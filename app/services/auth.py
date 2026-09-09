@@ -1,7 +1,7 @@
 from datetime import UTC, datetime, timedelta
 
 from jose import JWTError, jwt
-from ldap3 import NTLM, SUBTREE, Connection
+from ldap3 import SUBTREE, Connection
 from passlib.context import CryptContext
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
@@ -250,11 +250,12 @@ async def authenticate_ad(
 
     try:
         server = ad_service._create_server(config)
+        normalized_user = DatabaseADService._normalize_bind_user(config.bind_user)
         admin_conn = Connection(
             server,
-            user=config.bind_user,
+            user=normalized_user,
             password=config.bind_password,
-            authentication=NTLM,
+            authentication=DatabaseADService._bind_authentication(config.bind_user),
             auto_bind=True,
             receive_timeout=config.receive_timeout,
             auto_referrals=config.follow_referrals,

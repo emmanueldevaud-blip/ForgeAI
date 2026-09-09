@@ -1,3 +1,65 @@
+import hashlib
+if "md4" not in hashlib.algorithms_available:
+    try:
+        import ctypes as _ct
+
+        _lc = _ct.CDLL("libcrypto.so.3")
+        _lc.OSSL_PROVIDER_load.restype = _ct.c_void_p
+        _lc.OSSL_PROVIDER_load.argtypes = [_ct.c_void_p, _ct.c_char_p]
+        _lc.OSSL_PROVIDER_load(None, b"legacy")
+        _lc.OSSL_PROVIDER_load(None, b"default")
+
+        _lc.EVP_get_digestbyname.restype = _ct.c_void_p
+        _lc.EVP_get_digestbyname.argtypes = [_ct.c_char_p]
+        _lc.EVP_MD_CTX_new.restype = _ct.c_void_p
+        _lc.EVP_MD_CTX_new.argtypes = []
+        _lc.EVP_DigestInit.restype = _ct.c_int
+        _lc.EVP_DigestInit.argtypes = [_ct.c_void_p, _ct.c_void_p]
+        _lc.EVP_DigestUpdate.restype = _ct.c_int
+        _lc.EVP_DigestUpdate.argtypes = [_ct.c_void_p, _ct.c_char_p, _ct.c_size_t]
+        _lc.EVP_DigestFinal.restype = _ct.c_int
+        _lc.EVP_DigestFinal.argtypes = [_ct.c_void_p, _ct.c_char_p, _ct.POINTER(_ct.c_uint)]
+        _lc.EVP_MD_CTX_free.restype = None
+        _lc.EVP_MD_CTX_free.argtypes = [_ct.c_void_p]
+
+        _md4_ptr = _lc.EVP_get_digestbyname(b"md4")
+
+        def _md4_compute(data):
+            ctx = _lc.EVP_MD_CTX_new()
+            _lc.EVP_DigestInit(ctx, _md4_ptr)
+            _lc.EVP_DigestUpdate(ctx, data, len(data))
+            buf = _ct.create_string_buffer(16)
+            ln = _ct.c_uint(0)
+            _lc.EVP_DigestFinal(ctx, buf, _ct.byref(ln))
+            _lc.EVP_MD_CTX_free(ctx)
+            return buf.raw[: ln.value]
+
+        _orig_new = hashlib.new
+
+        class _MD4Hash:
+            def __init__(self, data):
+                self._digest = _md4_compute(data)
+
+            def digest(self):
+                return self._digest
+
+            def hexdigest(self):
+                return self._digest.hex()
+
+            def update(self, data):
+                pass
+
+        def _hashlib_new(name, *args, **kwargs):
+            if name.lower() == "md4":
+                d = args[0] if args else kwargs.get("data", b"")
+                return _MD4Hash(d)
+            return _orig_new(name, *args, **kwargs)
+
+        hashlib.new = _hashlib_new
+        hashlib.algorithms_available.add("md4")
+    except Exception:
+        pass
+
 from datetime import UTC, datetime
 
 from ldap3 import ALL, NTLM, SIMPLE, SUBTREE, Connection, Server
@@ -55,11 +117,23 @@ class DatabaseADService:
 
     @staticmethod
     def _bind_authentication(bind_user: str) -> str:
-        if "@" in bind_user:
-            return SIMPLE
         if "\\" in bind_user:
             return NTLM
-        raise ValueError("Le compte Bind doit utiliser un UPN ou le format DOMAINE\\utilisateur pour NTLM")
+        if bind_user.upper().startswith("CN="):
+            return SIMPLE
+        if "@" in bind_user:
+            # UPN format (user@domain.tld) → NTLM with domain\user conversion
+            return NTLM
+        raise ValueError("Le compte Bind doit utiliser un UPN, un DN (CN=...) ou le format DOMAINE\\utilisateur")
+
+    @staticmethod
+    def _normalize_bind_user(bind_user: str) -> str:
+        """Convert UPN (user@domain.tld) to DOMAIN\\user for NTLM, pass DN or NTLM unchanged."""
+        if "@" in bind_user and "\\" not in bind_user:
+            user, domain = bind_user.rsplit("@", 1)
+            domain_label = domain.split(".")[0].upper()
+            return f"{domain_label}\\{user}"
+        return bind_user
 
     def _create_connection(
         self,
@@ -124,8 +198,10 @@ class DatabaseADService:
             return True, "Connexion à l'Active Directory réussie", None
 
         except LDAPException as e:
+            print(f"[AD-TEST] LDAP error during connection test: {e}")
             return False, "Échec de la connexion LDAP", str(e)
         except Exception as e:
+            print(f"[AD-TEST] Unexpected error during connection test: {e}")
             return False, "Erreur lors du test de connexion", str(e)
 
     async def authenticate(
@@ -142,9 +218,10 @@ class DatabaseADService:
 
         try:
             server = self._create_server(config)
+            normalized_user = self._normalize_bind_user(config.bind_user)
             admin_conn = self._create_connection(
                 server,
-                config.bind_user,
+                normalized_user,
                 config.bind_password,
                 config,
                 authentication=self._bind_authentication(config.bind_user),
@@ -168,7 +245,7 @@ class DatabaseADService:
             user_dn = str(entry.distinguishedName)
             admin_conn.unbind()
 
-            user_conn = self._create_connection(server, user_dn, password, config)
+            user_conn = self._create_connection(server, user_dn, password, config, authentication=SIMPLE)
             if not user_conn.bound:
                 return None, None, None
 
@@ -185,9 +262,11 @@ class DatabaseADService:
             user_conn.unbind()
             return user_dn, groups, config
 
-        except LDAPException:
+        except LDAPException as e:
+            print(f"[AD-AUTH] LDAP error during authentication for user '{username}': {e}")
             return None, None, None
-        except Exception:
+        except Exception as e:
+            print(f"[AD-AUTH] Unexpected error during authentication for user '{username}': {e}")
             return None, None, None
 
     def map_groups_to_roles(self, ad_groups: list[str], config: ADConfig) -> UserRole:
@@ -302,9 +381,10 @@ class DatabaseADService:
 
         try:
             server = self._create_server(config)
+            normalized_user = self._normalize_bind_user(config.bind_user)
             admin_conn = self._create_connection(
                 server,
-                config.bind_user,
+                normalized_user,
                 config.bind_password,
                 config,
                 authentication=self._bind_authentication(config.bind_user),

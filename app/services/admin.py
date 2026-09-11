@@ -513,7 +513,8 @@ class AdminUserService:
         result = await self.db.execute(
             select(Group)
             .options(
-                selectinload(Group.users),
+                selectinload(Group.users).selectinload(User.roles),
+                selectinload(Group.users).selectinload(User.groups),
                 selectinload(Group.roles)
             )
             .where(Group.id == group_id)

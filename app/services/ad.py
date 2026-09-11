@@ -71,7 +71,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.core.config import get_settings
-from app.models import ADConfig, ADSyncLog, ADSyncStatus, Group, GroupRole, Role, User, UserGroup, UserRole
+from app.models import ADConfig, ADSyncLog, ADSyncStatus, Group, GroupRole, Role, User, UserGroup
 from app.services.audit import AuditService, get_audit_service
 
 settings = get_settings()
@@ -269,17 +269,6 @@ class DatabaseADService:
             print(f"[AD-AUTH] Unexpected error during authentication for user '{username}': {e}")
             return None, None, None
 
-    def map_groups_to_roles(self, ad_groups: list[str], config: ADConfig) -> UserRole:
-        role = UserRole.USER
-        for group_dn in ad_groups:
-            for mapping in self._matching_mappings(group_dn, config):
-                # Keep the historical enum only as a compatibility marker.  The
-                # actual permissions are granted by the group-role relation.
-                if mapping.role_code == "admin":
-                    return UserRole.ADMIN
-
-        return role
-
     @staticmethod
     def _group_cn(group_dn: str) -> str:
         """Extract the CN without assuming a particular AD OU layout."""
@@ -332,15 +321,25 @@ class DatabaseADService:
             groups[group_dn.casefold()] = group
 
             # A configured AD mapping grants its ForgeAI role through the AD group.
+            active_role_codes = set()
             for mapping in self._matching_mappings(group_dn, config):
                 role = (await self.db.execute(select(Role).where(Role.code == mapping.role_code))).scalar_one_or_none()
                 if role is None:
                     continue
+                active_role_codes.add(role.id)
                 assigned = await self.db.execute(
                     select(GroupRole).where(GroupRole.group_id == group.id, GroupRole.role_id == role.id)
                 )
                 if assigned.scalar_one_or_none() is None:
                     self.db.add(GroupRole(group_id=group.id, role_id=role.id))
+            # Remove stale GroupRole entries for mappings that no longer exist.
+            if active_role_codes:
+                await self.db.execute(
+                    delete(GroupRole).where(
+                        GroupRole.group_id == group.id,
+                        ~GroupRole.role_id.in_(active_role_codes),
+                    )
+                )
         return groups
 
     async def _sync_user_ad_groups(self, user: User, group_dns: list[str], config: ADConfig) -> None:
@@ -416,11 +415,9 @@ class DatabaseADService:
                 user_dn = str(entry.distinguishedName)
                 found_ad_dns.add(user_dn)
                 
-                role = UserRole.USER
                 groups = []
                 if entry.memberOf:
                     groups = [str(g) for g in entry.memberOf]
-                    role = self.map_groups_to_roles(groups, config)
 
                 sam_account = str(entry.sAMAccountName) if entry.sAMAccountName else f"ad_user_{users_processed}"
                 email = str(entry.mail) if entry.mail else f"{sam_account}@ad.local"
@@ -450,7 +447,6 @@ class DatabaseADService:
 
                 if user:
                     user.is_active = True
-                    user.role = role
                     user.last_login = datetime.now(UTC)
                     if entry.mail:
                         result = await self.db.execute(select(User).where(User.email == email))
@@ -485,7 +481,6 @@ class DatabaseADService:
                                 last_name=str(entry.sn) if entry.sn else None,
                                 password_hash=None,
                                 is_active=True,
-                                role=role,
                                 source="ad",
                                 ad_dn=user_dn,
                                 last_login=datetime.now(UTC),

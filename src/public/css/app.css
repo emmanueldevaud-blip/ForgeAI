@@ -1,6 +1,7 @@
 .login-page-container,
 .register-page-container {
   min-height: 100vh;
+  min-height: 100dvh;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1270,6 +1271,64 @@
   background-repeat: no-repeat;
   background-position: right var(--spacing-3) center;
   padding-right: var(--spacing-10);
+}
+
+/* =========================================================
+   RESPONSIVE — LOGIN / REGISTER
+   ========================================================= */
+
+@media (max-width: 480px) {
+  .login-page-container,
+  .register-page-container {
+    padding: var(--spacing-3);
+    padding-bottom: calc(var(--spacing-3) + env(safe-area-inset-bottom, 0px));
+    align-items: flex-start;
+    padding-top: var(--spacing-10);
+  }
+
+  .login-card {
+    max-width: 100%;
+    border-radius: var(--radius-lg);
+  }
+
+  .login-header {
+    padding: var(--spacing-5) var(--spacing-4);
+    border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+  }
+
+  .login-header-brand {
+    gap: var(--spacing-2);
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+
+  .login-header-brand svg {
+    width: 36px;
+    height: 36px;
+  }
+
+  .login-header-brand h1 {
+    font-size: var(--font-size-xl);
+  }
+
+  .login-header .subtitle {
+    font-size: var(--font-size-sm);
+  }
+
+  .login-form {
+    padding: var(--spacing-5) var(--spacing-4);
+  }
+
+  .login-footer,
+  .register-link {
+    padding-top: var(--spacing-4);
+  }
+
+  .btn-lg {
+    height: var(--button-height);
+    padding: 0 var(--spacing-6);
+    font-size: var(--font-size-sm);
+  }
 }
 
 /* =========================================================

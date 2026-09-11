@@ -138,6 +138,8 @@ _renderActions(item) {
 
     users: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>',
 
+    eye: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>',
+
     trash: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"></path><path d="M10 11v6"></path><path d="M14 11v6"></path><path d="M9 6V4a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2"></path></svg>',
   };
 
@@ -183,6 +185,15 @@ _renderActions(item) {
       });
     });
 
+    this.element.querySelectorAll('[data-action="view"]').forEach(btn => {
+      if (btn.disabled) return;
+      btn.addEventListener('click', () => {
+        const id = parseInt(btn.dataset.id, 10);
+        const item = this.data.items.find(u => u.id === id);
+        if (item) this.onAction('view', item);
+      });
+    });
+
     this.element.querySelectorAll('[data-action="edit"]').forEach(btn => {
       if (btn.disabled) return;
       btn.addEventListener('click', () => {
@@ -216,6 +227,15 @@ _renderActions(item) {
         const id = parseInt(btn.dataset.id, 10);
         const item = this.data.items.find(u => u.id === id);
         if (item) this.onAction('delete', item);
+      });
+    });
+
+    this.element.querySelectorAll('[data-action="view-users"]').forEach(btn => {
+      if (btn.disabled) return;
+      btn.addEventListener('click', () => {
+        const id = parseInt(btn.dataset.id, 10);
+        const item = this.data.items.find(u => u.id === id);
+        if (item) this.onAction('view-users', item);
       });
     });
 

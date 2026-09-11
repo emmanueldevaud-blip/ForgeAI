@@ -1,19 +1,16 @@
 export class UserFilters {
   constructor(options = {}) {
     this.onSearch = options.onSearch || (() => {});
-    this.onRoleFilter = options.onRoleFilter || (() => {});
     this.onStatusFilter = options.onStatusFilter || (() => {});
     this.onSourceFilter = options.onSourceFilter || (() => {});
     this.onModuleFilter = options.onModuleFilter || null;
     this.onSystemFilter = options.onSystemFilter || null;
     this.onClearFilters = options.onClearFilters || (() => {});
-    this.roles = options.roles || [];
     this.modules = options.modules || [];
     this.element = null;
     this.searchDebounce = null;
     this.currentValues = {
       search: '',
-      role: '',
       is_active: '',
       source: '',
       module: '',
@@ -21,30 +18,10 @@ export class UserFilters {
     };
   }
 
-  updateRoles(roles) {
-    this.roles = roles;
-    if (this.element) {
-      const roleSelect = this.element.querySelector('[data-filter="role"]');
-      if (roleSelect) {
-        const currentValue = roleSelect.value;
-        roleSelect.innerHTML = this._renderRoleOptions();
-        roleSelect.value = currentValue;
-      }
-    }
-  }
-
-  _renderRoleOptions() {
-    return `
-      <option value="">Tous les rôles</option>
-      ${this.roles.map(role => `<option value="${this._escapeHtml(role.code)}">${this._escapeHtml(role.name)}</option>`).join('')}
-    `;
-  }
-
   reset() {
-    this.currentValues = { search: '', role: '', is_active: '', source: '', module: '', is_system: '' };
+    this.currentValues = { search: '', is_active: '', source: '', module: '', is_system: '' };
     if (this.element) {
       this.element.querySelector('[data-filter="search"]').value = '';
-      this.element.querySelector('[data-filter="role"]').value = '';
       this.element.querySelector('[data-filter="status"]').value = '';
       const sourceFilter = this.element.querySelector('[data-filter="source"]');
       if (sourceFilter) sourceFilter.value = '';
@@ -85,13 +62,6 @@ export class UserFilters {
               </button>
             ` : ''}
           </div>
-        </div>
-
-        <div class="filter-group">
-          <label for="filter-role" class="visually-hidden">Filtrer par rôle</label>
-          <select id="filter-role" class="filter-select" data-filter="role" aria-label="Filtrer par rôle">
-            ${this._renderRoleOptions()}
-          </select>
         </div>
 
         <div class="filter-group">
@@ -157,12 +127,6 @@ export class UserFilters {
       }, 300);
     });
 
-    this.element.querySelector('[data-filter="role"]').addEventListener('change', (e) => {
-      this.currentValues.role = e.target.value;
-      this.onRoleFilter(e.target.value);
-      this._updateClearButton();
-    });
-
     this.element.querySelector('[data-filter="status"]').addEventListener('change', (e) => {
       this.currentValues.is_active = e.target.value;
       this.onStatusFilter(e.target.value);
@@ -214,7 +178,7 @@ export class UserFilters {
   }
 
   _hasActiveFilters() {
-    return this.currentValues.search || this.currentValues.role || this.currentValues.is_active || this.currentValues.source || this.currentValues.module || this.currentValues.is_system;
+    return this.currentValues.search || this.currentValues.is_active || this.currentValues.source || this.currentValues.module || this.currentValues.is_system;
   }
 
   _updateClearButton() {

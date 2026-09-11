@@ -80,14 +80,14 @@ export class ConfirmDialog {
     this.overlay.appendChild(this.element);
 
     this.modalContent.querySelector('[data-action="confirm"]').addEventListener('click', () => {
-      this.onConfirm();
       this.close();
+      this.onConfirm();
     });
 
     this.modalContent.querySelectorAll('[data-action="cancel"]').forEach(btn => {
       btn.addEventListener('click', () => {
-        this.onCancel();
         this.close();
+        this.onCancel();
       });
     });
   }

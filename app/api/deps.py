@@ -4,7 +4,7 @@ from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import get_db
-from app.models.user import User, UserRole
+from app.models.user import User
 from app.services.auth import (
     decode_token,
     get_user_by_id,
@@ -61,8 +61,10 @@ async def get_current_active_user(
 
 async def require_admin(
     current_user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
 ) -> User:
-    if current_user.role != UserRole.ADMIN:
+    rbac = RBACService(db)
+    if not await rbac.user_has_permission(current_user, "user_view"):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Accès administrateur requis",
@@ -72,8 +74,10 @@ async def require_admin(
 
 async def require_super_admin(
     current_user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
 ) -> User:
-    if current_user.role != UserRole.ADMIN:
+    rbac = RBACService(db)
+    if not await rbac.user_has_permission(current_user, "user_view"):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Accès super administrateur requis",

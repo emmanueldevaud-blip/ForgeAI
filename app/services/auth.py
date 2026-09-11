@@ -8,7 +8,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
-from app.models.user import User, UserRole
+from app.models.user import User
 from app.schemas.auth import Token, TokenData
 from app.services.ad import DatabaseADService
 from app.services.audit import AuditService
@@ -58,7 +58,7 @@ def decode_token(token: str) -> TokenData | None:
         return TokenData(
             sub=payload.get("sub"),
             user_id=payload.get("user_id"),
-            role=payload.get("role"),
+            role=payload.get("role", ""),
             exp=payload.get("exp"),
         )
     except JWTError:
@@ -213,8 +213,6 @@ async def authenticate_ad(
             )
         return None
 
-    role = ad_service.map_groups_to_roles(groups or [], config) if config else UserRole.USER
-
     result = await db.execute(select(User).where(User.ad_dn == user_dn))
     user = result.scalar_one_or_none()
 
@@ -222,11 +220,7 @@ async def authenticate_ad(
         if user.source != "ad":
             # A local account may not be claimed by an AD identity.
             return None
-        old_values = {
-            "role": user.role.value,
-        }
         user.is_active = True
-        user.role = role
         user.last_login = datetime.now(UTC)
         await ad_service._sync_user_ad_groups(user, groups or [], config)
         await db.commit()
@@ -238,8 +232,6 @@ async def authenticate_ad(
                 module="auth",
                 user=user,
                 status="success",
-                old_values=old_values,
-                new_values={"role": user.role.value},
                 ip_address=ip_address,
                 user_agent=user_agent,
             )
@@ -297,7 +289,6 @@ async def authenticate_ad(
             last_name=str(entry.sn) if entry.sn else None,
             password_hash=None,
             is_active=True,
-            role=role,
             source="ad",
             ad_dn=user_dn,
             last_login=datetime.now(UTC),
@@ -326,7 +317,6 @@ async def authenticate_ad(
                 new_values={
                     "username": user.username,
                     "email": user.email,
-                    "role": user.role.value,
                     "source": "ad",
                 },
                 ip_address=ip_address,
@@ -356,7 +346,6 @@ async def create_user(db: AsyncSession, user_data: dict, audit: AuditService | N
         last_name=user_data.get("last_name"),
         password_hash=hash_password(user_data["password"]) if user_data.get("password") else None,
         is_active=user_data.get("is_active", True),
-        role=UserRole(user_data.get("role", "user")),
         source=user_data.get("source", "local"),
     )
     db.add(user)
@@ -407,6 +396,8 @@ async def update_user(
             continue
         if key == "password":
             user.password_hash = hash_password(value)
+        elif key == "role":
+            continue
         elif hasattr(user, key):
             setattr(user, key, value)
     user.updated_at = datetime.now(UTC)
@@ -457,7 +448,6 @@ def create_tokens(user: User) -> Token:
     token_data = {
         "sub": user.username,
         "user_id": user.id,
-        "role": user.role.value,
     }
     access_token = create_access_token(token_data)
     return Token(

@@ -338,7 +338,8 @@ function attachTodoEventListeners() {
 function updateUserUI() {
   if (!currentUser) return;
   elements.userDisplay.textContent = currentUser.full_name || currentUser.username;
-  if (currentUser.role === 'admin') {
+  const isAdmin = (currentUser.roles || []).includes('admin');
+  if (isAdmin) {
     elements.userRoleBadge.textContent = 'Admin';
     elements.userRoleBadge.classList.add('admin');
     elements.userRoleBadge.classList.remove('hidden');
@@ -528,7 +529,7 @@ function renderUsersTable(users) {
       </td>
       <td>${escapeHtml(user.email)}</td>
       <td>
-        <span class="role-badge small ${user.role}">${user.role === 'admin' ? 'Admin' : 'User'}</span>
+        <span class="role-badge small ${(user.roles || [])[0] || user.role}">${((user.roles || [])[0] || user.role) === 'admin' ? 'Admin' : 'User'}</span>
       </td>
       <td>
         <span class="status-badge ${user.is_active ? 'active' : 'inactive'}">

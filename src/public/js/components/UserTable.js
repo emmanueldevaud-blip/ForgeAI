@@ -60,7 +60,7 @@ export class UserTable {
 
   _getRoleBadge(role) {
     const badgeClass = role === 'admin' ? 'role-badge admin' : 'role-badge user';
-    return `<span class="${badgeClass}">${this._escapeHtml(role)}</span>`;
+    return `<span class="${badgeClass}">${this._escapeHtml(role || 'user')}</span>`;
   }
 
   _getStatusBadge(isActive) {
@@ -112,12 +112,12 @@ export class UserTable {
         <td>
           <div class="user-info">
             <span class="username">${this._escapeHtml(user.username)}</span>
-            ${user.role === 'admin' ? `<span class="admin-indicator" title="Administrateur"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="12 2 15 8 9 8"></polyline><path d="M3 10h18"></path><path d="M5 10v10a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-4"></path></svg></span>` : ''}
+            ${(user.roles || []).includes('admin') ? `<span class="admin-indicator" title="Administrateur"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="12 2 15 8 9 8"></polyline><path d="M3 10h18"></path><path d="M5 10v10a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-4"></path></svg></span>` : ''}
           </div>
         </td>
         <td>${this._escapeHtml(fullName)}</td>
         <td>${this._escapeHtml(user.email)}</td>
-        <td>${this._getRoleBadge(user.role)}</td>
+        <td>${this._getRoleBadge(user.roles?.[0] || user.role)}</td>
         <td>${this._getSourceBadge(user.source)}</td>
         <td>${this._getStatusBadge(user.is_active)}</td>
         <td>${lastLogin}</td>

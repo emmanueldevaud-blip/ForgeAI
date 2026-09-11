@@ -401,6 +401,33 @@ Si la tâche concerne uniquement le développement :
 
 Ne jamais déployer automatiquement.
 
+
+## 12.1 Déploiement ForgeAI
+
+Lorsque l'utilisateur demande explicitement de déployer ForgeAI en production, utiliser le script local :
+
+```bash
+~/deploy-forgeai.sh
+```
+
+Ce script gère automatiquement :
+
+* la connexion SSH au VPS via `forgeai-vps` ;
+* la récupération des dernières modifications Git ;
+* la conservation du `docker-compose.yml` spécifique à la production ;
+* la reconstruction des conteneurs Docker ;
+* le redémarrage de l'application ;
+* la vérification de l'état des conteneurs et des logs.
+
+### Règles de déploiement
+
+* Ne jamais lancer `~/deploy-forgeai.sh` sans demande explicite de déploiement.
+* Ne jamais remplacer manuellement le `docker-compose.yml` de production.
+* Ne pas effectuer manuellement les opérations du script si le script est disponible.
+* Ne jamais faire de `git push` automatiquement.
+* Si le déploiement échoue, ne pas effectuer de manipulation destructive pour tenter de le réparer sans demande explicite.
+* Après le déploiement, indiquer simplement si celui-ci a réussi ou échoué et signaler toute erreur importante.
+
 ---
 
 # 13. Tests

@@ -2,11 +2,13 @@ import os
 
 import pytest
 from httpx import ASGITransport, AsyncClient
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.pool import StaticPool
 
 from app.db.session import Base, get_db
 from app.main import app
+from app.models import Group, UserGroup
 from app.models.user import UserRole
 from app.services.auth import create_user
 from app.services.rbac import seed_default_rbac
@@ -113,7 +115,20 @@ async def admin_user(db_session):
         "role": UserRole.ADMIN,
         "source": "local",
     }
-    return await create_user(db_session, user_data)
+    user = await create_user(db_session, user_data)
+
+    # Add to the 'administrators' group so the user gets RBAC admin permissions.
+    result = await db_session.execute(select(Group).where(Group.code == "administrators"))
+    admin_group = result.scalar_one_or_none()
+    if admin_group:
+        exists = await db_session.execute(
+            select(UserGroup).where(UserGroup.user_id == user.id, UserGroup.group_id == admin_group.id)
+        )
+        if exists.scalar_one_or_none() is None:
+            db_session.add(UserGroup(user_id=user.id, group_id=admin_group.id))
+            await db_session.commit()
+
+    return user
 
 
 @pytest.fixture

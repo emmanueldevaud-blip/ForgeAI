@@ -11,7 +11,7 @@ from app.models.rbac import (
     RolePermission,
     UserRoleAssignment,
 )
-from app.models.user import User, UserRole
+from app.models.user import User
 from app.services.auth import hash_password
 from app.services.rbac import RBACService
 
@@ -189,7 +189,6 @@ async def create_admin(username: str, email: str, password: str, first_name: str
             last_name=last_name or None,
             password_hash=hash_password(password),
             is_active=True,
-            role=UserRole.ADMIN,
             source="local",
         )
         db.add(user)

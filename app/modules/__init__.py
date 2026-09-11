@@ -35,13 +35,52 @@ class BuildingsModule(BaseModule):
             description="Gestion des bâtiments et immeubles",
             icon="building",
             order=10,
-            status=ModuleStatus.INACTIVE,
+            status=ModuleStatus.ACTIVE,
             version="1.0.0",
             route_path="/buildings",
             component_path="Buildings",
-            required_permissions=["buildings.view"],
+            required_permissions=["building.view"],
             is_core=False,
         ))
+
+    def get_navigation_items(self, user_permissions: list[str]):
+        if self.info.required_permissions:
+            if "*" in user_permissions:
+                pass
+            elif not all(p in user_permissions for p in self.info.required_permissions):
+                return []
+
+        children = [
+            {
+                "code": "buildings-sites",
+                "name": "Sites",
+                "icon": "building",
+                "route": "/buildings",
+                "order": 0,
+            },
+        ]
+
+        has_manage_refs = (
+            "*" in user_permissions
+            or "building.manage_refs" in user_permissions
+        )
+        if has_manage_refs:
+            children.append({
+                "code": "buildings-refs",
+                "name": "Référentiels",
+                "icon": "file-text",
+                "route": "/buildings/refs",
+                "order": 1,
+            })
+
+        return [{
+            "code": self.info.code,
+            "name": self.info.name,
+            "icon": self.info.icon,
+            "route": self.info.route_path,
+            "order": self.info.order,
+            "children": children,
+        }]
 
     async def install(self, db):
         return True

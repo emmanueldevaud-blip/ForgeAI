@@ -114,7 +114,7 @@ export class MobileSidebar {
     const link = document.createElement('a');
     link.className = 'mobile-nav-link';
     link.href = route || '#';
-    link.dataset.navLink = 'true';
+    link.dataset.link = 'true';
 
     const iconEl = document.createElement('span');
     iconEl.className = 'mobile-nav-icon';
@@ -142,6 +142,7 @@ export class MobileSidebar {
         item._mobileExpanded = !isExpanded;
         this._renderNav();
       } else if (route) {
+        e.preventDefault();
         this.onNavigate(route);
         this.close();
       }

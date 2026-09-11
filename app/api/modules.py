@@ -61,7 +61,7 @@ class ModuleEnableRequest(BaseModel):
 
 
 async def require_module_access(
-    current_user = Depends(require_permission("modules.view")),
+    current_user = Depends(require_permission("module_view")),
     db: AsyncSession = Depends(get_db),
 ):
     return current_user
@@ -69,7 +69,7 @@ async def require_module_access(
 
 @router.get("", response_model=ModuleListResponse)
 async def list_modules(
-    current_user = Depends(require_permission("modules.view")),
+    current_user = Depends(require_permission("module_view")),
     db: AsyncSession = Depends(get_db),
 ):
     service = await get_module_service(db)
@@ -82,7 +82,7 @@ async def list_modules(
 
 @router.get("/available", response_model=ModuleListResponse)
 async def list_available_modules(
-    current_user = Depends(require_permission("modules.view")),
+    current_user = Depends(require_permission("module_view")),
     db: AsyncSession = Depends(get_db),
 ):
     rbac = RBACService(db)
@@ -128,7 +128,7 @@ async def get_navigation(
 @router.get("/{module_code}", response_model=ModuleResponse)
 async def get_module(
     module_code: str,
-    current_user = Depends(require_permission("modules.view")),
+    current_user = Depends(require_permission("module_view")),
     db: AsyncSession = Depends(get_db),
 ):
     service = await get_module_service(db)
@@ -140,7 +140,7 @@ async def get_module(
 
 @router.post("/sync")
 async def sync_modules(
-    current_user = Depends(require_permission("modules.manage")),
+    current_user = Depends(require_permission("module_configure")),
     db: AsyncSession = Depends(get_db),
 ):
     service = await get_module_service(db)
@@ -151,7 +151,7 @@ async def sync_modules(
 @router.post("/{module_code}/enable")
 async def enable_module(
     module_code: str,
-    current_user = Depends(require_permission("modules.enable")),
+    current_user = Depends(require_permission("module_enable")),
     db: AsyncSession = Depends(get_db),
 ):
     service = await get_module_service(db)
@@ -164,7 +164,7 @@ async def enable_module(
 @router.post("/{module_code}/disable")
 async def disable_module(
     module_code: str,
-    current_user = Depends(require_permission("modules.disable")),
+    current_user = Depends(require_permission("module_disable")),
     db: AsyncSession = Depends(get_db),
 ):
     service = await get_module_service(db)
@@ -177,7 +177,7 @@ async def disable_module(
 @router.get("/{module_code}/config")
 async def get_module_config(
     module_code: str,
-    current_user = Depends(require_permission("modules.configure")),
+    current_user = Depends(require_permission("module_configure")),
     db: AsyncSession = Depends(get_db),
 ):
     service = await get_module_service(db)
@@ -189,7 +189,7 @@ async def get_module_config(
 async def update_module_config(
     module_code: str,
     config: dict,
-    current_user = Depends(require_permission("modules.configure")),
+    current_user = Depends(require_permission("module_configure")),
     db: AsyncSession = Depends(get_db),
 ):
     service = await get_module_service(db)
@@ -202,7 +202,7 @@ async def update_module_config(
 @router.get("/{module_code}/permissions")
 async def get_module_permissions(
     module_code: str,
-    current_user = Depends(require_permission("modules.view")),
+    current_user = Depends(require_permission("module_view")),
     db: AsyncSession = Depends(get_db),
 ):
     service = await get_module_service(db)

@@ -516,13 +516,6 @@ export class UserForm {
             maxlength="100">
         </div>
       </div>
-      <div class="form-group">
-        <label for="role">Rôle</label>
-        <select id="role" name="role">
-          <option value="">Sélectionner un rôle</option>
-          ${this._getRoleOptions(this.user?.role)}
-        </select>
-      </div>
     `;
 
     return fieldsHtml;
@@ -1131,9 +1124,6 @@ export class UserForm {
         data.confirm_password =
           formData.get('confirm_password');
 
-        data.role =
-          formData.get('role');
-
         /*
          * Pas de is_admin
          * Pas de is_active
@@ -1198,16 +1188,6 @@ export class UserForm {
         ) {
           this.showError(
             "L'email est invalide"
-          );
-          return;
-        }
-
-        if (
-          !data.role ||
-          data.role === ''
-        ) {
-          this.showError(
-            'Veuillez sélectionner un rôle'
           );
           return;
         }
@@ -1285,10 +1265,6 @@ export class UserForm {
 
         data.last_name =
           formData.get('last_name') ||
-          null;
-
-        data.role =
-          formData.get('role') ||
           null;
 
         /*

@@ -65,8 +65,6 @@ class AuthStore {
         this.roles = user.roles || [];
         if (user.permissions) {
           this.permissions = new Set(user.permissions);
-        } else if (user.role === 'admin') {
-          this.permissions = new Set(['*']);
         }
       } catch (error) {
         if (error instanceof ApiError && error.status === 401) {
@@ -95,8 +93,6 @@ class AuthStore {
       this.roles = response.user.roles || [];
       if (response.user.permissions) {
         this.permissions = new Set(response.user.permissions);
-      } else if (response.user.role === 'admin') {
-        this.permissions = new Set(['*']);
       }
       this._notify();
       return true;
@@ -152,7 +148,7 @@ class AuthStore {
   }
 
   isAdmin() {
-    return this.currentUser?.role === 'admin' || this.hasRole('admin');
+    return this.hasRole('admin') || this.hasPermission('admin.access');
   }
 }
 

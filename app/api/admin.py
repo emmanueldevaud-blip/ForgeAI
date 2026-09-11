@@ -1323,13 +1323,10 @@ async def update_user(
     )
 
     if user.source == "ad":
-        allowed_keys = {"role"}
-        blocked_keys = set(update_data.keys()) - allowed_keys
-        if blocked_keys:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Les informations d'un utilisateur AD ne peuvent pas être modifiées depuis ForgeAI. Seul le rôle est modifiable.",
-            )
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Les informations d'un utilisateur AD ne peuvent pas être modifiées depuis ForgeAI.",
+        )
 
     user = await service.update_user(
         user,

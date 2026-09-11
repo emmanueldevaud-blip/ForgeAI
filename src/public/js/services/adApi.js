@@ -47,6 +47,10 @@ export async function getAdSyncLogs(configId) {
   return adApi.get(`/ad-configs/${configId}/sync-logs`);
 }
 
+export async function getAdGroups(configId) {
+  return adApi.get(`/ad-configs/${configId}/ad-groups`);
+}
+
 export async function testAdConfig(testData) {
   return adApi.post('/ad-configs/test', testData);
 }

@@ -106,27 +106,29 @@ class TestAdminUsersEndpoints:
         assert any(u["first_name"] == "Jean" for u in data["users"])
 
     @pytest.mark.asyncio
-    async def test_admin_can_filter_by_role(self, client, admin_headers, db_session):
-        """Admin can filter users by role."""
+    async def test_admin_can_filter_by_role_param_accepted(self, client, admin_headers, db_session):
+        """Role filter parameter is accepted (backward compat) but no longer filters by legacy user.role."""
         await create_user(db_session, {
             "username": "adminrole",
             "email": "adminrole@example.com",
             "password": "password123",
-            "is_active": True,            "role": UserRole.ADMIN,
+            "is_active": True,
+            "role": UserRole.ADMIN,
             "source": "local",
         })
         await create_user(db_session, {
             "username": "userrole",
             "email": "userrole@example.com",
             "password": "password123",
-            "is_active": True,            "role": UserRole.USER,
+            "is_active": True,
+            "role": UserRole.USER,
             "source": "local",
         })
 
         response = await client.get("/admin/users?role=admin", headers=admin_headers)
         assert response.status_code == 200
         data = response.json()
-        assert all(u["role"] == "admin" for u in data["users"])
+        assert data["total"] >= 2
 
     @pytest.mark.asyncio
     async def test_admin_can_filter_by_is_active(self, client, admin_headers, db_session):
@@ -229,7 +231,6 @@ class TestAdminUsersEndpoints:
             "first_name": "New",
             "last_name": "Admin",
             "is_active": True,
-            "role": "admin",
             "source": "local",
         })
         assert response.status_code == 201
@@ -239,7 +240,6 @@ class TestAdminUsersEndpoints:
         assert data["first_name"] == "New"
         assert data["last_name"] == "Admin"
         assert data["is_active"] is True
-        assert data["role"] == "admin"
         assert "password" not in data
         assert "password_hash" not in data
 
@@ -311,13 +311,11 @@ class TestAdminUsersEndpoints:
         response = await client.patch(f"/admin/users/{user.id}", headers=admin_headers, json={
             "first_name": "Updated",
             "last_name": "Name",
-            "role": "admin",
         })
         assert response.status_code == 200
         data = response.json()
         assert data["first_name"] == "Updated"
         assert data["last_name"] == "Name"
-        assert data["role"] == "admin"
 
     @pytest.mark.asyncio
     async def test_admin_can_deactivate_user(self, client, admin_headers, db_session):
@@ -530,9 +528,10 @@ class TestAdminUsersEndpoints:
         response = await client.get("/admin/users/roles", headers=admin_headers)
         assert response.status_code == 200
         data = response.json()
-        assert isinstance(data, list)
-        assert len(data) > 0
-        assert any(r["code"] == "admin" for r in data)
+        roles = data.get("roles", data) if isinstance(data, dict) else data
+        assert isinstance(roles, list)
+        assert len(roles) > 0
+        assert any(r["code"] == "admin" for r in roles)
 
     @pytest.mark.asyncio
     async def test_admin_can_get_user_permissions(self, client, admin_headers, db_session):
@@ -628,32 +627,31 @@ class TestAdminUsersEndpoints:
             "username": "filteradmin",
             "email": "filteradmin@example.com",
             "password": "password123",
-            "is_active": True,            "role": UserRole.ADMIN,
+            "is_active": True,
             "source": "local",
         })
         await create_user(db_session, {
             "username": "filteruser",
             "email": "filteruser@example.com",
             "password": "password123",
-            "is_active": True,            "role": UserRole.USER,
+            "is_active": True,
             "source": "local",
         })
         await create_user(db_session, {
             "username": "inactiveadmin",
             "email": "inactiveadmin@example.com",
             "password": "password123",
-            "is_active": False,            "role": UserRole.ADMIN,
+            "is_active": False,
             "source": "local",
         })
 
         response = await client.get(
-            "/admin/users?search=filter&role=admin&is_active=true&page_size=10",
+            "/admin/users?search=filter&is_active=true&page_size=10",
             headers=admin_headers
         )
         assert response.status_code == 200
         data = response.json()
-        assert data["total"] == 1
-        assert data["users"][0]["username"] == "filteradmin"
+        assert data["total"] == 2
 
 
 class TestAdminUsersSecurity:

@@ -5,7 +5,8 @@ import { createModulePlaceholderPage } from './pages/ModulePlaceholder.js';
 import { createLoginPage } from './pages/LoginPage.js';
 import { createRegisterPage } from './pages/RegisterPage.js';
 import { createAdministrationPage } from './pages/AdministrationPage.js';
-import { createUsersPage } from './pages/UsersPage.js';
+import { createBuildingsPage } from './pages/BuildingsPage.js';
+import { createBuildingRefsPage } from './pages/BuildingRefsPage.js';
 
 const moduleRoutes = [
   'dashboard',
@@ -28,7 +29,8 @@ const moduleRoutes = [
 
 let appShell = null;
 let administrationPage = null;
-let usersPage = null;
+let buildingsPage = null;
+let buildingRefsPage = null;
 
 async function initializeApp() {
   const app = document.getElementById('app');
@@ -36,12 +38,6 @@ async function initializeApp() {
 
   appShell = new AppShell(router);
   await appShell.initialize();
-
-  administrationPage = createAdministrationPage(router);
-  await administrationPage.initialize();
-
-  usersPage = createUsersPage(router);
-  await usersPage.initialize();
 
   const authGuard = createAuthGuard(authStore);
 
@@ -82,10 +78,16 @@ async function initializeApp() {
     }, { requiresAuth: true, permissions: ['permission_view'] })
     .addRoute('/administration/active-directory', async (route) => {
       await showAdministrationPage(route);
-    }, { requiresAuth: true, permissions: ['ad_config'] });
+    }, { requiresAuth: true, permissions: ['ad_config'] })
+    .addRoute('/buildings', async (route) => {
+      await showBuildingsPage(route);
+    }, { requiresAuth: true, permissions: ['building.view'] })
+    .addRoute('/buildings/refs', async (route) => {
+      await showBuildingRefsPage(route);
+    }, { requiresAuth: true, permissions: ['building.view'] });
 
   moduleRoutes.forEach(module => {
-    if (module === 'dashboard' || module === 'administration') return;
+    if (module === 'dashboard' || module === 'administration' || module === 'buildings') return;
     router.addRoute(`/${module}`, async (route) => {
       await showModulePage(route);
     }, { requiresAuth: true });
@@ -109,7 +111,17 @@ async function initializeApp() {
     .start();
 
   await authStore.loadCurrentUser();
+
   if (authStore.authenticated) {
+    administrationPage = createAdministrationPage(router);
+    await administrationPage.initialize();
+
+    buildingsPage = createBuildingsPage(router);
+    await buildingsPage.initialize();
+
+    buildingRefsPage = createBuildingRefsPage(router);
+    await buildingRefsPage.initialize();
+
     router.navigate('/dashboard', { replace: true });
   } else {
     router.navigate('/login', { replace: true });
@@ -139,6 +151,33 @@ async function showAdministrationPage(route) {
     appShell.showContent(content);
   } catch (error) {
     console.error('Erreur affichage administration:', error);
+    appShell.showError(error);
+  }
+}
+
+async function showBuildingsPage(route) {
+  if (!appShell || !buildingsPage) return;
+  appShell.showLoading();
+
+  try {
+    const content = buildingsPage.render();
+    appShell.showContent(content);
+    buildingsPage.loadData();
+  } catch (error) {
+    console.error('Erreur affichage bâtiments:', error);
+    appShell.showError(error);
+  }
+}
+
+async function showBuildingRefsPage(route) {
+  if (!appShell || !buildingRefsPage) return;
+  appShell.showLoading();
+
+  try {
+    const content = buildingRefsPage.render();
+    appShell.showContent(content);
+  } catch (error) {
+    console.error('Erreur affichage référentiels:', error);
     appShell.showError(error);
   }
 }

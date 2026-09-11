@@ -1,13 +1,37 @@
 import pytest
 from httpx import ASGITransport, AsyncClient
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.pool import StaticPool
 from app.db.session import Base, get_db
 from app.main import app
+from app.models import Group, UserGroup
 from app.models.user import UserRole
 from app.services.auth import create_user
 from app.services.rbac import seed_default_rbac
 from app.modules import register_all_modules
+
+
+async def _create_admin_with_rbac(db, username, email):
+    """Create a user and add to administrators group for RBAC permissions."""
+    admin = await create_user(db, {
+        'username': username,
+        'email': email,
+        'password': 'password123',
+        'is_active': True,
+        'role': UserRole.ADMIN,
+        'source': 'local',
+    })
+    result = await db.execute(select(Group).where(Group.code == 'administrators'))
+    admin_group = result.scalar_one_or_none()
+    if admin_group:
+        exists = await db.execute(
+            select(UserGroup).where(UserGroup.user_id == admin.id, UserGroup.group_id == admin_group.id)
+        )
+        if exists.scalar_one_or_none() is None:
+            db.add(UserGroup(user_id=admin.id, group_id=admin_group.id))
+            await db.commit()
+    return admin
 
 
 @pytest.mark.asyncio
@@ -28,14 +52,7 @@ async def test_navigation_includes_administration():
         await seed_default_rbac(db)
         register_all_modules()
 
-        admin = await create_user(db, {
-            'username': 'navadmin',
-            'email': 'navadmin@example.com',
-            'password': 'password123',
-            'is_active': True,
-            'role': UserRole.ADMIN,
-            'source': 'local',
-        })
+        admin = await _create_admin_with_rbac(db, 'navadmin', 'navadmin@example.com')
 
     def override_get_db():
         yield db
@@ -65,7 +82,7 @@ async def test_navigation_includes_administration():
 
 @pytest.mark.asyncio
 async def test_admin_user_has_admin_access_permission():
-    """Test that admin user gets admin_access permission via wildcard."""
+    """Test that admin user gets permissions via RBAC (groups -> roles -> permissions)."""
     engine = create_async_engine(
         'sqlite+aiosqlite:///:memory:',
         poolclass=StaticPool,
@@ -81,19 +98,11 @@ async def test_admin_user_has_admin_access_permission():
         await seed_default_rbac(db)
         register_all_modules()
 
-        admin = await create_user(db, {
-            'username': 'permadmin',
-            'email': 'permadmin@example.com',
-            'password': 'password123',
-            'is_active': True,
-            'role': UserRole.ADMIN,
-            'source': 'local',
-        })
+        admin = await _create_admin_with_rbac(db, 'permadmin', 'permadmin@example.com')
 
         # Reload admin with roles, permissions, and groups
-        from sqlalchemy import select
         from sqlalchemy.orm import selectinload
-        from app.models.rbac import Role, Group
+        from app.models.rbac import Role
         result = await db.execute(
             select(admin.__class__)
             .options(
@@ -108,11 +117,12 @@ async def test_admin_user_has_admin_access_permission():
         rbac = RBACService(db)
         perms = await rbac.get_user_permissions(admin)
 
-        # Admin users get wildcard permission which implies all permissions
-        assert "*" in perms, f"Admin should have wildcard permission, got: {perms}"
-        # Verify wildcard satisfies admin.access check
+        # Admin user gets permissions via RBAC: group administrators -> role admin -> all permissions
+        assert len(perms) > 0, f"Admin should have permissions, got: {perms}"
         has_admin_access = await rbac.user_has_permission(admin, "admin.access")
-        assert has_admin_access, "Admin should have admin.access via wildcard"
+        assert has_admin_access, "Admin should have admin.access via RBAC group membership"
+        has_user_view = await rbac.user_has_permission(admin, "user_view")
+        assert has_user_view, "Admin should have user_view via RBAC group membership"
 
     await engine.dispose()
 

@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import get_current_active_user, require_admin, require_permission
 from app.db.session import get_db
 from app.models import ADConfig, ADGroupMapping, ADSyncLog, Group, Role
-from app.models.user import User, UserRole
+from app.models.user import User
 from app.schemas.auth import (
     AdminPasswordReset,
     ADTestRequest,
@@ -348,9 +348,10 @@ async def update_me(
     db: AsyncSession = Depends(get_db),
 ):
     update_data = updates.model_dump(exclude_unset=True)
-    if "role" in update_data and current_user.role != UserRole.ADMIN:
+    rbac = RBACService(db)
+    if "role" in update_data and not await rbac.user_has_permission(current_user, "user_update"):
         del update_data["role"]
-    if "is_active" in update_data and current_user.role != UserRole.ADMIN:
+    if "is_active" in update_data and not await rbac.user_has_permission(current_user, "user_update"):
         del update_data["is_active"]
 
     audit = await get_audit_service(db)
@@ -857,6 +858,33 @@ async def list_ad_group_mappings(
     )
     mappings = result.scalars().all()
     return [ADGroupMappingResponse.model_validate(m) for m in mappings]
+
+
+class ADGroupInfo(BaseModel):
+    id: int
+    name: str
+    ad_dn: str | None = None
+
+
+@router.get("/ad-configs/{config_id}/ad-groups", response_model=list[ADGroupInfo])
+async def list_ad_groups(
+    config_id: int,
+    current_user: User = Depends(require_permission("ad_config")),
+    db: AsyncSession = Depends(get_db),
+):
+    if not await db.get(ADConfig, config_id):
+        raise HTTPException(status_code=404, detail="Configuration AD non trouvée")
+
+    result = await db.execute(
+        select(Group)
+        .where(Group.source == "ad", Group.ad_config_id == config_id)
+        .order_by(Group.name)
+    )
+    groups = result.scalars().all()
+    return [
+        ADGroupInfo(id=g.id, name=g.name, ad_dn=g.ad_dn)
+        for g in groups
+    ]
 
 
 @router.post("/ad-configs/{config_id}/mappings", response_model=ADGroupMappingResponse, status_code=status.HTTP_201_CREATED)

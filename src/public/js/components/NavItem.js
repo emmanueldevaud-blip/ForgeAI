@@ -73,6 +73,7 @@ export class NavItem {
         this.item._expanded = !isExpanded;
         this.onClick({ type: 'toggle', item: this.item, expanded: this.item._expanded });
       } else if (route) {
+        e.preventDefault();
         this.onClick({ type: 'navigate', item: this.item, route });
       }
     });

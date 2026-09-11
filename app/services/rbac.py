@@ -4,7 +4,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.models import Group, GroupRole, PermissionModel, Role, User, UserGroup, UserRoleAssignment
-from app.models.user import UserRole
 from app.services.audit import AuditService, get_audit_service
 
 
@@ -28,9 +27,6 @@ class RBACService:
                     if role.is_active:
                         for perm in role.permissions:
                             permissions.add(perm.code)
-
-        if user.role == UserRole.ADMIN:
-            permissions.add("*")
 
         return permissions
 
@@ -425,6 +421,7 @@ async def seed_default_rbac(db: AsyncSession) -> None:
         ("role_update", "Modifier des rôles", "rbac"),
         ("role_delete", "Supprimer des rôles", "rbac"),
         ("role_manage_permissions", "Gérer les permissions des rôles", "rbac"),
+        ("permission_view", "Voir les permissions", "rbac"),
         ("module_view", "Voir les modules", "module"),
         ("module_enable", "Activer des modules", "module"),
         ("module_disable", "Désactiver des modules", "module"),
@@ -437,6 +434,11 @@ async def seed_default_rbac(db: AsyncSession) -> None:
         ("settings_update", "Modifier les paramètres", "settings"),
         ("admin.access", "Accès à l'administration", "admin"),
         ("dashboard.view", "Voir le tableau de bord", "dashboard"),
+        ("building.view", "Consulter les bâtiments", "building"),
+        ("building.create", "Créer des bâtiments", "building"),
+        ("building.update", "Modifier des bâtiments", "building"),
+        ("building.delete", "Supprimer des bâtiments", "building"),
+        ("building.manage_refs", "Gérer les référentiels bâtiment", "building"),
     ]
     
     for code, name, module in default_permissions:
@@ -446,6 +448,7 @@ async def seed_default_rbac(db: AsyncSession) -> None:
     
     default_roles = [
         ("admin", "Administrateur", "Rôle administrateur avec tous les droits", True),
+        ("super_admin", "Super Administrateur", "Rôle super administrateur avec tous les droits", True),
         ("user", "Utilisateur", "Rôle utilisateur standard", True),
     ]
     
@@ -454,7 +457,7 @@ async def seed_default_rbac(db: AsyncSession) -> None:
         if not role:
             role = await rbac.create_role(code, name, description=description, is_system=is_system)
 
-        if code == "admin":
+        if code in ("admin", "super_admin"):
             all_perms = await db.execute(select(PermissionModel))
             all_perms = all_perms.scalars().all()
             for perm in all_perms:

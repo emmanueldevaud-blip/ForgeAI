@@ -6,7 +6,7 @@ from sqlalchemy import select, func, or_, and_
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.models.user import User, UserRole
+from app.models.user import User
 from app.models.rbac import Role, PermissionModel, UserRoleAssignment
 from app.models import Group
 from app.models.rbac import GroupRole, RolePermission
@@ -67,9 +67,6 @@ class AdminUserService:
                     User.last_name.ilike(search_term),
                 )
             )
-
-        if role:
-            conditions.append(User.role == UserRole(role))
 
         if is_active is not None:
             conditions.append(User.is_active == is_active)
@@ -146,11 +143,7 @@ class AdminUserService:
         else:
             user_data["password_hash"] = None
 
-        if "role" in user_data and isinstance(
-            user_data["role"],
-            str
-        ):
-            user_data["role"] = UserRole(user_data["role"])
+        user_data.pop("role", None)
 
         user = User(**user_data)
 
@@ -216,8 +209,8 @@ class AdminUserService:
             if key == "password":
                 user.password_hash = hash_password(value)
 
-            elif key == "role" and isinstance(value, str):
-                user.role = UserRole(value)
+            elif key == "role":
+                continue
 
             elif hasattr(user, key):
                 setattr(user, key, value)

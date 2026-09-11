@@ -6,7 +6,10 @@
     "sidebar header"
     "sidebar main";
   min-height: 100vh;
+  min-height: 100dvh;
   overflow: hidden;
+  padding-top: env(safe-area-inset-top, 0px);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
 }
 
 .sidebar {
@@ -632,6 +635,8 @@
   opacity: 0;
   visibility: hidden;
   transition: opacity var(--transition-normal), visibility var(--transition-normal);
+  padding-top: env(safe-area-inset-top, 0px);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
 }
 
 .mobile-sidebar-overlay.open {
@@ -934,15 +939,8 @@
   }
 
   .sidebar {
-    transform: translateX(-100%);
-  }
-
-  .sidebar--mobile-hidden {
-    transform: translateX(-100%);
-  }
-
-  .sidebar.open {
-    transform: translateX(0);
+    display: none;
+    grid-area: auto;
   }
 
   .header-menu-btn {

@@ -9,7 +9,7 @@ from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
 
-from app.api import auth, modules, todos, admin
+from app.api import auth, buildings, modules, todos, admin
 from app.core.config import get_settings
 from app.db.session import close_db, init_db
 from app.modules import register_all_modules
@@ -64,6 +64,7 @@ app.include_router(auth.router)
 app.include_router(todos.router)
 app.include_router(modules.router)
 app.include_router(admin.router)
+app.include_router(buildings.router)
 
 frontend_path = os.path.join(os.path.dirname(__file__), "..", "src", "public")
 if os.path.exists(frontend_path):

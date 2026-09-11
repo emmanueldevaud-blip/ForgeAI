@@ -16,7 +16,7 @@ class Token(TokenBase):
 class TokenData(BaseModel):
     sub: str
     user_id: int
-    role: str
+    role: str = ""
     exp: int
 
 

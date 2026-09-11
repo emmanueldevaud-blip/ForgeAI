@@ -46,7 +46,7 @@ export class Header {
 
     const displayName = this.user.full_name || this.user.username;
     const roleLabel = this._getRoleLabel(this.user);
-    const roleClass = this.user.role === 'admin' ? 'admin' : 'user';
+    const roleClass = this.user.roles?.includes('admin') ? 'admin' : 'user';
 
     userMenu.innerHTML = `
       <button class="header-user-btn" aria-expanded="${this.userMenuOpen}" aria-haspopup="true" data-action="toggle-user-menu">
@@ -142,7 +142,7 @@ export class Header {
   }
 
   _getRoleLabel(user) {
-    if (user.role === 'admin') return 'Administrateur';
+    if (user.roles?.includes('admin')) return 'Administrateur';
     return 'Utilisateur';
   }
 

@@ -71,8 +71,12 @@ export class AppShell {
     this._authUnsubscribe = authStore.subscribe((state) => {
       this.header.setUser(state.currentUser);
       if (state.authenticated && !this.sidebar.navigation.length) {
-        this.sidebar.loadNavigation();
-        this.mobileSidebar.setNavigation(this.sidebar.navigation);
+        this.sidebar.loadNavigation().then(() => {
+          this.mobileSidebar.setNavigation(this.sidebar.navigation);
+        });
+      } else if (!state.authenticated) {
+        this.sidebar.clearNavigation();
+        this.mobileSidebar.setNavigation([]);
       }
     });
 

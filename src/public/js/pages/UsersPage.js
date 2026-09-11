@@ -67,9 +67,6 @@ export class UsersPage {
       onSearch: (search) =>
         this.handleSearch(search),
 
-      onRoleFilter: (role) =>
-        this.handleRoleFilter(role),
-
       onStatusFilter: (status) =>
         this.handleStatusFilter(status),
 
@@ -78,8 +75,6 @@ export class UsersPage {
 
       onClearFilters: () =>
         this.handleClearFilters(),
-
-      roles: this.roles,
     });
 
     this.userModal = new UserModal({
@@ -125,10 +120,6 @@ export class UsersPage {
     try {
       this.roles = await listRoles();
 
-      this.userFilters?.updateRoles(
-        this.roles
-      );
-
       this.userModal?.updateRoles(
         this.roles
       );
@@ -152,8 +143,6 @@ export class UsersPage {
         page_size: this.pageSize,
         search:
           this.filters.search || undefined,
-        role:
-          this.filters.role || undefined,
         is_active:
           this.filters.is_active,
         source:
@@ -262,13 +251,6 @@ export class UsersPage {
 
   handleSearch(search) {
     this.filters.search = search;
-    this.page = 1;
-
-    this.loadUsers();
-  }
-
-  handleRoleFilter(role) {
-    this.filters.role = role;
     this.page = 1;
 
     this.loadUsers();

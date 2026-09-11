@@ -13,25 +13,43 @@ export class Sidebar {
     this.error = null;
     this.element = null;
     this.mobileOverlay = null;
+    this._loadPromise = null;
   }
 
   async loadNavigation() {
+    if (this._loadPromise) {
+      return this._loadPromise;
+    }
+
     this.loading = true;
     this.error = null;
     this._renderLoading();
 
-    try {
-      const response = await modulesApi.get('/navigation');
-      this.navigation = response.navigation || [];
-      this.error = null;
-    } catch (err) {
-      console.error('Erreur chargement navigation:', err);
-      this.error = err.message || 'Impossible de charger la navigation';
-      this.navigation = [];
-    } finally {
-      this.loading = false;
-      this._render();
-    }
+    this._loadPromise = (async () => {
+      try {
+        const response = await modulesApi.get('/navigation');
+        this.navigation = response.navigation || [];
+        this.error = null;
+      } catch (err) {
+        console.error('Erreur chargement navigation:', err);
+        this.error = err.message || 'Impossible de charger la navigation';
+        this.navigation = [];
+      } finally {
+        this.loading = false;
+        this._loadPromise = null;
+        this._render();
+      }
+    })();
+
+    return this._loadPromise;
+  }
+
+  clearNavigation() {
+    this.navigation = [];
+    this.error = null;
+    this.loading = false;
+    this._loadPromise = null;
+    this._render();
   }
 
   setCurrentRoute(route) {

@@ -1,4 +1,5 @@
 import { GroupModal } from '../components/GroupModal.js';
+import { GroupUsersModal } from '../components/GroupUsersModal.js';
 import { authStore } from '../stores/auth.js';
 import { Table } from '../components/Table.js';
 import { UserFilters } from '../components/UserFilters.js';
@@ -45,6 +46,7 @@ export class GroupsPage {
     this.groupModal = null;
     this.groupUserModal = null;
     this.groupRoleModal = null;
+    this.groupUsersViewModal = null;
     this.confirmDialog = null;
 
     this._authUnsubscribe = null;
@@ -114,6 +116,11 @@ export class GroupsPage {
           icon: 'users',
         },
         {
+          key: 'view-users',
+          label: 'Voir les utilisateurs',
+          icon: 'eye',
+        },
+        {
           key: 'delete',
           label: 'Supprimer',
           icon: 'trash',
@@ -133,6 +140,10 @@ export class GroupsPage {
 
           case 'roles':
             this.openManageRolesModal(group);
+            break;
+
+          case 'view-users':
+            this.openViewUsersModal(group);
             break;
 
           case 'delete':
@@ -170,6 +181,10 @@ export class GroupsPage {
       onClose: () => this.closeGroupRoleModal(),
       onAddRole: (roleId) => this.handleGroupRoleAdd(roleId),
       onRemoveRole: (roleId) => this.handleGroupRoleRemove(roleId),
+    });
+
+    this.groupUsersViewModal = new GroupUsersModal({
+      onClose: () => this.closeGroupUsersViewModal(),
     });
 
     this.confirmDialog = new ConfirmDialog({
@@ -408,6 +423,25 @@ export class GroupsPage {
     });
   }
 
+  async openViewUsersModal(group) {
+    this.selectedGroup = group;
+
+    try {
+      await this.loadGroupDetails(group.id);
+      this.groupUsersViewModal.open({
+        group,
+        users: this.selectedGroupUsers,
+        loading: false,
+      });
+    } catch (error) {
+      this.groupUsersViewModal.open({
+        group,
+        users: [],
+        loading: false,
+      });
+    }
+  }
+
   confirmToggleActive(group) {
     const action = group.is_active ? 'désactiver' : 'réactiver';
 
@@ -499,6 +533,10 @@ confirmDelete(group) {
 
   closeGroupRoleModal() {
     this.groupRoleModal.close();
+  }
+
+  closeGroupUsersViewModal() {
+    this.groupUsersViewModal.close();
   }
 
   closeConfirmDialog() {
@@ -767,6 +805,7 @@ confirmDelete(group) {
     this.groupModal?.destroy?.();
     this.groupUserModal?.destroy?.();
     this.groupRoleModal?.destroy?.();
+    this.groupUsersViewModal?.destroy?.();
     this.confirmDialog?.destroy?.();
   }
 

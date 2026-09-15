@@ -66,7 +66,7 @@ def upgrade() -> None:
         )
 
     # 4. Make level_id NOT NULL
-    op.alter_column("rooms", "level_id", sa.Integer, nullable=False)
+    op.alter_column("rooms", "level_id", type_=sa.Integer, nullable=False)
 
     # 5. Add FK for level_id
     op.create_foreign_key(

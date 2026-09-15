@@ -113,15 +113,9 @@ async function initializeApp() {
   await authStore.loadCurrentUser();
 
   if (authStore.authenticated) {
-    administrationPage = createAdministrationPage(router);
-    await administrationPage.initialize();
-
-    buildingsPage = createBuildingsPage(router);
-    await buildingsPage.initialize();
-
-    buildingRefsPage = createBuildingRefsPage(router);
-    await buildingRefsPage.initialize();
-
+    await ensureAdministrationPage();
+    await ensureBuildingsPage();
+    await ensureBuildingRefsPage();
     router.navigate('/dashboard', { replace: true });
   } else {
     router.navigate('/login', { replace: true });
@@ -142,12 +136,37 @@ async function showModulePage(route) {
   }
 }
 
+async function ensureAdministrationPage() {
+  if (!administrationPage) {
+    administrationPage = createAdministrationPage(router);
+    await administrationPage.initialize();
+  }
+  return administrationPage;
+}
+
+async function ensureBuildingsPage() {
+  if (!buildingsPage) {
+    buildingsPage = createBuildingsPage(router);
+    await buildingsPage.initialize();
+  }
+  return buildingsPage;
+}
+
+async function ensureBuildingRefsPage() {
+  if (!buildingRefsPage) {
+    buildingRefsPage = createBuildingRefsPage(router);
+    await buildingRefsPage.initialize();
+  }
+  return buildingRefsPage;
+}
+
 async function showAdministrationPage(route) {
-  if (!appShell || !administrationPage) return;
+  if (!appShell) return;
   appShell.showLoading();
 
   try {
-    const content = administrationPage.render();
+    const page = await ensureAdministrationPage();
+    const content = page.render();
     appShell.showContent(content);
   } catch (error) {
     console.error('Erreur affichage administration:', error);
@@ -156,13 +175,14 @@ async function showAdministrationPage(route) {
 }
 
 async function showBuildingsPage(route) {
-  if (!appShell || !buildingsPage) return;
+  if (!appShell) return;
   appShell.showLoading();
 
   try {
-    const content = buildingsPage.render();
+    const page = await ensureBuildingsPage();
+    const content = page.render();
     appShell.showContent(content);
-    buildingsPage.loadData();
+    page.loadData();
   } catch (error) {
     console.error('Erreur affichage bâtiments:', error);
     appShell.showError(error);
@@ -170,11 +190,12 @@ async function showBuildingsPage(route) {
 }
 
 async function showBuildingRefsPage(route) {
-  if (!appShell || !buildingRefsPage) return;
+  if (!appShell) return;
   appShell.showLoading();
 
   try {
-    const content = buildingRefsPage.render();
+    const page = await ensureBuildingRefsPage();
+    const content = page.render();
     appShell.showContent(content);
   } catch (error) {
     console.error('Erreur affichage référentiels:', error);

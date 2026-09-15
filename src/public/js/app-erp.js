@@ -24,7 +24,6 @@ const moduleRoutes = [
   'documents',
   'reports',
   'administration',
-  'todos',
 ];
 
 let appShell = null;

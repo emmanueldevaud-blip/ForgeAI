@@ -21,7 +21,6 @@ export class ModulePlaceholder {
       documents: { name: 'Documents', icon: 'folder', description: 'Gestion documentaire et archives' },
       reports: { name: 'Rapports', icon: 'bar-chart', description: 'Génération et consultation des rapports' },
       administration: { name: 'Administration', icon: 'settings', description: 'Administration système et configuration' },
-      todos: { name: 'Tâches', icon: 'check-square', description: 'Module de démonstration - liste de tâches' },
     };
 
     const code = route.split('/').filter(Boolean)[0] || 'dashboard';

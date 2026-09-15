@@ -131,7 +131,6 @@ export class AppShell {
       documents: 'Documents',
       reports: 'Rapports',
       administration: 'Administration',
-      todos: 'Tâches',
     };
     const code = path.split('/').filter(Boolean)[0] || 'dashboard';
     return modules[code] || 'ForgeAI';
@@ -161,7 +160,6 @@ export class AppShell {
         documents: 'Documents',
         reports: 'Rapports',
         administration: 'Administration',
-        todos: 'Tâches',
       };
       breadcrumbs.push({ label: modules[part] || part, href: currentPath });
     });

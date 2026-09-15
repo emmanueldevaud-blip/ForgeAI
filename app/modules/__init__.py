@@ -429,33 +429,6 @@ class AdministrationModule(BaseModule):
     async def upgrade(self, db, from_version: str):
         return True
 
-
-class TodoModule(BaseModule):
-    def __init__(self):
-        super().__init__(ModuleInfo(
-            code="todos",
-            name="Tâches (Demo)",
-            description="Module de démonstration - liste de tâches",
-            icon="check-square",
-            order=999,
-            status=ModuleStatus.ACTIVE,
-            version="1.0.0",
-            route_path="/todos",
-            component_path="Todos",
-            required_permissions=[],
-            is_core=False,
-        ))
-
-    async def install(self, db):
-        return True
-
-    async def uninstall(self, db):
-        return True
-
-    async def upgrade(self, db, from_version: str):
-        return True
-
-
 def register_all_modules():
     modules = [
         DashboardModule(),
@@ -473,7 +446,6 @@ def register_all_modules():
         DocumentsModule(),
         ReportsModule(),
         AdministrationModule(),
-        TodoModule(),
     ]
     for module in modules:
         module_registry.register(module)

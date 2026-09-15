@@ -9,7 +9,7 @@ from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
 
-from app.api import auth, buildings, modules, todos, admin
+from app.api import auth, buildings, modules, admin
 from app.core.config import get_settings
 from app.db.session import close_db, init_db
 from app.modules import register_all_modules
@@ -75,7 +75,6 @@ async def health_check():
     return {"status": "ok", "version": settings.APP_VERSION}
 
 app.include_router(auth.router)
-app.include_router(todos.router)
 app.include_router(modules.router)
 app.include_router(admin.router)
 app.include_router(buildings.router)

@@ -171,6 +171,7 @@ class ModuleService:
             module.status = ModuleStatus.ACTIVE
             reg_module = module_registry.get(code)
             if reg_module:
+                reg_module.info.status = ModuleStatus.ACTIVE
                 await reg_module.on_enable(self.db)
             await self.db.commit()
             await self.db.refresh(module)
@@ -196,6 +197,7 @@ class ModuleService:
             module.status = ModuleStatus.INACTIVE
             reg_module = module_registry.get(code)
             if reg_module:
+                reg_module.info.status = ModuleStatus.INACTIVE
                 await reg_module.on_disable(self.db)
             await self.db.commit()
             await self.db.refresh(module)
@@ -360,6 +362,7 @@ class ModuleService:
             if success:
                 old_status = db_module.status.value if hasattr(db_module.status, 'value') else db_module.status
                 db_module.status = ModuleStatus.ACTIVE
+                reg_module.info.status = ModuleStatus.ACTIVE
                 await self.db.commit()
 
                 if self.audit:
@@ -409,6 +412,7 @@ class ModuleService:
             if success:
                 old_status = db_module.status.value if hasattr(db_module.status, 'value') else db_module.status
                 db_module.status = ModuleStatus.INACTIVE
+                reg_module.info.status = ModuleStatus.INACTIVE
                 await self.db.commit()
 
                 if self.audit:

@@ -30,9 +30,23 @@ async def lifespan(app: FastAPI):
     from app.db.session import get_db
     async for db in get_db():
         await seed_default_rbac(db)
+        await _sync_module_statuses(db)
         break
     yield
     await close_db()
+
+
+async def _sync_module_statuses(db):
+    from sqlalchemy import select
+    from app.models.module import Module as ModuleModel
+    from app.modules import module_registry
+
+    result = await db.execute(select(ModuleModel))
+    db_modules = {m.code: m for m in result.scalars().all()}
+    for code, reg_module in module_registry._modules.items():
+        db_mod = db_modules.get(code)
+        if db_mod:
+            reg_module.info.status = db_mod.status
 
 
 app = FastAPI(

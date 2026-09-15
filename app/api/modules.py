@@ -3,7 +3,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import require_permission
+from app.api.deps import get_current_active_user, require_permission
 from app.db.session import get_db
 from app.models import ModuleStatus
 from app.modules import module_registry
@@ -116,7 +116,7 @@ async def list_active_modules(
 
 @router.get("/navigation")
 async def get_navigation(
-    current_user = Depends(require_module_access),
+    current_user = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
     rbac = RBACService(db)

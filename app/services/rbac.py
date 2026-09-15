@@ -439,6 +439,7 @@ async def seed_default_rbac(db: AsyncSession) -> None:
         ("building.update", "Modifier des bâtiments", "building"),
         ("building.delete", "Supprimer des bâtiments", "building"),
         ("building.manage_refs", "Gérer les référentiels bâtiment", "building"),
+        ("documents.view", "Consulter les documents", "documents"),
     ]
     
     for code, name, module in default_permissions:

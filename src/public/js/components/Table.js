@@ -251,11 +251,6 @@ _renderActions(item) {
     return this.element;
   }
 
-  setData(data) {
-    this.data = { ...this.data, ...data };
-    if (this.element) this.render();
-  }
-
   setActionVisibility(action, show) {
     if (!this.element) return;
     this.element.querySelectorAll('[data-action="' + action + '"]').forEach(btn => {

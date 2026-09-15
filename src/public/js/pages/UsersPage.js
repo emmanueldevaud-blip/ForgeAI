@@ -11,6 +11,7 @@ import {
   toggleUserActive,
   resetUserPassword,
   listRoles,
+  listGroups,
   assignRoleToUser,
   removeRoleFromUser,
   getUser,
@@ -38,6 +39,7 @@ export class UsersPage {
     };
 
     this.roles = [];
+    this.groups = [];
     this.userTable = null;
     this.userFilters = null;
     this.userModal = null;
@@ -113,6 +115,7 @@ export class UsersPage {
       });
 
     await this.loadRoles();
+    await this.loadGroups();
     await this.loadUsers();
   }
 
@@ -128,6 +131,19 @@ export class UsersPage {
         'Erreur chargement rôles:',
         error
       );
+    }
+  }
+
+  async loadGroups() {
+    try {
+      const response = await listGroups({ page_size: 100 });
+      this.groups = response.groups || [];
+    } catch (error) {
+      console.error(
+        'Erreur chargement groupes:',
+        error
+      );
+      this.groups = [];
     }
   }
 
@@ -346,6 +362,7 @@ export class UsersPage {
       mode: 'edit',
       user,
       roles: this.roles,
+      groups: this.groups,
     });
   }
 

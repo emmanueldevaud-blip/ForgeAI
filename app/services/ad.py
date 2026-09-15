@@ -209,12 +209,12 @@ class DatabaseADService:
         username: str,
         password: str,
         config: ADConfig | None = None,
-    ) -> tuple[str | None, list[str] | None, ADConfig | None]:
+    ) -> tuple[str | None, list[str] | None, ADConfig | None, dict | None]:
         if config is None:
             config = await self.get_default_config()
         
         if not config:
-            return None, None, None
+            return None, None, None, None
 
         try:
             server = self._create_server(config)
@@ -239,7 +239,7 @@ class DatabaseADService:
 
             if not admin_conn.entries:
                 admin_conn.unbind()
-                return None, None, None
+                return None, None, None, None
 
             entry = admin_conn.entries[0]
             user_dn = str(entry.distinguishedName)
@@ -247,7 +247,7 @@ class DatabaseADService:
 
             user_conn = self._create_connection(server, user_dn, password, config, authentication=SIMPLE)
             if not user_conn.bound:
-                return None, None, None
+                return None, None, None, None
 
             groups = [str(group) for group in entry.memberOf] if entry.memberOf else []
             if config.group_search_base:
@@ -255,19 +255,27 @@ class DatabaseADService:
                     search_base=config.group_search_base,
                     search_filter=f"(member={user_dn})",
                     search_scope=SUBTREE,
-                    attributes=["cn"],
+                    attributes=["distinguishedName"],
                 )
-                groups.extend(str(group_entry.cn) for group_entry in user_conn.entries)
+                groups.extend(str(group_entry.distinguishedName) for group_entry in user_conn.entries if group_entry.distinguishedName)
 
             user_conn.unbind()
-            return user_dn, groups, config
+
+            user_info = {
+                "sAMAccountName": str(entry.sAMAccountName) if entry.sAMAccountName else username,
+                "mail": str(entry.mail) if entry.mail else None,
+                "givenName": str(entry.givenName) if entry.givenName else None,
+                "sn": str(entry.sn) if entry.sn else None,
+            }
+
+            return user_dn, groups, config, user_info
 
         except LDAPException as e:
             print(f"[AD-AUTH] LDAP error during authentication for user '{username}': {e}")
-            return None, None, None
+            return None, None, None, None
         except Exception as e:
             print(f"[AD-AUTH] Unexpected error during authentication for user '{username}': {e}")
-            return None, None, None
+            return None, None, None, None
 
     @staticmethod
     def _group_cn(group_dn: str) -> str:
@@ -520,7 +528,27 @@ class DatabaseADService:
                     found_group_dns.add(group_dn)
                     result = await self.db.execute(select(Group.id).where(Group.ad_dn == group_dn))
                     existed = result.scalar_one_or_none() is not None
-                    await self._ensure_ad_groups([group_dn], config)
+                    groups_dict = await self._ensure_ad_groups([group_dn], config)
+
+                    if entry.member:
+                        group_obj = groups_dict.get(group_dn.casefold())
+                        if group_obj:
+                            for member_dn in entry.member:
+                                member_dn_str = str(member_dn)
+                                user_result = await self.db.execute(
+                                    select(User.id).where(User.ad_dn == member_dn_str, User.source == "ad")
+                                )
+                                member_user_id = user_result.scalar_one_or_none()
+                                if member_user_id:
+                                    ug_check = await self.db.execute(
+                                        select(UserGroup.id).where(
+                                            UserGroup.user_id == member_user_id,
+                                            UserGroup.group_id == group_obj.id,
+                                        )
+                                    )
+                                    if not ug_check.scalar_one_or_none():
+                                        self.db.add(UserGroup(user_id=member_user_id, group_id=group_obj.id))
+
                     if existed:
                         groups_updated += 1
                     else:

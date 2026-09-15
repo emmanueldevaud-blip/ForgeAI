@@ -67,6 +67,7 @@ export async function listGroups(params = {}) {
   if (params.page_size) query.append('page_size', params.page_size);
   if (params.search) query.append('search', params.search);
   if (params.is_active !== undefined && params.is_active !== null) query.append('is_active', params.is_active);
+  if (params.source) query.append('source', params.source);
   if (params.sort_by) query.append('sort_by', params.sort_by);
   if (params.sort_order) query.append('sort_order', params.sort_order);
 

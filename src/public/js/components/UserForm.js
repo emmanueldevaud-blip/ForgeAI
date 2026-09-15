@@ -3,6 +3,7 @@ export class UserForm {
     this.mode = options.mode || 'create';
     this.user = options.user || null;
     this.roles = options.roles || [];
+    this.groups = options.groups || [];
     this.userRoles = options.userRoles || [];
     this.onSubmit = options.onSubmit || (() => {});
     this.onClose = options.onClose || (() => {});
@@ -19,6 +20,49 @@ export class UserForm {
         ${this._escapeHtml(role.name)}
       </option>
     `).join('');
+  }
+
+  _getGroupSelectHtml() {
+    const localGroups = (this.groups || []).filter(g => g.source !== 'ad');
+    const userGroupIds = (this.user?.groups || []).map(g => g.id);
+    const selectedGroups = localGroups.filter(g => userGroupIds.includes(g.id));
+
+    if (localGroups.length === 0) {
+      return '<p class="form-hint">Aucun groupe local disponible</p>';
+    }
+
+    const tagsHtml = selectedGroups.map(g => `
+      <span class="multiselect-tag" data-group-id="${g.id}">
+        ${this._escapeHtml(g.name)}
+        <button type="button" class="multiselect-tag-remove" data-action="remove-group" data-group-id="${g.id}" aria-label="Retirer ${this._escapeHtml(g.name)}">&times;</button>
+      </span>
+    `).join('');
+
+    const optionsHtml = localGroups.map(g => `
+      <div class="multiselect-option${userGroupIds.includes(g.id) ? ' multiselect-option--selected' : ''}" data-group-id="${g.id}" data-group-name="${this._escapeHtml(g.name)}">
+        <span class="multiselect-option-check">${userGroupIds.includes(g.id) ? '&#10003;' : ''}</span>
+        <span class="multiselect-option-name">${this._escapeHtml(g.name)}</span>
+      </div>
+    `).join('');
+
+    return `
+      <div class="multiselect" data-field="groups">
+        <div class="multiselect-control" data-action="toggle-dropdown">
+          <div class="multiselect-tags">
+            ${tagsHtml || '<span class="multiselect-placeholder">Sélectionner des groupes...</span>'}
+          </div>
+          <svg class="multiselect-chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>
+        </div>
+        <div class="multiselect-dropdown">
+          <div class="multiselect-search">
+            <input type="text" class="multiselect-search-input" placeholder="Rechercher..." data-action="search-groups">
+          </div>
+          <div class="multiselect-options">
+            ${optionsHtml}
+          </div>
+        </div>
+      </div>
+    `;
   }
 
   _getAssignedRolesHtml() {
@@ -516,6 +560,13 @@ export class UserForm {
             maxlength="100">
         </div>
       </div>
+      ${this.user?.source !== 'ad' ? `
+      <div class="form-group">
+        <label>Groupes locaux</label>
+        ${this._getGroupSelectHtml()}
+        <p class="form-hint">Assignez cet utilisateur à des groupes locaux uniquement</p>
+      </div>
+      ` : ''}
     `;
 
     return fieldsHtml;
@@ -784,13 +835,22 @@ export class UserForm {
       </div>
 
       <div class="form-group">
-        <input
-          type="text"
-          id="permission-search"
-          name="permission-search"
-          placeholder="Rechercher une permission..."
-          autocomplete="off"
-          maxlength="100">
+        <div class="module-filters" data-module-filters>
+          <button type="button" class="module-filter-btn active" data-module-filter="all">
+            Tous
+            <span class="permission-count">(${permissions.length})</span>
+          </button>
+          ${sortedModules.map(mod => {
+            const modPerms = modules[mod];
+            const modAssigned = modPerms.filter(p => assignedIds.has(p.id)).length;
+            return `
+              <button type="button" class="module-filter-btn" data-module-filter="${this._escapeHtml(mod)}">
+                ${this._escapeHtml(mod)}
+                <span class="permission-count">(${modAssigned}/${modPerms.length})</span>
+              </button>
+            `;
+          }).join('')}
+        </div>
       </div>
 
       <div class="form-group" data-permissions-list>
@@ -1009,6 +1069,13 @@ export class UserForm {
 
     if (isManagePermissions) {
       this._bindPermissionEvents();
+    }
+
+    if (
+      (this.mode === 'edit' || this.mode === 'create') &&
+      this.user?.source !== 'ad'
+    ) {
+      this._bindGroupSelectEvents();
     }
 
     const firstInput =
@@ -1283,6 +1350,9 @@ export class UserForm {
           );
           return;
         }
+
+        const groupTags = this.element.querySelectorAll('.multiselect-tag');
+        data.group_ids = Array.from(groupTags).map(tag => parseInt(tag.dataset.groupId, 10));
       }
 
     } else if (
@@ -1518,49 +1588,24 @@ export class UserForm {
   }
 
   _bindPermissionEvents() {
-    const searchInput =
-      this.element.querySelector(
-        '#permission-search'
-      );
+    const filterButtons = this.element.querySelectorAll('[data-module-filter]');
 
-    if (searchInput) {
-      searchInput.addEventListener(
-        'input',
-        (e) => {
-          const query =
-            e.target.value.toLowerCase();
+    filterButtons.forEach(btn => {
+      btn.addEventListener('click', () => {
+        filterButtons.forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
 
-          this.element
-            .querySelectorAll(
-              '.permission-item'
-            )
-            .forEach(item => {
-              const code =
-                item
-                  .querySelector(
-                    '.permission-code'
-                  )
-                  ?.textContent.toLowerCase() ||
-                '';
-              const name =
-                item
-                  .querySelector(
-                    '.permission-name'
-                  )
-                  ?.textContent.toLowerCase() ||
-                '';
+        const filter = btn.dataset.moduleFilter;
 
-              const match =
-                code.includes(query) ||
-                name.includes(query);
-
-              item.style.display = match
-                ? ''
-                : 'none';
-            });
-        }
-      );
-    }
+        this.element.querySelectorAll('.permission-module').forEach(mod => {
+          if (filter === 'all' || mod.dataset.module === filter) {
+            mod.style.display = '';
+          } else {
+            mod.style.display = 'none';
+          }
+        });
+      });
+    });
 
     this.element
       .querySelectorAll(
@@ -1647,6 +1692,103 @@ export class UserForm {
             `(${checkedCount}/${visibleCount})`;
         }
       });
+  }
+
+  _bindGroupSelectEvents() {
+    const multiselect = this.element.querySelector('.multiselect');
+    if (!multiselect) return;
+
+    const control = multiselect.querySelector('.multiselect-control');
+    const dropdown = multiselect.querySelector('.multiselect-dropdown');
+    const searchInput = multiselect.querySelector('.multiselect-search-input');
+    const optionsContainer = multiselect.querySelector('.multiselect-options');
+
+    control.addEventListener('click', (e) => {
+      if (e.target.closest('[data-action="remove-group"]')) return;
+      dropdown.classList.toggle('multiselect-dropdown--open');
+      if (dropdown.classList.contains('multiselect-dropdown--open')) {
+        searchInput.value = '';
+        this._filterGroupOptions(optionsContainer, '');
+        searchInput.focus();
+      }
+    });
+
+    searchInput.addEventListener('input', (e) => {
+      this._filterGroupOptions(optionsContainer, e.target.value.toLowerCase());
+    });
+
+    searchInput.addEventListener('click', (e) => e.stopPropagation());
+
+    optionsContainer.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const option = e.target.closest('.multiselect-option');
+      if (!option) return;
+      const groupId = parseInt(option.dataset.groupId, 10);
+      this._toggleGroupSelection(groupId);
+    });
+
+    multiselect.querySelectorAll('[data-action="remove-group"]').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const groupId = parseInt(btn.dataset.groupId, 10);
+        this._toggleGroupSelection(groupId);
+      });
+    });
+
+    document.addEventListener('click', (e) => {
+      if (!multiselect.contains(e.target)) {
+        dropdown.classList.remove('multiselect-dropdown--open');
+      }
+    });
+  }
+
+  _filterGroupOptions(container, query) {
+    container.querySelectorAll('.multiselect-option').forEach(option => {
+      const name = (option.dataset.groupName || '').toLowerCase();
+      option.style.display = name.includes(query) ? '' : 'none';
+    });
+  }
+
+  _toggleGroupSelection(groupId) {
+    const multiselect = this.element.querySelector('.multiselect');
+    if (!multiselect) return;
+
+    const allGroups = (this.groups || []).filter(g => g.source !== 'ad');
+    const group = allGroups.find(g => g.id === groupId);
+    if (!group) return;
+
+    const option = multiselect.querySelector(`.multiselect-option[data-group-id="${groupId}"]`);
+    const isSelected = option?.classList.contains('multiselect-option--selected');
+
+    if (isSelected) {
+      option.classList.remove('multiselect-option--selected');
+      option.querySelector('.multiselect-option-check').innerHTML = '';
+      const tag = multiselect.querySelector(`.multiselect-tag[data-group-id="${groupId}"]`);
+      if (tag) tag.remove();
+    } else {
+      option.classList.add('multiselect-option--selected');
+      option.querySelector('.multiselect-option-check').innerHTML = '&#10003;';
+      const tagsContainer = multiselect.querySelector('.multiselect-tags');
+      const placeholder = tagsContainer.querySelector('.multiselect-placeholder');
+      if (placeholder) placeholder.remove();
+      const tagHtml = `
+        <span class="multiselect-tag" data-group-id="${groupId}">
+          ${this._escapeHtml(group.name)}
+          <button type="button" class="multiselect-tag-remove" data-action="remove-group" data-group-id="${groupId}" aria-label="Retirer ${this._escapeHtml(group.name)}">&times;</button>
+        </span>
+      `;
+      tagsContainer.insertAdjacentHTML('beforeend', tagHtml);
+      const newTag = tagsContainer.querySelector(`.multiselect-tag[data-group-id="${groupId}"]`);
+      newTag.querySelector('[data-action="remove-group"]').addEventListener('click', (e) => {
+        e.stopPropagation();
+        this._toggleGroupSelection(groupId);
+      });
+    }
+
+    if (multiselect.querySelector('.multiselect-tags .multiselect-tag') === null) {
+      const tagsContainer = multiselect.querySelector('.multiselect-tags');
+      tagsContainer.innerHTML = '<span class="multiselect-placeholder">Sélectionner des groupes...</span>';
+    }
   }
 
   mount(container) {

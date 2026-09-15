@@ -94,6 +94,7 @@ class AuthStore {
       if (response.user.permissions) {
         this.permissions = new Set(response.user.permissions);
       }
+      this.loading = false;
       this._notify();
       return true;
     } catch (error) {

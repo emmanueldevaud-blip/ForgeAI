@@ -16,7 +16,7 @@ export class UserTable {
       sortOrder: 'desc',
     };
     this.element = null;
-    this.sortableColumns = ['username', 'email', 'first_name', 'last_name', 'role', 'source', 'last_login', 'created_at', 'updated_at'];
+    this.sortableColumns = ['username', 'email', 'first_name', 'last_name', 'source', 'last_login', 'created_at', 'updated_at'];
   }
 
   setData(data) {
@@ -85,7 +85,6 @@ export class UserTable {
       { key: 'username', label: 'Utilisateur', sortable: true },
       { key: 'name', label: 'Nom', sortable: true },
       { key: 'email', label: 'Email', sortable: true },
-      { key: 'role', label: 'Rôle', sortable: true },
       { key: 'source', label: 'Source', sortable: true },
       { key: 'status', label: 'Statut', sortable: true },
       { key: 'last_login', label: 'Dernière connexion', sortable: true },
@@ -117,7 +116,6 @@ export class UserTable {
         </td>
         <td>${this._escapeHtml(fullName)}</td>
         <td>${this._escapeHtml(user.email)}</td>
-        <td>${this._getRoleBadge(user.roles?.[0] || user.role)}</td>
         <td>${this._getSourceBadge(user.source)}</td>
         <td>${this._getStatusBadge(user.is_active)}</td>
         <td>${lastLogin}</td>
@@ -150,7 +148,7 @@ export class UserTable {
     return `
       <tbody>
         <tr>
-          <td colspan="8" class="table-empty">
+          <td colspan="7" class="table-empty">
             <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="2"></rect><path d="M9 12h6"></path><path d="M12 9v6"></path></svg>
             <p>Aucun utilisateur trouvé</p>
           </td>

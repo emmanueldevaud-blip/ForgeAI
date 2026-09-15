@@ -1,7 +1,6 @@
 from datetime import UTC, datetime, timedelta
 
 from jose import JWTError, jwt
-from ldap3 import SUBTREE, Connection
 from passlib.context import CryptContext
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
@@ -199,7 +198,7 @@ async def authenticate_ad(
 ) -> User | None:
     ad_service = DatabaseADService(db, audit=audit)
     
-    user_dn, groups, config = await ad_service.authenticate(username, password)
+    user_dn, groups, config, user_info = await ad_service.authenticate(username, password)
     if not user_dn:
         if audit:
             await audit.log(
@@ -218,7 +217,6 @@ async def authenticate_ad(
 
     if user:
         if user.source != "ad":
-            # A local account may not be claimed by an AD identity.
             return None
         user.is_active = True
         user.last_login = datetime.now(UTC)
@@ -237,39 +235,17 @@ async def authenticate_ad(
             )
         return user
 
-    if not config:
+    if not config or not user_info:
         return None
 
     try:
-        server = ad_service._create_server(config)
-        normalized_user = DatabaseADService._normalize_bind_user(config.bind_user)
-        admin_conn = Connection(
-            server,
-            user=normalized_user,
-            password=config.bind_password,
-            authentication=DatabaseADService._bind_authentication(config.bind_user),
-            auto_bind=True,
-            receive_timeout=config.receive_timeout,
-            auto_referrals=config.follow_referrals,
-        )
-        admin_conn.search(
-            search_base=config.user_dn or config.base_dn,
-            search_filter=f"(distinguishedName={user_dn})",
-            search_scope=SUBTREE,
-            attributes=["sAMAccountName", "mail", "givenName", "sn"],
-        )
-        admin_conn.unbind()
+        ad_username = user_info.get("sAMAccountName", username)
+        email = user_info.get("mail")
+        if not email:
+            email = f"{ad_username}@forgeai.local"
+        first_name = user_info.get("givenName")
+        last_name = user_info.get("sn")
 
-        if not admin_conn.entries:
-            return None
-
-        entry = admin_conn.entries[0]
-        email = str(entry.mail) if entry.mail else f"{username}@ad.local"
-
-        ad_username = str(entry.sAMAccountName) if entry.sAMAccountName else username
-
-        # DN is the primary AD identity; username is the fallback for an AD
-        # account whose DN changed.  A local identity must never be converted.
         username_owner = (await db.execute(select(User).where(User.username == ad_username))).scalar_one_or_none()
         if username_owner is not None:
             if username_owner.source != "ad":
@@ -285,8 +261,8 @@ async def authenticate_ad(
         user = User(
             username=ad_username,
             email=email,
-            first_name=str(entry.givenName) if entry.givenName else None,
-            last_name=str(entry.sn) if entry.sn else None,
+            first_name=first_name,
+            last_name=last_name,
             password_hash=None,
             is_active=True,
             source="ad",
@@ -301,8 +277,6 @@ async def authenticate_ad(
             await db.commit()
             await db.refresh(user)
         except IntegrityError:
-            # A concurrent login/sync may have created the same AD account.
-            # The savepoint keeps the outer session usable for the fallback.
             existing = (await db.execute(select(User).where(User.ad_dn == user_dn))).scalar_one_or_none()
             if existing is None or existing.source != "ad":
                 return None

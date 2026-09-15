@@ -2,7 +2,7 @@ import re
 from datetime import UTC, datetime
 from typing import Optional, List
 
-from sqlalchemy import select, func, or_, and_
+from sqlalchemy import select, func, or_, and_, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -443,6 +443,7 @@ class AdminUserService:
         page_size: int = 20,
         search: Optional[str] = None,
         is_active: Optional[bool] = None,
+        source: Optional[str] = None,
         sort_by: str = "created_at",
         sort_order: str = "desc",
     ) -> tuple[List[Group], int]:
@@ -467,6 +468,11 @@ class AdminUserService:
         if is_active is not None:
             conditions.append(
                 Group.is_active == is_active
+            )
+
+        if source:
+            conditions.append(
+                Group.source == source
             )
 
         if conditions:
@@ -746,6 +752,81 @@ class AdminUserService:
 
         return False
 
+    async def set_user_groups(
+        self,
+        user_id: int,
+        group_ids: list[int]
+    ) -> User:
+
+        from app.models import UserGroup
+
+        user = await self.db.get(User, user_id)
+
+        if not user:
+            raise ValueError("User not found")
+
+        result = await self.db.execute(
+            select(UserGroup.group_id)
+            .where(UserGroup.user_id == user_id)
+        )
+        current_ids = set(result.scalars().all())
+        desired_ids = set(group_ids)
+
+        to_add = desired_ids - current_ids
+        to_remove = current_ids - desired_ids
+
+        for gid in to_add:
+            group = await self.db.get(Group, gid)
+            if not group:
+                raise ValueError(f"Group {gid} not found")
+            self.db.add(UserGroup(user_id=user_id, group_id=gid))
+
+        if to_remove:
+            await self.db.execute(
+                delete(UserGroup).where(
+                    UserGroup.user_id == user_id,
+                    UserGroup.group_id.in_(to_remove)
+                )
+            )
+
+        await self.db.commit()
+
+        if self.audit:
+            added_names = []
+            removed_names = []
+            for gid in to_add:
+                g = await self.db.get(Group, gid)
+                if g:
+                    added_names.append(g.code)
+            for gid in to_remove:
+                g = await self.db.get(Group, gid)
+                if g:
+                    removed_names.append(g.code)
+
+            if added_names or removed_names:
+                await self.audit.log(
+                    action="user_groups_update",
+                    module="admin",
+                    user=self.current_user,
+                    object_type="user",
+                    object_id=str(user_id),
+                    object_repr=user.username,
+                    old_values={"group_ids": list(current_ids)},
+                    new_values={"group_ids": list(desired_ids)},
+                    status="success",
+                )
+
+        result = await self.db.execute(
+            select(User)
+            .options(
+                selectinload(User.roles).selectinload(Role.permissions),
+                selectinload(User.groups)
+            )
+            .where(User.id == user_id)
+            .execution_options(populate_existing=True)
+        )
+        return result.scalar_one()
+
     async def add_role_to_group(
         self,
         group_id: int,
@@ -906,7 +987,8 @@ class AdminUserService:
     ) -> tuple[List[Role], int]:
 
         query = select(Role).options(
-            selectinload(Role.permissions)
+            selectinload(Role.permissions),
+            selectinload(Role.groups)
         )
 
         conditions = []
@@ -1218,7 +1300,8 @@ class AdminUserService:
         result = await self.db.execute(
             select(Role)
             .options(
-                selectinload(Role.permissions)
+                selectinload(Role.permissions),
+                selectinload(Role.groups)
             )
             .where(Role.id == role_id)
         )
@@ -1270,7 +1353,8 @@ class AdminUserService:
         result = await self.db.execute(
             select(Role)
             .options(
-                selectinload(Role.permissions)
+                selectinload(Role.permissions),
+                selectinload(Role.groups)
             )
             .where(Role.id == role_id)
         )

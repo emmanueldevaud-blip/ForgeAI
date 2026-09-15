@@ -32,7 +32,6 @@ export class NavItem {
     const link = document.createElement('a');
     link.className = 'nav-link';
     link.href = route || '#';
-    link.dataset.link = 'true';
 
     if (this.isCollapsed && !hasChildren) {
       link.classList.add('nav-link--collapsed');

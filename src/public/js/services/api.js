@@ -60,7 +60,7 @@ class ApiClient {
       let message = data?.detail || data?.message || `Erreur ${response.status}`;
 
       if (response.status === 401) {
-        message = 'Session expirée. Veuillez vous reconnecter.';
+        message = data?.detail || 'Session expirée. Veuillez vous reconnecter.';
       } else if (response.status === 403) {
         message = 'Accès refusé. Permissions insuffisantes.';
       } else if (response.status === 404) {

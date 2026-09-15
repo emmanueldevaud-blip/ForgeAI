@@ -93,6 +93,7 @@ async def list_groups(
         page_size=params.page_size,
         search=params.search,
         is_active=params.is_active,
+        source=params.source,
         sort_by=params.sort_by,
         sort_order=params.sort_order,
     )
@@ -1328,10 +1329,18 @@ async def update_user(
             detail="Les informations d'un utilisateur AD ne peuvent pas être modifiées depuis ForgeAI.",
         )
 
+    group_ids = update_data.pop("group_ids", None)
+
     user = await service.update_user(
         user,
         update_data
     )
+
+    if group_ids is not None:
+        user = await service.set_user_groups(
+            user_id,
+            group_ids
+        )
 
     return UserWithRolesResponse.model_validate(
         user,

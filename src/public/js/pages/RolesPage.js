@@ -37,12 +37,6 @@ export class RolesPage {
       is_system: null,
     };
 
-    // Permet de distinguer un filtre réellement choisi
-    // par l'utilisateur d'une valeur envoyée automatiquement
-    // par UserFilters lors de son initialisation.
-    this.statusFilterInitialized = false;
-    this.systemFilterInitialized = false;
-
     this.permissions = [];
 
     this.roleTable = null;
@@ -75,6 +69,21 @@ export class RolesPage {
           key: 'description',
           label: 'Description',
           sortable: false,
+        },
+        {
+          key: 'groups',
+          label: 'Groupes',
+          sortable: false,
+          render: (role) => {
+            const groups = role.groups || [];
+            if (groups.length === 0) {
+              return '<span class="text-muted">—</span>';
+            }
+            return groups.map(g => {
+              const badgeClass = g.source === 'ad' ? 'badge-ad' : 'badge-local';
+              return `<span class="group-badge ${badgeClass}">${this._escapeHtml(g.name)}</span>`;
+            }).join(' ');
+          },
         },
         {
           key: 'is_system',
@@ -306,56 +315,13 @@ export class RolesPage {
   }
 
   handleStatusFilter(status) {
-    /*
-     * UserFilters peut envoyer une valeur lors de son
-     * initialisation.
-     *
-     * On accepte :
-     *   '' / null / undefined = Tous
-     *   'true'                = Actifs
-     *   'false'               = Inactifs
-     */
-
-    if (
-      status === '' ||
-      status === null ||
-      status === undefined
-    ) {
-      this.filters.is_active = null;
-    } else {
-      this.filters.is_active =
-        status === true ||
-        status === 'true';
-    }
-
-    this.statusFilterInitialized = true;
-
-    console.log(
-      'STATUS FILTER',
-      status,
-      '=>',
-      this.filters.is_active
-    );
-
+    this.filters.is_active = status === '' ? null : status === 'true';
     this.page = 1;
     this.loadRoles();
   }
 
   handleSystemFilter(system) {
-    if (
-      system === '' ||
-      system === null ||
-      system === undefined
-    ) {
-      this.filters.is_system = null;
-    } else {
-      this.filters.is_system =
-        system === true ||
-        system === 'true';
-    }
-
-    this.systemFilterInitialized = true;
-
+    this.filters.is_system = system === '' ? null : system === 'true';
     this.page = 1;
     this.loadRoles();
   }
@@ -366,9 +332,6 @@ export class RolesPage {
       is_active: null,
       is_system: null,
     };
-
-    this.statusFilterInitialized = false;
-    this.systemFilterInitialized = false;
 
     this.page = 1;
 
@@ -534,9 +497,9 @@ export class RolesPage {
       .then(() => {
         this.rolePermissionModal.open({
           mode: 'manage-permissions',
-          role,
-          permissions: this.permissions,
-          rolePermissions:
+          user: role,
+          roles: this.permissions,
+          userRoles:
             this.selectedRolePermissions,
         });
       });
@@ -570,11 +533,6 @@ export class RolesPage {
   }
 
   async executeToggleActive(role) {
-    console.log(
-      'TOGGLE ROLE',
-      role
-    );
-
     try {
       const newStatus =
         !role.is_active;
@@ -584,12 +542,6 @@ export class RolesPage {
         {
           is_active: newStatus,
         }
-      );
-
-      console.log(
-        'ROLE UPDATED',
-        role.id,
-        newStatus
       );
 
       this.showToast(
@@ -674,11 +626,6 @@ export class RolesPage {
   }
 
   async executeConfirmedAction() {
-    console.log(
-      'CONFIRM ACTION',
-      this.pendingAction
-    );
-
     if (!this.pendingAction) {
       return;
     }

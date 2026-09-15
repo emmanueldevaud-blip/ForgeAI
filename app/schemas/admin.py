@@ -35,6 +35,7 @@ class UserUpdateAdmin(BaseModel):
     last_name: Optional[str] = Field(None, max_length=100)
     is_active: Optional[bool] = None
     role: Optional[str] = Field(None, max_length=50)
+    group_ids: Optional[List[int]] = None
 
 
 class AdminPasswordReset(BaseModel):
@@ -157,6 +158,7 @@ class GroupListParams(BaseModel):
     page_size: int = Field(20, ge=1, le=100)
     search: Optional[str] = Field(None, max_length=255)
     is_active: Optional[bool] = None
+    source: Optional[str] = Field(None, max_length=20)
     sort_by: Optional[str] = Field("created_at", max_length=50)
     sort_order: Optional[str] = Field("desc", pattern="^(asc|desc)$")
 
@@ -195,6 +197,16 @@ class RoleUpdate(BaseModel):
     is_active: Optional[bool] = None
 
 
+class GroupSummaryResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    code: str
+    name: str
+    source: str
+    is_active: bool
+
+
 class RoleResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -207,6 +219,7 @@ class RoleResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
     permissions: List[PermissionResponse] = []
+    groups: List[GroupSummaryResponse] = []
 
 
 class RoleListParams(BaseModel):

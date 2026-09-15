@@ -19,6 +19,7 @@ export class UserModal {
     this.currentMode = options.mode || 'create';
     this.currentUser = options.user || null;
     this.roles = options.roles || this.roles;
+    this.groups = options.groups || this.groups || [];
 
 
 
@@ -70,6 +71,7 @@ export class UserModal {
       'edit-permission': 'Modifier la permission',
       'manage-users': 'Gérer les utilisateurs du groupe',
       'manage-roles': 'Gérer les rôles',
+      'manage-permissions': 'Gérer les permissions',
     };
 
     const isManageRoles = this.currentMode === 'manage-roles';
@@ -96,6 +98,7 @@ export class UserModal {
       mode: this.currentMode,
       user: this.currentUser,
       roles: this.roles,
+      groups: this.groups,
       userRoles: userRoles,
       onSubmit: (data, isEdit) => this.onSubmit(data, isEdit),
       onClose: () => this.close(),

@@ -36,6 +36,7 @@ export class GroupsPage {
     this.filters = {
       search: '',
       is_active: null,
+      source: '',
     };
 
     this.roles = [];
@@ -163,6 +164,7 @@ export class GroupsPage {
     this.groupFilters = new UserFilters({
       onSearch: (search) => this.handleSearch(search),
       onStatusFilter: (status) => this.handleStatusFilter(status),
+      onSourceFilter: (source) => this.handleSourceFilter(source),
       onClearFilters: () => this.handleClearFilters(),
     });
 
@@ -230,6 +232,7 @@ export class GroupsPage {
         page_size: this.pageSize,
         search: this.filters.search || undefined,
         is_active: this.filters.is_active,
+        source: this.filters.source || undefined,
         sort_by: this.sortBy,
         sort_order: this.sortOrder,
       };
@@ -265,10 +268,17 @@ export class GroupsPage {
     this.loadGroups();
   }
 
+  handleSourceFilter(source) {
+    this.filters.source = source;
+    this.page = 1;
+    this.loadGroups();
+  }
+
   handleClearFilters() {
     this.filters = {
       search: '',
       is_active: null,
+      source: '',
     };
 
     this.page = 1;

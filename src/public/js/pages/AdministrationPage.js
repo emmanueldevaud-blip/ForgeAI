@@ -3,6 +3,7 @@ import { createUsersPage } from './UsersPage.js';
 import { createGroupsPage } from './GroupsPage.js';
 import { createRolesPage } from './RolesPage.js';
 import { createPermissionsPage } from './PermissionsPage.js';
+import { createAuditPage } from './AuditPage.js';
 
 export class AdministrationPage {
   constructor(router) {
@@ -21,6 +22,7 @@ export class AdministrationPage {
     this.groupsPage = null;
     this.rolesPage = null;
     this.permissionsPage = null;
+    this.auditPage = null;
     this.adPage = null;
     this._authUnsubscribe = null;
   }
@@ -52,6 +54,10 @@ export class AdministrationPage {
     this.permissionsPage = createPermissionsPage(this.router);
     await this.permissionsPage.initialize();
     this.tabs[3].component = this.permissionsPage;
+
+    this.auditPage = createAuditPage(this.router);
+    await this.auditPage.initialize();
+    this.tabs[4].component = this.auditPage;
 
     const { createActiveDirectoryPage } = await import('./ActiveDirectoryPage.js');
     this.adPage = createActiveDirectoryPage(this.router);
@@ -194,6 +200,12 @@ export class AdministrationPage {
       permissionsPanel.appendChild(this.permissionsPage.render());
     }
 
+    const auditPanel = this.element.querySelector('[data-tab-panel="audit"]');
+    if (auditPanel && this.auditPage) {
+      auditPanel.innerHTML = '';
+      auditPanel.appendChild(this.auditPage.render());
+    }
+
     const adPanel = this.element.querySelector('[data-tab-panel="active-directory"]');
     if (adPanel && this.adPage) {
       adPanel.innerHTML = '';
@@ -216,6 +228,7 @@ export class AdministrationPage {
     this.groupsPage?.destroy?.();
     this.rolesPage?.destroy?.();
     this.permissionsPage?.destroy?.();
+    this.auditPage?.destroy?.();
     this.adPage?.destroy?.();
   }
 }

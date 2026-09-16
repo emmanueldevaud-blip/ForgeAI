@@ -282,3 +282,46 @@ class PermissionListResponse(BaseModel):
     page: int
     page_size: int
     total_pages: int
+
+
+class AuditLogResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    user_id: Optional[int] = None
+    username: str
+    action: str
+    module: str
+    object_type: Optional[str] = None
+    object_id: Optional[str] = None
+    object_repr: Optional[str] = None
+    old_values: Optional[dict] = None
+    new_values: Optional[dict] = None
+    ip_address: Optional[str] = None
+    user_agent: Optional[str] = None
+    request_id: Optional[str] = None
+    status: str
+    error_message: Optional[str] = None
+    created_at: datetime
+
+
+class AuditLogListParams(BaseModel):
+    page: int = Field(1, ge=1)
+    page_size: int = Field(50, ge=1, le=500)
+    username: Optional[str] = Field(None, max_length=255)
+    action: Optional[str] = Field(None, max_length=100)
+    module: Optional[str] = Field(None, max_length=50)
+    object_type: Optional[str] = Field(None, max_length=100)
+    status: Optional[str] = Field(None, max_length=20)
+    start_date: Optional[datetime] = None
+    end_date: Optional[datetime] = None
+    sort_by: Optional[str] = Field("created_at", max_length=50)
+    sort_order: Optional[str] = Field("desc", pattern="^(asc|desc)$")
+
+
+class AuditLogListResponse(BaseModel):
+    logs: List[AuditLogResponse]
+    total: int
+    page: int
+    page_size: int
+    total_pages: int

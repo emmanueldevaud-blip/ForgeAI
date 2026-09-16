@@ -185,4 +185,27 @@ export async function deletePermission(permissionId) {
   return adminApi.delete(`/users/permissions/${permissionId}`);
 }
 
+// Audit API
+export async function listAuditLogs(params = {}) {
+  const query = new URLSearchParams();
+  if (params.page) query.append('page', params.page);
+  if (params.page_size) query.append('page_size', params.page_size);
+  if (params.username) query.append('username', params.username);
+  if (params.action) query.append('action', params.action);
+  if (params.module) query.append('module', params.module);
+  if (params.object_type) query.append('object_type', params.object_type);
+  if (params.status) query.append('status', params.status);
+  if (params.start_date) query.append('start_date', params.start_date);
+  if (params.end_date) query.append('end_date', params.end_date);
+  if (params.sort_by) query.append('sort_by', params.sort_by);
+  if (params.sort_order) query.append('sort_order', params.sort_order);
+
+  const endpoint = `/audit-logs${query.toString() ? '?' + query.toString() : ''}`;
+  return adminApi.get(endpoint);
+}
+
+export async function getAuditLog(logId) {
+  return adminApi.get(`/audit-logs/${logId}`);
+}
+
 export { adminApi, ApiError };

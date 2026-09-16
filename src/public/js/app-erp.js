@@ -7,10 +7,13 @@ import { createRegisterPage } from './pages/RegisterPage.js';
 import { createAdministrationPage } from './pages/AdministrationPage.js';
 import { createBuildingsPage } from './pages/BuildingsPage.js';
 import { createBuildingRefsPage } from './pages/BuildingRefsPage.js';
+import { createEquipmentPage } from './pages/EquipmentPage.js';
+import { createEquipmentRefsPage } from './pages/EquipmentRefsPage.js';
 
 const moduleRoutes = [
   'dashboard',
   'buildings',
+  'equipment',
   'housing',
   'maintenance',
   'cleaning',
@@ -30,6 +33,8 @@ let appShell = null;
 let administrationPage = null;
 let buildingsPage = null;
 let buildingRefsPage = null;
+let equipmentPage = null;
+let equipmentRefsPage = null;
 
 async function initializeApp() {
   const app = document.getElementById('app');
@@ -83,10 +88,16 @@ async function initializeApp() {
     }, { requiresAuth: true, permissions: ['building.view'] })
     .addRoute('/buildings/refs', async (route) => {
       await showBuildingRefsPage(route);
-    }, { requiresAuth: true, permissions: ['building.view'] });
+    }, { requiresAuth: true, permissions: ['building.view'] })
+    .addRoute('/equipment', async (route) => {
+      await showEquipmentPage(route);
+    }, { requiresAuth: true, permissions: ['equipment.view'] })
+    .addRoute('/equipment/refs', async (route) => {
+      await showEquipmentRefsPage(route);
+    }, { requiresAuth: true, permissions: ['equipment.view'] });
 
   moduleRoutes.forEach(module => {
-    if (module === 'dashboard' || module === 'administration' || module === 'buildings') return;
+    if (module === 'dashboard' || module === 'administration' || module === 'buildings' || module === 'equipment') return;
     router.addRoute(`/${module}`, async (route) => {
       await showModulePage(route);
     }, { requiresAuth: true });
@@ -115,6 +126,8 @@ async function initializeApp() {
     await ensureAdministrationPage();
     await ensureBuildingsPage();
     await ensureBuildingRefsPage();
+    await ensureEquipmentPage();
+    await ensureEquipmentRefsPage();
     router.navigate('/dashboard', { replace: true });
   } else {
     router.navigate('/login', { replace: true });
@@ -159,6 +172,22 @@ async function ensureBuildingRefsPage() {
   return buildingRefsPage;
 }
 
+async function ensureEquipmentPage() {
+  if (!equipmentPage) {
+    equipmentPage = createEquipmentPage(router);
+    await equipmentPage.initialize();
+  }
+  return equipmentPage;
+}
+
+async function ensureEquipmentRefsPage() {
+  if (!equipmentRefsPage) {
+    equipmentRefsPage = createEquipmentRefsPage(router);
+    await equipmentRefsPage.initialize();
+  }
+  return equipmentRefsPage;
+}
+
 async function showAdministrationPage(route) {
   if (!appShell) return;
   appShell.showLoading();
@@ -198,6 +227,35 @@ async function showBuildingRefsPage(route) {
     appShell.showContent(content);
   } catch (error) {
     console.error('Erreur affichage référentiels:', error);
+    appShell.showError(error);
+  }
+}
+
+async function showEquipmentPage(route) {
+  if (!appShell) return;
+  appShell.showLoading();
+
+  try {
+    const page = await ensureEquipmentPage();
+    const content = page.render();
+    appShell.showContent(content);
+    page.loadData();
+  } catch (error) {
+    console.error('Erreur affichage équipements:', error);
+    appShell.showError(error);
+  }
+}
+
+async function showEquipmentRefsPage(route) {
+  if (!appShell) return;
+  appShell.showLoading();
+
+  try {
+    const page = await ensureEquipmentRefsPage();
+    const content = page.render();
+    appShell.showContent(content);
+  } catch (error) {
+    console.error('Erreur affichage référentiels équipement:', error);
     appShell.showError(error);
   }
 }

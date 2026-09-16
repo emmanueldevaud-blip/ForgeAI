@@ -158,6 +158,7 @@ class Room(Base):
     level: Mapped["Level"] = relationship("Level", back_populates="rooms")
     room_type: Mapped[Optional["RoomType"]] = relationship("RoomType", back_populates="rooms")
     usage_type: Mapped[Optional["UsageType"]] = relationship("UsageType", back_populates="rooms")
+    equipments: Mapped[list["Equipment"]] = relationship("Equipment", back_populates="room")
 
     __table_args__ = (
         UniqueConstraint("level_id", "reference", name="uq_room_level_reference"),

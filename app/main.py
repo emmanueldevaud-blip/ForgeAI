@@ -1,15 +1,15 @@
 import os
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
 
-from app.api import auth, buildings, modules, admin
+from app.api import auth, buildings, equipment, modules, admin
 from app.core.config import get_settings
 from app.db.session import close_db, init_db
 from app.modules import register_all_modules
@@ -78,9 +78,12 @@ app.include_router(auth.router)
 app.include_router(modules.router)
 app.include_router(admin.router)
 app.include_router(buildings.router)
+app.include_router(equipment.router)
 
 frontend_path = os.path.join(os.path.dirname(__file__), "..", "src", "public")
+SPA_INDEX = None
 if os.path.exists(frontend_path):
+    SPA_INDEX = os.path.join(frontend_path, "index.html")
     app.mount("/css", StaticFiles(directory=os.path.join(frontend_path, "css")), name="css")
     app.mount("/js", StaticFiles(directory=os.path.join(frontend_path, "js")), name="js")
 
@@ -91,12 +94,16 @@ if os.path.exists(frontend_path):
             return FileResponse(index_path)
         return {"message": "Frontend not built"}
 
-    @app.get("/{full_path:path}")
-    async def serve_spa(full_path: str):
-        if full_path.startswith("api/") or full_path.startswith("auth/") or full_path.startswith("admin/") or full_path.startswith("docs") or full_path.startswith("redoc") or full_path.startswith("openapi") or full_path.startswith("health") or full_path == "health" or full_path.startswith("css/") or full_path.startswith("js/"):
-            from fastapi.responses import JSONResponse
-            return JSONResponse({"detail": "Not found"}, status_code=404)
-        index_path = os.path.join(frontend_path, "index.html")
-        if os.path.exists(index_path):
-            return FileResponse(index_path)
-        return {"message": "Frontend not built"}
+SPA_PREFIXES = ("api/", "auth/", "admin/", "docs", "redoc", "openapi", "health", "css/", "js/", "modules/")
+
+@app.middleware("http")
+async def spa_fallback_middleware(request: Request, call_next):
+    response = await call_next(request)
+    if (
+        response.status_code == 401
+        and SPA_INDEX
+        and request.headers.get("accept", "").startswith("text/html")
+        and not any(request.url.path.startswith(f"/{p}") for p in SPA_PREFIXES)
+    ):
+        return FileResponse(SPA_INDEX)
+    return response

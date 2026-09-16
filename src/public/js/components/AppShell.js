@@ -118,6 +118,7 @@ export class AppShell {
     const modules = {
       dashboard: 'Tableau de bord',
       buildings: 'Bâtiments',
+      equipment: 'Équipements',
       housing: 'Logements',
       maintenance: 'Maintenance',
       cleaning: 'Nettoyage',
@@ -147,6 +148,7 @@ export class AppShell {
       if (i === parts.length - 1) return;
       const modules = {
         buildings: 'Bâtiments',
+        equipment: 'Équipements',
         housing: 'Logements',
         maintenance: 'Maintenance',
         cleaning: 'Nettoyage',

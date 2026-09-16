@@ -385,6 +385,7 @@ class DatabaseADService:
         groups_processed = 0
         groups_created = 0
         groups_updated = 0
+        groups_deleted = 0
 
         try:
             server = self._create_server(config)
@@ -397,114 +398,17 @@ class DatabaseADService:
                 authentication=self._bind_authentication(config.bind_user),
             )
 
-            admin_conn.search(
-                search_base=config.user_dn or config.base_dn,
-                search_filter=(
-                    "(&"
-                    "(!(userAccountControl:1.2.840.113556.1.4.803:=2))"
-                    f"{config.user_search_filter.format(username='*')})"
-                ),
-                search_scope=SUBTREE,
-                attributes=["distinguishedName", "sAMAccountName", "mail", "givenName", "sn", "memberOf", "userAccountControl"],
-                paged_size=config.page_size,
-            )
+            # ------------------------------------------------------------------
+            # PHASE 1 : collecter les membres des groupes filtrés
+            # ------------------------------------------------------------------
+            # Si un filtre groupe est configuré, on ne synchronise que les
+            # utilisateurs membres de ces groupes.  Sinon on bascule sur le
+            # comportement historique (tous les utilisateurs du user_dn).
+            filtered_member_dns: set[str] = set()
+            group_phase = bool(config.group_search_filter and config.group_search_base)
 
-            users_processed = 0
-            users_created = 0
-            users_updated = 0
-            users_deactivated = 0
-
-            for entry in admin_conn.entries:
-                if not entry.distinguishedName:
-                    print(f"[AD-SYNC] Entrée ignorée (pas de distinguishedName)")
-                    continue
-
-                users_processed += 1
-                user_dn = str(entry.distinguishedName)
-                found_ad_dns.add(user_dn)
-                
-                groups = []
-                if entry.memberOf:
-                    groups = [str(g) for g in entry.memberOf]
-
-                sam_account = str(entry.sAMAccountName) if entry.sAMAccountName else f"ad_user_{users_processed}"
-                email = str(entry.mail) if entry.mail else f"{sam_account}@ad.local"
-
-                user = None
-                if user_dn:
-                    result = await self.db.execute(
-                        select(User).where(User.source == "ad", User.ad_dn == user_dn)
-                    )
-                    user = result.scalar_one_or_none()
-
-                if user is None:
-                    result = await self.db.execute(
-                        select(User).where(User.source == "ad", User.username == sam_account)
-                    )
-                    user = result.scalar_one_or_none()
-
-                username_owner = None
-                if user is None:
-                    result = await self.db.execute(select(User).where(User.username == sam_account))
-                    username_owner = result.scalar_one_or_none()
-
-                email_owner = None
-                if user is None and entry.mail:
-                    result = await self.db.execute(select(User).where(User.email == email))
-                    email_owner = result.scalar_one_or_none()
-
-                if user:
-                    user.is_active = True
-                    user.last_login = datetime.now(UTC)
-                    if entry.mail:
-                        result = await self.db.execute(select(User).where(User.email == email))
-                        email_owner = result.scalar_one_or_none()
-                        if email_owner is None or email_owner.id == user.id:
-                            user.email = email
-                    if entry.givenName:
-                        user.first_name = str(entry.givenName)
-                    if entry.sn:
-                        user.last_name = str(entry.sn)
-                    if entry.sAMAccountName:
-                        result = await self.db.execute(select(User).where(User.username == sam_account))
-                        username_owner = result.scalar_one_or_none()
-                        if username_owner is None or username_owner.id == user.id:
-                            user.username = sam_account
-                    result = await self.db.execute(select(User).where(User.ad_dn == user_dn))
-                    ad_dn_owner = result.scalar_one_or_none()
-                    if ad_dn_owner is None or ad_dn_owner.id == user.id:
-                        user.ad_dn = user_dn
-                    users_updated += 1
-                elif username_owner is not None or email_owner is not None:
-                    # Un compte local portant déjà cet identifiant ne doit jamais être
-                    # transformé en compte AD, ni provoquer une violation d'unicité.
-                    continue
-                else:
-                    try:
-                        async with self.db.begin_nested():
-                            user = User(
-                                username=sam_account,
-                                email=email,
-                                first_name=str(entry.givenName) if entry.givenName else None,
-                                last_name=str(entry.sn) if entry.sn else None,
-                                password_hash=None,
-                                is_active=True,
-                                source="ad",
-                                ad_dn=user_dn,
-                                last_login=datetime.now(UTC),
-                            )
-                            self.db.add(user)
-                            await self.db.flush()
-                        users_created += 1
-                    except IntegrityError:
-                        # Une création concurrente ne doit pas rendre la session invalide.
-                        continue
-
-                # Local group memberships remain untouched.  Only memberships
-                # managed from AD are reconciled here.
-                await self._sync_user_ad_groups(user, groups, config)
-
-            if config.group_search_base:
+            if group_phase:
+                # Recherche des groupes correspondant au filtre
                 admin_conn.search(
                     search_base=config.group_search_base,
                     search_filter=config.group_search_filter,
@@ -513,48 +417,28 @@ class DatabaseADService:
                     paged_size=config.page_size,
                 )
 
-                for entry in admin_conn.entries:
-                    if not entry.cn or not entry.distinguishedName:
-                        print(f"[AD-SYNC] Entrée groupe ignorée (cn ou distinguishedName manquant)")
+                for g_entry in admin_conn.entries:
+                    if not g_entry.cn or not g_entry.distinguishedName:
                         continue
-
-                    groups_processed += 1
-                    group_cn = str(entry.cn) if entry.cn else None
-                    group_dn = str(entry.distinguishedName) if entry.distinguishedName else None
-                    
-                    if not group_cn:
-                        continue
-
+                    group_dn = str(g_entry.distinguishedName)
                     found_group_dns.add(group_dn)
+                    groups_processed += 1
+
+                    # Upsert du groupe
                     result = await self.db.execute(select(Group.id).where(Group.ad_dn == group_dn))
                     existed = result.scalar_one_or_none() is not None
-                    groups_dict = await self._ensure_ad_groups([group_dn], config)
-
-                    if entry.member:
-                        group_obj = groups_dict.get(group_dn.casefold())
-                        if group_obj:
-                            for member_dn in entry.member:
-                                member_dn_str = str(member_dn)
-                                user_result = await self.db.execute(
-                                    select(User.id).where(User.ad_dn == member_dn_str, User.source == "ad")
-                                )
-                                member_user_id = user_result.scalar_one_or_none()
-                                if member_user_id:
-                                    ug_check = await self.db.execute(
-                                        select(UserGroup.id).where(
-                                            UserGroup.user_id == member_user_id,
-                                            UserGroup.group_id == group_obj.id,
-                                        )
-                                    )
-                                    if not ug_check.scalar_one_or_none():
-                                        self.db.add(UserGroup(user_id=member_user_id, group_id=group_obj.id))
-
+                    await self._ensure_ad_groups([group_dn], config)
                     if existed:
                         groups_updated += 1
                     else:
                         groups_created += 1
 
-                groups_deleted = 0
+                    # Collecte des DN membres
+                    if g_entry.member:
+                        for member_dn in g_entry.member:
+                            filtered_member_dns.add(str(member_dn))
+
+                # Nettoyage des groupes absents de l'AD
                 if found_group_dns:
                     result = await self.db.execute(
                         select(Group).where(
@@ -570,6 +454,73 @@ class DatabaseADService:
                     if groups_deleted:
                         print(f"[AD-SYNC] {groups_deleted} groupes AD supprimés (absents de l'AD)")
 
+                print(f"[AD-SYNC] Phase groupes : {groups_processed} groupes trouvés, "
+                      f"{len(filtered_member_dns)} membres collectés")
+
+            # ------------------------------------------------------------------
+            # PHASE 2 : synchronisation des utilisateurs
+            # ------------------------------------------------------------------
+            if group_phase and filtered_member_dns:
+                # Construire un filtre qui croise user_search_filter et la liste
+                # des membres.  LDAP impose de passer par un OU logique, on
+                # utilise le DN du membre comme recherche directe.
+                user_search_base = config.user_dn or config.base_dn
+                user_base_filter = config.user_search_filter.format(username='*')
+                users_processed = 0
+                users_created = 0
+                users_updated = 0
+                users_deactivated = 0
+
+                # Recherche par blocs pour éviter les filtres LDAP trop longs
+                member_list = list(filtered_member_dns)
+                chunk_size = 50
+                for i in range(0, len(member_list), chunk_size):
+                    chunk = member_list[i:i + chunk_size]
+                    dn_filters = "".join(f"(distinguishedName={dn})" for dn in chunk)
+                    search_filter = f"(&{user_base_filter}(|{dn_filters}))"
+
+                    admin_conn.search(
+                        search_base=user_search_base,
+                        search_filter=search_filter,
+                        search_scope=SUBTREE,
+                        attributes=["distinguishedName", "sAMAccountName", "mail", "givenName", "sn", "memberOf", "userAccountControl"],
+                        paged_size=config.page_size,
+                    )
+
+                    chunk_result = await self._process_ad_entries(
+                        admin_conn, config, found_ad_dns
+                    )
+                    users_processed += chunk_result["processed"]
+                    users_created += chunk_result["created"]
+                    users_updated += chunk_result["updated"]
+
+                print(f"[AD-SYNC] Phase utilisateurs (par groupe) : {users_processed} traités, "
+                      f"{users_created} créés, {users_updated} mis à jour")
+            else:
+                # Pas de filtre groupe → comportement historique : tous les users
+                admin_conn.search(
+                    search_base=config.user_dn or config.base_dn,
+                    search_filter=(
+                        "(&"
+                        "(!(userAccountControl:1.2.840.113556.1.4.803:=2))"
+                        f"{config.user_search_filter.format(username='*')})"
+                    ),
+                    search_scope=SUBTREE,
+                    attributes=["distinguishedName", "sAMAccountName", "mail", "givenName", "sn", "memberOf", "userAccountControl"],
+                    paged_size=config.page_size,
+                )
+
+                result = await self._process_ad_entries(
+                    admin_conn, config, found_ad_dns
+                )
+                users_processed = result["processed"]
+                users_created = result["created"]
+                users_updated = result["updated"]
+                users_deactivated = 0
+
+            # ------------------------------------------------------------------
+            # PHASE 3 : désactivation des utilisateurs absents
+            # ------------------------------------------------------------------
             if found_ad_dns:
                 result = await self.db.execute(
                     select(User).where(
@@ -649,6 +600,103 @@ class DatabaseADService:
                 await self.db.commit()
 
             return sync_log
+
+    async def _process_ad_entries(self, admin_conn, config, found_ad_dns):
+        """Traite les entrées AD retournées par une recherche utilisateur."""
+        users_processed = 0
+        users_created = 0
+        users_updated = 0
+
+        for entry in admin_conn.entries:
+            if not entry.distinguishedName:
+                print(f"[AD-SYNC] Entrée ignorée (pas de distinguishedName)")
+                continue
+
+            users_processed += 1
+            user_dn = str(entry.distinguishedName)
+            found_ad_dns.add(user_dn)
+
+            groups = []
+            if entry.memberOf:
+                groups = [str(g) for g in entry.memberOf]
+
+            sam_account = str(entry.sAMAccountName) if entry.sAMAccountName else f"ad_user_{users_processed}"
+            email = str(entry.mail) if entry.mail else f"{sam_account}@ad.local"
+
+            user = None
+            if user_dn:
+                result = await self.db.execute(
+                    select(User).where(User.source == "ad", User.ad_dn == user_dn)
+                )
+                user = result.scalar_one_or_none()
+
+            if user is None:
+                result = await self.db.execute(
+                    select(User).where(User.source == "ad", User.username == sam_account)
+                )
+                user = result.scalar_one_or_none()
+
+            username_owner = None
+            if user is None:
+                result = await self.db.execute(select(User).where(User.username == sam_account))
+                username_owner = result.scalar_one_or_none()
+
+            email_owner = None
+            if user is None and entry.mail:
+                result = await self.db.execute(select(User).where(User.email == email))
+                email_owner = result.scalar_one_or_none()
+
+            if user:
+                user.is_active = True
+                user.last_login = datetime.now(UTC)
+                if entry.mail:
+                    result = await self.db.execute(select(User).where(User.email == email))
+                    email_owner = result.scalar_one_or_none()
+                    if email_owner is None or email_owner.id == user.id:
+                        user.email = email
+                if entry.givenName:
+                    user.first_name = str(entry.givenName)
+                if entry.sn:
+                    user.last_name = str(entry.sn)
+                if entry.sAMAccountName:
+                    result = await self.db.execute(select(User).where(User.username == sam_account))
+                    username_owner = result.scalar_one_or_none()
+                    if username_owner is None or username_owner.id == user.id:
+                        user.username = sam_account
+                result = await self.db.execute(select(User).where(User.ad_dn == user_dn))
+                ad_dn_owner = result.scalar_one_or_none()
+                if ad_dn_owner is None or ad_dn_owner.id == user.id:
+                    user.ad_dn = user_dn
+                users_updated += 1
+            elif username_owner is not None or email_owner is not None:
+                continue
+            else:
+                try:
+                    async with self.db.begin_nested():
+                        user = User(
+                            username=sam_account,
+                            email=email,
+                            first_name=str(entry.givenName) if entry.givenName else None,
+                            last_name=str(entry.sn) if entry.sn else None,
+                            password_hash=None,
+                            is_active=True,
+                            source="ad",
+                            ad_dn=user_dn,
+                            last_login=datetime.now(UTC),
+                        )
+                        self.db.add(user)
+                        await self.db.flush()
+                    users_created += 1
+                except IntegrityError:
+                    continue
+
+            await self._sync_user_ad_groups(user, groups, config)
+
+        return {
+            "processed": users_processed,
+            "created": users_created,
+            "updated": users_updated,
+        }
 
 
 async def get_ad_service(

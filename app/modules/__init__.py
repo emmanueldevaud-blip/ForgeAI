@@ -429,10 +429,76 @@ class AdministrationModule(BaseModule):
     async def upgrade(self, db, from_version: str):
         return True
 
+
+class EquipmentModule(BaseModule):
+    def __init__(self):
+        super().__init__(ModuleInfo(
+            code="equipment",
+            name="Équipements",
+            description="Gestion du patrimoine des équipements",
+            icon="tool",
+            order=15,
+            status=ModuleStatus.ACTIVE,
+            version="1.0.0",
+            route_path="/equipment",
+            component_path="Equipment",
+            required_permissions=["equipment.view"],
+            is_core=False,
+        ))
+
+    def get_navigation_items(self, user_permissions: list[str]):
+        if self.info.required_permissions:
+            if "*" in user_permissions:
+                pass
+            elif not all(p in user_permissions for p in self.info.required_permissions):
+                return []
+
+        children = [
+            {
+                "code": "equipment-list",
+                "name": "Équipements",
+                "icon": "tool",
+                "route": "/equipment",
+                "order": 0,
+            },
+        ]
+
+        has_manage_refs = (
+            "*" in user_permissions
+            or "equipment.manage_referentials" in user_permissions
+        )
+        if has_manage_refs:
+            children.append({
+                "code": "equipment-refs",
+                "name": "Référentiels",
+                "icon": "file-text",
+                "route": "/equipment/refs",
+                "order": 1,
+            })
+
+        return [{
+            "code": self.info.code,
+            "name": self.info.name,
+            "icon": self.info.icon,
+            "route": self.info.route_path,
+            "order": self.info.order,
+            "children": children,
+        }]
+
+    async def install(self, db):
+        return True
+
+    async def uninstall(self, db):
+        return True
+
+    async def upgrade(self, db, from_version: str):
+        return True
+
 def register_all_modules():
     modules = [
         DashboardModule(),
         BuildingsModule(),
+        EquipmentModule(),
         HousingModule(),
         MaintenanceModule(),
         CleaningModule(),

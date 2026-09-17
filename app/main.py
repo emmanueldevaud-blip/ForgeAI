@@ -9,7 +9,7 @@ from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
 
-from app.api import auth, audit, buildings, equipment, modules, admin
+from app.api import auth, audit, buildings, equipment, maintenance, modules, admin
 from app.core.config import get_settings
 from app.db.session import close_db, init_db
 from app.modules import register_all_modules
@@ -47,6 +47,22 @@ async def _sync_module_statuses(db):
         db_mod = db_modules.get(code)
         if db_mod:
             reg_module.info.status = db_mod.status
+        else:
+            new_mod = ModuleModel(
+                code=code,
+                name=reg_module.info.name,
+                description=reg_module.info.description,
+                icon=reg_module.info.icon,
+                order=reg_module.info.order,
+                status=reg_module.info.status,
+                version=reg_module.info.version,
+                route_path=reg_module.info.route_path,
+                component_path=reg_module.info.component_path,
+                required_permissions=reg_module.info.required_permissions,
+                is_core=reg_module.info.is_core,
+            )
+            db.add(new_mod)
+    await db.commit()
 
 
 app = FastAPI(
@@ -80,6 +96,7 @@ app.include_router(admin.router)
 app.include_router(audit.router)
 app.include_router(buildings.router)
 app.include_router(equipment.router)
+app.include_router(maintenance.router)
 
 frontend_path = os.path.join(os.path.dirname(__file__), "..", "src", "public")
 SPA_INDEX = None

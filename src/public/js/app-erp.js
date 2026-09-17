@@ -9,6 +9,14 @@ import { createBuildingsPage } from './pages/BuildingsPage.js';
 import { createBuildingRefsPage } from './pages/BuildingRefsPage.js';
 import { createEquipmentPage } from './pages/EquipmentPage.js';
 import { createEquipmentRefsPage } from './pages/EquipmentRefsPage.js';
+import { createMaintenanceDashboardPage } from './pages/MaintenanceDashboardPage.js';
+import { createMaintenanceRequestsPage } from './pages/MaintenanceRequestsPage.js';
+import { createMaintenanceWorkOrdersPage } from './pages/MaintenanceWorkOrdersPage.js';
+import { createMaintenancePreventivePage } from './pages/MaintenancePreventivePage.js';
+import { createMaintenanceProvidersPage } from './pages/MaintenanceProvidersPage.js';
+import { createMaintenanceContractsPage } from './pages/MaintenanceContractsPage.js';
+import { createMaintenanceRefsPage } from './pages/MaintenanceRefsPage.js';
+import { createMaintenanceCalendarPage } from './pages/MaintenanceCalendarPage.js';
 
 const moduleRoutes = [
   'dashboard',
@@ -35,6 +43,14 @@ let buildingsPage = null;
 let buildingRefsPage = null;
 let equipmentPage = null;
 let equipmentRefsPage = null;
+let maintenanceDashboardPage = null;
+let maintenanceRequestsPage = null;
+let maintenanceWorkOrdersPage = null;
+let maintenancePreventivePage = null;
+let maintenanceProvidersPage = null;
+let maintenanceContractsPage = null;
+let maintenanceRefsPage = null;
+let maintenanceCalendarPage = null;
 
 async function initializeApp() {
   const app = document.getElementById('app');
@@ -94,7 +110,31 @@ async function initializeApp() {
     }, { requiresAuth: true, permissions: ['equipment.view'] })
     .addRoute('/equipment/refs', async (route) => {
       await showEquipmentRefsPage(route);
-    }, { requiresAuth: true, permissions: ['equipment.view'] });
+    }, { requiresAuth: true, permissions: ['equipment.view'] })
+    .addRoute('/maintenance', async (route) => {
+      await showMaintenanceDashboardPage(route);
+    }, { requiresAuth: true, permissions: ['maintenance.view'] })
+    .addRoute('/maintenance/requests', async (route) => {
+      await showMaintenanceRequestsPage(route);
+    }, { requiresAuth: true, permissions: ['maintenance.view'] })
+    .addRoute('/maintenance/work-orders', async (route) => {
+      await showMaintenanceWorkOrdersPage(route);
+    }, { requiresAuth: true, permissions: ['maintenance.view'] })
+    .addRoute('/maintenance/preventive', async (route) => {
+      await showMaintenancePreventivePage(route);
+    }, { requiresAuth: true, permissions: ['maintenance.view'] })
+    .addRoute('/maintenance/providers', async (route) => {
+      await showMaintenanceProvidersPage(route);
+    }, { requiresAuth: true, permissions: ['maintenance.view'] })
+    .addRoute('/maintenance/contracts', async (route) => {
+      await showMaintenanceContractsPage(route);
+    }, { requiresAuth: true, permissions: ['maintenance.view'] })
+    .addRoute('/maintenance/refs', async (route) => {
+      await showMaintenanceRefsPage(route);
+    }, { requiresAuth: true, permissions: ['maintenance.view'] })
+    .addRoute('/maintenance/calendar', async (route) => {
+      await showMaintenanceCalendarPage(route);
+    }, { requiresAuth: true, permissions: ['maintenance.view'] });
 
   moduleRoutes.forEach(module => {
     if (module === 'dashboard' || module === 'administration' || module === 'buildings' || module === 'equipment') return;
@@ -188,6 +228,70 @@ async function ensureEquipmentRefsPage() {
   return equipmentRefsPage;
 }
 
+async function ensureMaintenanceDashboardPage() {
+  if (!maintenanceDashboardPage) {
+    maintenanceDashboardPage = createMaintenanceDashboardPage(router);
+    await maintenanceDashboardPage.initialize();
+  }
+  return maintenanceDashboardPage;
+}
+
+async function ensureMaintenanceRequestsPage() {
+  if (!maintenanceRequestsPage) {
+    maintenanceRequestsPage = createMaintenanceRequestsPage(router);
+    await maintenanceRequestsPage.initialize();
+  }
+  return maintenanceRequestsPage;
+}
+
+async function ensureMaintenanceWorkOrdersPage() {
+  if (!maintenanceWorkOrdersPage) {
+    maintenanceWorkOrdersPage = createMaintenanceWorkOrdersPage(router);
+    await maintenanceWorkOrdersPage.initialize();
+  }
+  return maintenanceWorkOrdersPage;
+}
+
+async function ensureMaintenancePreventivePage() {
+  if (!maintenancePreventivePage) {
+    maintenancePreventivePage = createMaintenancePreventivePage(router);
+    await maintenancePreventivePage.initialize();
+  }
+  return maintenancePreventivePage;
+}
+
+async function ensureMaintenanceProvidersPage() {
+  if (!maintenanceProvidersPage) {
+    maintenanceProvidersPage = createMaintenanceProvidersPage(router);
+    await maintenanceProvidersPage.initialize();
+  }
+  return maintenanceProvidersPage;
+}
+
+async function ensureMaintenanceContractsPage() {
+  if (!maintenanceContractsPage) {
+    maintenanceContractsPage = createMaintenanceContractsPage(router);
+    await maintenanceContractsPage.initialize();
+  }
+  return maintenanceContractsPage;
+}
+
+async function ensureMaintenanceRefsPage() {
+  if (!maintenanceRefsPage) {
+    maintenanceRefsPage = createMaintenanceRefsPage(router);
+    await maintenanceRefsPage.initialize();
+  }
+  return maintenanceRefsPage;
+}
+
+async function ensureMaintenanceCalendarPage() {
+  if (!maintenanceCalendarPage) {
+    maintenanceCalendarPage = createMaintenanceCalendarPage(router);
+    await maintenanceCalendarPage.initialize();
+  }
+  return maintenanceCalendarPage;
+}
+
 async function showAdministrationPage(route) {
   if (!appShell) return;
   appShell.showLoading();
@@ -256,6 +360,126 @@ async function showEquipmentRefsPage(route) {
     appShell.showContent(content);
   } catch (error) {
     console.error('Erreur affichage référentiels équipement:', error);
+    appShell.showError(error);
+  }
+}
+
+async function showMaintenanceDashboardPage(route) {
+  if (!appShell) return;
+  appShell.showLoading();
+
+  try {
+    const page = await ensureMaintenanceDashboardPage();
+    const content = page.render();
+    appShell.showContent(content);
+    page.loadData();
+  } catch (error) {
+    console.error('Erreur affichage tableau de bord maintenance:', error);
+    appShell.showError(error);
+  }
+}
+
+async function showMaintenanceRequestsPage(route) {
+  if (!appShell) return;
+  appShell.showLoading();
+
+  try {
+    const page = await ensureMaintenanceRequestsPage();
+    const content = page.render();
+    appShell.showContent(content);
+    page.loadData();
+  } catch (error) {
+    console.error('Erreur affichage demandes maintenance:', error);
+    appShell.showError(error);
+  }
+}
+
+async function showMaintenanceWorkOrdersPage(route) {
+  if (!appShell) return;
+  appShell.showLoading();
+
+  try {
+    const page = await ensureMaintenanceWorkOrdersPage();
+    const content = page.render();
+    appShell.showContent(content);
+    page.loadData();
+  } catch (error) {
+    console.error('Erreur affichage ordres de travail:', error);
+    appShell.showError(error);
+  }
+}
+
+async function showMaintenancePreventivePage(route) {
+  if (!appShell) return;
+  appShell.showLoading();
+
+  try {
+    const page = await ensureMaintenancePreventivePage();
+    const content = page.render();
+    appShell.showContent(content);
+    page.loadData();
+  } catch (error) {
+    console.error('Erreur affichage maintenance préventive:', error);
+    appShell.showError(error);
+  }
+}
+
+async function showMaintenanceProvidersPage(route) {
+  if (!appShell) return;
+  appShell.showLoading();
+
+  try {
+    const page = await ensureMaintenanceProvidersPage();
+    const content = page.render();
+    appShell.showContent(content);
+    page.loadData();
+  } catch (error) {
+    console.error('Erreur affichage prestataires:', error);
+    appShell.showError(error);
+  }
+}
+
+async function showMaintenanceContractsPage(route) {
+  if (!appShell) return;
+  appShell.showLoading();
+
+  try {
+    const page = await ensureMaintenanceContractsPage();
+    const content = page.render();
+    appShell.showContent(content);
+    page.loadData();
+  } catch (error) {
+    console.error('Erreur affichage contrats:', error);
+    appShell.showError(error);
+  }
+}
+
+async function showMaintenanceRefsPage(route) {
+  if (!appShell) return;
+  appShell.showLoading();
+
+  try {
+    const page = await ensureMaintenanceRefsPage();
+    const content = page.render();
+    appShell.showContent(content);
+    page.loadData();
+  } catch (error) {
+    console.error('Erreur affichage referentiels maintenance:', error);
+    appShell.showError(error);
+  }
+}
+
+async function showMaintenanceCalendarPage(route) {
+  if (!appShell) return;
+  appShell.showLoading();
+
+  try {
+    const page = await ensureMaintenanceCalendarPage();
+    const content = page.render();
+    appShell.showContent(content);
+    page.loadData();
+  } catch (error) {
+    console.error('Erreur affichage calendrier maintenance:', error);
     appShell.showError(error);
   }
 }

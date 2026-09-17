@@ -445,6 +445,18 @@ async def seed_default_rbac(db: AsyncSession) -> None:
         ("equipment.update", "Modifier des équipements", "equipment"),
         ("equipment.delete", "Supprimer des équipements", "equipment"),
         ("equipment.manage_referentials", "Gérer les référentiels équipement", "equipment"),
+        ("maintenance.view", "Consulter la maintenance", "maintenance"),
+        ("maintenance.create", "Créer des demandes de maintenance", "maintenance"),
+        ("maintenance.update", "Modifier la maintenance", "maintenance"),
+        ("maintenance.delete", "Supprimer la maintenance", "maintenance"),
+        ("maintenance.plan", "Planifier les interventions", "maintenance"),
+        ("maintenance.execute", "Exécuter les interventions", "maintenance"),
+        ("maintenance.manage_referentials", "Gérer les référentiels maintenance", "maintenance"),
+        ("maintenance.manage_contracts", "Gérer les contrats de maintenance", "maintenance"),
+        ("maintenance.manage_providers", "Gérer les prestataires", "maintenance"),
+        ("maintenance.view_costs", "Voir les coûts de maintenance", "maintenance"),
+        ("maintenance.manage", "Administrer le module maintenance", "maintenance"),
+        ("ai.use", "Utiliser l'assistant IA", "ai"),
     ]
     
     for code, name, module in default_permissions:

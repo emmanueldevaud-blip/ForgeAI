@@ -123,16 +123,100 @@ class MaintenanceModule(BaseModule):
         super().__init__(ModuleInfo(
             code="maintenance",
             name="Maintenance",
-            description="Gestion des interventions de maintenance",
+            description="GMAO - Gestion de Maintenance Assistée par Ordinateur",
             icon="wrench",
             order=30,
-            status=ModuleStatus.INACTIVE,
+            status=ModuleStatus.ACTIVE,
             version="1.0.0",
             route_path="/maintenance",
             component_path="Maintenance",
             required_permissions=["maintenance.view"],
             is_core=False,
         ))
+
+    def get_navigation_items(self, user_permissions=None):
+        children = [
+            {
+                "code": "maintenance-dashboard",
+                "name": "Tableau de bord",
+                "icon": "dashboard",
+                "route": "/maintenance",
+                "order": 0,
+            },
+            {
+                "code": "maintenance-requests",
+                "name": "Demandes",
+                "icon": "inbox",
+                "route": "/maintenance/requests",
+                "order": 1,
+            },
+            {
+                "code": "maintenance-work-orders",
+                "name": "Ordres de travail",
+                "icon": "clipboard",
+                "route": "/maintenance/work-orders",
+                "order": 2,
+            },
+            {
+                "code": "maintenance-preventive",
+                "name": "Préventif",
+                "icon": "calendar-check",
+                "route": "/maintenance/preventive",
+                "order": 3,
+            },
+            {
+                "code": "maintenance-calendar",
+                "name": "Calendrier",
+                "icon": "calendar",
+                "route": "/maintenance/calendar",
+                "order": 4,
+            },
+        ]
+
+        if user_permissions and (
+            "maintenance.manage_providers" in user_permissions
+            or "*" in user_permissions
+        ):
+            children.append({
+                "code": "maintenance-providers",
+                "name": "Prestataires",
+                "icon": "users",
+                "route": "/maintenance/providers",
+                "order": 5,
+            })
+
+        if user_permissions and (
+            "maintenance.manage_contracts" in user_permissions
+            or "*" in user_permissions
+        ):
+            children.append({
+                "code": "maintenance-contracts",
+                "name": "Contrats",
+                "icon": "file-text",
+                "route": "/maintenance/contracts",
+                "order": 6,
+            })
+
+        if user_permissions and (
+            "maintenance.manage_referentials" in user_permissions
+            or "*" in user_permissions
+        ):
+            children.append({
+                "code": "maintenance-refs",
+                "name": "Référentiels",
+                "icon": "database",
+                "route": "/maintenance/refs",
+                "order": 7,
+            })
+
+        return [{
+            "code": self.info.code,
+            "name": self.info.name,
+            "icon": self.info.icon,
+            "route": self.info.route_path,
+            "order": self.info.order,
+            "children": children,
+        }]
 
     async def install(self, db):
         return True

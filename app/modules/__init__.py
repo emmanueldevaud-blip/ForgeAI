@@ -96,17 +96,79 @@ class HousingModule(BaseModule):
     def __init__(self):
         super().__init__(ModuleInfo(
             code="housing",
-            name="Logements",
-            description="Gestion des logements et appartements",
+            name="Hébergements",
+            description="Gestion des hébergements, occupations et ménage",
             icon="home",
             order=20,
-            status=ModuleStatus.INACTIVE,
+            status=ModuleStatus.ACTIVE,
             version="1.0.0",
             route_path="/housing",
             component_path="Housing",
             required_permissions=["housing.view"],
             is_core=False,
         ))
+
+    def get_navigation_items(self, user_permissions=None):
+        children = [
+            {
+                "code": "housing-dashboard",
+                "name": "Tableau de bord",
+                "icon": "dashboard",
+                "route": "/housing",
+                "order": 0,
+            },
+            {
+                "code": "housing-list",
+                "name": "Hébergements",
+                "icon": "home",
+                "route": "/housing/housings",
+                "order": 1,
+            },
+            {
+                "code": "housing-occupancies",
+                "name": "Occupations",
+                "icon": "calendar",
+                "route": "/housing/occupancies",
+                "order": 2,
+            },
+            {
+                "code": "housing-planning",
+                "name": "Planning",
+                "icon": "calendar-days",
+                "route": "/housing/planning",
+                "order": 3,
+            },
+            {
+                "code": "housing-cleaning",
+                "name": "Ménage",
+                "icon": "sparkles",
+                "route": "/housing/cleaning",
+                "order": 4,
+            },
+            {
+                "code": "housing-occupants",
+                "name": "Occupants",
+                "icon": "users",
+                "route": "/housing/occupants",
+                "order": 5,
+            },
+            {
+                "code": "housing-unavailabilities",
+                "name": "Indisponibilités",
+                "icon": "calendar-x",
+                "route": "/housing/unavailabilities",
+                "order": 6,
+            },
+        ]
+
+        return [{
+            "code": self.info.code,
+            "name": self.info.name,
+            "icon": self.info.icon,
+            "route": self.info.route_path,
+            "order": self.info.order,
+            "children": children,
+        }]
 
     async def install(self, db):
         return True

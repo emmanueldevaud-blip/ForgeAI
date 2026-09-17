@@ -18,6 +18,13 @@ import { createMaintenanceContractsPage } from './pages/MaintenanceContractsPage
 import { createMaintenanceRefsPage } from './pages/MaintenanceRefsPage.js';
 import { createMaintenanceCalendarPage } from './pages/MaintenanceCalendarPage.js';
 import { createAIAssistantPage } from './pages/AIAssistantPage.js';
+import { createHousingDashboardPage } from './pages/HousingDashboardPage.js';
+import { createHousingListPage } from './pages/HousingListPage.js';
+import { createHousingOccupanciesPage } from './pages/HousingOccupanciesPage.js';
+import { createHousingPlanningPage } from './pages/HousingPlanningPage.js';
+import { createHousingCleaningPage } from './pages/HousingCleaningPage.js';
+import { createHousingOccupantsPage } from './pages/HousingOccupantsPage.js';
+import { createHousingUnavailabilitiesPage } from './pages/HousingUnavailabilitiesPage.js';
 
 const moduleRoutes = [
   'dashboard',
@@ -53,6 +60,13 @@ let maintenanceContractsPage = null;
 let maintenanceRefsPage = null;
 let maintenanceCalendarPage = null;
 let aiAssistantPage = null;
+let housingDashboardPage = null;
+let housingListPage = null;
+let housingOccupanciesPage = null;
+let housingPlanningPage = null;
+let housingCleaningPage = null;
+let housingOccupantsPage = null;
+let housingUnavailabilitiesPage = null;
 
 async function initializeApp() {
   const app = document.getElementById('app');
@@ -139,7 +153,28 @@ async function initializeApp() {
     }, { requiresAuth: true, permissions: ['maintenance.view'] })
     .addRoute('/ai', async (route) => {
       await showAIAssistantPage(route);
-    }, { requiresAuth: true, permissions: ['ai.use'] });
+    }, { requiresAuth: true, permissions: ['ai.use'] })
+    .addRoute('/housing', async (route) => {
+      await showHousingDashboardPage(route);
+    }, { requiresAuth: true, permissions: ['housing.view'] })
+    .addRoute('/housing/housings', async (route) => {
+      await showHousingListPage(route);
+    }, { requiresAuth: true, permissions: ['housing.view'] })
+    .addRoute('/housing/occupancies', async (route) => {
+      await showHousingOccupanciesPage(route);
+    }, { requiresAuth: true, permissions: ['housing.view'] })
+    .addRoute('/housing/planning', async (route) => {
+      await showHousingPlanningPage(route);
+    }, { requiresAuth: true, permissions: ['housing.view'] })
+    .addRoute('/housing/cleaning', async (route) => {
+      await showHousingCleaningPage(route);
+    }, { requiresAuth: true, permissions: ['housing.view'] })
+    .addRoute('/housing/occupants', async (route) => {
+      await showHousingOccupantsPage(route);
+    }, { requiresAuth: true, permissions: ['housing.view'] })
+    .addRoute('/housing/unavailabilities', async (route) => {
+      await showHousingUnavailabilitiesPage(route);
+    }, { requiresAuth: true, permissions: ['housing.view'] });
 
   moduleRoutes.forEach(module => {
     if (module === 'dashboard' || module === 'administration' || module === 'buildings' || module === 'equipment') return;
@@ -303,6 +338,62 @@ async function ensureAIAssistantPage() {
     await aiAssistantPage.initialize();
   }
   return aiAssistantPage;
+}
+
+async function ensureHousingDashboardPage() {
+  if (!housingDashboardPage) {
+    housingDashboardPage = createHousingDashboardPage(router);
+    await housingDashboardPage.initialize();
+  }
+  return housingDashboardPage;
+}
+
+async function ensureHousingListPage() {
+  if (!housingListPage) {
+    housingListPage = createHousingListPage(router);
+    await housingListPage.initialize();
+  }
+  return housingListPage;
+}
+
+async function ensureHousingOccupanciesPage() {
+  if (!housingOccupanciesPage) {
+    housingOccupanciesPage = createHousingOccupanciesPage(router);
+    await housingOccupanciesPage.initialize();
+  }
+  return housingOccupanciesPage;
+}
+
+async function ensureHousingPlanningPage() {
+  if (!housingPlanningPage) {
+    housingPlanningPage = createHousingPlanningPage(router);
+    await housingPlanningPage.initialize();
+  }
+  return housingPlanningPage;
+}
+
+async function ensureHousingCleaningPage() {
+  if (!housingCleaningPage) {
+    housingCleaningPage = createHousingCleaningPage(router);
+    await housingCleaningPage.initialize();
+  }
+  return housingCleaningPage;
+}
+
+async function ensureHousingOccupantsPage() {
+  if (!housingOccupantsPage) {
+    housingOccupantsPage = createHousingOccupantsPage(router);
+    await housingOccupantsPage.initialize();
+  }
+  return housingOccupantsPage;
+}
+
+async function ensureHousingUnavailabilitiesPage() {
+  if (!housingUnavailabilitiesPage) {
+    housingUnavailabilitiesPage = createHousingUnavailabilitiesPage(router);
+    await housingUnavailabilitiesPage.initialize();
+  }
+  return housingUnavailabilitiesPage;
 }
 
 async function showAdministrationPage(route) {
@@ -508,6 +599,111 @@ async function showAIAssistantPage(route) {
     page.loadData();
   } catch (error) {
     console.error('Erreur affichage assistant IA:', error);
+    appShell.showError(error);
+  }
+}
+
+async function showHousingDashboardPage(route) {
+  if (!appShell) return;
+  appShell.showLoading();
+
+  try {
+    const page = await ensureHousingDashboardPage();
+    const content = page.render();
+    appShell.showContent(content);
+    page.loadData();
+  } catch (error) {
+    console.error('Erreur affichage tableau de bord hébergements:', error);
+    appShell.showError(error);
+  }
+}
+
+async function showHousingListPage(route) {
+  if (!appShell) return;
+  appShell.showLoading();
+
+  try {
+    const page = await ensureHousingListPage();
+    const content = page.render();
+    appShell.showContent(content);
+    page.loadData();
+  } catch (error) {
+    console.error('Erreur affichage hébergements:', error);
+    appShell.showError(error);
+  }
+}
+
+async function showHousingOccupanciesPage(route) {
+  if (!appShell) return;
+  appShell.showLoading();
+
+  try {
+    const page = await ensureHousingOccupanciesPage();
+    const content = page.render();
+    appShell.showContent(content);
+    page.loadData();
+  } catch (error) {
+    console.error('Erreur affichage occupations:', error);
+    appShell.showError(error);
+  }
+}
+
+async function showHousingPlanningPage(route) {
+  if (!appShell) return;
+  appShell.showLoading();
+
+  try {
+    const page = await ensureHousingPlanningPage();
+    const content = page.render();
+    appShell.showContent(content);
+    page.loadData();
+  } catch (error) {
+    console.error('Erreur affichage planning:', error);
+    appShell.showError(error);
+  }
+}
+
+async function showHousingCleaningPage(route) {
+  if (!appShell) return;
+  appShell.showLoading();
+
+  try {
+    const page = await ensureHousingCleaningPage();
+    const content = page.render();
+    appShell.showContent(content);
+    page.loadData();
+  } catch (error) {
+    console.error('Erreur affichage ménage:', error);
+    appShell.showError(error);
+  }
+}
+
+async function showHousingOccupantsPage(route) {
+  if (!appShell) return;
+  appShell.showLoading();
+
+  try {
+    const page = await ensureHousingOccupantsPage();
+    const content = page.render();
+    appShell.showContent(content);
+    page.loadData();
+  } catch (error) {
+    console.error('Erreur affichage occupants:', error);
+    appShell.showError(error);
+  }
+}
+
+async function showHousingUnavailabilitiesPage(route) {
+  if (!appShell) return;
+  appShell.showLoading();
+
+  try {
+    const page = await ensureHousingUnavailabilitiesPage();
+    const content = page.render();
+    appShell.showContent(content);
+    page.loadData();
+  } catch (error) {
+    console.error('Erreur affichage indisponibilités:', error);
     appShell.showError(error);
   }
 }

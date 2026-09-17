@@ -3406,3 +3406,115 @@
     grid-template-columns: 1fr;
   }
 }
+
+/* ============================================================
+   PLANNING (Hotel-style)
+   ============================================================ */
+
+.planning-wrapper {
+  overflow-x: auto;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+}
+
+.planning-table {
+  border-collapse: collapse;
+  width: 100%;
+  min-width: 800px;
+}
+
+.planning-table th,
+.planning-table td {
+  border: 1px solid var(--border-color);
+  padding: 4px 6px;
+  font-size: var(--font-size-xs);
+  text-align: center;
+}
+
+.planning-housing-col {
+  min-width: 150px;
+  text-align: left !important;
+  background: var(--bg-secondary);
+  position: sticky;
+  left: 0;
+  z-index: 1;
+}
+
+.planning-housing-cell {
+  text-align: left !important;
+  background: var(--bg-primary);
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  min-width: 150px;
+}
+
+.planning-day-col {
+  min-width: 30px;
+  background: var(--bg-secondary);
+  font-weight: 600;
+}
+
+.planning-weekend {
+  background: #f3f4f6;
+}
+
+.planning-today {
+  background: #dbeafe !important;
+}
+
+.planning-cell {
+  min-width: 30px;
+  height: 32px;
+  position: relative;
+}
+
+.planning-cell--pre_reserved { background: #f3f4f6; }
+.planning-cell--confirmed { background: #fef3c7; }
+.planning-cell--in_progress { background: #dbeafe; }
+.planning-cell--completed { background: #d1fae5; }
+.planning-cell--cancelled { background: #fee2e2; }
+
+.planning-marker {
+  font-size: 10px;
+  font-weight: bold;
+}
+
+.planning-arrival { color: #10b981; }
+.planning-departure { color: #ef4444; }
+
+.planning-occupancy {
+  display: block;
+  font-size: 9px;
+  padding: 1px 3px;
+  border-radius: 3px;
+  color: white;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  line-height: 1.4;
+}
+
+/* ============================================================
+   HOUSING SPECIFIC
+   ============================================================ */
+
+.btn-warning {
+  background: #f59e0b;
+  color: white;
+  border: none;
+}
+
+.btn-warning:hover {
+  background: #d97706;
+}
+
+.btn-success {
+  background: #10b981;
+  color: white;
+  border: none;
+}
+
+.btn-success:hover {
+  background: #059669;
+}

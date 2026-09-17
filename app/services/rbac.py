@@ -456,6 +456,12 @@ async def seed_default_rbac(db: AsyncSession) -> None:
         ("maintenance.manage_providers", "Gérer les prestataires", "maintenance"),
         ("maintenance.view_costs", "Voir les coûts de maintenance", "maintenance"),
         ("maintenance.manage", "Administrer le module maintenance", "maintenance"),
+        ("housing.view", "Consulter les hébergements", "housing"),
+        ("housing.manage", "Gérer les hébergements", "housing"),
+        ("housing.manage_occupancies", "Gérer les occupations", "housing"),
+        ("housing.manage_occupants", "Gérer les occupants", "housing"),
+        ("housing.manage_cleaning", "Gérer le ménage", "housing"),
+        ("housing.manage_unavailabilities", "Gérer les indisponibilités", "housing"),
         ("ai.use", "Utiliser l'assistant IA", "ai"),
     ]
     

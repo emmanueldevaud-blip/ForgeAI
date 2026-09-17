@@ -3,6 +3,7 @@ from app.models.ad_integration import ADConfig, ADGroupMapping, ADSyncLog, ADSyn
 from app.models.audit import AuditLog
 from app.models.buildings import Building, Level, Room, RoomType, Site, UsageType
 from app.models.equipment import Equipment, EquipmentType
+from app.models.housing import Housing, Occupant, Occupancy, OccupancyStatusHistory, HousingStatusHistory, Unavailability
 from app.models.module import Module, ModuleConfig, ModuleStatus
 from app.models.maintenance import (
     AIConversation,
@@ -49,6 +50,8 @@ __all__ = [
     "EquipmentType",
     "Group",
     "GroupRole",
+    "Housing",
+    "HousingStatusHistory",
     "Level",
     "MaintenanceContract",
     "MaintenanceCost",
@@ -64,6 +67,9 @@ __all__ = [
     "Module",
     "ModuleConfig",
     "ModuleStatus",
+    "Occupancy",
+    "OccupancyStatusHistory",
+    "Occupant",
     "Permission",
     "PermissionModel",
     "Role",
@@ -72,6 +78,7 @@ __all__ = [
     "RoomType",
     "Site",
     "Todo",
+    "Unavailability",
     "User",
     "UserGroup",
     "UserRole",

@@ -578,6 +578,47 @@ class EquipmentModule(BaseModule):
     async def upgrade(self, db, from_version: str):
         return True
 
+
+class AIModule(BaseModule):
+    def __init__(self):
+        super().__init__(ModuleInfo(
+            code="ai_assistant",
+            name="Assistant IA",
+            description="Assistant intelligent transverse",
+            icon="bot",
+            order=90,
+            status=ModuleStatus.ACTIVE,
+            version="1.0.0",
+            route_path="/ai",
+            component_path="AIAssistant",
+            required_permissions=["ai.use"],
+            is_core=False,
+        ))
+
+    def get_navigation_items(self, user_permissions=None):
+        if user_permissions and (
+            "ai.use" in user_permissions
+            or "*" in user_permissions
+        ):
+            return [{
+                "code": self.info.code,
+                "name": self.info.name,
+                "icon": self.info.icon,
+                "route": self.info.route_path,
+                "order": self.info.order,
+            }]
+        return []
+
+    async def install(self, db):
+        return True
+
+    async def uninstall(self, db):
+        return True
+
+    async def upgrade(self, db, from_version: str):
+        return True
+
+
 def register_all_modules():
     modules = [
         DashboardModule(),
@@ -585,6 +626,7 @@ def register_all_modules():
         EquipmentModule(),
         HousingModule(),
         MaintenanceModule(),
+        AIModule(),
         CleaningModule(),
         PeopleModule(),
         StudiesModule(),

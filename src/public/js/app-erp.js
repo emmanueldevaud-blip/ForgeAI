@@ -17,6 +17,7 @@ import { createMaintenanceProvidersPage } from './pages/MaintenanceProvidersPage
 import { createMaintenanceContractsPage } from './pages/MaintenanceContractsPage.js';
 import { createMaintenanceRefsPage } from './pages/MaintenanceRefsPage.js';
 import { createMaintenanceCalendarPage } from './pages/MaintenanceCalendarPage.js';
+import { createAIAssistantPage } from './pages/AIAssistantPage.js';
 
 const moduleRoutes = [
   'dashboard',
@@ -51,6 +52,7 @@ let maintenanceProvidersPage = null;
 let maintenanceContractsPage = null;
 let maintenanceRefsPage = null;
 let maintenanceCalendarPage = null;
+let aiAssistantPage = null;
 
 async function initializeApp() {
   const app = document.getElementById('app');
@@ -134,7 +136,10 @@ async function initializeApp() {
     }, { requiresAuth: true, permissions: ['maintenance.view'] })
     .addRoute('/maintenance/calendar', async (route) => {
       await showMaintenanceCalendarPage(route);
-    }, { requiresAuth: true, permissions: ['maintenance.view'] });
+    }, { requiresAuth: true, permissions: ['maintenance.view'] })
+    .addRoute('/ai', async (route) => {
+      await showAIAssistantPage(route);
+    }, { requiresAuth: true, permissions: ['ai.use'] });
 
   moduleRoutes.forEach(module => {
     if (module === 'dashboard' || module === 'administration' || module === 'buildings' || module === 'equipment') return;
@@ -290,6 +295,14 @@ async function ensureMaintenanceCalendarPage() {
     await maintenanceCalendarPage.initialize();
   }
   return maintenanceCalendarPage;
+}
+
+async function ensureAIAssistantPage() {
+  if (!aiAssistantPage) {
+    aiAssistantPage = createAIAssistantPage(router);
+    await aiAssistantPage.initialize();
+  }
+  return aiAssistantPage;
 }
 
 async function showAdministrationPage(route) {
@@ -480,6 +493,21 @@ async function showMaintenanceCalendarPage(route) {
     page.loadData();
   } catch (error) {
     console.error('Erreur affichage calendrier maintenance:', error);
+    appShell.showError(error);
+  }
+}
+
+async function showAIAssistantPage(route) {
+  if (!appShell) return;
+  appShell.showLoading();
+
+  try {
+    const page = await ensureAIAssistantPage();
+    const content = page.render();
+    appShell.showContent(content);
+    page.loadData();
+  } catch (error) {
+    console.error('Erreur affichage assistant IA:', error);
     appShell.showError(error);
   }
 }

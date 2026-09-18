@@ -116,13 +116,13 @@ if os.path.exists(frontend_path):
             return FileResponse(index_path)
         return {"message": "Frontend not built"}
 
-SPA_PREFIXES = ("api/", "auth/", "admin/", "docs", "redoc", "openapi", "health", "css/", "js/", "modules/")
+SPA_PREFIXES = ("api/", "auth/", "admin/", "docs", "redoc", "openapi", "health", "css/", "js/", "modules/", "dashboard/")
 
 @app.middleware("http")
 async def spa_fallback_middleware(request: Request, call_next):
     response = await call_next(request)
     if (
-        response.status_code == 401
+        response.status_code in (401, 404)
         and SPA_INDEX
         and request.headers.get("accept", "").startswith("text/html")
         and not any(request.url.path.startswith(f"/{p}") for p in SPA_PREFIXES)

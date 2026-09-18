@@ -9,7 +9,7 @@ import { createBuildingsPage } from './pages/BuildingsPage.js';
 import { createBuildingRefsPage } from './pages/BuildingRefsPage.js';
 import { createEquipmentPage } from './pages/EquipmentPage.js';
 import { createEquipmentRefsPage } from './pages/EquipmentRefsPage.js';
-import { createMaintenanceDashboardPage } from './pages/MaintenanceDashboardPage.js';
+import { createDashboardPage } from './pages/DashboardPage.js';
 import { createMaintenanceRequestsPage } from './pages/MaintenanceRequestsPage.js';
 import { createMaintenanceWorkOrdersPage } from './pages/MaintenanceWorkOrdersPage.js';
 import { createMaintenancePreventivePage } from './pages/MaintenancePreventivePage.js';
@@ -18,7 +18,6 @@ import { createMaintenanceContractsPage } from './pages/MaintenanceContractsPage
 import { createMaintenanceRefsPage } from './pages/MaintenanceRefsPage.js';
 import { createMaintenanceCalendarPage } from './pages/MaintenanceCalendarPage.js';
 import { createAIAssistantPage } from './pages/AIAssistantPage.js';
-import { createHousingDashboardPage } from './pages/HousingDashboardPage.js';
 import { createHousingListPage } from './pages/HousingListPage.js';
 import { createHousingOccupanciesPage } from './pages/HousingOccupanciesPage.js';
 import { createHousingPlanningPage } from './pages/HousingPlanningPage.js';
@@ -46,12 +45,12 @@ const moduleRoutes = [
 ];
 
 let appShell = null;
+let dashboardPage = null;
 let administrationPage = null;
 let buildingsPage = null;
 let buildingRefsPage = null;
 let equipmentPage = null;
 let equipmentRefsPage = null;
-let maintenanceDashboardPage = null;
 let maintenanceRequestsPage = null;
 let maintenanceWorkOrdersPage = null;
 let maintenancePreventivePage = null;
@@ -60,7 +59,6 @@ let maintenanceContractsPage = null;
 let maintenanceRefsPage = null;
 let maintenanceCalendarPage = null;
 let aiAssistantPage = null;
-let housingDashboardPage = null;
 let housingListPage = null;
 let housingOccupanciesPage = null;
 let housingPlanningPage = null;
@@ -95,7 +93,7 @@ async function initializeApp() {
       appShell.showContent(registerPage.render());
     })
     .addRoute('/dashboard', async (route) => {
-      await showModulePage(route);
+      await showDashboardPage(route);
     }, { requiresAuth: true })
     .addRoute('/administration', async (route) => {
       await showAdministrationPage(route);
@@ -128,7 +126,7 @@ async function initializeApp() {
       await showEquipmentRefsPage(route);
     }, { requiresAuth: true, permissions: ['equipment.view'] })
     .addRoute('/maintenance', async (route) => {
-      await showMaintenanceDashboardPage(route);
+      await showMaintenanceRequestsPage(route);
     }, { requiresAuth: true, permissions: ['maintenance.view'] })
     .addRoute('/maintenance/requests', async (route) => {
       await showMaintenanceRequestsPage(route);
@@ -155,7 +153,7 @@ async function initializeApp() {
       await showAIAssistantPage(route);
     }, { requiresAuth: true, permissions: ['ai.use'] })
     .addRoute('/housing', async (route) => {
-      await showHousingDashboardPage(route);
+      await showHousingListPage(route);
     }, { requiresAuth: true, permissions: ['housing.view'] })
     .addRoute('/housing/housings', async (route) => {
       await showHousingListPage(route);
@@ -228,6 +226,14 @@ async function showModulePage(route) {
   }
 }
 
+async function ensureDashboardPage() {
+  if (!dashboardPage) {
+    dashboardPage = createDashboardPage(router);
+    await dashboardPage.initialize();
+  }
+  return dashboardPage;
+}
+
 async function ensureAdministrationPage() {
   if (!administrationPage) {
     administrationPage = createAdministrationPage(router);
@@ -266,14 +272,6 @@ async function ensureEquipmentRefsPage() {
     await equipmentRefsPage.initialize();
   }
   return equipmentRefsPage;
-}
-
-async function ensureMaintenanceDashboardPage() {
-  if (!maintenanceDashboardPage) {
-    maintenanceDashboardPage = createMaintenanceDashboardPage(router);
-    await maintenanceDashboardPage.initialize();
-  }
-  return maintenanceDashboardPage;
 }
 
 async function ensureMaintenanceRequestsPage() {
@@ -340,14 +338,6 @@ async function ensureAIAssistantPage() {
   return aiAssistantPage;
 }
 
-async function ensureHousingDashboardPage() {
-  if (!housingDashboardPage) {
-    housingDashboardPage = createHousingDashboardPage(router);
-    await housingDashboardPage.initialize();
-  }
-  return housingDashboardPage;
-}
-
 async function ensureHousingListPage() {
   if (!housingListPage) {
     housingListPage = createHousingListPage(router);
@@ -394,6 +384,21 @@ async function ensureHousingUnavailabilitiesPage() {
     await housingUnavailabilitiesPage.initialize();
   }
   return housingUnavailabilitiesPage;
+}
+
+async function showDashboardPage(route) {
+  if (!appShell) return;
+  appShell.showLoading();
+
+  try {
+    const page = await ensureDashboardPage();
+    const content = page.render();
+    appShell.showContent(content);
+    page.loadData();
+  } catch (error) {
+    console.error('Erreur affichage tableau de bord:', error);
+    appShell.showError(error);
+  }
 }
 
 async function showAdministrationPage(route) {
@@ -464,21 +469,6 @@ async function showEquipmentRefsPage(route) {
     appShell.showContent(content);
   } catch (error) {
     console.error('Erreur affichage référentiels équipement:', error);
-    appShell.showError(error);
-  }
-}
-
-async function showMaintenanceDashboardPage(route) {
-  if (!appShell) return;
-  appShell.showLoading();
-
-  try {
-    const page = await ensureMaintenanceDashboardPage();
-    const content = page.render();
-    appShell.showContent(content);
-    page.loadData();
-  } catch (error) {
-    console.error('Erreur affichage tableau de bord maintenance:', error);
     appShell.showError(error);
   }
 }
@@ -599,21 +589,6 @@ async function showAIAssistantPage(route) {
     page.loadData();
   } catch (error) {
     console.error('Erreur affichage assistant IA:', error);
-    appShell.showError(error);
-  }
-}
-
-async function showHousingDashboardPage(route) {
-  if (!appShell) return;
-  appShell.showLoading();
-
-  try {
-    const page = await ensureHousingDashboardPage();
-    const content = page.render();
-    appShell.showContent(content);
-    page.loadData();
-  } catch (error) {
-    console.error('Erreur affichage tableau de bord hébergements:', error);
     appShell.showError(error);
   }
 }

@@ -9,10 +9,11 @@ from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
 
-from app.api import auth, audit, buildings, equipment, housing, maintenance, modules, admin
+from app.api import auth, audit, buildings, dashboard, equipment, housing, maintenance, modules, admin
 from app.core.config import get_settings
 from app.db.session import close_db, init_db
 from app.modules import register_all_modules
+from app.services.dashboard import register_dashboard_widgets
 from app.services.rbac import seed_default_rbac
 
 settings = get_settings()
@@ -27,6 +28,7 @@ limiter = Limiter(
 async def lifespan(app: FastAPI):
     await init_db()
     register_all_modules()
+    register_dashboard_widgets()
     from app.db.session import get_db
     async for db in get_db():
         await seed_default_rbac(db)
@@ -95,6 +97,7 @@ app.include_router(modules.router)
 app.include_router(admin.router)
 app.include_router(audit.router)
 app.include_router(buildings.router)
+app.include_router(dashboard.router)
 app.include_router(equipment.router)
 app.include_router(housing.router)
 app.include_router(maintenance.router)

@@ -111,53 +111,46 @@ class HousingModule(BaseModule):
     def get_navigation_items(self, user_permissions=None):
         children = [
             {
-                "code": "housing-dashboard",
-                "name": "Tableau de bord",
-                "icon": "dashboard",
-                "route": "/housing",
-                "order": 0,
-            },
-            {
                 "code": "housing-list",
                 "name": "Hébergements",
                 "icon": "home",
                 "route": "/housing/housings",
-                "order": 1,
+                "order": 0,
             },
             {
                 "code": "housing-occupancies",
                 "name": "Occupations",
                 "icon": "calendar",
                 "route": "/housing/occupancies",
-                "order": 2,
+                "order": 1,
             },
             {
                 "code": "housing-planning",
                 "name": "Planning",
                 "icon": "calendar-days",
                 "route": "/housing/planning",
-                "order": 3,
+                "order": 2,
             },
             {
                 "code": "housing-cleaning",
                 "name": "Ménage",
                 "icon": "sparkles",
                 "route": "/housing/cleaning",
-                "order": 4,
+                "order": 3,
             },
             {
                 "code": "housing-occupants",
                 "name": "Occupants",
                 "icon": "users",
                 "route": "/housing/occupants",
-                "order": 5,
+                "order": 4,
             },
             {
                 "code": "housing-unavailabilities",
                 "name": "Indisponibilités",
                 "icon": "calendar-x",
                 "route": "/housing/unavailabilities",
-                "order": 6,
+                "order": 5,
             },
         ]
 
@@ -199,39 +192,32 @@ class MaintenanceModule(BaseModule):
     def get_navigation_items(self, user_permissions=None):
         children = [
             {
-                "code": "maintenance-dashboard",
-                "name": "Tableau de bord",
-                "icon": "dashboard",
-                "route": "/maintenance",
-                "order": 0,
-            },
-            {
                 "code": "maintenance-requests",
                 "name": "Demandes",
                 "icon": "inbox",
                 "route": "/maintenance/requests",
-                "order": 1,
+                "order": 0,
             },
             {
                 "code": "maintenance-work-orders",
                 "name": "Ordres de travail",
                 "icon": "clipboard",
                 "route": "/maintenance/work-orders",
-                "order": 2,
+                "order": 1,
             },
             {
                 "code": "maintenance-preventive",
                 "name": "Préventif",
                 "icon": "calendar-check",
                 "route": "/maintenance/preventive",
-                "order": 3,
+                "order": 2,
             },
             {
                 "code": "maintenance-calendar",
                 "name": "Calendrier",
                 "icon": "calendar",
                 "route": "/maintenance/calendar",
-                "order": 4,
+                "order": 3,
             },
         ]
 
@@ -244,7 +230,7 @@ class MaintenanceModule(BaseModule):
                 "name": "Prestataires",
                 "icon": "users",
                 "route": "/maintenance/providers",
-                "order": 5,
+                "order": 4,
             })
 
         if user_permissions and (
@@ -256,7 +242,7 @@ class MaintenanceModule(BaseModule):
                 "name": "Contrats",
                 "icon": "file-text",
                 "route": "/maintenance/contracts",
-                "order": 6,
+                "order": 5,
             })
 
         if user_permissions and (
@@ -268,7 +254,7 @@ class MaintenanceModule(BaseModule):
                 "name": "Référentiels",
                 "icon": "database",
                 "route": "/maintenance/refs",
-                "order": 7,
+                "order": 6,
             })
 
         return [{

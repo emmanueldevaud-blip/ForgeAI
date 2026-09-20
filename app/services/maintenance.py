@@ -23,7 +23,7 @@ from app.models.maintenance import (
 )
 from app.models.equipment import Equipment
 from app.models.user import User
-from app.models.buildings import Room, Level, Building, Site
+from app.models.buildings import Room, Building, Site
 from app.services.audit import AuditService
 
 
@@ -80,7 +80,7 @@ async def _build_location_summary(db: AsyncSession, equipment_id: int | None) ->
     result = await db.execute(
         select(Room)
         .options(
-            selectinload(Room.level).selectinload(Level.building).selectinload(Building.site)
+            selectinload(Room.building).selectinload(Building.site)
         )
         .where(Room.id == equipment.room_id)
     )
@@ -88,12 +88,10 @@ async def _build_location_summary(db: AsyncSession, equipment_id: int | None) ->
     if not room:
         return None
     parts = []
-    if room.level and room.level.building and room.level.building.site:
-        parts.append(room.level.building.site.name)
-    if room.level and room.level.building:
-        parts.append(room.level.building.name)
-    if room.level:
-        parts.append(room.level.name)
+    if room.building and room.building.site:
+        parts.append(room.building.site.name)
+    if room.building:
+        parts.append(room.building.name)
     parts.append(room.name)
     return " > ".join(parts)
 

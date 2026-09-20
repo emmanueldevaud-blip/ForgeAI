@@ -462,6 +462,9 @@ async def seed_default_rbac(db: AsyncSession) -> None:
         ("housing.manage_occupants", "Gérer les occupants", "housing"),
         ("housing.manage_cleaning", "Gérer le ménage", "housing"),
         ("housing.manage_unavailabilities", "Gérer les indisponibilités", "housing"),
+        ("housing.manage_planning", "Gérer le planning", "housing"),
+        ("housing.manage_email_templates", "Gérer les modèles d'emails", "housing"),
+        ("housing.send_emails", "Envoyer des emails", "housing"),
         ("ai.use", "Utiliser l'assistant IA", "ai"),
     ]
     

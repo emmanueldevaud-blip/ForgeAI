@@ -3654,6 +3654,71 @@
   line-height: 1.4;
 }
 
+.planning-cell--selected {
+  background: #e0e7ff !important;
+  outline: 2px solid #6366f1;
+}
+
+.planning-cell--drag {
+  background: #dbeafe !important;
+  outline: 1px dashed #3b82f6;
+}
+
+.planning-cleaning-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  margin-left: 2px;
+  vertical-align: middle;
+}
+
+.occupant-list-container {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.occupant-entry {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+}
+
+.occupant-entry .form-control {
+  flex: 1;
+}
+
+.detail-occupant-row + .detail-occupant-row {
+  border-top: 1px solid var(--border-color);
+}
+
+.btn-group .btn.active {
+  background: var(--primary-color, #3b82f6);
+  color: white;
+}
+
+.badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: var(--radius-sm, 4px);
+  font-size: var(--font-size-xs, 11px);
+  font-weight: 600;
+}
+
+.badge-sm {
+  padding: 1px 6px;
+  font-size: 10px;
+}
+
+.checkbox-label {
+  cursor: pointer;
+}
+
+.checkbox-label input[type="checkbox"] {
+  margin: 0;
+}
+
 /* ============================================================
    HOUSING SPECIFIC
    ============================================================ */
@@ -3676,4 +3741,214 @@
 
 .btn-success:hover {
   background: #059669;
+}
+
+/* ============================================================
+   AUDIT PAGE
+   ============================================================ */
+
+.audit-id {
+  font-family: monospace;
+  font-size: var(--font-size-xs);
+  color: var(--color-text-secondary);
+}
+
+.audit-date {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+}
+
+.audit-ip {
+  font-family: monospace;
+  font-size: var(--font-size-xs);
+  color: var(--color-text-secondary);
+}
+
+.audit-detail-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: var(--spacing-4);
+}
+
+.audit-detail-item {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-1);
+}
+
+.audit-detail-label {
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.audit-detail-value {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-primary);
+  line-height: 1.5;
+}
+
+.audit-diff-section {
+  margin-top: var(--spacing-5);
+}
+
+.audit-diff-title {
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-primary);
+  margin-bottom: var(--spacing-2);
+}
+
+.audit-json-block {
+  background: var(--color-bg-secondary);
+  padding: var(--spacing-3) var(--spacing-4);
+  border-radius: var(--radius-md);
+  overflow-x: auto;
+  font-size: var(--font-size-xs);
+  font-family: monospace;
+  line-height: 1.5;
+  max-height: 240px;
+  overflow-y: auto;
+  border: 1px solid var(--color-border-light);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.filter-label {
+  display: block;
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-text-secondary);
+  margin-bottom: var(--spacing-1);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.filters-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--spacing-3);
+  align-items: flex-end;
+}
+
+.filter-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-1);
+  min-width: 140px;
+  flex: 1;
+}
+
+.filter-group.filter-search {
+  flex: 2;
+  min-width: 200px;
+}
+
+.search-input-wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.search-input-wrapper .search-icon {
+  position: absolute;
+  left: var(--spacing-3);
+  color: var(--color-text-secondary);
+  pointer-events: none;
+}
+
+.search-input-wrapper .form-input {
+  padding-left: var(--spacing-8);
+}
+
+.pagination-pages {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-1);
+}
+
+.pagination-ellipsis {
+  padding: 0 var(--spacing-2);
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
+}
+
+.pagination-page {
+  min-width: 32px;
+  text-align: center;
+}
+
+.audit-row {
+  cursor: pointer;
+}
+
+.audit-row:hover {
+  background: var(--color-bg-secondary);
+}
+
+@media (max-width: 767px) {
+  .audit-detail-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .filters-row {
+    flex-direction: column;
+  }
+
+  .filter-group {
+    min-width: 100%;
+  }
+
+  .pagination-pages {
+    display: none;
+  }
+}
+
+.form-section {
+  margin-bottom: 1.5rem;
+  padding-bottom: 1rem;
+  border-bottom: 1px solid var(--color-border, #e5e7eb);
+}
+
+.form-section:last-child {
+  border-bottom: none;
+}
+
+.form-section h3 {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--color-text-secondary, #6b7280);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 0.75rem;
+}
+
+.bed-rooms-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.bed-room-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.bed-room-label {
+  font-weight: 500;
+  min-width: 100px;
+}
+
+.checkbox-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  cursor: pointer;
+}
+
+.modal-lg {
+  max-width: 600px;
 }

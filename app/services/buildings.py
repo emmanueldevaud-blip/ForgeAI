@@ -9,7 +9,6 @@ from sqlalchemy.orm import selectinload
 
 from app.models.buildings import (
     Building,
-    Level,
     Room,
     RoomType,
     Site,
@@ -36,6 +35,43 @@ class BuildingService:
         self.db = db
         self.audit = audit
         self.current_user = current_user
+
+    # ============================================================
+    # CODE GENERATION
+    # ============================================================
+
+    async def _generate_site_code(self) -> str:
+        result = await self.db.execute(
+            select(func.count()).select_from(Site)
+        )
+        count = result.scalar() or 0
+        return f"SITE-{count + 1:04d}"
+
+    async def _generate_building_code(self, site_id: int) -> str:
+        result = await self.db.execute(
+            select(func.count()).select_from(Building).where(Building.site_id == site_id)
+        )
+        count = result.scalar() or 0
+        return f"BAT-{count + 1:04d}"
+
+    async def _generate_room_code(self, building_id: int) -> str:
+        result = await self.db.execute(
+            select(func.count()).select_from(Room).where(Room.building_id == building_id)
+        )
+        count = result.scalar() or 0
+        return f"LOC-{count + 1:04d}"
+
+    async def _generate_referential_code(self, name: str, table_class) -> str:
+        base_code = slugify(name, max_length=30).upper()
+        if not base_code:
+            base_code = "REF"
+        result = await self.db.execute(
+            select(func.count()).select_from(table_class).where(table_class.code.ilike(f"{base_code}%"))
+        )
+        count = result.scalar() or 0
+        if count == 0:
+            return base_code
+        return f"{base_code}-{count + 1}"
 
     # ============================================================
     # USAGE TYPES
@@ -101,13 +137,8 @@ class BuildingService:
         )
         return result.scalar_one_or_none()
 
-    async def get_usage_type_by_code(self, code: str) -> Optional[UsageType]:
-        result = await self.db.execute(
-            select(UsageType).where(UsageType.code == code)
-        )
-        return result.scalar_one_or_none()
-
     async def create_usage_type(self, data: dict) -> Optional[UsageType]:
+        data["code"] = await self._generate_referential_code(data["name"], UsageType)
         usage_type = UsageType(**data)
         self.db.add(usage_type)
         try:
@@ -224,13 +255,8 @@ class BuildingService:
         )
         return result.scalar_one_or_none()
 
-    async def get_room_type_by_code(self, code: str) -> Optional[RoomType]:
-        result = await self.db.execute(
-            select(RoomType).where(RoomType.code == code)
-        )
-        return result.scalar_one_or_none()
-
     async def create_room_type(self, data: dict) -> Optional[RoomType]:
+        data["code"] = await self._generate_referential_code(data["name"], RoomType)
         room_type = RoomType(**data)
         self.db.add(room_type)
         try:
@@ -352,6 +378,7 @@ class BuildingService:
         return result.scalar_one_or_none()
 
     async def create_site(self, data: dict) -> Optional[Site]:
+        data["reference"] = await self._generate_site_code()
         site = Site(**data)
         self.db.add(site)
         try:
@@ -420,7 +447,7 @@ class BuildingService:
     ) -> tuple[List[Building], int]:
         query = select(Building).options(
             selectinload(Building.site),
-            selectinload(Building.levels),
+            selectinload(Building.rooms),
         )
         conditions = []
 
@@ -474,14 +501,15 @@ class BuildingService:
             select(Building)
             .options(
                 selectinload(Building.site),
-                selectinload(Building.levels).selectinload(Level.rooms).selectinload(Room.room_type),
-                selectinload(Building.levels).selectinload(Level.rooms).selectinload(Room.usage_type),
+                selectinload(Building.rooms).selectinload(Room.room_type),
+                selectinload(Building.rooms).selectinload(Room.usage_type),
             )
             .where(Building.id == building_id)
         )
         return result.scalar_one_or_none()
 
     async def create_building(self, data: dict) -> Optional[Building]:
+        data["reference"] = await self._generate_building_code(data["site_id"])
         building = Building(**data)
         self.db.add(building)
         try:
@@ -535,137 +563,6 @@ class BuildingService:
         return building
 
     # ============================================================
-    # LEVELS
-    # ============================================================
-
-    async def search_levels(
-        self,
-        page: int = 1,
-        page_size: int = 20,
-        search: Optional[str] = None,
-        building_id: Optional[int] = None,
-        is_active: Optional[bool] = None,
-        sort_by: str = "level_order",
-        sort_order: str = "asc",
-    ) -> tuple[List[Level], int]:
-        query = select(Level).options(
-            selectinload(Level.building),
-            selectinload(Level.rooms),
-        )
-        conditions = []
-
-        if search:
-            search_term = f"%{search}%"
-            conditions.append(
-                or_(
-                    Level.reference.ilike(search_term),
-                    Level.name.ilike(search_term),
-                )
-            )
-
-        if building_id is not None:
-            conditions.append(Level.building_id == building_id)
-
-        if is_active is not None:
-            conditions.append(Level.is_active == is_active)
-
-        if conditions:
-            query = query.where(and_(*conditions))
-
-        allowed_sort_fields = {
-            "reference": Level.reference,
-            "name": Level.name,
-            "level_order": Level.level_order,
-            "is_active": Level.is_active,
-            "created_at": Level.created_at,
-            "updated_at": Level.updated_at,
-        }
-        sort_column = allowed_sort_fields.get(sort_by, Level.level_order)
-
-        if sort_order == "desc":
-            query = query.order_by(sort_column.desc())
-        else:
-            query = query.order_by(sort_column.asc())
-
-        count_query = select(func.count()).select_from(Level)
-        if conditions:
-            count_query = count_query.where(and_(*conditions))
-
-        total_result = await self.db.execute(count_query)
-        total = total_result.scalar() or 0
-
-        query = query.offset((page - 1) * page_size).limit(page_size)
-        result = await self.db.execute(query)
-        items = list(result.scalars().unique().all())
-
-        return items, total
-
-    async def get_level(self, level_id: int) -> Optional[Level]:
-        result = await self.db.execute(
-            select(Level)
-            .options(
-                selectinload(Level.building),
-                selectinload(Level.rooms).selectinload(Room.room_type),
-                selectinload(Level.rooms).selectinload(Room.usage_type),
-            )
-            .where(Level.id == level_id)
-        )
-        return result.scalar_one_or_none()
-
-    async def create_level(self, data: dict) -> Optional[Level]:
-        level = Level(**data)
-        self.db.add(level)
-        try:
-            await self.db.commit()
-        except IntegrityError:
-            await self.db.rollback()
-            return None
-        await self.db.refresh(level)
-
-        if self.audit and self.current_user:
-            await self.audit.log(
-                action="create",
-                module="buildings",
-                user=self.current_user,
-                object_type="level",
-                object_id=str(level.id),
-                object_repr=level.name,
-                new_values={"reference": level.reference, "name": level.name, "building_id": level.building_id},
-                status="success",
-            )
-
-        return level
-
-    async def update_level(self, level_id: int, data: dict) -> Optional[Level]:
-        level = await self.get_level(level_id)
-        if not level:
-            return None
-
-        old_values = {"name": level.name, "is_active": level.is_active}
-
-        for key, value in data.items():
-            if value is not None and hasattr(level, key):
-                setattr(level, key, value)
-
-        await self.db.commit()
-        await self.db.refresh(level)
-
-        if self.audit and self.current_user:
-            await self.audit.log(
-                action="update",
-                module="buildings",
-                user=self.current_user,
-                object_type="level",
-                object_id=str(level.id),
-                object_repr=level.name,
-                old_values=old_values,
-                new_values={"name": level.name, "is_active": level.is_active},
-                status="success",
-            )
-
-        return level
-
-    # ============================================================
     # ROOMS
     # ============================================================
 
@@ -674,15 +571,16 @@ class BuildingService:
         page: int = 1,
         page_size: int = 20,
         search: Optional[str] = None,
-        level_id: Optional[int] = None,
+        building_id: Optional[int] = None,
         room_type_id: Optional[int] = None,
         usage_type_id: Optional[int] = None,
         is_active: Optional[bool] = None,
+        used_for_accommodation: Optional[bool] = None,
         sort_by: str = "created_at",
         sort_order: str = "desc",
     ) -> tuple[List[Room], int]:
         query = select(Room).options(
-            selectinload(Room.level),
+            selectinload(Room.building),
             selectinload(Room.room_type),
             selectinload(Room.usage_type),
         )
@@ -697,8 +595,8 @@ class BuildingService:
                 )
             )
 
-        if level_id is not None:
-            conditions.append(Room.level_id == level_id)
+        if building_id is not None:
+            conditions.append(Room.building_id == building_id)
 
         if room_type_id is not None:
             conditions.append(Room.room_type_id == room_type_id)
@@ -708,6 +606,9 @@ class BuildingService:
 
         if is_active is not None:
             conditions.append(Room.is_active == is_active)
+
+        if used_for_accommodation is not None:
+            conditions.append(Room.used_for_accommodation == used_for_accommodation)
 
         if conditions:
             query = query.where(and_(*conditions))
@@ -744,7 +645,7 @@ class BuildingService:
         result = await self.db.execute(
             select(Room)
             .options(
-                selectinload(Room.level),
+                selectinload(Room.building),
                 selectinload(Room.room_type),
                 selectinload(Room.usage_type),
             )
@@ -753,13 +654,19 @@ class BuildingService:
         return result.scalar_one_or_none()
 
     async def create_room(self, data: dict) -> Optional[Room]:
+        data["reference"] = await self._generate_room_code(data["building_id"])
         room = Room(**data)
         self.db.add(room)
         try:
-            await self.db.commit()
+            await self.db.flush()
         except IntegrityError:
             await self.db.rollback()
             return None
+
+        if data.get("used_for_accommodation"):
+            await self._auto_create_housing(room.id)
+
+        await self.db.commit()
 
         if self.audit and self.current_user:
             await self.audit.log(
@@ -769,7 +676,7 @@ class BuildingService:
                 object_type="room",
                 object_id=str(room.id),
                 object_repr=room.name,
-                new_values={"name": room.name, "level_id": room.level_id, "reference": room.reference},
+                new_values={"name": room.name, "building_id": room.building_id, "reference": room.reference},
                 status="success",
             )
 
@@ -780,11 +687,16 @@ class BuildingService:
         if not room:
             return None
 
-        old_values = {"name": room.name, "is_active": room.is_active}
+        old_values = {"name": room.name, "is_active": room.is_active, "used_for_accommodation": room.used_for_accommodation}
+
+        was_accommodation = room.used_for_accommodation
 
         for key, value in data.items():
             if value is not None and hasattr(room, key):
                 setattr(room, key, value)
+
+        if not was_accommodation and room.used_for_accommodation:
+            await self._auto_create_housing(room.id)
 
         await self.db.commit()
 
@@ -797,8 +709,148 @@ class BuildingService:
                 object_id=str(room.id),
                 object_repr=room.name,
                 old_values=old_values,
-                new_values={"name": room.name, "is_active": room.is_active},
+                new_values={"name": room.name, "is_active": room.is_active, "used_for_accommodation": room.used_for_accommodation},
                 status="success",
             )
 
         return await self.get_room(room.id)
+
+    # ============================================================
+    # AUTO HOUSING
+    # ============================================================
+
+    async def _auto_create_housing(self, room_id: int):
+        from app.models.housing import Housing
+        result = await self.db.execute(select(Housing).where(Housing.room_id == room_id))
+        if not result.scalar_one_or_none():
+            housing = Housing(room_id=room_id, capacity=1)
+            self.db.add(housing)
+
+    # ============================================================
+    # COUNT HELPERS
+    # ============================================================
+
+    async def _count_buildings_for_site(self, site_id: int) -> int:
+        stmt = select(func.count(Building.id)).where(Building.site_id == site_id)
+        result = await self.db.execute(stmt)
+        return result.scalar_one()
+
+    async def _count_rooms_for_building(self, building_id: int) -> int:
+        stmt = select(func.count(Room.id)).where(Room.building_id == building_id)
+        result = await self.db.execute(stmt)
+        return result.scalar_one()
+
+    async def _count_equipment_for_room(self, room_id: int) -> int:
+        from app.models.equipment import Equipment
+        stmt = select(func.count(Equipment.id)).where(Equipment.room_id == room_id)
+        result = await self.db.execute(stmt)
+        return result.scalar_one()
+
+    # ============================================================
+    # DELETE
+    # ============================================================
+
+    async def delete_site(self, site_id: int) -> Optional[str]:
+        site = await self.get_site(site_id)
+        if not site:
+            return "Site non trouvé"
+
+        building_count = await self._count_buildings_for_site(site_id)
+        if building_count > 0:
+            return f"Impossible de supprimer ce site : {building_count} bâtiment(s) existent encore"
+
+        if self.audit and self.current_user:
+            await self.audit.log(
+                action="delete",
+                module="buildings",
+                user=self.current_user,
+                object_type="site",
+                object_id=str(site.id),
+                object_repr=site.name,
+                new_values={"reference": site.reference, "name": site.name},
+                status="success",
+            )
+
+        await self.db.delete(site)
+        await self.db.commit()
+        return None
+
+    async def delete_building(self, building_id: int) -> Optional[str]:
+        building = await self.get_building(building_id)
+        if not building:
+            return "Bâtiment non trouvé"
+
+        room_count = await self._count_rooms_for_building(building_id)
+        if room_count > 0:
+            return f"Impossible de supprimer ce bâtiment : {room_count} local(aux) existent encore"
+
+        if self.audit and self.current_user:
+            await self.audit.log(
+                action="delete",
+                module="buildings",
+                user=self.current_user,
+                object_type="building",
+                object_id=str(building.id),
+                object_repr=building.name,
+                new_values={"reference": building.reference, "name": building.name},
+                status="success",
+            )
+
+        await self.db.delete(building)
+        await self.db.commit()
+        return None
+
+    async def delete_room(self, room_id: int) -> Optional[str]:
+        room = await self.get_room(room_id)
+        if not room:
+            return "Local non trouvé"
+
+        equipment_count = await self._count_equipment_for_room(room_id)
+        if equipment_count > 0:
+            return f"Impossible de supprimer ce local : {equipment_count} équipement(s) existent encore"
+
+        if self.audit and self.current_user:
+            await self.audit.log(
+                action="delete",
+                module="buildings",
+                user=self.current_user,
+                object_type="room",
+                object_id=str(room.id),
+                object_repr=room.name,
+                new_values={"reference": room.reference, "name": room.name},
+                status="success",
+            )
+
+        await self.db.delete(room)
+        await self.db.commit()
+        return None
+
+    async def delete_usage_type(self, usage_type_id: int) -> Optional[str]:
+        usage_type = await self.get_usage_type(usage_type_id)
+        if not usage_type:
+            return "Type d'utilisation non trouvé"
+
+        room_count = await self._count_rooms_for_usage_type(usage_type_id)
+        if room_count > 0:
+            return f"Impossible de supprimer ce type : {room_count} local(aux) l'utilisent encore"
+
+        if self.audit and self.current_user:
+            await self.audit.log(
+                action="delete",
+                module="buildings",
+                user=self.current_user,
+                object_type="usage_type",
+                object_id=str(usage_type.id),
+                object_repr=usage_type.name,
+                new_values={"code": usage_type.code, "name": usage_type.name},
+                status="success",
+            )
+
+        await self.db.delete(usage_type)
+        await self.db.commit()
+        return None
+
+    async def _count_rooms_for_usage_type(self, usage_type_id: int) -> int:
+        stmt = select(func.count(Room.id)).where(Room.usage_type_id == usage_type_id)
+        result = await self.db.execute(stmt)
+        return result.scalar_one()

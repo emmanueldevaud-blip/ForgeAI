@@ -5,9 +5,7 @@ import {
   listUsageTypes,
   createUsageType,
   updateUsageType,
-  listRoomTypes,
-  createRoomType,
-  updateRoomType,
+  deleteUsageType,
 } from '../services/buildingsApi.js';
 
 export class BuildingRefsPage {
@@ -17,7 +15,6 @@ export class BuildingRefsPage {
     this.loading = false;
     this.error = null;
 
-    this.currentTab = 'usage-types';
     this.data = [];
     this.total = 0;
     this.page = 1;
@@ -62,14 +59,6 @@ export class BuildingRefsPage {
       { key: 'code', label: 'Code', sortable: true },
       { key: 'name', label: 'Nom', sortable: true },
       { key: 'description', label: 'Description', sortable: false },
-      {
-        key: 'is_active',
-        label: 'Statut',
-        sortable: true,
-        render: (item) => item.is_active
-          ? '<span class="status-badge active">Actif</span>'
-          : '<span class="status-badge inactive">Inactif</span>',
-      },
     ];
   }
 
@@ -78,39 +67,26 @@ export class BuildingRefsPage {
     if (!canManage) return [];
 
     return [
-      {
-        key: 'edit',
-        label: 'Modifier',
-        icon: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>',
-        variant: 'secondary',
-      },
-      {
-        key: 'toggle-active',
-        label: (item) => item.is_active ? 'Désactiver' : 'Activer',
-        icon: (item) => item.is_active
-          ? '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"></line></svg>'
-          : '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>',
-        variant: (item) => item.is_active ? 'danger' : 'success',
-      },
+      { key: 'edit', label: 'Modifier', icon: 'edit', permission: 'building.manage_refs' },
+      { key: 'delete', label: 'Supprimer', icon: 'trash', permission: 'building.manage_refs' },
     ];
   }
 
   _handleTableAction(action, item) {
     if (action === 'edit') {
       this._openModal(item);
-    } else if (action === 'toggle-active') {
-      this._confirmToggleActive(item);
+    } else if (action === 'delete') {
+      this._confirmDelete(item);
     }
   }
 
-  _confirmToggleActive(item) {
-    const action = item.is_active ? 'deactivate' : 'activate';
-    this.pendingAction = { type: action, item };
+  _confirmDelete(item) {
+    this.pendingAction = { type: 'delete', item };
     this.confirmDialog.open({
-      title: item.is_active ? 'Désactiver' : 'Activer',
-      message: `Voulez-vous vraiment ${item.is_active ? 'désactiver' : 'activer'} "${item.name}" ?`,
-      confirmText: item.is_active ? 'Désactiver' : 'Activer',
-      variant: item.is_active ? 'danger' : 'primary',
+      title: 'Supprimer',
+      message: `Voulez-vous vraiment supprimer "${item.name}" ?`,
+      confirmText: 'Supprimer',
+      variant: 'danger',
     });
   }
 
@@ -121,9 +97,12 @@ export class BuildingRefsPage {
     this.pendingAction = null;
 
     try {
-      if (type === 'deactivate' || type === 'activate') {
-        const updateFn = this.currentTab === 'usage-types' ? updateUsageType : updateRoomType;
-        await updateFn(item.id, { is_active: type === 'activate' });
+      if (type === 'delete') {
+        const error = await deleteUsageType(item.id);
+        if (error) {
+          this.showToast(error, 'error');
+          return;
+        }
         await this.loadData();
       }
     } catch (error) {
@@ -134,8 +113,6 @@ export class BuildingRefsPage {
   _openModal(item = null) {
     this.editingItem = item;
     const isEdit = !!item;
-    const title = isEdit ? 'Modifier' : 'Créer';
-    const refLabel = this.currentTab === 'usage-types' ? 'Type de local' : 'Type de pièce';
 
     this.modalOverlay = document.createElement('div');
     this.modalOverlay.className = 'modal-overlay';
@@ -144,12 +121,11 @@ export class BuildingRefsPage {
     modal.className = 'modal';
     modal.setAttribute('role', 'dialog');
     modal.setAttribute('aria-modal', 'true');
-    modal.setAttribute('aria-labelledby', 'ref-modal-title');
 
     modal.innerHTML = `
       <div class="modal-content">
         <div class="modal-header">
-          <h2 id="ref-modal-title">${title} — ${refLabel}</h2>
+          <h2>${isEdit ? 'Modifier' : 'Créer'} — Type de local</h2>
           <button type="button" class="modal-close" aria-label="Fermer" data-action="close-modal">
             <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <line x1="18" y1="6" x2="6" y2="18"></line>
@@ -160,21 +136,6 @@ export class BuildingRefsPage {
         <div class="modal-body">
           <form id="ref-form" class="modal-form">
             <div class="form-group">
-              <label for="ref-code">Code <span class="required">*</span></label>
-              <input
-                type="text"
-                id="ref-code"
-                name="code"
-                required
-                maxlength="50"
-                pattern="[A-Z0-9_]+"
-                title="Majuscules, chiffres et underscores uniquement"
-                value="${this._escapeHtml(item?.code || '')}"
-                ${isEdit ? 'readonly' : ''}
-                placeholder="EX: BUREAUX"
-              >
-            </div>
-            <div class="form-group">
               <label for="ref-name">Nom <span class="required">*</span></label>
               <input
                 type="text"
@@ -183,9 +144,11 @@ export class BuildingRefsPage {
                 required
                 maxlength="100"
                 value="${this._escapeHtml(item?.name || '')}"
-                placeholder="Nom du référentiel"
+                placeholder="Nom du type de local"
+                data-name-input
               >
             </div>
+            <input type="hidden" name="code" data-code-input value="${this._escapeHtml(item?.code || '')}">
             <div class="form-group">
               <label for="ref-description">Description</label>
               <textarea
@@ -205,18 +168,6 @@ export class BuildingRefsPage {
                 value="${item?.sort_order ?? 0}"
               >
             </div>
-            ${isEdit ? `
-              <div class="form-group">
-                <label class="checkbox-label">
-                  <input
-                    type="checkbox"
-                    name="is_active"
-                    ${item?.is_active ? 'checked' : ''}
-                  >
-                  Actif
-                </label>
-              </div>
-            ` : ''}
           </form>
         </div>
         <div class="form-actions">
@@ -249,6 +200,22 @@ export class BuildingRefsPage {
       e.preventDefault();
       this._handleFormSubmit(form);
     });
+
+    if (!isEdit) {
+      const nameInput = modal.querySelector('[data-name-input]');
+      const codeInput = modal.querySelector('[data-code-input]');
+      if (nameInput && codeInput) {
+        nameInput.addEventListener('input', () => {
+          const code = nameInput.value
+            .trim()
+            .toUpperCase()
+            .replace(/[^A-Z0-9\s]/g, '')
+            .replace(/\s+/g, '_')
+            .substring(0, 50);
+          codeInput.value = code;
+        });
+      }
+    }
   }
 
   _handleModalKeydown = (e) => {
@@ -282,18 +249,11 @@ export class BuildingRefsPage {
       return;
     }
 
-    if (this.editingItem) {
-      data.is_active = form.querySelector('[name="is_active"]')?.checked ?? true;
-    }
-
-    const createFn = this.currentTab === 'usage-types' ? createUsageType : createRoomType;
-    const updateFn = this.currentTab === 'usage-types' ? updateUsageType : updateRoomType;
-
     try {
       if (this.editingItem) {
-        await updateFn(this.editingItem.id, data);
+        await updateUsageType(this.editingItem.id, data);
       } else {
-        await createFn(data);
+        await createUsageType(data);
       }
       this._closeModal();
       await this.loadData();
@@ -307,8 +267,6 @@ export class BuildingRefsPage {
     this.error = null;
     this._renderTable();
 
-    const listFn = this.currentTab === 'usage-types' ? listUsageTypes : listRoomTypes;
-
     try {
       const params = {
         page: this.page,
@@ -318,7 +276,7 @@ export class BuildingRefsPage {
       };
       if (this.search) params.search = this.search;
 
-      const response = await listFn(params);
+      const response = await listUsageTypes(params);
       this.data = response.items || [];
       this.total = response.total || 0;
       this.totalPages = response.total_pages || Math.ceil(this.total / this.pageSize) || 1;
@@ -360,35 +318,6 @@ export class BuildingRefsPage {
     }
   }
 
-  _switchTab(tabId) {
-    this.currentTab = tabId;
-    this.page = 1;
-    this.search = '';
-    this.sortBy = 'sort_order';
-    this.sortOrder = 'asc';
-
-    this.element?.querySelectorAll('[data-ref-tab]').forEach(btn => {
-      btn.classList.toggle('active', btn.dataset.refTab === tabId);
-      btn.setAttribute('aria-selected', btn.dataset.refTab === tabId);
-    });
-
-    const searchInput = this.element?.querySelector('[data-search-input]');
-    if (searchInput) searchInput.value = '';
-
-    this.table = new Table({
-      columns: this._getColumns(),
-      actions: this._getActions(),
-      onAction: (action, item) => this._handleTableAction(action, item),
-      onSort: (sortBy, sortOrder) => {
-        this.sortBy = sortBy;
-        this.sortOrder = sortOrder;
-        this.loadData();
-      },
-    });
-
-    this.loadData();
-  }
-
   render() {
     this.element = document.createElement('div');
     this.element.className = 'building-refs-page';
@@ -398,7 +327,7 @@ export class BuildingRefsPage {
     this.element.innerHTML = `
       <div class="users-header">
         <div class="users-title-area">
-          <h1 class="users-title">Référentiels Bâtiment</h1>
+          <h1 class="users-title">Types de locaux</h1>
           <p class="users-count" aria-live="polite">
             ${this.total} élément${this.total > 1 ? 's' : ''}
           </p>
@@ -412,25 +341,6 @@ export class BuildingRefsPage {
             Nouveau
           </button>
         ` : ''}
-      </div>
-
-      <div class="admin-tabs" role="tablist" aria-label="Types de référentiels">
-        <button
-          class="admin-tab ${this.currentTab === 'usage-types' ? 'active' : ''}"
-          role="tab"
-          data-ref-tab="usage-types"
-          aria-selected="${this.currentTab === 'usage-types'}"
-        >
-          Types de locaux
-        </button>
-        <button
-          class="admin-tab ${this.currentTab === 'room-types' ? 'active' : ''}"
-          role="tab"
-          data-ref-tab="room-types"
-          aria-selected="${this.currentTab === 'room-types'}"
-        >
-          Types de pièces
-        </button>
       </div>
 
       <div class="users-toolbar">
@@ -481,10 +391,6 @@ export class BuildingRefsPage {
         </div>
       </div>
     `;
-
-    this.element.querySelectorAll('[data-ref-tab]').forEach(btn => {
-      btn.addEventListener('click', () => this._switchTab(btn.dataset.refTab));
-    });
 
     this.element.querySelector('[data-action="create-ref"]')?.addEventListener('click', () => this._openModal());
 

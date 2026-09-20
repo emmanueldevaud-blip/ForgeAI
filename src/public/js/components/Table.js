@@ -147,11 +147,14 @@ _renderActions(item) {
     const visible = !action.visible || action.visible(item);
     if (!visible) return '';
 
-    const title = action.title || action.label;
-    const icon = icons[action.icon] || this._escapeHtml(action.icon || '');
+    const resolvedIcon = typeof action.icon === 'function' ? action.icon(item) : action.icon;
+    const resolvedVariant = typeof action.variant === 'function' ? action.variant(item) : action.variant;
+    const resolvedLabel = typeof action.label === 'function' ? action.label(item) : action.label;
+    const title = action.title || resolvedLabel;
+    const icon = icons[resolvedIcon] || this._escapeHtml(resolvedIcon || '');
 
     return '<button type="button" class="action-btn ' +
-      (action.variant ? 'btn-' + action.variant : '') +
+      (resolvedVariant ? 'btn-' + resolvedVariant : '') +
       '" data-action="' + action.key +
       '" data-id="' + this.getItemId(item) +
       '" aria-label="' + this._escapeHtml(title) +

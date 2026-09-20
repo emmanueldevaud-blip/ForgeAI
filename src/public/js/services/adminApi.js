@@ -208,4 +208,8 @@ export async function getAuditLog(logId) {
   return adminApi.get(`/audit-logs/${logId}`);
 }
 
+export async function getAuditFilterValues() {
+  return adminApi.get('/audit-logs/filter-values');
+}
+
 export { adminApi, ApiError };

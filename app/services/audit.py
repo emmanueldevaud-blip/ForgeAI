@@ -172,5 +172,23 @@ class AuditService:
         return result.scalar_one()
 
 
+    async def get_filter_values(self) -> dict:
+        from sqlalchemy import distinct
+        modules_result = await self.db.execute(
+            select(distinct(AuditLog.module)).where(AuditLog.module.isnot(None)).order_by(AuditLog.module)
+        )
+        actions_result = await self.db.execute(
+            select(distinct(AuditLog.action)).where(AuditLog.action.isnot(None)).order_by(AuditLog.action)
+        )
+        usernames_result = await self.db.execute(
+            select(distinct(AuditLog.username)).where(AuditLog.username.isnot(None)).order_by(AuditLog.username)
+        )
+        return {
+            "modules": [r[0] for r in modules_result.all()],
+            "actions": [r[0] for r in actions_result.all()],
+            "usernames": [r[0] for r in usernames_result.all()],
+        }
+
+
 async def get_audit_service(db: AsyncSession) -> AuditService:
     return AuditService(db)

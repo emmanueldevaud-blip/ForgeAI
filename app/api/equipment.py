@@ -127,6 +127,18 @@ async def update_equipment_type(
     return EquipmentTypeResponse.model_validate(equipment_type)
 
 
+@router.delete("/types/{equipment_type_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_equipment_type(
+    equipment_type_id: int,
+    current_user: User = Depends(require_permission("equipment.manage_referentials")),
+    db: AsyncSession = Depends(get_db),
+):
+    service = EquipmentService(db, current_user=current_user)
+    error = await service.delete_equipment_type(equipment_type_id)
+    if error:
+        raise HTTPException(status_code=400, detail=error)
+
+
 # ============================================================
 # EQUIPMENTS
 # ============================================================

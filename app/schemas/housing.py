@@ -14,6 +14,8 @@ class HousingBase(BaseModel):
     housing_type: Optional[str] = Field(None, max_length=50)
     capacity: int = Field(1, ge=1)
     beds: Optional[int] = Field(None, ge=0)
+    nb_rooms: int = Field(1, ge=0)
+    bed_configuration: Optional[str] = None
     bathrooms: Optional[int] = Field(None, ge=0)
     has_kitchen: bool = False
     has_balcony: bool = False
@@ -30,6 +32,8 @@ class HousingUpdate(BaseModel):
     housing_type: Optional[str] = Field(None, max_length=50)
     capacity: Optional[int] = Field(None, ge=1)
     beds: Optional[int] = Field(None, ge=0)
+    nb_rooms: Optional[int] = Field(None, ge=0)
+    bed_configuration: Optional[str] = None
     bathrooms: Optional[int] = Field(None, ge=0)
     has_kitchen: Optional[bool] = None
     has_balcony: Optional[bool] = None
@@ -81,6 +85,8 @@ class HousingResponse(BaseModel):
     housing_type: Optional[str] = None
     capacity: int
     beds: Optional[int] = None
+    nb_rooms: int = 1
+    bed_configuration: Optional[str] = None
     bathrooms: Optional[int] = None
     has_kitchen: bool
     has_balcony: bool
@@ -187,7 +193,7 @@ class OccupantListResponse(BaseModel):
 
 class OccupancyBase(BaseModel):
     housing_id: int
-    occupant_id: int
+    occupant_ids: List[int] = Field(default_factory=list, min_length=1)
     arrival_date: datetime
     departure_date: datetime
     purpose: Optional[str] = Field(None, max_length=200)
@@ -200,7 +206,7 @@ class OccupancyCreate(OccupancyBase):
 
 
 class OccupancyUpdate(BaseModel):
-    occupant_id: Optional[int] = None
+    occupant_ids: Optional[List[int]] = None
     arrival_date: Optional[datetime] = None
     departure_date: Optional[datetime] = None
     actual_arrival: Optional[datetime] = None
@@ -216,8 +222,8 @@ class OccupancyResponse(BaseModel):
     id: int
     housing_id: int
     housing: Optional[HousingResponse] = None
-    occupant_id: int
-    occupant: Optional[OccupantResponse] = None
+    occupants: List[OccupantResponse] = []
+    occupant_ids: List[int] = []
     status: str
     arrival_date: datetime
     departure_date: datetime
@@ -326,7 +332,212 @@ class HousingDashboard(BaseModel):
 
 
 # ============================================================
-# PLANNING
+# CLEANING
+# ============================================================
+
+class CleaningBase(BaseModel):
+    housing_id: int
+    occupancy_id: Optional[int] = None
+    type: str = Field(default="exit", pattern="^(exit|intermediate|deep)$")
+    status: str = Field(default="planned", pattern="^(planned|in_progress|to_check|checked|completed|cancelled)$")
+    scheduled_date: date
+    scheduled_time_start: Optional[str] = Field(None, pattern="^([01]?[0-9]|2[0-3]):[0-5][0-9]$")
+    scheduled_time_end: Optional[str] = Field(None, pattern="^([01]?[0-9]|2[0-3]):[0-5][0-9]$")
+    assigned_to: Optional[int] = None
+    notes: Optional[str] = None
+    checklist: Optional[str] = None
+
+
+class CleaningCreate(CleaningBase):
+    pass
+
+
+class CleaningUpdate(BaseModel):
+    housing_id: Optional[int] = None
+    occupancy_id: Optional[int] = None
+    type: Optional[str] = Field(None, pattern="^(exit|intermediate|deep)$")
+    status: Optional[str] = Field(None, pattern="^(planned|in_progress|to_check|checked|completed|cancelled)$")
+    scheduled_date: Optional[date] = None
+    scheduled_time_start: Optional[str] = Field(None, pattern="^([01]?[0-9]|2[0-3]):[0-5][0-9]$")
+    scheduled_time_end: Optional[str] = Field(None, pattern="^([01]?[0-9]|2[0-3]):[0-5][0-9]$")
+    assigned_to: Optional[int] = None
+    notes: Optional[str] = None
+    checklist: Optional[str] = None
+
+
+class CleaningResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    housing_id: int
+    housing: Optional[HousingResponse] = None
+    occupancy_id: Optional[int] = None
+    occupancy: Optional[OccupancyResponse] = None
+    type: str
+    status: str
+    scheduled_date: date
+    scheduled_time_start: Optional[str] = None
+    scheduled_time_end: Optional[str] = None
+    actual_start: Optional[datetime] = None
+    actual_end: Optional[datetime] = None
+    assigned_to: Optional[int] = None
+    assigned_user: Optional[dict] = None
+    notes: Optional[str] = None
+    checklist: Optional[str] = None
+    created_by: Optional[int] = None
+    created_at: datetime
+    updated_at: datetime
+
+
+class CleaningListParams(BaseModel):
+    page: int = 1
+    page_size: int = 20
+    housing_id: Optional[int] = None
+    occupancy_id: Optional[int] = None
+    type: Optional[str] = None
+    status: Optional[str] = None
+    date_from: Optional[date] = None
+    date_to: Optional[date] = None
+    assigned_to: Optional[int] = None
+    sort_by: str = "scheduled_date"
+    sort_order: str = "asc"
+
+
+class CleaningListResponse(BaseModel):
+    items: List[CleaningResponse]
+    total: int
+    page: int
+    page_size: int
+    total_pages: int
+
+
+# ============================================================
+# EMAIL TEMPLATES
+# ============================================================
+
+class EmailTemplateBase(BaseModel):
+    name: str = Field(..., min_length=1, max_length=100)
+    template_type: str = Field(..., pattern="^(confirmation|reminder|custom)$")
+    subject: str = Field(..., min_length=1, max_length=200)
+    body_html: str = Field(..., min_length=1)
+    body_text: Optional[str] = None
+    is_default: bool = False
+    is_active: bool = True
+
+
+class EmailTemplateCreate(EmailTemplateBase):
+    pass
+
+
+class EmailTemplateUpdate(BaseModel):
+    name: Optional[str] = Field(None, min_length=1, max_length=100)
+    template_type: Optional[str] = Field(None, pattern="^(confirmation|reminder|custom)$")
+    subject: Optional[str] = Field(None, min_length=1, max_length=200)
+    body_html: Optional[str] = None
+    body_text: Optional[str] = None
+    is_default: Optional[bool] = None
+    is_active: Optional[bool] = None
+
+
+class EmailTemplateAttachmentResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    template_id: int
+    filename: str
+    file_path: str
+    mime_type: Optional[str] = None
+    file_size: Optional[int] = None
+    created_at: datetime
+
+
+class EmailTemplateResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    name: str
+    template_type: str
+    subject: str
+    body_html: str
+    body_text: Optional[str] = None
+    is_default: bool
+    is_active: bool
+    attachments: List[EmailTemplateAttachmentResponse] = []
+    created_by: Optional[int] = None
+    created_at: datetime
+    updated_at: datetime
+
+
+class EmailTemplateListParams(BaseModel):
+    page: int = 1
+    page_size: int = 20
+    template_type: Optional[str] = None
+    is_active: Optional[bool] = None
+    sort_by: str = "name"
+    sort_order: str = "asc"
+
+
+class EmailTemplateListResponse(BaseModel):
+    items: List[EmailTemplateResponse]
+    total: int
+    page: int
+    page_size: int
+    total_pages: int
+
+
+# ============================================================
+# EMAIL LOG
+# ============================================================
+
+class EmailLogResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    template_id: Optional[int] = None
+    occupancy_id: Optional[int] = None
+    recipient_email: str
+    recipient_name: Optional[str] = None
+    subject: str
+    body_text: str
+    status: str
+    error_message: Optional[str] = None
+    sent_at: Optional[datetime] = None
+    created_at: datetime
+
+
+class EmailLogListParams(BaseModel):
+    page: int = 1
+    page_size: int = 20
+    template_id: Optional[int] = None
+    occupancy_id: Optional[int] = None
+    status: Optional[str] = None
+    date_from: Optional[date] = None
+    date_to: Optional[date] = None
+    sort_by: str = "created_at"
+    sort_order: str = "desc"
+
+
+class EmailLogListResponse(BaseModel):
+    items: List[EmailLogResponse]
+    total: int
+    page: int
+    page_size: int
+    total_pages: int
+
+
+# ============================================================
+# QUICK OCCUPANT CREATION
+# ============================================================
+
+class OccupantQuickCreate(BaseModel):
+    first_name: str = Field(..., min_length=1, max_length=100)
+    last_name: str = Field(..., min_length=1, max_length=100)
+    email: Optional[str] = Field(None, max_length=200)
+    phone: Optional[str] = Field(None, max_length=50)
+
+
+# ============================================================
+# PLANNING (Enhanced)
 # ============================================================
 
 class PlanningEntry(BaseModel):
@@ -334,11 +545,13 @@ class PlanningEntry(BaseModel):
     housing_id: int
     housing_name: str
     housing_reference: str
-    occupant_name: str
+    occupants: List[dict] = []  # [{id, first_name, last_name, email, is_primary}]
     status: str
     arrival_date: datetime
     departure_date: datetime
     nb_persons: int
+    cleaning_status: Optional[str] = None  # planned, in_progress, etc.
+    has_cleaning_planned: bool = False
 
 
 class PlanningResponse(BaseModel):

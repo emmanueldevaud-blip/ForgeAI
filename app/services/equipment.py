@@ -7,7 +7,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.models.buildings import Building, Level, Room, Site
+from app.models.buildings import Building, Room, Site
 from app.models.equipment import Equipment, EquipmentType
 from app.models.user import User
 from app.services.audit import AuditService
@@ -183,6 +183,34 @@ class EquipmentService:
             )
         return equipment_type
 
+    async def delete_equipment_type(self, equipment_type_id: int) -> Optional[str]:
+        equipment_type = await self.get_equipment_type(equipment_type_id)
+        if not equipment_type:
+            return "Type d'équipement non trouvé"
+
+        from sqlalchemy import func
+        stmt = select(func.count(Equipment.id)).where(Equipment.equipment_type_id == equipment_type_id)
+        result = await self.db.execute(stmt)
+        count = result.scalar_one()
+        if count > 0:
+            return f"Impossible de supprimer ce type : {count} équipement(s) l'utilisent encore"
+
+        if self.audit and self.current_user:
+            await self.audit.log(
+                action="delete",
+                module="equipment",
+                user=self.current_user,
+                object_type="equipment_type",
+                object_id=str(equipment_type.id),
+                object_repr=equipment_type.name,
+                new_values={"code": equipment_type.code, "name": equipment_type.name},
+                status="success",
+            )
+
+        await self.db.delete(equipment_type)
+        await self.db.commit()
+        return None
+
     # ============================================================
     # EQUIPMENTS
     # ============================================================
@@ -201,7 +229,7 @@ class EquipmentService:
     ) -> tuple[List[Equipment], int]:
         query = select(Equipment).options(
             selectinload(Equipment.equipment_type),
-            selectinload(Equipment.room).selectinload(Room.level).selectinload(Level.building).selectinload(Building.site),
+            selectinload(Equipment.room).selectinload(Room.building).selectinload(Building.site),
         )
         conditions = []
 
@@ -259,7 +287,7 @@ class EquipmentService:
             select(Equipment)
             .options(
                 selectinload(Equipment.equipment_type),
-                selectinload(Equipment.room).selectinload(Room.level).selectinload(Level.building).selectinload(Building.site),
+                selectinload(Equipment.room).selectinload(Room.building).selectinload(Building.site),
             )
             .where(Equipment.id == equipment_id)
         )

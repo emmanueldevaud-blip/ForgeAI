@@ -1,9 +1,11 @@
 import { Table } from '../components/Table.js';
 import { authStore } from '../stores/auth.js';
+import { ConfirmDialog } from '../components/ConfirmDialog.js';
 import {
   listEquipmentTypes,
   createEquipmentType,
   updateEquipmentType,
+  deleteEquipmentType,
 } from '../services/equipmentApi.js';
 
 export class EquipmentRefsPage {
@@ -19,6 +21,8 @@ export class EquipmentRefsPage {
     this.sortOrder = 'asc';
     this.search = '';
     this.table = null;
+    this.confirmDialog = null;
+    this.pendingAction = null;
     this._authUnsubscribe = null;
   }
 
@@ -28,14 +32,6 @@ export class EquipmentRefsPage {
         { key: 'code', label: 'Code', sortable: true },
         { key: 'name', label: 'Nom', sortable: true },
         { key: 'sort_order', label: 'Ordre', sortable: true },
-        {
-          key: 'is_active',
-          label: 'Statut',
-          sortable: true,
-          render: (item) => item.is_active
-            ? '<span class="status-badge active">Actif</span>'
-            : '<span class="status-badge inactive">Inactif</span>',
-        },
       ],
       actions: [
         {
@@ -44,9 +40,20 @@ export class EquipmentRefsPage {
           icon: 'edit',
           disabled: () => !authStore.hasPermission('equipment.manage_referentials'),
         },
+        {
+          key: 'delete',
+          label: 'Supprimer',
+          icon: 'trash',
+          disabled: () => !authStore.hasPermission('equipment.manage_referentials'),
+        },
       ],
       onAction: (action, item) => this._handleAction(action, item),
       emptyMessage: 'Aucun type d\'équipement trouvé',
+    });
+
+    this.confirmDialog = new ConfirmDialog({
+      onConfirm: () => this._executeConfirmedAction(),
+      onCancel: () => { this.pendingAction = null; },
     });
 
     this._authUnsubscribe = authStore.subscribe(() => {
@@ -179,6 +186,29 @@ export class EquipmentRefsPage {
   async _handleAction(action, item) {
     if (action === 'edit') {
       await this._showModal(item);
+    } else if (action === 'delete') {
+      this.pendingAction = { type: 'delete', item };
+      this.confirmDialog.open({
+        title: 'Supprimer',
+        message: `Voulez-vous vraiment supprimer "${item.name}" ?`,
+        confirmText: 'Supprimer',
+        variant: 'danger',
+      });
+    }
+  }
+
+  async _executeConfirmedAction() {
+    if (!this.pendingAction) return;
+    const { type, item } = this.pendingAction;
+    this.pendingAction = null;
+
+    try {
+      if (type === 'delete') {
+        await deleteEquipmentType(item.id);
+        await this.loadData();
+      }
+    } catch (error) {
+      this._showToast(error.message || 'Erreur lors de l\'opération', 'error');
     }
   }
 
@@ -199,10 +229,18 @@ export class EquipmentRefsPage {
             <form data-type-form>
             ${isEdit ? `
             <label><span>Code</span><input name="code" value="${item.code}" readonly></label>
-            ` : ''}
-            <label><span>Nom *</span><input name="name" value="${isEdit ? item.name : ''}" required maxlength="100"></label>
+            ` : `
+            <input type="hidden" name="code" data-code-input value="">
+            `}
+            <label><span>Nom *</span><input name="name" value="${isEdit ? item.name : ''}" required maxlength="100" data-name-input></label>
             <label><span>Description</span><textarea name="description" rows="3">${isEdit ? (item.description || '') : ''}</textarea></label>
             <label><span>Ordre d'affichage</span><input type="number" name="sort_order" min="0" value="${isEdit ? item.sort_order : 0}"></label>
+            ${isEdit ? `
+            <label class="checkbox-label">
+              <input type="checkbox" name="is_active" ${item.is_active ? 'checked' : ''}>
+              Actif
+            </label>
+            ` : ''}
           </form>
         </div>
         <div class="modal-footer">
@@ -218,6 +256,22 @@ export class EquipmentRefsPage {
     modal.querySelector('[data-action="close-modal"]').addEventListener('click', () => modal.remove());
     modal.addEventListener('click', (e) => { if (e.target === modal) modal.remove(); });
 
+    if (!isEdit) {
+      const nameInput = modal.querySelector('[data-name-input]');
+      const codeInput = modal.querySelector('[data-code-input]');
+      if (nameInput && codeInput) {
+        nameInput.addEventListener('input', () => {
+          const code = nameInput.value
+            .trim()
+            .toUpperCase()
+            .replace(/[^A-Z0-9\s]/g, '')
+            .replace(/\s+/g, '_')
+            .substring(0, 50);
+          codeInput.value = code;
+        });
+      }
+    }
+
     modal.querySelector('[data-action="save-type"]').addEventListener('click', async () => {
       const formData = new FormData(modal.querySelector('[data-type-form]'));
       const data = {
@@ -231,10 +285,15 @@ export class EquipmentRefsPage {
         return;
       }
 
+      if (isEdit) {
+        data.is_active = modal.querySelector('[name="is_active"]')?.checked ?? true;
+      }
+
       try {
         if (isEdit) {
           await updateEquipmentType(item.id, data);
         } else {
+          data.code = formData.get('code')?.trim().toUpperCase();
           await createEquipmentType(data);
         }
         modal.remove();

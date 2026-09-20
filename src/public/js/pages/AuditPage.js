@@ -1,5 +1,5 @@
 import { authStore } from '../stores/auth.js';
-import { listAuditLogs } from '../services/adminApi.js';
+import { listAuditLogs, getAuditFilterValues } from '../services/adminApi.js';
 
 export class AuditPage {
   constructor(router) {
@@ -26,18 +26,22 @@ export class AuditPage {
       end_date: '',
     };
 
-    this.modules = [];
-    this.actions = [];
-
+    this.filterValues = { modules: [], actions: [], usernames: [] };
     this._authUnsubscribe = null;
     this.selectedLog = null;
-    this.detailModal = null;
+    this._searchTimeout = null;
   }
 
   async initialize() {
     this._authUnsubscribe = authStore.subscribe(() => {
       this.updateButtonVisibility();
     });
+
+    try {
+      this.filterValues = await getAuditFilterValues();
+    } catch (e) {
+      console.warn('Erreur chargement filtres audit:', e);
+    }
 
     await this.loadLogs();
   }
@@ -71,7 +75,6 @@ export class AuditPage {
       this.pageSize = response.page_size || 50;
       this.totalPages = response.total_pages || 1;
 
-      this.extractFilterOptions();
       this.error = null;
     } catch (error) {
       console.error('Erreur chargement audit:', error);
@@ -82,21 +85,19 @@ export class AuditPage {
     } finally {
       this.loading = false;
       this.renderTableState();
+      this.updatePagination();
+      this.updateCount();
     }
   }
 
-  extractFilterOptions() {
-    const moduleSet = new Set();
-    const actionSet = new Set();
-    this.logs.forEach(log => {
-      if (log.module) moduleSet.add(log.module);
-      if (log.action) actionSet.add(log.action);
-    });
-    this.modules = Array.from(moduleSet).sort();
-    this.actions = Array.from(actionSet).sort();
+  handleSearch(field, value) {
+    this.filters[field] = value;
+    this.page = 1;
+    if (this._searchTimeout) clearTimeout(this._searchTimeout);
+    this._searchTimeout = setTimeout(() => this.loadLogs(), 300);
   }
 
-  handleSearch(field, value) {
+  handleSelectFilter(field, value) {
     this.filters[field] = value;
     this.page = 1;
     this.loadLogs();
@@ -118,6 +119,7 @@ export class AuditPage {
       end_date: '',
     };
     this.page = 1;
+    this._populateFilterValues();
     this.loadLogs();
   }
 
@@ -147,6 +149,16 @@ export class AuditPage {
     });
   }
 
+  formatDateShort(dateStr) {
+    if (!dateStr) return '-';
+    const d = new Date(dateStr);
+    return d.toLocaleString('fr-FR', {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+    });
+  }
+
   formatAction(action) {
     const map = {
       login_success: 'Connexion',
@@ -156,7 +168,7 @@ export class AuditPage {
       user_update: 'Modification utilisateur',
       user_toggle_active: 'Activation/Désactivation',
       user_deactivate: 'Désactivation',
-      user_reset_password: 'Réinitialisation mot de passe',
+      user_reset_password: 'Réinitialisation MDP',
       user_delete: 'Suppression utilisateur',
       user_groups_update: 'Mise à jour groupes',
       group_create: 'Création groupe',
@@ -169,7 +181,7 @@ export class AuditPage {
       role_create: 'Création rôle',
       role_update: 'Modification rôle',
       role_delete: 'Suppression rôle',
-      role_permissions_replace: 'Remplacement permissions rôle',
+      role_permissions_replace: 'Remplacement permissions',
       permission_create: 'Création permission',
       permission_update: 'Modification permission',
       permission_delete: 'Suppression permission',
@@ -187,12 +199,17 @@ export class AuditPage {
       site_create: 'Création site',
       site_update: 'Modification site',
       site_delete: 'Suppression site',
-      level_create: 'Création niveau',
-      level_update: 'Modification niveau',
-      level_delete: 'Suppression niveau',
       room_create: 'Création local',
       room_update: 'Modification local',
       room_delete: 'Suppression local',
+      housing_create: 'Création hébergement',
+      housing_update: 'Modification hébergement',
+      housing_delete: 'Suppression hébergement',
+      maintenance_request_create: 'Création demande',
+      maintenance_request_update: 'Modification demande',
+      maintenance_request_delete: 'Suppression demande',
+      maintenance_intervention_create: 'Création intervention',
+      maintenance_intervention_update: 'Modification intervention',
       ad_sync: 'Synchronisation AD',
     };
     return map[action] || action;
@@ -204,16 +221,27 @@ export class AuditPage {
       auth: 'Authentification',
       buildings: 'Bâtiments',
       equipment: 'Équipements',
+      housing: 'Hébergements',
+      maintenance: 'Maintenance',
       audit: 'Audit',
       rbac: 'RBAC',
+      ai: 'Assistant IA',
     };
     return map[module] || module;
   }
 
   getStatusBadge(status) {
-    const cls = status === 'success' ? 'active' : 'error';
+    const cls = status === 'success' ? 'badge-active' : 'badge-inactive';
     const label = status === 'success' ? 'Succès' : 'Erreur';
-    return `<span class="status-badge ${cls}">${label}</span>`;
+    return `<span class="badge ${cls}">${label}</span>`;
+  }
+
+  getActionBadgeClass(action) {
+    if (action.startsWith('login') || action === 'logout') return 'badge-default';
+    if (action.includes('create')) return 'badge-active';
+    if (action.includes('delete')) return 'badge-inactive';
+    if (action.includes('update') || action.includes('toggle') || action.includes('reset')) return 'badge-warning';
+    return 'badge-default';
   }
 
   showDetail(log) {
@@ -225,42 +253,78 @@ export class AuditPage {
     const log = this.selectedLog;
     if (!log) return;
 
-    let existing = this.element.querySelector('.modal-overlay');
+    let existing = document.querySelector('.modal-overlay');
     if (existing) existing.remove();
 
     const overlay = document.createElement('div');
     overlay.className = 'modal-overlay';
     overlay.innerHTML = `
-      <div class="modal" style="max-width:700px;">
+      <div class="modal" style="max-width:720px;">
         <div class="modal-content">
           <div class="modal-header">
-            <h2>Détail de l'entrée d'audit #${log.id}</h2>
+            <h2 class="modal-title">Détail de l'entrée d'audit #${log.id}</h2>
             <button class="modal-close" data-close>&times;</button>
           </div>
-          <div class="modal-body" style="font-size:0.9em;">
-            <table style="width:100%;border-collapse:collapse;">
-              <tr><td style="padding:6px 12px;font-weight:600;width:140px;">Date</td><td style="padding:6px 12px;">${this.formatDateTime(log.created_at)}</td></tr>
-              <tr><td style="padding:6px 12px;font-weight:600;">Utilisateur</td><td style="padding:6px 12px;">${this._escapeHtml(log.username)}</td></tr>
-              <tr><td style="padding:6px 12px;font-weight:600;">Action</td><td style="padding:6px 12px;">${this.formatAction(log.action)}</td></tr>
-              <tr><td style="padding:6px 12px;font-weight:600;">Module</td><td style="padding:6px 12px;">${this.formatModule(log.module)}</td></tr>
-              <tr><td style="padding:6px 12px;font-weight:600;">Type objet</td><td style="padding:6px 12px;">${log.object_type || '-'}</td></tr>
-              <tr><td style="padding:6px 12px;font-weight:600;">ID objet</td><td style="padding:6px 12px;">${log.object_id || '-'}</td></tr>
-              <tr><td style="padding:6px 12px;font-weight:600;">Description</td><td style="padding:6px 12px;">${log.object_repr ? this._escapeHtml(log.object_repr) : '-'}</td></tr>
-              <tr><td style="padding:6px 12px;font-weight:600;">Statut</td><td style="padding:6px 12px;">${this.getStatusBadge(log.status)}</td></tr>
-              <tr><td style="padding:6px 12px;font-weight:600;">IP</td><td style="padding:6px 12px;">${log.ip_address || '-'}</td></tr>
-              <tr><td style="padding:6px 12px;font-weight:600;">Request ID</td><td style="padding:6px 12px;font-family:monospace;font-size:0.85em;">${log.request_id || '-'}</td></tr>
-              ${log.error_message ? `<tr><td style="padding:6px 12px;font-weight:600;color:var(--color-danger);">Erreur</td><td style="padding:6px 12px;">${this._escapeHtml(log.error_message)}</td></tr>` : ''}
-            </table>
+          <div class="modal-body">
+            <div class="audit-detail-grid">
+              <div class="audit-detail-item">
+                <span class="audit-detail-label">Date</span>
+                <span class="audit-detail-value">${this.formatDateTime(log.created_at)}</span>
+              </div>
+              <div class="audit-detail-item">
+                <span class="audit-detail-label">Utilisateur</span>
+                <span class="audit-detail-value"><strong>${this._escapeHtml(log.username)}</strong></span>
+              </div>
+              <div class="audit-detail-item">
+                <span class="audit-detail-label">Action</span>
+                <span class="audit-detail-value"><span class="badge ${this.getActionBadgeClass(log.action)}">${this.formatAction(log.action)}</span></span>
+              </div>
+              <div class="audit-detail-item">
+                <span class="audit-detail-label">Module</span>
+                <span class="audit-detail-value">${this.formatModule(log.module)}</span>
+              </div>
+              <div class="audit-detail-item">
+                <span class="audit-detail-label">Type objet</span>
+                <span class="audit-detail-value">${log.object_type || '-'}</span>
+              </div>
+              <div class="audit-detail-item">
+                <span class="audit-detail-label">ID objet</span>
+                <span class="audit-detail-value" style="font-family:monospace;">${log.object_id || '-'}</span>
+              </div>
+              <div class="audit-detail-item" style="grid-column:1/-1;">
+                <span class="audit-detail-label">Description</span>
+                <span class="audit-detail-value">${log.object_repr ? this._escapeHtml(log.object_repr) : '-'}</span>
+              </div>
+              <div class="audit-detail-item">
+                <span class="audit-detail-label">Statut</span>
+                <span class="audit-detail-value">${this.getStatusBadge(log.status)}</span>
+              </div>
+              <div class="audit-detail-item">
+                <span class="audit-detail-label">Adresse IP</span>
+                <span class="audit-detail-value" style="font-family:monospace;">${log.ip_address || '-'}</span>
+              </div>
+              <div class="audit-detail-item" style="grid-column:1/-1;">
+                <span class="audit-detail-label">Request ID</span>
+                <span class="audit-detail-value" style="font-family:monospace;font-size:var(--font-size-xs);color:var(--color-text-secondary);">${log.request_id || '-'}</span>
+              </div>
+              ${log.error_message ? `
+                <div class="audit-detail-item" style="grid-column:1/-1;">
+                  <span class="audit-detail-label" style="color:var(--color-danger);">Erreur</span>
+                  <span class="audit-detail-value" style="color:var(--color-danger);background:var(--color-danger-light);padding:var(--spacing-2) var(--spacing-3);border-radius:var(--radius-md);">${this._escapeHtml(log.error_message)}</span>
+                </div>
+              ` : ''}
+            </div>
+
             ${log.old_values && Object.keys(log.old_values).length > 0 ? `
-              <div style="margin-top:16px;">
-                <h4 style="margin-bottom:8px;">Anciennes valeurs</h4>
-                <pre style="background:var(--color-bg-secondary);padding:12px;border-radius:6px;overflow-x:auto;font-size:0.85em;max-height:200px;overflow-y:auto;">${JSON.stringify(log.old_values, null, 2)}</pre>
+              <div class="audit-diff-section">
+                <h4 class="audit-diff-title">Anciennes valeurs</h4>
+                <pre class="audit-json-block">${this._escapeHtml(JSON.stringify(log.old_values, null, 2))}</pre>
               </div>
             ` : ''}
             ${log.new_values && Object.keys(log.new_values).length > 0 ? `
-              <div style="margin-top:16px;">
-                <h4 style="margin-bottom:8px;">Nouvelles valeurs</h4>
-                <pre style="background:var(--color-bg-secondary);padding:12px;border-radius:6px;overflow-x:auto;font-size:0.85em;max-height:200px;overflow-y:auto;">${JSON.stringify(log.new_values, null, 2)}</pre>
+              <div class="audit-diff-section">
+                <h4 class="audit-diff-title">Nouvelles valeurs</h4>
+                <pre class="audit-json-block">${this._escapeHtml(JSON.stringify(log.new_values, null, 2))}</pre>
               </div>
             ` : ''}
           </div>
@@ -271,7 +335,7 @@ export class AuditPage {
       </div>
     `;
 
-    this.element.appendChild(overlay);
+    document.body.appendChild(overlay);
 
     overlay.querySelectorAll('[data-close]').forEach(btn => {
       btn.addEventListener('click', () => overlay.remove());
@@ -280,6 +344,69 @@ export class AuditPage {
     overlay.addEventListener('click', (e) => {
       if (e.target === overlay) overlay.remove();
     });
+
+    const handleEsc = (e) => {
+      if (e.key === 'Escape') {
+        overlay.remove();
+        document.removeEventListener('keydown', handleEsc);
+      }
+    };
+    document.addEventListener('keydown', handleEsc);
+  }
+
+  updateCount() {
+    if (!this.element) return;
+    const countEl = this.element.querySelector('.audit-count');
+    if (countEl) {
+      countEl.textContent = `${this.total} entrée${this.total !== 1 ? 's' : ''}`;
+    }
+  }
+
+  updatePagination() {
+    if (!this.element) return;
+
+    const info = this.element.querySelector('.pagination-info');
+    if (info) {
+      info.innerHTML = `Page <strong>${this.page}</strong> sur <strong>${this.totalPages}</strong> (${this.total} total)`;
+    }
+
+    const prevBtn = this.element.querySelector('[data-page="prev"]');
+    const nextBtn = this.element.querySelector('[data-page="next"]');
+    if (prevBtn) prevBtn.disabled = this.page <= 1;
+    if (nextBtn) nextBtn.disabled = this.page >= this.totalPages;
+
+    const pagesContainer = this.element.querySelector('.pagination-pages');
+    if (pagesContainer) {
+      pagesContainer.innerHTML = this._renderPageNumbers();
+      pagesContainer.querySelectorAll('[data-goto]').forEach(btn => {
+        btn.addEventListener('click', () => this.onPageChange(parseInt(btn.dataset.goto)));
+      });
+    }
+  }
+
+  _renderPageNumbers() {
+    const pages = [];
+    const maxVisible = 5;
+    let start = Math.max(1, this.page - Math.floor(maxVisible / 2));
+    let end = Math.min(this.totalPages, start + maxVisible - 1);
+    if (end - start < maxVisible - 1) start = Math.max(1, end - maxVisible + 1);
+
+    if (start > 1) {
+      pages.push(`<button class="btn btn-sm btn-secondary pagination-page" data-goto="1">1</button>`);
+      if (start > 2) pages.push(`<span class="pagination-ellipsis">...</span>`);
+    }
+
+    for (let i = start; i <= end; i++) {
+      const active = i === this.page ? 'btn-primary' : 'btn-secondary';
+      pages.push(`<button class="btn btn-sm ${active} pagination-page" data-goto="${i}">${i}</button>`);
+    }
+
+    if (end < this.totalPages) {
+      if (end < this.totalPages - 1) pages.push(`<span class="pagination-ellipsis">...</span>`);
+      pages.push(`<button class="btn btn-sm btn-secondary pagination-page" data-goto="${this.totalPages}">${this.totalPages}</button>`);
+    }
+
+    return pages.join('');
   }
 
   renderTableState() {
@@ -288,31 +415,11 @@ export class AuditPage {
     const tableContainer = this.element.querySelector('[data-audit-table]');
     if (!tableContainer) return;
 
-    const countElement = this.element.querySelector('.users-count');
-    if (countElement) {
-      countElement.textContent = `${this.total} entrée${this.total > 1 ? 's' : ''}`;
-    }
-
-    const paginationInfo = this.element.querySelector('.pagination-info');
-    if (paginationInfo) {
-      paginationInfo.innerHTML = `
-        Page <strong>${this.page}</strong>
-        sur <strong>${this.totalPages}</strong>
-        (${this.total} total)
-      `;
-    }
-
-    const prevButton = this.element.querySelector('[data-page="prev"]');
-    const nextButton = this.element.querySelector('[data-page="next"]');
-
-    if (prevButton) prevButton.disabled = this.page <= 1;
-    if (nextButton) nextButton.disabled = this.page >= this.totalPages;
-
     if (this.loading) {
       tableContainer.innerHTML = `
         <div class="table-loading">
           <div class="spinner"></div>
-          <p>Chargement...</p>
+          <p>Chargement des logs d'audit...</p>
         </div>
       `;
       return;
@@ -326,7 +433,7 @@ export class AuditPage {
             <line x1="12" y1="8" x2="12" y2="12"></line>
             <line x1="12" y1="16" x2="12.01" y2="16"></line>
           </svg>
-          <h3>Erreur</h3>
+          <h3>Erreur de chargement</h3>
           <p>${this._escapeHtml(this.error)}</p>
           <button class="btn btn-primary" data-action="retry">Réessayer</button>
         </div>
@@ -350,31 +457,31 @@ export class AuditPage {
     }
 
     const rows = this.logs.map(log => `
-      <tr class="audit-row" data-log-id="${log.id}" style="cursor:pointer;">
-        <td style="font-family:monospace;font-size:0.85em;color:var(--color-text-secondary);">${log.id}</td>
-        <td>${this.formatDateTime(log.created_at)}</td>
+      <tr class="audit-row" data-log-id="${log.id}">
+        <td><span class="audit-id">${log.id}</span></td>
+        <td><span class="audit-date">${this.formatDateTime(log.created_at)}</span></td>
         <td><strong>${this._escapeHtml(log.username)}</strong></td>
-        <td>${this.formatAction(log.action)}</td>
+        <td><span class="badge ${this.getActionBadgeClass(log.action)}">${this.formatAction(log.action)}</span></td>
         <td>${this.formatModule(log.module)}</td>
         <td>${log.object_type || '-'}</td>
         <td>${log.object_id || '-'}</td>
         <td>${this.getStatusBadge(log.status)}</td>
-        <td>${log.ip_address || '-'}</td>
+        <td><span class="audit-ip">${log.ip_address || '-'}</span></td>
       </tr>
     `).join('');
 
     tableContainer.innerHTML = `
       <div class="table-wrapper">
-        <table class="data-table">
+        <table class="users-table">
           <thead>
             <tr>
               <th style="width:60px;">ID</th>
               <th style="width:160px;">Date</th>
               <th style="width:120px;">Utilisateur</th>
-              <th style="width:160px;">Action</th>
-              <th style="width:100px;">Module</th>
+              <th style="width:180px;">Action</th>
+              <th style="width:110px;">Module</th>
               <th style="width:100px;">Type</th>
-              <th style="width:80px;">Objet ID</th>
+              <th style="width:80px;">Objet</th>
               <th style="width:80px;">Statut</th>
               <th style="width:120px;">IP</th>
             </tr>
@@ -393,44 +500,113 @@ export class AuditPage {
     });
   }
 
+  _populateFilterValues() {
+    if (!this.element) return;
+
+    const moduleSelect = this.element.querySelector('[data-filter="module"]');
+    if (moduleSelect && this.filterValues.modules.length > 0) {
+      const current = this.filters.module;
+      moduleSelect.innerHTML = `<option value="">Tous modules</option>` +
+        this.filterValues.modules.map(m => `<option value="${m}" ${m === current ? 'selected' : ''}>${this.formatModule(m)}</option>`).join('');
+    }
+
+    const actionSelect = this.element.querySelector('[data-filter="action"]');
+    if (actionSelect && this.filterValues.actions.length > 0) {
+      const current = this.filters.action;
+      actionSelect.innerHTML = `<option value="">Toutes actions</option>` +
+        this.filterValues.actions.map(a => `<option value="${a}" ${a === current ? 'selected' : ''}>${this.formatAction(a)}</option>`).join('');
+    }
+
+    const usernameInput = this.element.querySelector('[data-filter="username"]');
+    if (usernameInput && this.filterValues.usernames.length > 0 && !usernameInput.list) {
+      const datalist = document.createElement('datalist');
+      datalist.id = 'audit-usernames-list';
+      datalist.innerHTML = this.filterValues.usernames.map(u => `<option value="${this._escapeHtml(u)}">`).join('');
+      document.body.appendChild(datalist);
+      usernameInput.setAttribute('list', 'audit-usernames-list');
+    }
+  }
+
   render() {
     this.element = document.createElement('div');
-    this.element.className = 'users-page';
+    this.element.className = 'administration-page';
 
     this.element.innerHTML = `
       <div class="users-header">
         <div class="users-title-area">
           <h1 class="users-title">Journal d'audit</h1>
-          <p class="users-count" aria-live="polite">
-            ${this.total} entrée${this.total > 1 ? 's' : ''}
+          <p class="users-count audit-count" aria-live="polite">
+            ${this.total} entrée${this.total !== 1 ? 's' : ''}
           </p>
         </div>
       </div>
 
-      <div class="users-toolbar" style="display:flex;flex-wrap:wrap;gap:8px;padding:12px 0;align-items:center;">
-        <input type="text" class="form-input" placeholder="Utilisateur..." data-filter="username" value="${this._escapeHtml(this.filters.username)}" style="width:140px;" />
-        <select class="form-select" data-filter="module" style="width:140px;">
-          <option value="">Tous modules</option>
-        </select>
-        <select class="form-select" data-filter="action" style="width:180px;">
-          <option value="">Toutes actions</option>
-        </select>
-        <select class="form-select" data-filter="status" style="width:120px;">
-          <option value="">Tous statuts</option>
-          <option value="success">Succès</option>
-          <option value="error">Erreur</option>
-        </select>
-        <input type="datetime-local" class="form-input" data-filter="start_date" title="Date début" style="width:180px;" />
-        <input type="datetime-local" class="form-input" data-filter="end_date" title="Date fin" style="width:180px;" />
-        <button class="btn btn-sm btn-secondary" data-action="clear-filters">Effacer</button>
+      <div class="users-toolbar">
+        <div class="filters-row">
+          <div class="filter-group filter-search">
+            <label class="filter-label">Utilisateur</label>
+            <div class="search-input-wrapper">
+              <svg class="search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="11" cy="11" r="8"></circle>
+                <path d="m21 21-4.35-4.35"></path>
+              </svg>
+              <input type="text" class="form-input" placeholder="Rechercher un utilisateur..." data-filter="username" value="${this._escapeHtml(this.filters.username)}" />
+            </div>
+          </div>
+
+          <div class="filter-group">
+            <label class="filter-label">Module</label>
+            <select class="form-select" data-filter="module">
+              <option value="">Tous modules</option>
+            </select>
+          </div>
+
+          <div class="filter-group">
+            <label class="filter-label">Action</label>
+            <select class="form-select" data-filter="action">
+              <option value="">Toutes actions</option>
+            </select>
+          </div>
+
+          <div class="filter-group">
+            <label class="filter-label">Statut</label>
+            <select class="form-select" data-filter="status">
+              <option value="">Tous statuts</option>
+              <option value="success" ${this.filters.status === 'success' ? 'selected' : ''}>Succès</option>
+              <option value="error" ${this.filters.status === 'error' ? 'selected' : ''}>Erreur</option>
+            </select>
+          </div>
+
+          <div class="filter-group">
+            <label class="filter-label">Date début</label>
+            <input type="datetime-local" class="form-input" data-filter="start_date" title="Date début" />
+          </div>
+
+          <div class="filter-group">
+            <label class="filter-label">Date fin</label>
+            <input type="datetime-local" class="form-input" data-filter="end_date" title="Date fin" />
+          </div>
+
+          <div class="filter-group" style="justify-content:flex-end;">
+            <label class="filter-label">&nbsp;</label>
+            <button class="btn btn-sm btn-outline" data-action="clear-filters">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M18 6 6 18"></path>
+                <path d="m6 6 12 12"></path>
+              </svg>
+              Effacer
+            </button>
+          </div>
+        </div>
       </div>
 
-      <div class="table-wrapper" data-audit-table></div>
+      <div data-audit-table></div>
 
       <div class="users-pagination" data-pagination aria-label="Pagination">
         <div class="pagination-info">
           Page <strong>${this.page}</strong> sur <strong>${this.totalPages}</strong> (${this.total} total)
         </div>
+        <div class="pagination-pages"></div>
         <div class="pagination-controls">
           <button class="btn btn-sm btn-secondary" data-page="prev" ${this.page <= 1 ? 'disabled' : ''} aria-label="Page précédente">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -446,10 +622,10 @@ export class AuditPage {
       </div>
     `;
 
-    this.element.querySelector('[data-filter="username"]')?.addEventListener('change', (e) => this.handleSearch('username', e.target.value));
-    this.element.querySelector('[data-filter="module"]')?.addEventListener('change', (e) => this.handleSearch('module', e.target.value));
-    this.element.querySelector('[data-filter="action"]')?.addEventListener('change', (e) => this.handleSearch('action', e.target.value));
-    this.element.querySelector('[data-filter="status"]')?.addEventListener('change', (e) => this.handleSearch('status', e.target.value));
+    this.element.querySelector('[data-filter="username"]')?.addEventListener('input', (e) => this.handleSearch('username', e.target.value));
+    this.element.querySelector('[data-filter="module"]')?.addEventListener('change', (e) => this.handleSelectFilter('module', e.target.value));
+    this.element.querySelector('[data-filter="action"]')?.addEventListener('change', (e) => this.handleSelectFilter('action', e.target.value));
+    this.element.querySelector('[data-filter="status"]')?.addEventListener('change', (e) => this.handleSelectFilter('status', e.target.value));
     this.element.querySelector('[data-filter="start_date"]')?.addEventListener('change', () => this.handleDateFilter());
     this.element.querySelector('[data-filter="end_date"]')?.addEventListener('change', () => this.handleDateFilter());
     this.element.querySelector('[data-action="clear-filters"]')?.addEventListener('click', () => this.handleClearFilters());
@@ -457,30 +633,10 @@ export class AuditPage {
     this.element.querySelector('[data-page="prev"]')?.addEventListener('click', () => this.onPageChange(this.page - 1));
     this.element.querySelector('[data-page="next"]')?.addEventListener('click', () => this.onPageChange(this.page + 1));
 
+    this._populateFilterValues();
     this.renderTableState();
-    this.populateFilterDropdowns();
 
     return this.element;
-  }
-
-  populateFilterDropdowns() {
-    if (this.modules.length > 0) {
-      const moduleSelect = this.element?.querySelector('[data-filter="module"]');
-      if (moduleSelect) {
-        const current = this.filters.module;
-        moduleSelect.innerHTML = `<option value="">Tous modules</option>` +
-          this.modules.map(m => `<option value="${m}" ${m === current ? 'selected' : ''}>${this.formatModule(m)}</option>`).join('');
-      }
-    }
-
-    if (this.actions.length > 0) {
-      const actionSelect = this.element?.querySelector('[data-filter="action"]');
-      if (actionSelect) {
-        const current = this.filters.action;
-        actionSelect.innerHTML = `<option value="">Toutes actions</option>` +
-          this.actions.map(a => `<option value="${a}" ${a === current ? 'selected' : ''}>${this.formatAction(a)}</option>`).join('');
-      }
-    }
   }
 
   mount(container) {
@@ -492,6 +648,9 @@ export class AuditPage {
 
   destroy() {
     this._authUnsubscribe?.();
+    if (this._searchTimeout) clearTimeout(this._searchTimeout);
+    const dl = document.getElementById('audit-usernames-list');
+    if (dl) dl.remove();
   }
 
   _escapeHtml(text) {

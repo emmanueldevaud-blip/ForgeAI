@@ -25,6 +25,10 @@ export async function updateSite(id, data) {
   return buildingsApi.patch(`/sites/${id}`, data);
 }
 
+export async function deleteSite(id) {
+  return buildingsApi.delete(`/sites/${id}`);
+}
+
 export async function listBuildings(params = {}) {
   const query = new URLSearchParams();
   if (params.page) query.set('page', params.page);
@@ -50,28 +54,8 @@ export async function updateBuilding(id, data) {
   return buildingsApi.patch(`/${id}`, data);
 }
 
-export async function listLevels(params = {}) {
-  const query = new URLSearchParams();
-  if (params.page) query.set('page', params.page);
-  if (params.page_size) query.set('page_size', params.page_size);
-  if (params.search) query.set('search', params.search);
-  if (params.building_id) query.set('building_id', params.building_id);
-  if (params.is_active !== undefined) query.set('is_active', params.is_active);
-  if (params.sort_by) query.set('sort_by', params.sort_by);
-  if (params.sort_order) query.set('sort_order', params.sort_order);
-  return buildingsApi.get(`/levels?${query.toString()}`);
-}
-
-export async function getLevel(id) {
-  return buildingsApi.get(`/levels/${id}`);
-}
-
-export async function createLevel(data) {
-  return buildingsApi.post('/levels', data);
-}
-
-export async function updateLevel(id, data) {
-  return buildingsApi.patch(`/levels/${id}`, data);
+export async function deleteBuilding(id) {
+  return buildingsApi.delete(`/${id}`);
 }
 
 export async function listRooms(params = {}) {
@@ -79,10 +63,10 @@ export async function listRooms(params = {}) {
   if (params.page) query.set('page', params.page);
   if (params.page_size) query.set('page_size', params.page_size);
   if (params.search) query.set('search', params.search);
-  if (params.level_id) query.set('level_id', params.level_id);
-  if (params.room_type_id) query.set('room_type_id', params.room_type_id);
+  if (params.building_id) query.set('building_id', params.building_id);
   if (params.usage_type_id) query.set('usage_type_id', params.usage_type_id);
   if (params.is_active !== undefined) query.set('is_active', params.is_active);
+  if (params.used_for_accommodation !== undefined) query.set('used_for_accommodation', params.used_for_accommodation);
   if (params.sort_by) query.set('sort_by', params.sort_by);
   if (params.sort_order) query.set('sort_order', params.sort_order);
   return buildingsApi.get(`/rooms?${query.toString()}`);
@@ -98,6 +82,10 @@ export async function createRoom(data) {
 
 export async function updateRoom(id, data) {
   return buildingsApi.patch(`/rooms/${id}`, data);
+}
+
+export async function deleteRoom(id) {
+  return buildingsApi.delete(`/rooms/${id}`);
 }
 
 export async function listUsageTypes(params = {}) {
@@ -119,21 +107,6 @@ export async function updateUsageType(id, data) {
   return buildingsApi.patch(`/usage-types/${id}`, data);
 }
 
-export async function listRoomTypes(params = {}) {
-  const query = new URLSearchParams();
-  if (params.page) query.set('page', params.page);
-  if (params.page_size) query.set('page_size', params.page_size);
-  if (params.search) query.set('search', params.search);
-  if (params.is_active !== undefined) query.set('is_active', params.is_active);
-  if (params.sort_by) query.set('sort_by', params.sort_by);
-  if (params.sort_order) query.set('sort_order', params.sort_order);
-  return buildingsApi.get(`/room-types?${query.toString()}`);
-}
-
-export async function createRoomType(data) {
-  return buildingsApi.post('/room-types', data);
-}
-
-export async function updateRoomType(id, data) {
-  return buildingsApi.patch(`/room-types/${id}`, data);
+export async function deleteUsageType(id) {
+  return buildingsApi.delete(`/usage-types/${id}`);
 }

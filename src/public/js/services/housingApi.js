@@ -134,6 +134,135 @@ export async function deleteUnavailability(id) {
 // PLANNING
 // ============================================================
 
-export async function getPlanning(startDate, endDate) {
-  return housingApi.get(`/planning?start_date=${startDate}&end_date=${endDate}`);
+export async function getPlanning(startDate, endDate, view = 'month', housingIds = null, statusFilter = null) {
+  let url = `/planning?start_date=${startDate}&end_date=${endDate}&view=${view}`;
+  if (housingIds) url += `&housing_ids=${encodeURIComponent(JSON.stringify(housingIds))}`;
+  if (statusFilter) url += `&status_filter=${statusFilter}`;
+  return housingApi.get(url);
+}
+
+// ============================================================
+// CLEANING
+// ============================================================
+
+export async function listCleanings(params = {}) {
+  const query = new URLSearchParams();
+  if (params.page) query.append('page', params.page);
+  if (params.page_size) query.append('page_size', params.page_size);
+  if (params.housing_id) query.append('housing_id', params.housing_id);
+  if (params.occupancy_id) query.append('occupancy_id', params.occupancy_id);
+  if (params.type) query.append('type', params.type);
+  if (params.status) query.append('status', params.status);
+  if (params.date_from) query.append('date_from', params.date_from);
+  if (params.date_to) query.append('date_to', params.date_to);
+  if (params.assigned_to) query.append('assigned_to', params.assigned_to);
+  if (params.sort_by) query.append('sort_by', params.sort_by);
+  if (params.sort_order) query.append('sort_order', params.sort_order);
+  const endpoint = `/cleanings${query.toString() ? '?' + query.toString() : ''}`;
+  return housingApi.get(endpoint);
+}
+
+export async function getCleaning(id) {
+  return housingApi.get(`/cleanings/${id}`);
+}
+
+export async function createCleaning(data) {
+  return housingApi.post('/cleanings', data);
+}
+
+export async function updateCleaning(id, data) {
+  return housingApi.patch(`/cleanings/${id}`, data);
+}
+
+export async function deleteCleaning(id) {
+  return housingApi.delete(`/cleanings/${id}`);
+}
+
+// ============================================================
+// EMAIL TEMPLATES
+// ============================================================
+
+export async function listEmailTemplates(params = {}) {
+  const query = new URLSearchParams();
+  if (params.page) query.append('page', params.page);
+  if (params.page_size) query.append('page_size', params.page_size);
+  if (params.template_type) query.append('template_type', params.template_type);
+  if (params.is_active !== undefined && params.is_active !== null) query.append('is_active', params.is_active);
+  if (params.sort_by) query.append('sort_by', params.sort_by);
+  if (params.sort_order) query.append('sort_order', params.sort_order);
+  const endpoint = `/email-templates${query.toString() ? '?' + query.toString() : ''}`;
+  return housingApi.get(endpoint);
+}
+
+export async function getEmailTemplate(id) {
+  return housingApi.get(`/email-templates/${id}`);
+}
+
+export async function createEmailTemplate(data) {
+  return housingApi.post('/email-templates', data);
+}
+
+export async function updateEmailTemplate(id, data) {
+  return housingApi.patch(`/email-templates/${id}`, data);
+}
+
+export async function uploadEmailTemplateAttachment(templateId, file) {
+  const formData = new FormData();
+  formData.append('file', file);
+  return housingApi.post(`/email-templates/${templateId}/attachments`, formData, {
+    headers: { 'Content-Type': 'multipart/form-data' }
+  });
+}
+
+export async function deleteEmailTemplateAttachment(templateId, attachmentId) {
+  return housingApi.delete(`/email-templates/${templateId}/attachments/${attachmentId}`);
+}
+
+// ============================================================
+// EMAIL SENDING
+// ============================================================
+
+export async function sendConfirmationEmail(occupancyId, templateId, recipientIds, sendToAll) {
+  const formData = new FormData();
+  formData.append('template_id', templateId);
+  formData.append('recipient_ids', JSON.stringify(recipientIds));
+  formData.append('send_to_all', sendToAll);
+  return housingApi.post(`/occupancies/${occupancyId}/send-confirmation`, formData, {
+    headers: { 'Content-Type': 'multipart/form-data' }
+  });
+}
+
+export async function sendCustomMessage(occupancyId, subject, bodyText, recipientIds, templateId = null, attachmentIds = []) {
+  const formData = new FormData();
+  formData.append('subject', subject);
+  formData.append('body_text', bodyText);
+  formData.append('recipient_ids', JSON.stringify(recipientIds));
+  if (templateId) formData.append('template_id', templateId);
+  formData.append('attachment_ids', JSON.stringify(attachmentIds));
+  return housingApi.post(`/occupancies/${occupancyId}/send-message`, formData, {
+    headers: { 'Content-Type': 'multipart/form-data' }
+  });
+}
+
+export async function listEmailLogs(params = {}) {
+  const query = new URLSearchParams();
+  if (params.page) query.append('page', params.page);
+  if (params.page_size) query.append('page_size', params.page_size);
+  if (params.template_id) query.append('template_id', params.template_id);
+  if (params.occupancy_id) query.append('occupancy_id', params.occupancy_id);
+  if (params.status) query.append('status', params.status);
+  if (params.date_from) query.append('date_from', params.date_from);
+  if (params.date_to) query.append('date_to', params.date_to);
+  if (params.sort_by) query.append('sort_by', params.sort_by);
+  if (params.sort_order) query.append('sort_order', params.sort_order);
+  const endpoint = `/email-logs${query.toString() ? '?' + query.toString() : ''}`;
+  return housingApi.get(endpoint);
+}
+
+// ============================================================
+// QUICK OCCUPANT
+// ============================================================
+
+export async function quickCreateOccupant(data) {
+  return housingApi.post('/occupants/quick-create', data);
 }

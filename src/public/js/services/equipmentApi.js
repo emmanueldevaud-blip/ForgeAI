@@ -25,6 +25,10 @@ export async function updateEquipmentType(id, data) {
   return equipmentApi.patch(`/types/${id}`, data);
 }
 
+export async function deleteEquipmentType(id) {
+  return equipmentApi.delete(`/types/${id}`);
+}
+
 export async function listEquipments(params = {}) {
   const query = new URLSearchParams();
   if (params.page) query.set('page', params.page);

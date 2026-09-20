@@ -1,7 +1,7 @@
 from datetime import date, datetime
-from typing import Optional
+from typing import Optional, List
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import require_permission
@@ -30,6 +30,23 @@ from app.schemas.housing import (
     UnavailabilityListResponse,
     UnavailabilityResponse,
     UnavailabilityUpdate,
+    CleaningCreate,
+    CleaningListParams,
+    CleaningListResponse,
+    CleaningResponse,
+    CleaningUpdate,
+    EmailTemplateCreate,
+    EmailTemplateListParams,
+    EmailTemplateListResponse,
+    EmailTemplateResponse,
+    EmailTemplateUpdate,
+    EmailTemplateAttachmentResponse,
+    EmailLogListParams,
+    EmailLogListResponse,
+    EmailLogResponse,
+    OccupantQuickCreate,
+    PlanningEntry,
+    PlanningResponse,
 )
 from app.services.housing import HousingService
 
@@ -42,6 +59,62 @@ router = APIRouter(
 
 async def get_housing_service(
     current_user: User = Depends(require_permission("housing.view")),
+    db: AsyncSession = Depends(get_db),
+) -> HousingService:
+    return HousingService(db, current_user=current_user)
+
+
+async def get_housing_manage_service(
+    current_user: User = Depends(require_permission("housing.manage")),
+    db: AsyncSession = Depends(get_db),
+) -> HousingService:
+    return HousingService(db, current_user=current_user)
+
+
+async def get_occupant_manage_service(
+    current_user: User = Depends(require_permission("housing.manage_occupants")),
+    db: AsyncSession = Depends(get_db),
+) -> HousingService:
+    return HousingService(db, current_user=current_user)
+
+
+async def get_occupancy_manage_service(
+    current_user: User = Depends(require_permission("housing.manage_occupancies")),
+    db: AsyncSession = Depends(get_db),
+) -> HousingService:
+    return HousingService(db, current_user=current_user)
+
+
+async def get_unavailability_manage_service(
+    current_user: User = Depends(require_permission("housing.manage_unavailabilities")),
+    db: AsyncSession = Depends(get_db),
+) -> HousingService:
+    return HousingService(db, current_user=current_user)
+
+
+async def get_cleaning_manage_service(
+    current_user: User = Depends(require_permission("housing.manage_cleaning")),
+    db: AsyncSession = Depends(get_db),
+) -> HousingService:
+    return HousingService(db, current_user=current_user)
+
+
+async def get_email_template_manage_service(
+    current_user: User = Depends(require_permission("housing.manage_email_templates")),
+    db: AsyncSession = Depends(get_db),
+) -> HousingService:
+    return HousingService(db, current_user=current_user)
+
+
+async def get_email_send_service(
+    current_user: User = Depends(require_permission("housing.send_emails")),
+    db: AsyncSession = Depends(get_db),
+) -> HousingService:
+    return HousingService(db, current_user=current_user)
+
+
+async def get_planning_manage_service(
+    current_user: User = Depends(require_permission("housing.manage_planning")),
     db: AsyncSession = Depends(get_db),
 ) -> HousingService:
     return HousingService(db, current_user=current_user)
@@ -97,7 +170,7 @@ async def get_housing(
 @router.post("/housings", response_model=HousingResponse, status_code=201)
 async def create_housing(
     data: HousingCreate,
-    service: HousingService = Depends(require_permission("housing.manage")),
+    service: HousingService = Depends(get_housing_service),
 ):
     return await service.create_housing(data.model_dump())
 
@@ -106,7 +179,7 @@ async def create_housing(
 async def update_housing(
     housing_id: int,
     data: HousingUpdate,
-    service: HousingService = Depends(require_permission("housing.manage")),
+    service: HousingService = Depends(get_housing_service),
 ):
     item = await service.update_housing(housing_id, data.model_dump(exclude_unset=True))
     if not item:
@@ -149,7 +222,7 @@ async def get_occupant(
 @router.post("/occupants", response_model=OccupantResponse, status_code=201)
 async def create_occupant(
     data: OccupantCreate,
-    service: HousingService = Depends(require_permission("housing.manage_occupants")),
+    service: HousingService = Depends(get_occupant_manage_service),
 ):
     return await service.create_occupant(data.model_dump())
 
@@ -158,7 +231,7 @@ async def create_occupant(
 async def update_occupant(
     occupant_id: int,
     data: OccupantUpdate,
-    service: HousingService = Depends(require_permission("housing.manage_occupants")),
+    service: HousingService = Depends(get_occupant_manage_service),
 ):
     item = await service.update_occupant(occupant_id, data.model_dump(exclude_unset=True))
     if not item:
@@ -206,7 +279,7 @@ async def get_occupancy(
 @router.post("/occupancies", response_model=OccupancyResponse, status_code=201)
 async def create_occupancy(
     data: OccupancyCreate,
-    service: HousingService = Depends(require_permission("housing.manage_occupancies")),
+    service: HousingService = Depends(get_occupancy_manage_service),
 ):
     return await service.create_occupancy(data.model_dump())
 
@@ -215,7 +288,7 @@ async def create_occupancy(
 async def update_occupancy(
     occupancy_id: int,
     data: OccupancyUpdate,
-    service: HousingService = Depends(require_permission("housing.manage_occupancies")),
+    service: HousingService = Depends(get_occupancy_manage_service),
 ):
     item = await service.update_occupancy(occupancy_id, data.model_dump(exclude_unset=True))
     if not item:
@@ -227,7 +300,7 @@ async def update_occupancy(
 async def change_occupancy_status(
     occupancy_id: int,
     data: dict,
-    service: HousingService = Depends(require_permission("housing.manage_occupancies")),
+    service: HousingService = Depends(get_occupancy_manage_service),
 ):
     new_status = data.get("status")
     if not new_status:
@@ -265,7 +338,7 @@ async def list_unavailabilities(
 @router.post("/unavailabilities", response_model=UnavailabilityResponse, status_code=201)
 async def create_unavailability(
     data: UnavailabilityCreate,
-    service: HousingService = Depends(require_permission("housing.manage_unavailabilities")),
+    service: HousingService = Depends(get_unavailability_manage_service),
 ):
     return await service.create_unavailability(data.model_dump())
 
@@ -273,7 +346,7 @@ async def create_unavailability(
 @router.delete("/unavailabilities/{unavailability_id}", response_model=MessageResponse)
 async def delete_unavailability(
     unavailability_id: int,
-    service: HousingService = Depends(require_permission("housing.manage_unavailabilities")),
+    service: HousingService = Depends(get_unavailability_manage_service),
 ):
     ok = await service.delete_unavailability(unavailability_id)
     if not ok:
@@ -282,13 +355,254 @@ async def delete_unavailability(
 
 
 # ============================================================
-# PLANNING
+# QUICK OCCUPANT CREATION
 # ============================================================
 
-@router.get("/planning")
+@router.post("/occupants/quick-create", response_model=OccupantResponse, status_code=201)
+async def quick_create_occupant(
+    data: OccupantQuickCreate,
+    service: HousingService = Depends(get_occupant_manage_service),
+):
+    return await service.create_occupant(data.model_dump())
+
+
+# ============================================================
+# CLEANING
+# ============================================================
+
+@router.get("/cleanings", response_model=CleaningListResponse)
+async def list_cleanings(
+    page: int = 1,
+    page_size: int = 20,
+    housing_id: Optional[int] = None,
+    occupancy_id: Optional[int] = None,
+    type: Optional[str] = None,
+    status: Optional[str] = None,
+    date_from: Optional[date] = None,
+    date_to: Optional[date] = None,
+    assigned_to: Optional[int] = None,
+    sort_by: str = "scheduled_date",
+    sort_order: str = "asc",
+    service: HousingService = Depends(get_housing_service),
+):
+    params = {k: v for k, v in {
+        "page": page, "page_size": page_size, "housing_id": housing_id,
+        "occupancy_id": occupancy_id, "type": type, "status": status,
+        "date_from": date_from, "date_to": date_to, "assigned_to": assigned_to,
+        "sort_by": sort_by, "sort_order": sort_order,
+    }.items() if v is not None}
+    return await service.list_cleanings(params)
+
+
+@router.get("/cleanings/{cleaning_id}", response_model=CleaningResponse)
+async def get_cleaning(
+    cleaning_id: int,
+    service: HousingService = Depends(get_housing_service),
+):
+    item = await service.get_cleaning(cleaning_id)
+    if not item:
+        raise HTTPException(status_code=404, detail="Ménage non trouvé")
+    return item
+
+
+@router.post("/cleanings", response_model=CleaningResponse, status_code=201)
+async def create_cleaning(
+    data: CleaningCreate,
+    service: HousingService = Depends(get_cleaning_manage_service),
+):
+    return await service.create_cleaning(data.model_dump())
+
+
+@router.patch("/cleanings/{cleaning_id}", response_model=CleaningResponse)
+async def update_cleaning(
+    cleaning_id: int,
+    data: CleaningUpdate,
+    service: HousingService = Depends(get_cleaning_manage_service),
+):
+    item = await service.update_cleaning(cleaning_id, data.model_dump(exclude_unset=True))
+    if not item:
+        raise HTTPException(status_code=404, detail="Ménage non trouvé")
+    return item
+
+
+@router.delete("/cleanings/{cleaning_id}", response_model=MessageResponse)
+async def delete_cleaning(
+    cleaning_id: int,
+    service: HousingService = Depends(get_cleaning_manage_service),
+):
+    ok = await service.delete_cleaning(cleaning_id)
+    if not ok:
+        raise HTTPException(status_code=404, detail="Ménage non trouvé")
+    return {"message": "Ménage supprimé"}
+
+
+# ============================================================
+# EMAIL TEMPLATES
+# ============================================================
+
+@router.get("/email-templates", response_model=EmailTemplateListResponse)
+async def list_email_templates(
+    page: int = 1,
+    page_size: int = 20,
+    template_type: Optional[str] = None,
+    is_active: Optional[bool] = None,
+    sort_by: str = "name",
+    sort_order: str = "asc",
+    service: HousingService = Depends(get_housing_service),
+):
+    params = {k: v for k, v in {
+        "page": page, "page_size": page_size, "template_type": template_type,
+        "is_active": is_active, "sort_by": sort_by, "sort_order": sort_order,
+    }.items() if v is not None}
+    return await service.list_email_templates(params)
+
+
+@router.get("/email-templates/{template_id}", response_model=EmailTemplateResponse)
+async def get_email_template(
+    template_id: int,
+    service: HousingService = Depends(get_housing_service),
+):
+    item = await service.get_email_template(template_id)
+    if not item:
+        raise HTTPException(status_code=404, detail="Modèle email non trouvé")
+    return item
+
+
+@router.post("/email-templates", response_model=EmailTemplateResponse, status_code=201)
+async def create_email_template(
+    data: EmailTemplateCreate,
+    service: HousingService = Depends(get_email_template_manage_service),
+):
+    return await service.create_email_template(data.model_dump())
+
+
+@router.patch("/email-templates/{template_id}", response_model=EmailTemplateResponse)
+async def update_email_template(
+    template_id: int,
+    data: EmailTemplateUpdate,
+    service: HousingService = Depends(get_email_template_manage_service),
+):
+    item = await service.update_email_template(template_id, data.model_dump(exclude_unset=True))
+    if not item:
+        raise HTTPException(status_code=404, detail="Modèle email non trouvé")
+    return item
+
+
+@router.post("/email-templates/{template_id}/attachments", response_model=EmailTemplateAttachmentResponse, status_code=201)
+async def upload_email_template_attachment(
+    template_id: int,
+    file: UploadFile = File(...),
+    service: HousingService = Depends(get_email_template_manage_service),
+):
+    return await service.upload_email_template_attachment(template_id, file)
+
+
+@router.delete("/email-templates/{template_id}/attachments/{attachment_id}", response_model=MessageResponse)
+async def delete_email_template_attachment(
+    template_id: int,
+    attachment_id: int,
+    service: HousingService = Depends(get_email_template_manage_service),
+):
+    ok = await service.delete_email_template_attachment(attachment_id)
+    if not ok:
+        raise HTTPException(status_code=404, detail="Pièce jointe non trouvée")
+    return {"message": "Pièce jointe supprimée"}
+
+
+# ============================================================
+# EMAIL SENDING
+# ============================================================
+
+@router.post("/occupancies/{occupancy_id}/send-confirmation", response_model=MessageResponse)
+async def send_confirmation_email(
+    occupancy_id: int,
+    template_id: int = Form(...),
+    recipient_ids: str = Form(...),  # JSON array of occupant IDs
+    send_to_all: bool = Form(True),
+    service: HousingService = Depends(get_email_send_service),
+):
+    import json
+    recipients = json.loads(recipient_ids) if recipient_ids else []
+    result = await service.send_confirmation_email(occupancy_id, template_id, recipients, send_to_all)
+    return {"message": result}
+
+
+@router.post("/occupancies/{occupancy_id}/send-message", response_model=MessageResponse)
+async def send_custom_message(
+    occupancy_id: int,
+    subject: str = Form(...),
+    body_text: str = Form(...),
+    recipient_ids: str = Form(...),
+    template_id: Optional[int] = Form(None),
+    attachment_ids: str = Form("[]"),
+    service: HousingService = Depends(get_email_send_service),
+):
+    import json
+    recipients = json.loads(recipient_ids) if recipient_ids else []
+    attachments = json.loads(attachment_ids) if attachment_ids else []
+    result = await service.send_custom_message(occupancy_id, subject, body_text, recipients, template_id, attachments)
+    return {"message": result}
+
+
+@router.get("/email-logs", response_model=EmailLogListResponse)
+async def list_email_logs(
+    page: int = 1,
+    page_size: int = 20,
+    template_id: Optional[int] = None,
+    occupancy_id: Optional[int] = None,
+    status: Optional[str] = None,
+    date_from: Optional[date] = None,
+    date_to: Optional[date] = None,
+    sort_by: str = "created_at",
+    sort_order: str = "desc",
+    service: HousingService = Depends(get_housing_service),
+):
+    params = {k: v for k, v in {
+        "page": page, "page_size": page_size, "template_id": template_id,
+        "occupancy_id": occupancy_id, "status": status,
+        "date_from": date_from, "date_to": date_to,
+        "sort_by": sort_by, "sort_order": sort_order,
+    }.items() if v is not None}
+    return await service.list_email_logs(params)
+
+
+# ============================================================
+# ENHANCED PLANNING
+# ============================================================
+
+@router.get("/planning", response_model=PlanningResponse)
 async def get_planning(
     start_date: date,
     end_date: date,
-    service: HousingService = Depends(get_housing_service),
+    view: str = "month",  # day, week, month
+    housing_ids: Optional[str] = None,  # JSON array
+    status_filter: Optional[str] = None,
+    service: HousingService = Depends(get_planning_manage_service),
 ):
-    return await service.get_planning(start_date, end_date)
+    import json
+    housing_id_list = json.loads(housing_ids) if housing_ids else None
+    return await service.get_planning(start_date, end_date, view, housing_id_list, status_filter)
+
+
+# ============================================================
+# OCCUPANCY WITH MULTIPLE OCCUPANTS
+# ============================================================
+
+@router.post("/occupancies", response_model=OccupancyResponse, status_code=201)
+async def create_occupancy(
+    data: OccupancyCreate,
+    service: HousingService = Depends(get_occupancy_manage_service),
+):
+    return await service.create_occupancy(data.model_dump())
+
+
+@router.patch("/occupancies/{occupancy_id}", response_model=OccupancyResponse)
+async def update_occupancy(
+    occupancy_id: int,
+    data: OccupancyUpdate,
+    service: HousingService = Depends(get_occupancy_manage_service),
+):
+    item = await service.update_occupancy(occupancy_id, data.model_dump(exclude_unset=True))
+    if not item:
+        raise HTTPException(status_code=404, detail="Occupation non trouvée")
+    return item

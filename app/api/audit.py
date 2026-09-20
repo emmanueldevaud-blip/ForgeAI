@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, status
+from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -18,6 +19,27 @@ router = APIRouter(
     prefix="/admin/audit-logs",
     tags=["admin-audit"]
 )
+
+
+class AuditFilterValuesResponse(BaseModel):
+    modules: list[str]
+    actions: list[str]
+    usernames: list[str]
+
+
+@router.get(
+    "/filter-values",
+    response_model=AuditFilterValuesResponse,
+)
+async def get_audit_filter_values(
+    current_user: User = Depends(
+        require_permission("audit_log_view")
+    ),
+    db: AsyncSession = Depends(get_db),
+):
+    audit = await get_audit_service(db)
+    values = await audit.get_filter_values()
+    return AuditFilterValuesResponse(**values)
 
 
 @router.get(

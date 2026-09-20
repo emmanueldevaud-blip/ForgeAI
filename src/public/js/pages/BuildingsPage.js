@@ -5,17 +5,16 @@ import {
   listSites,
   createSite,
   updateSite,
+  deleteSite,
   listBuildings,
   createBuilding,
   updateBuilding,
-  listLevels,
-  createLevel,
-  updateLevel,
+  deleteBuilding,
   listRooms,
   createRoom,
   updateRoom,
+  deleteRoom,
   listUsageTypes,
-  listRoomTypes,
 } from '../services/buildingsApi.js';
 
 export class BuildingsPage {
@@ -28,11 +27,9 @@ export class BuildingsPage {
     this.currentView = 'sites';
     this.currentSiteId = null;
     this.currentBuildingId = null;
-    this.currentLevelId = null;
 
     this.currentSite = null;
     this.currentBuilding = null;
-    this.currentLevel = null;
 
     this.data = [];
     this.total = 0;
@@ -51,7 +48,6 @@ export class BuildingsPage {
     this._searchTimeout = null;
 
     this.usageTypes = [];
-    this.roomTypes = [];
   }
 
   async initialize() {
@@ -74,12 +70,8 @@ export class BuildingsPage {
     this._authUnsubscribe = authStore.subscribe(() => this._updateButtonVisibility());
 
     try {
-      const [utResp, rtResp] = await Promise.all([
-        listUsageTypes({ page_size: 100 }),
-        listRoomTypes({ page_size: 100 }),
-      ]);
+      const utResp = await listUsageTypes({ page_size: 100 });
       this.usageTypes = utResp.items || [];
-      this.roomTypes = rtResp.items || [];
     } catch (_) {
       // reference data optional
     }
@@ -93,47 +85,24 @@ export class BuildingsPage {
           { key: 'name', label: 'Nom', sortable: true },
           { key: 'city', label: 'Ville', sortable: true },
           { key: 'building_count', label: 'Bâtiments', sortable: false },
-          { key: 'is_active', label: 'Statut', sortable: true, render: (item) =>
-            item.is_active
-              ? '<span class="status-badge active">Actif</span>'
-              : '<span class="status-badge inactive">Inactif</span>'
-          },
         ];
       case 'buildings':
         return [
           { key: 'reference', label: 'Référence', sortable: true },
           { key: 'name', label: 'Nom', sortable: true },
           { key: 'building_number', label: 'N°', sortable: false },
-          { key: 'level_count', label: 'Niveaux', sortable: false },
-          { key: 'is_active', label: 'Statut', sortable: true, render: (item) =>
-            item.is_active
-              ? '<span class="status-badge active">Actif</span>'
-              : '<span class="status-badge inactive">Inactif</span>'
-          },
-        ];
-      case 'levels':
-        return [
-          { key: 'reference', label: 'Référence', sortable: true },
-          { key: 'name', label: 'Nom', sortable: true },
-          { key: 'level_order', label: 'Ordre', sortable: true },
-          { key: 'room_count', label: 'Pièces', sortable: false },
-          { key: 'is_active', label: 'Statut', sortable: true, render: (item) =>
-            item.is_active
-              ? '<span class="status-badge active">Actif</span>'
-              : '<span class="status-badge inactive">Inactif</span>'
-          },
+          { key: 'room_count', label: 'Locaux', sortable: false },
         ];
       case 'rooms':
         return [
           { key: 'reference', label: 'Référence', sortable: true },
           { key: 'name', label: 'Nom', sortable: true },
           { key: 'usage_type.name', label: 'Usage', sortable: false, render: (item) => item.usage_type?.name || '—' },
-          { key: 'room_type.name', label: 'Type', sortable: false, render: (item) => item.room_type?.name || '—' },
           { key: 'area', label: 'Surface', sortable: true, render: (item) => item.area ? `${item.area} m²` : '—' },
-          { key: 'is_active', label: 'Statut', sortable: true, render: (item) =>
-            item.is_active
-              ? '<span class="status-badge active">Actif</span>'
-              : '<span class="status-badge inactive">Inactif</span>'
+          { key: 'used_for_accommodation', label: 'Hébergement', sortable: false, render: (item) =>
+            item.used_for_accommodation
+              ? '<span class="status-badge active">Oui</span>'
+              : '<span class="status-badge inactive">Non</span>'
           },
         ];
       default:
@@ -145,13 +114,13 @@ export class BuildingsPage {
     if (this.currentView === 'rooms') {
       return [
         { key: 'edit', label: 'Modifier', icon: 'edit', permission: 'building.update' },
-        { key: 'toggle', label: 'Activer/Désactiver', icon: 'power', permission: 'building.update' },
+        { key: 'delete', label: 'Supprimer', icon: 'trash', permission: 'building.delete' },
       ];
     }
     return [
       { key: 'view', label: 'Ouvrir', icon: 'edit', permission: 'building.view' },
       { key: 'edit', label: 'Modifier', icon: 'edit', permission: 'building.update' },
-      { key: 'toggle', label: 'Activer/Désactiver', icon: 'power', permission: 'building.update' },
+      { key: 'delete', label: 'Supprimer', icon: 'trash', permission: 'building.delete' },
     ];
   }
 
@@ -160,13 +129,12 @@ export class BuildingsPage {
       case 'view':
         if (this.currentView === 'sites') this._openSite(item);
         else if (this.currentView === 'buildings') this._openBuilding(item);
-        else if (this.currentView === 'levels') this._openLevel(item);
         break;
       case 'edit':
         this._openEditModal(item);
         break;
-      case 'toggle':
-        this._confirmToggle(item);
+      case 'delete':
+        this._confirmDelete(item);
         break;
     }
   }
@@ -185,11 +153,8 @@ export class BuildingsPage {
         case 'buildings':
           response = await listBuildings({ page: this.page, page_size: this.pageSize, search: this.search || undefined, site_id: this.currentSiteId, sort_by: this.sortBy, sort_order: this.sortOrder });
           break;
-        case 'levels':
-          response = await listLevels({ page: this.page, page_size: this.pageSize, search: this.search || undefined, building_id: this.currentBuildingId, sort_by: this.sortBy, sort_order: this.sortOrder });
-          break;
         case 'rooms':
-          response = await listRooms({ page: this.page, page_size: this.pageSize, search: this.search || undefined, level_id: this.currentLevelId, sort_by: this.sortBy, sort_order: this.sortOrder });
+          response = await listRooms({ page: this.page, page_size: this.pageSize, search: this.search || undefined, building_id: this.currentBuildingId, sort_by: this.sortBy, sort_order: this.sortOrder });
           break;
       }
       this.data = response.items || [];
@@ -216,27 +181,15 @@ export class BuildingsPage {
   }
 
   _openBuilding(building) {
-    this.currentView = 'levels';
+    this.currentView = 'rooms';
     this.currentBuildingId = building.id;
     this.currentBuilding = building;
     this._resetPaging();
     this._refresh();
   }
 
-  _openLevel(level) {
-    this.currentView = 'rooms';
-    this.currentLevelId = level ? (level.id || null) : null;
-    this.currentLevel = level || null;
-    this._resetPaging();
-    this._refresh();
-  }
-
   _goBack() {
     if (this.currentView === 'rooms') {
-      this.currentView = 'levels';
-      this.currentLevelId = null;
-      this.currentLevel = null;
-    } else if (this.currentView === 'levels') {
       this.currentView = 'buildings';
       this.currentBuildingId = null;
       this.currentBuilding = null;
@@ -252,8 +205,8 @@ export class BuildingsPage {
   _resetPaging() {
     this.page = 1;
     this.search = '';
-    this.sortBy = this.currentView === 'levels' ? 'level_order' : 'created_at';
-    this.sortOrder = this.currentView === 'levels' ? 'asc' : 'desc';
+    this.sortBy = 'created_at';
+    this.sortOrder = 'desc';
   }
 
   _refresh() {
@@ -271,33 +224,39 @@ export class BuildingsPage {
     this.loadData();
   }
 
-  _confirmToggle(item) {
-    const action = item.is_active ? 'désactiver' : 'réactiver';
+  _confirmDelete(item) {
+    const typeLabel = {
+      sites: 'ce site',
+      buildings: 'ce bâtiment',
+      rooms: 'ce local',
+    }[this.currentView];
+
     this.confirmDialog.open({
-      title: `Confirmer la ${action}`,
-      message: `Êtes-vous sûr de vouloir ${action} cet élément ?`,
-      confirmText: action.charAt(0).toUpperCase() + action.slice(1),
-      variant: item.is_active ? 'danger' : 'primary',
+      title: 'Confirmer la suppression',
+      message: `Êtes-vous sûr de vouloir supprimer ${typeLabel} ? Cette action est irréversible.`,
+      confirmText: 'Supprimer',
+      variant: 'danger',
     });
-    this.pendingAction = { item };
+    this.pendingAction = { item, type: 'delete' };
   }
 
   async _executeConfirmedAction() {
     if (!this.pendingAction) return;
-    const { item } = this.pendingAction;
+    const { item, type } = this.pendingAction;
     this.pendingAction = null;
 
     try {
-      const updateFn = {
-        sites: updateSite,
-        buildings: updateBuilding,
-        levels: updateLevel,
-        rooms: updateRoom,
-      }[this.currentView];
-      if (updateFn) {
-        await updateFn(item.id, { is_active: !item.is_active });
-        this.showToast(item.is_active ? 'Désactivé' : 'Réactivé', 'success');
-        this.loadData();
+      if (type === 'delete') {
+        const deleteFn = {
+          sites: deleteSite,
+          buildings: deleteBuilding,
+          rooms: deleteRoom,
+        }[this.currentView];
+        if (deleteFn) {
+          await deleteFn(item.id);
+          this.showToast('Supprimé', 'success');
+          this.loadData();
+        }
       }
     } catch (error) {
       this.showToast(error.message || 'Erreur', 'error');
@@ -308,13 +267,11 @@ export class BuildingsPage {
     const isEdit = !!item;
     const type = this.currentView === 'sites' ? 'site'
       : this.currentView === 'buildings' ? 'building'
-      : this.currentView === 'levels' ? 'level'
       : 'room';
     const typeLabel = {
       site: 'un site',
       building: 'un bâtiment',
-      level: 'un niveau',
-      room: 'une pièce',
+      room: 'un local',
     }[type];
 
     const overlay = document.createElement('div');
@@ -331,7 +288,6 @@ export class BuildingsPage {
     let fields = '';
     if (type === 'site') {
       fields = `
-        <div class="form-group"><label>Référence</label><input name="reference" value="${this._escapeHtml(v('reference'))}" required></div>
         <div class="form-group"><label>Nom</label><input name="name" value="${this._escapeHtml(v('name'))}" required></div>
         <div class="form-group"><label>Adresse</label><input name="address" value="${this._escapeHtml(v('address'))}"></div>
         <div class="form-group"><label>Code postal</label><input name="postal_code" value="${this._escapeHtml(v('postal_code'))}"></div>
@@ -341,36 +297,23 @@ export class BuildingsPage {
       `;
     } else if (type === 'building') {
       fields = `
-        <div class="form-group"><label>Référence</label><input name="reference" value="${this._escapeHtml(v('reference'))}" required></div>
         <div class="form-group"><label>Nom</label><input name="name" value="${this._escapeHtml(v('name'))}" required></div>
         <div class="form-group"><label>N° bâtiment</label><input name="building_number" value="${this._escapeHtml(v('building_number'))}"></div>
         <div class="form-group"><label>Nombre d'étages (info)</label><input name="floors_count" type="number" value="${v('floors_count')}"></div>
         <div class="form-group"><label>Description</label><textarea name="description">${this._escapeHtml(v('description'))}</textarea></div>
         ${!isEdit ? `<input type="hidden" name="site_id" value="${this.currentSiteId}">` : ''}
       `;
-    } else if (type === 'level') {
-      fields = `
-        <div class="form-group"><label>Référence</label><input name="reference" value="${this._escapeHtml(v('reference'))}" required></div>
-        <div class="form-group"><label>Nom</label><input name="name" value="${this._escapeHtml(v('name'))}" required></div>
-        <div class="form-group"><label>Ordre d'affichage</label><input name="level_order" type="number" value="${v('level_order', 0)}"></div>
-        <div class="form-group"><label>Description</label><textarea name="description">${this._escapeHtml(v('description'))}</textarea></div>
-        ${!isEdit ? `<input type="hidden" name="building_id" value="${this.currentBuildingId}">` : ''}
-      `;
     } else if (type === 'room') {
       const usageOptions = this.usageTypes.map(ut =>
         `<option value="${ut.id}" ${v('usage_type_id') == ut.id ? 'selected' : ''}>${this._escapeHtml(ut.name)}</option>`
       ).join('');
-      const roomTypeOptions = this.roomTypes.map(rt =>
-        `<option value="${rt.id}" ${v('room_type_id') == rt.id ? 'selected' : ''}>${this._escapeHtml(rt.name)}</option>`
-      ).join('');
       fields = `
-        <div class="form-group"><label>Référence</label><input name="reference" value="${this._escapeHtml(v('reference'))}" required></div>
         <div class="form-group"><label>Nom</label><input name="name" value="${this._escapeHtml(v('name'))}" required></div>
         <div class="form-group"><label>Type d'utilisation</label><select name="usage_type_id"><option value="">—</option>${usageOptions}</select></div>
-        <div class="form-group"><label>Type de pièce</label><select name="room_type_id"><option value="">—</option>${roomTypeOptions}</select></div>
         <div class="form-group"><label>Surface (m²)</label><input name="area" type="number" step="0.01" value="${v('area')}"></div>
+        <div class="form-group"><label>Hébergement</label><select name="used_for_accommodation"><option value="false" ${!v('used_for_accommodation') ? 'selected' : ''}>Non</option><option value="true" ${v('used_for_accommodation') ? 'selected' : ''}>Oui</option></select></div>
         <div class="form-group"><label>Description</label><textarea name="description">${this._escapeHtml(v('description'))}</textarea></div>
-        ${!isEdit ? `<input type="hidden" name="level_id" value="${this.currentLevelId}">` : ''}
+        ${!isEdit ? `<input type="hidden" name="building_id" value="${this.currentBuildingId}">` : ''}
       `;
     }
 
@@ -417,27 +360,22 @@ export class BuildingsPage {
       else delete data.area;
       if (data.floors_count) data.floors_count = parseInt(data.floors_count);
       else delete data.floors_count;
-      if (data.level_order) data.level_order = parseInt(data.level_order);
-      else data.level_order = 0;
       if (data.site_id) data.site_id = parseInt(data.site_id);
       if (data.building_id) data.building_id = parseInt(data.building_id);
-      if (data.level_id) data.level_id = parseInt(data.level_id);
       if (data.usage_type_id) data.usage_type_id = parseInt(data.usage_type_id);
       else delete data.usage_type_id;
-      if (data.room_type_id) data.room_type_id = parseInt(data.room_type_id);
-      else delete data.room_type_id;
+      if (data.used_for_accommodation) data.used_for_accommodation = data.used_for_accommodation === 'true';
+      else data.used_for_accommodation = false;
 
       try {
         const createFn = {
           site: createSite,
           building: createBuilding,
-          level: createLevel,
           room: createRoom,
         }[type];
         const updateFn = {
           site: updateSite,
           building: updateBuilding,
-          level: updateLevel,
           room: updateRoom,
         }[type];
         if (isEdit) {
@@ -470,8 +408,7 @@ export class BuildingsPage {
       const labels = {
         sites: 'site',
         buildings: 'bâtiment',
-        levels: 'niveau',
-        rooms: 'pièce',
+        rooms: 'local',
       };
       count.textContent = `${this.total} ${labels[this.currentView]}${this.total > 1 ? 's' : ''}`;
     }
@@ -544,14 +481,8 @@ export class BuildingsPage {
   _navigateToBreadcrumb(index) {
     if (index === 0) {
       this.currentView = 'buildings';
-      this.currentLevelId = null;
-      this.currentLevel = null;
-    } else if (index === 1) {
-      this.currentView = 'levels';
-      this.currentBuildingId = this.currentBuilding?.id || this.currentBuildingId;
-      this.currentBuilding = this.currentBuilding;
-      this.currentLevelId = null;
-      this.currentLevel = null;
+      this.currentBuildingId = null;
+      this.currentBuilding = null;
     }
     this._resetPaging();
     this._refresh();
@@ -590,8 +521,7 @@ export class BuildingsPage {
 
   _getTitle() {
     if (this.currentView === 'buildings' && this.currentSite) return `Bâtiments — ${this.currentSite.name}`;
-    if (this.currentView === 'levels' && this.currentBuilding) return `Niveaux — ${this.currentBuilding.name}`;
-    if (this.currentView === 'rooms' && this.currentLevel) return `Pièces — ${this.currentLevel.name}`;
+    if (this.currentView === 'rooms' && this.currentBuilding) return `Locaux — ${this.currentBuilding.name}`;
     return 'Sites';
   }
 
@@ -599,22 +529,18 @@ export class BuildingsPage {
     const labels = {
       sites: 'site',
       buildings: 'bâtiment',
-      levels: 'niveau',
-      rooms: 'pièce',
+      rooms: 'local',
     };
     return `${this.total} ${labels[this.currentView]}${this.total > 1 ? 's' : ''}`;
   }
 
   _getBreadcrumbs() {
     const crumbs = [];
-    if (['buildings', 'levels', 'rooms'].includes(this.currentView)) {
+    if (['buildings', 'rooms'].includes(this.currentView)) {
       crumbs.push({ label: this.currentSite?.name || 'Site', view: 'buildings', siteId: this.currentSiteId });
     }
-    if (['levels', 'rooms'].includes(this.currentView)) {
-      crumbs.push({ label: this.currentBuilding?.name || 'Bâtiment', view: 'levels', buildingId: this.currentBuildingId });
-    }
     if (this.currentView === 'rooms') {
-      crumbs.push({ label: this.currentLevel?.name || 'Niveau', view: 'rooms', levelId: this.currentLevelId });
+      crumbs.push({ label: this.currentBuilding?.name || 'Bâtiment', view: 'buildings', buildingId: this.currentBuildingId });
     }
     return crumbs;
   }

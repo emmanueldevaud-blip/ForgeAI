@@ -104,7 +104,7 @@ class Building(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
 
     site: Mapped["Site"] = relationship("Site", back_populates="buildings")
-    levels: Mapped[list["Level"]] = relationship("Level", back_populates="building", cascade="all, delete-orphan")
+    rooms: Mapped[list["Room"]] = relationship("Room", back_populates="building", cascade="all, delete-orphan")
 
     __table_args__ = (
         UniqueConstraint("site_id", "reference", name="uq_building_site_reference"),
@@ -115,55 +115,31 @@ class Building(Base):
         return f"<Building(reference={self.reference}, name={self.name})>"
 
 
-class Level(Base):
-    __tablename__ = "levels"
-
-    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
-    building_id: Mapped[int] = mapped_column(ForeignKey("buildings.id", ondelete="CASCADE"), nullable=False, index=True)
-    reference: Mapped[str] = mapped_column(String(50), nullable=False)
-    name: Mapped[str] = mapped_column(String(100), nullable=False)
-    level_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
-    description: Mapped[str | None] = mapped_column(Text, nullable=True)
-    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
-
-    building: Mapped["Building"] = relationship("Building", back_populates="levels")
-    rooms: Mapped[list["Room"]] = relationship("Room", back_populates="level", cascade="all, delete-orphan")
-
-    __table_args__ = (
-        UniqueConstraint("building_id", "reference", name="uq_level_building_reference"),
-        Index("ix_levels_building_active", "building_id", "is_active"),
-    )
-
-    def __repr__(self) -> str:
-        return f"<Level(reference={self.reference}, name={self.name})>"
-
-
 class Room(Base):
     __tablename__ = "rooms"
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
-    level_id: Mapped[int] = mapped_column(ForeignKey("levels.id", ondelete="CASCADE"), nullable=False, index=True)
+    building_id: Mapped[int] = mapped_column(ForeignKey("buildings.id", ondelete="CASCADE"), nullable=False, index=True)
     reference: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
     room_type_id: Mapped[int | None] = mapped_column(ForeignKey("room_types.id", ondelete="SET NULL"), nullable=True, index=True)
     usage_type_id: Mapped[int | None] = mapped_column(ForeignKey("usage_types.id", ondelete="SET NULL"), nullable=True, index=True)
     name: Mapped[str] = mapped_column(String(200), nullable=False)
     area: Mapped[Decimal | None] = mapped_column(Numeric(10, 2), nullable=True)
+    used_for_accommodation: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
 
-    level: Mapped["Level"] = relationship("Level", back_populates="rooms")
+    building: Mapped["Building"] = relationship("Building", back_populates="rooms")
     room_type: Mapped[Optional["RoomType"]] = relationship("RoomType", back_populates="rooms")
     usage_type: Mapped[Optional["UsageType"]] = relationship("UsageType", back_populates="rooms")
     equipments: Mapped[list["Equipment"]] = relationship("Equipment", back_populates="room")
     housings: Mapped[list["Housing"]] = relationship("Housing", back_populates="room")
 
     __table_args__ = (
-        UniqueConstraint("level_id", "reference", name="uq_room_level_reference"),
-        Index("ix_rooms_level_active", "level_id", "is_active"),
+        UniqueConstraint("building_id", "reference", name="uq_room_building_reference"),
+        Index("ix_rooms_building_active", "building_id", "is_active"),
     )
 
     def __repr__(self) -> str:

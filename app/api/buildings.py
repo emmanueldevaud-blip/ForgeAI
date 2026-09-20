@@ -12,13 +12,7 @@ from app.schemas.buildings import (
     BuildingListResponse,
     BuildingResponse,
     BuildingUpdate,
-    BuildingWithLevelsResponse,
-    LevelCreate,
-    LevelListParams,
-    LevelListResponse,
-    LevelResponse,
-    LevelUpdate,
-    LevelWithRoomsResponse,
+    BuildingWithRoomsResponse,
     MessageResponse,
     RoomCreate,
     RoomListParams,
@@ -116,10 +110,6 @@ async def create_usage_type(
     audit = await get_audit_service(db)
     service = BuildingService(db, audit=audit, current_user=current_user)
 
-    existing = await service.get_usage_type_by_code(data.code)
-    if existing:
-        raise HTTPException(status_code=409, detail="Ce code existe déjà")
-
     item = await service.create_usage_type(data.model_dump())
     return UsageTypeResponse.model_validate(item)
 
@@ -139,6 +129,20 @@ async def update_usage_type(
         raise HTTPException(status_code=404, detail="Type d'utilisation non trouvé")
 
     return UsageTypeResponse.model_validate(item)
+
+
+@router.delete("/usage-types/{usage_type_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_usage_type(
+    usage_type_id: int,
+    current_user: User = Depends(require_permission("building.manage_refs")),
+    db: AsyncSession = Depends(get_db),
+):
+    audit = await get_audit_service(db)
+    service = BuildingService(db, audit=audit, current_user=current_user)
+
+    error = await service.delete_usage_type(usage_type_id)
+    if error:
+        raise HTTPException(status_code=400, detail=error)
 
 
 # ============================================================
@@ -196,10 +200,6 @@ async def create_room_type(
 ):
     audit = await get_audit_service(db)
     service = BuildingService(db, audit=audit, current_user=current_user)
-
-    existing = await service.get_room_type_by_code(data.code)
-    if existing:
-        raise HTTPException(status_code=409, detail="Ce code existe déjà")
 
     item = await service.create_room_type(data.model_dump())
     return RoomTypeResponse.model_validate(item)
@@ -310,94 +310,6 @@ async def update_site(
 
 
 # ============================================================
-# LEVELS (must be before /{building_id})
-# ============================================================
-
-@router.get("/levels", response_model=LevelListResponse)
-async def list_levels(
-    params: LevelListParams = Depends(),
-    current_user: User = Depends(require_permission("building.view")),
-    db: AsyncSession = Depends(get_db),
-):
-    audit = await get_audit_service(db)
-    service = BuildingService(db, audit=audit, current_user=current_user)
-
-    items, total = await service.search_levels(
-        page=params.page,
-        page_size=params.page_size,
-        search=params.search,
-        building_id=params.building_id,
-        is_active=params.is_active,
-        sort_by=params.sort_by,
-        sort_order=params.sort_order,
-    )
-
-    level_responses = []
-    for lv in items:
-        resp = LevelResponse.model_validate(lv)
-        resp.room_count = len(lv.rooms) if lv.rooms else 0
-        level_responses.append(resp)
-
-    return LevelListResponse(
-        items=level_responses,
-        total=total,
-        page=params.page,
-        page_size=params.page_size,
-        total_pages=math.ceil(total / params.page_size) if total > 0 else 1,
-    )
-
-
-@router.get("/levels/{level_id}", response_model=LevelWithRoomsResponse)
-async def get_level(
-    level_id: int,
-    current_user: User = Depends(require_permission("building.view")),
-    db: AsyncSession = Depends(get_db),
-):
-    audit = await get_audit_service(db)
-    service = BuildingService(db, audit=audit, current_user=current_user)
-
-    level = await service.get_level(level_id)
-    if not level:
-        raise HTTPException(status_code=404, detail="Niveau non trouvé")
-
-    resp = LevelWithRoomsResponse.model_validate(level)
-    resp.room_count = len(level.rooms) if level.rooms else 0
-    return resp
-
-
-@router.post("/levels", response_model=LevelResponse, status_code=status.HTTP_201_CREATED)
-async def create_level(
-    data: LevelCreate,
-    current_user: User = Depends(require_permission("building.create")),
-    db: AsyncSession = Depends(get_db),
-):
-    audit = await get_audit_service(db)
-    service = BuildingService(db, audit=audit, current_user=current_user)
-
-    level = await service.create_level(data.model_dump())
-    if not level:
-        raise HTTPException(status_code=409, detail="Une référence existe déjà")
-    return LevelResponse.model_validate(level)
-
-
-@router.patch("/levels/{level_id}", response_model=LevelResponse)
-async def update_level(
-    level_id: int,
-    data: LevelUpdate,
-    current_user: User = Depends(require_permission("building.update")),
-    db: AsyncSession = Depends(get_db),
-):
-    audit = await get_audit_service(db)
-    service = BuildingService(db, audit=audit, current_user=current_user)
-
-    level = await service.update_level(level_id, data.model_dump(exclude_unset=True))
-    if not level:
-        raise HTTPException(status_code=404, detail="Niveau non trouvé")
-
-    return LevelResponse.model_validate(level)
-
-
-# ============================================================
 # ROOMS (must be before /{building_id})
 # ============================================================
 
@@ -414,10 +326,11 @@ async def list_rooms(
         page=params.page,
         page_size=params.page_size,
         search=params.search,
-        level_id=params.level_id,
+        building_id=params.building_id,
         room_type_id=params.room_type_id,
         usage_type_id=params.usage_type_id,
         is_active=params.is_active,
+        used_for_accommodation=params.used_for_accommodation,
         sort_by=params.sort_by,
         sort_order=params.sort_order,
     )
@@ -442,7 +355,7 @@ async def get_room(
 
     room = await service.get_room(room_id)
     if not room:
-        raise HTTPException(status_code=404, detail="Pièce non trouvée")
+        raise HTTPException(status_code=404, detail="Local non trouvé")
 
     return RoomResponse.model_validate(room)
 
@@ -474,7 +387,7 @@ async def update_room(
 
     room = await service.update_room(room_id, data.model_dump(exclude_unset=True))
     if not room:
-        raise HTTPException(status_code=404, detail="Pièce non trouvée")
+        raise HTTPException(status_code=404, detail="Local non trouvé")
 
     return RoomResponse.model_validate(room)
 
@@ -505,7 +418,7 @@ async def list_buildings(
     building_responses = []
     for b in items:
         resp = BuildingResponse.model_validate(b)
-        resp.level_count = len(b.levels) if b.levels else 0
+        resp.room_count = len(b.rooms) if b.rooms else 0
         building_responses.append(resp)
 
     return BuildingListResponse(
@@ -517,7 +430,7 @@ async def list_buildings(
     )
 
 
-@router.get("/{building_id}", response_model=BuildingWithLevelsResponse)
+@router.get("/{building_id}", response_model=BuildingWithRoomsResponse)
 async def get_building(
     building_id: int,
     current_user: User = Depends(require_permission("building.view")),
@@ -530,8 +443,8 @@ async def get_building(
     if not building:
         raise HTTPException(status_code=404, detail="Bâtiment non trouvé")
 
-    resp = BuildingWithLevelsResponse.model_validate(building)
-    resp.level_count = len(building.levels) if building.levels else 0
+    resp = BuildingWithRoomsResponse.model_validate(building)
+    resp.room_count = len(building.rooms) if building.rooms else 0
     return resp
 
 
@@ -565,3 +478,57 @@ async def update_building(
         raise HTTPException(status_code=404, detail="Bâtiment non trouvé")
 
     return BuildingResponse.model_validate(building)
+
+
+@router.delete("/sites/{site_id}", response_model=MessageResponse)
+async def delete_site(
+    site_id: int,
+    current_user: User = Depends(require_permission("building.delete")),
+    db: AsyncSession = Depends(get_db),
+):
+    audit = await get_audit_service(db)
+    service = BuildingService(db, audit=audit, current_user=current_user)
+
+    error = await service.delete_site(site_id)
+    if error == "Site non trouvé":
+        raise HTTPException(status_code=404, detail=error)
+    if error:
+        raise HTTPException(status_code=409, detail=error)
+
+    return MessageResponse(message="Site supprimé")
+
+
+@router.delete("/{building_id}", response_model=MessageResponse)
+async def delete_building(
+    building_id: int,
+    current_user: User = Depends(require_permission("building.delete")),
+    db: AsyncSession = Depends(get_db),
+):
+    audit = await get_audit_service(db)
+    service = BuildingService(db, audit=audit, current_user=current_user)
+
+    error = await service.delete_building(building_id)
+    if error == "Bâtiment non trouvé":
+        raise HTTPException(status_code=404, detail=error)
+    if error:
+        raise HTTPException(status_code=409, detail=error)
+
+    return MessageResponse(message="Bâtiment supprimé")
+
+
+@router.delete("/rooms/{room_id}", response_model=MessageResponse)
+async def delete_room(
+    room_id: int,
+    current_user: User = Depends(require_permission("building.delete")),
+    db: AsyncSession = Depends(get_db),
+):
+    audit = await get_audit_service(db)
+    service = BuildingService(db, audit=audit, current_user=current_user)
+
+    error = await service.delete_room(room_id)
+    if error == "Local non trouvé":
+        raise HTTPException(status_code=404, detail=error)
+    if error:
+        raise HTTPException(status_code=409, detail=error)
+
+    return MessageResponse(message="Local supprimé")

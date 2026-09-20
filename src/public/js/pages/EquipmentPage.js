@@ -12,7 +12,6 @@ import {
 import {
   listSites,
   listBuildings,
-  listLevels,
   listRooms,
 } from '../services/buildingsApi.js';
 import { listEquipmentTypes } from '../services/equipmentApi.js';
@@ -34,7 +33,6 @@ function getLocationString(equipment) {
   const parts = [];
   if (equipment.site) parts.push(equipment.site.name);
   if (equipment.building) parts.push(equipment.building.name);
-  if (equipment.level) parts.push(equipment.level.name);
   if (equipment.room) parts.push(equipment.room.name);
   return parts.join(' > ') || '-';
 }
@@ -316,18 +314,14 @@ export class EquipmentPage {
 
     const sites = await this._loadSites();
     let buildings = [];
-    let levels = [];
     let rooms = [];
 
     if (isEdit && equipment.room) {
       const room = equipment.room;
-      if (room.level) {
-        levels = [room.level];
-        if (room.level.building) {
-          buildings = [room.level.building];
-          if (room.level.building.site) {
-            sites = [room.level.building.site, ...sites.filter(s => s.id !== room.level.building.site.id)];
-          }
+      if (room.building) {
+        buildings = [room.building];
+        if (room.building.site) {
+          sites = [room.building.site, ...sites.filter(s => s.id !== room.building.site.id)];
         }
       }
     }
@@ -341,7 +335,7 @@ export class EquipmentPage {
     ).join('');
 
     const siteOptions = sites.map(s =>
-      `<option value="${s.id}" ${isEdit && equipment.room?.level?.building?.site?.id === s.id ? 'selected' : ''}>${s.name}</option>`
+      `<option value="${s.id}" ${isEdit && equipment.room?.building?.site?.id === s.id ? 'selected' : ''}>${s.name}</option>`
     ).join('');
 
     const modal = document.createElement('div');
@@ -392,7 +386,6 @@ export class EquipmentPage {
               <label><span>Bâtiment *</span><select name="building_id" required><option value="">-- Sélectionner --</option></select></label>
             </div>
             <div class="form-row">
-              <label><span>Niveau *</span><select name="level_id" required><option value="">-- Sélectionner --</option></select></label>
               <label><span>Pièce *</span><select name="room_id" required><option value="">-- Sélectionner --</option></select></label>
             </div>
 
@@ -415,20 +408,18 @@ export class EquipmentPage {
     const form = modal.querySelector('[data-equipment-form]');
     const siteSelect = form.querySelector('[name="site_id"]');
     const buildingSelect = form.querySelector('[name="building_id"]');
-    const levelSelect = form.querySelector('[name="level_id"]');
     const roomSelect = form.querySelector('[name="room_id"]');
 
     siteSelect.addEventListener('change', async () => {
       buildingSelect.innerHTML = '<option value="">Chargement...</option>';
-      levelSelect.innerHTML = '<option value="">-- Sélectionner --</option>';
       roomSelect.innerHTML = '<option value="">-- Sélectionner --</option>';
       if (siteSelect.value) {
         const resp = await listBuildings({ site_id: siteSelect.value, is_active: true, page_size: 1000 });
         buildings = resp.items || [];
         buildingSelect.innerHTML = '<option value="">-- Sélectionner --</option>' +
-          buildings.map(b => `<option value="${b.id}" ${isEdit && equipment.room?.level?.building?.id === b.id ? 'selected' : ''}>${b.name}</option>`).join('');
-        if (isEdit && equipment.room?.level?.building) {
-          buildingSelect.value = equipment.room.level.building.id;
+          buildings.map(b => `<option value="${b.id}" ${isEdit && equipment.room?.building?.id === b.id ? 'selected' : ''}>${b.name}</option>`).join('');
+        if (isEdit && equipment.room?.building) {
+          buildingSelect.value = equipment.room.building.id;
           buildingSelect.dispatchEvent(new Event('change'));
         }
       } else {
@@ -437,29 +428,12 @@ export class EquipmentPage {
     });
 
     buildingSelect.addEventListener('change', async () => {
-      levelSelect.innerHTML = '<option value="">Chargement...</option>';
-      roomSelect.innerHTML = '<option value="">-- Sélectionner --</option>';
-      if (buildingSelect.value) {
-        const resp = await listLevels({ building_id: buildingSelect.value, is_active: true, page_size: 1000 });
-        levels = resp.items || [];
-        levelSelect.innerHTML = '<option value="">-- Sélectionner --</option>' +
-          levels.map(l => `<option value="${l.id}" ${isEdit && equipment.room?.level?.id === l.id ? 'selected' : ''}>${l.name}</option>`).join('');
-        if (isEdit && equipment.room?.level) {
-          levelSelect.value = equipment.room.level.id;
-          levelSelect.dispatchEvent(new Event('change'));
-        }
-      } else {
-        levelSelect.innerHTML = '<option value="">-- Sélectionner --</option>';
-      }
-    });
-
-    levelSelect.addEventListener('change', async () => {
       roomSelect.innerHTML = '<option value="">Chargement...</option>';
-      if (levelSelect.value) {
-        const resp = await listRooms({ level_id: levelSelect.value, is_active: true, page_size: 1000 });
+      if (buildingSelect.value) {
+        const resp = await listRooms({ building_id: buildingSelect.value, is_active: true, page_size: 1000 });
         rooms = resp.items || [];
         roomSelect.innerHTML = '<option value="">-- Sélectionner --</option>' +
-          rooms.map(r => `<option value="${r.id}" ${isEdit && equipment.room_id === r.id ? 'selected' : ''}>${r.name}</option>`).join('');
+          rooms.map(r => `<option value="${r.id}" ${isEdit && equipment.room_id === r.id ? 'selected' : ''}>${r.reference} - ${r.name}</option>`).join('');
         if (isEdit && equipment.room_id) {
           roomSelect.value = equipment.room_id;
         }
@@ -468,8 +442,8 @@ export class EquipmentPage {
       }
     });
 
-    if (isEdit && equipment.room?.level?.building?.site) {
-      siteSelect.value = equipment.room.level.building.site.id;
+    if (isEdit && equipment.room?.building?.site) {
+      siteSelect.value = equipment.room.building.site.id;
       siteSelect.dispatchEvent(new Event('change'));
     }
 
@@ -478,7 +452,7 @@ export class EquipmentPage {
       const data = {};
       for (const [key, value] of formData.entries()) {
         if (value === '' || value === null) continue;
-        if (key === 'equipment_type_id' || key === 'room_id' || key === 'site_id' || key === 'building_id' || key === 'level_id') {
+        if (key === 'equipment_type_id' || key === 'room_id' || key === 'site_id' || key === 'building_id') {
           data[key] = parseInt(value, 10);
         } else if (key === 'purchase_price') {
           data[key] = parseFloat(value);

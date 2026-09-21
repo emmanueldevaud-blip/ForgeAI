@@ -1,4 +1,5 @@
 from app.core.module_registry import BaseModule, ModuleInfo, ModuleStatus, module_registry
+from app.modules.sport import SportModule
 
 
 class DashboardModule(BaseModule):
@@ -682,6 +683,7 @@ def register_all_modules():
         QuotingModule(),
         InventoryModule(),
         PurchasingModule(),
+        SportModule(),
         SuppliersModule(),
         DocumentsModule(),
         ReportsModule(),

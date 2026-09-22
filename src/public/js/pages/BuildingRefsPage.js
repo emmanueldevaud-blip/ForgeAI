@@ -242,10 +242,19 @@ export class BuildingRefsPage {
 
   async _handleFormSubmit(form) {
     const formData = new FormData(form);
-    const code = this.editingItem ? this.editingItem.code : (formData.get('code')?.trim().toUpperCase() || '');
+    const name = formData.get('name')?.trim() || '';
+    const code = this.editingItem
+      ? this.editingItem.code
+      : (formData.get('code')?.trim().toUpperCase() || name
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .toUpperCase()
+        .replace(/[^A-Z0-9\s]/g, '')
+        .replace(/\s+/g, '_')
+        .substring(0, 50));
     const data = {
       code,
-      name: formData.get('name')?.trim(),
+      name,
       description: formData.get('description')?.trim() || null,
       sort_order: parseInt(formData.get('sort_order') || '0', 10),
     };

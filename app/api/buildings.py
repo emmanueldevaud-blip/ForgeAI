@@ -111,6 +111,8 @@ async def create_usage_type(
     service = BuildingService(db, audit=audit, current_user=current_user)
 
     item = await service.create_usage_type(data.model_dump())
+    if not item:
+        raise HTTPException(status_code=409, detail="Impossible de créer ce type de local")
     return UsageTypeResponse.model_validate(item)
 
 

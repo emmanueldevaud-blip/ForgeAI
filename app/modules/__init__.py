@@ -119,39 +119,32 @@ class HousingModule(BaseModule):
                 "order": 0,
             },
             {
-                "code": "housing-occupancies",
-                "name": "Occupations",
-                "icon": "calendar",
-                "route": "/housing/occupancies",
-                "order": 1,
-            },
-            {
                 "code": "housing-planning",
                 "name": "Planning",
                 "icon": "calendar-days",
                 "route": "/housing/planning",
-                "order": 2,
+                "order": 1,
             },
             {
                 "code": "housing-cleaning",
                 "name": "Ménage",
                 "icon": "sparkles",
                 "route": "/housing/cleaning",
-                "order": 3,
+                "order": 2,
             },
             {
                 "code": "housing-occupants",
                 "name": "Occupants",
                 "icon": "users",
                 "route": "/housing/occupants",
-                "order": 4,
+                "order": 3,
             },
             {
                 "code": "housing-unavailabilities",
                 "name": "Indisponibilités",
                 "icon": "calendar-x",
                 "route": "/housing/unavailabilities",
-                "order": 5,
+                "order": 4,
             },
         ]
 

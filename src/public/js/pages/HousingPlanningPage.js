@@ -3,7 +3,6 @@ import {
   getPlanning,
   listHousings,
   createOccupancy,
-  updateOccupancy,
   changeOccupancyStatus,
   listOccupants,
   quickCreateOccupant,

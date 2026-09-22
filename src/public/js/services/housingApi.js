@@ -74,25 +74,6 @@ export async function updateOccupant(id, data) {
 // OCCUPANCIES
 // ============================================================
 
-export async function listOccupancies(params = {}) {
-  const query = new URLSearchParams();
-  if (params.page) query.append('page', params.page);
-  if (params.page_size) query.append('page_size', params.page_size);
-  if (params.status) query.append('status', params.status);
-  if (params.housing_id) query.append('housing_id', params.housing_id);
-  if (params.occupant_id) query.append('occupant_id', params.occupant_id);
-  if (params.date_from) query.append('date_from', params.date_from);
-  if (params.date_to) query.append('date_to', params.date_to);
-  if (params.sort_by) query.append('sort_by', params.sort_by);
-  if (params.sort_order) query.append('sort_order', params.sort_order);
-  const endpoint = `/occupancies${query.toString() ? '?' + query.toString() : ''}`;
-  return housingApi.get(endpoint);
-}
-
-export async function getOccupancy(id) {
-  return housingApi.get(`/occupancies/${id}`);
-}
-
 export async function createOccupancy(data) {
   return housingApi.post('/occupancies', data);
 }

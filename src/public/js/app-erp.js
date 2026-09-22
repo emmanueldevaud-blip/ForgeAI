@@ -19,7 +19,6 @@ import { createMaintenanceRefsPage } from './pages/MaintenanceRefsPage.js';
 import { createMaintenanceCalendarPage } from './pages/MaintenanceCalendarPage.js';
 import { createAIAssistantPage } from './pages/AIAssistantPage.js';
 import { createHousingListPage } from './pages/HousingListPage.js';
-import { createHousingOccupanciesPage } from './pages/HousingOccupanciesPage.js';
 import { createHousingPlanningPage } from './pages/HousingPlanningPage.js';
 import { createHousingCleaningPage } from './pages/HousingCleaningPage.js';
 import { createHousingOccupantsPage } from './pages/HousingOccupantsPage.js';
@@ -61,7 +60,6 @@ let maintenanceRefsPage = null;
 let maintenanceCalendarPage = null;
 let aiAssistantPage = null;
 let housingListPage = null;
-let housingOccupanciesPage = null;
 let housingPlanningPage = null;
 let housingCleaningPage = null;
 let housingOccupantsPage = null;
@@ -159,9 +157,6 @@ async function initializeApp() {
     }, { requiresAuth: true, permissions: ['housing.view'] })
     .addRoute('/housing/housings', async (route) => {
       await showHousingListPage(route);
-    }, { requiresAuth: true, permissions: ['housing.view'] })
-    .addRoute('/housing/occupancies', async (route) => {
-      await showHousingOccupanciesPage(route);
     }, { requiresAuth: true, permissions: ['housing.view'] })
     .addRoute('/housing/planning', async (route) => {
       await showHousingPlanningPage(route);
@@ -349,14 +344,6 @@ async function ensureHousingListPage() {
     await housingListPage.initialize();
   }
   return housingListPage;
-}
-
-async function ensureHousingOccupanciesPage() {
-  if (!housingOccupanciesPage) {
-    housingOccupanciesPage = createHousingOccupanciesPage(router);
-    await housingOccupanciesPage.initialize();
-  }
-  return housingOccupanciesPage;
 }
 
 async function ensureHousingPlanningPage() {
@@ -632,21 +619,6 @@ async function showHousingListPage(route) {
     page.loadData();
   } catch (error) {
     console.error('Erreur affichage hébergements:', error);
-    appShell.showError(error);
-  }
-}
-
-async function showHousingOccupanciesPage(route) {
-  if (!appShell) return;
-  appShell.showLoading();
-
-  try {
-    const page = await ensureHousingOccupanciesPage();
-    const content = page.render();
-    appShell.showContent(content);
-    page.loadData();
-  } catch (error) {
-    console.error('Erreur affichage occupations:', error);
     appShell.showError(error);
   }
 }

@@ -73,6 +73,11 @@ export class BuildingRefsPage {
   }
 
   _handleTableAction(action, item) {
+    if (!authStore.hasPermission('building.manage_refs')) {
+      const verb = action === 'delete' ? 'supprimer' : 'modifier';
+      this.showToast(`Vous n'avez pas la permission de ${verb} cet élément de référentiel.`, 'error');
+      return;
+    }
     if (action === 'edit') {
       this._openModal(item);
     } else if (action === 'delete') {

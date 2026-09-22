@@ -131,9 +131,19 @@ export class BuildingsPage {
         else if (this.currentView === 'buildings') this._openBuilding(item);
         break;
       case 'edit':
+        if (!authStore.hasPermission('building.update')) {
+          const labelEdit = { sites: 'ce site', buildings: 'ce bâtiment', rooms: 'ce local' }[this.currentView];
+          this.showToast(`Vous n'avez pas la permission de modifier ${labelEdit}.`, 'error');
+          return;
+        }
         this._openEditModal(item);
         break;
       case 'delete':
+        if (!authStore.hasPermission('building.delete')) {
+          const labelDelete = { sites: 'ce site', buildings: 'ce bâtiment', rooms: 'ce local' }[this.currentView];
+          this.showToast(`Vous n'avez pas la permission de supprimer ${labelDelete}.`, 'error');
+          return;
+        }
         this._confirmDelete(item);
         break;
     }
@@ -198,6 +208,16 @@ export class BuildingsPage {
       this.currentSiteId = null;
       this.currentSite = null;
     }
+    this._resetPaging();
+    this._refresh();
+  }
+
+  _goToRoot() {
+    this.currentView = 'sites';
+    this.currentSiteId = null;
+    this.currentSite = null;
+    this.currentBuildingId = null;
+    this.currentBuilding = null;
     this._resetPaging();
     this._refresh();
   }
@@ -432,7 +452,7 @@ export class BuildingsPage {
         <div class="users-title-area">
           ${breadcrumbs.length > 0 ? `
             <div class="breadcrumb">
-              <a href="#" data-action="back" class="breadcrumb-link">Bâtiments</a>
+              <a href="#" data-action="breadcrumb-root" class="breadcrumb-link">Sites</a>
               ${breadcrumbs.map((b, i) => `<span class="breadcrumb-separator">›</span>${i < breadcrumbs.length - 1 ? `<a href="#" data-action="breadcrumb" data-index="${i}" class="breadcrumb-link">${this._escapeHtml(b.label)}</a>` : `<span>${this._escapeHtml(b.label)}</span>`}`).join('')}
             </div>
           ` : ''}
@@ -440,8 +460,8 @@ export class BuildingsPage {
           <p class="users-count">${this._getCountText()}</p>
         </div>
         <div class="users-header-actions">
-          ${breadcrumbs.length > 0 ? `<button class="btn btn-secondary" data-action="back">← Retour</button>` : ''}
-          ${canCreate ? `<button class="btn btn-primary" data-action="create">+ Nouveau</button>` : ''}
+          ${breadcrumbs.length > 0 ? `<button type="button" class="btn btn-secondary" data-action="back">← Retour</button>` : ''}
+          ${canCreate ? `<button type="button" class="btn btn-primary" data-action="create">+ Nouveau</button>` : ''}
         </div>
       </div>
       <div class="users-toolbar">
@@ -457,7 +477,18 @@ export class BuildingsPage {
       </div>
     `;
 
-    this.element.querySelector('[data-action="back"]')?.addEventListener('click', (e) => { e.preventDefault(); this._goBack(); });
+    this.element.querySelectorAll('[data-action="back"]').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.preventDefault();
+        this._goBack();
+      });
+    });
+
+    this.element.querySelector('[data-action="breadcrumb-root"]')?.addEventListener('click', (e) => {
+      e.preventDefault();
+      this._goToRoot();
+    });
+
     this.element.querySelector('[data-action="create"]')?.addEventListener('click', () => this._openEditModal(null));
 
     this.element.querySelectorAll('[data-action="breadcrumb"]').forEach(link => {

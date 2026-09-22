@@ -16,6 +16,7 @@ class HousingBase(BaseModel):
     beds: Optional[int] = Field(None, ge=0)
     nb_rooms: int = Field(1, ge=0)
     bed_configuration: Optional[str] = None
+    room_names: Optional[str] = None
     bathrooms: Optional[int] = Field(None, ge=0)
     has_kitchen: bool = False
     has_balcony: bool = False
@@ -34,6 +35,7 @@ class HousingUpdate(BaseModel):
     beds: Optional[int] = Field(None, ge=0)
     nb_rooms: Optional[int] = Field(None, ge=0)
     bed_configuration: Optional[str] = None
+    room_names: Optional[str] = None
     bathrooms: Optional[int] = Field(None, ge=0)
     has_kitchen: Optional[bool] = None
     has_balcony: Optional[bool] = None
@@ -87,6 +89,7 @@ class HousingResponse(BaseModel):
     beds: Optional[int] = None
     nb_rooms: int = 1
     bed_configuration: Optional[str] = None
+    room_names: Optional[str] = None
     bathrooms: Optional[int] = None
     has_kitchen: bool
     has_balcony: bool

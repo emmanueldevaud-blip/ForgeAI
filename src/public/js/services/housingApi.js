@@ -82,6 +82,10 @@ export async function updateOccupancy(id, data) {
   return housingApi.patch(`/occupancies/${id}`, data);
 }
 
+export async function deleteOccupancy(id) {
+  return housingApi.delete(`/occupancies/${id}`);
+}
+
 export async function changeOccupancyStatus(id, status) {
   return housingApi.post(`/occupancies/${id}/status`, { status });
 }

@@ -61,6 +61,7 @@ async def _get_housing_summary(db: AsyncSession, housing_id: int) -> Optional[di
         "beds": h.beds,
         "nb_rooms": h.nb_rooms,
         "bed_configuration": h.bed_configuration,
+        "room_names": h.room_names,
         "bathrooms": h.bathrooms,
         "has_kitchen": h.has_kitchen,
         "has_balcony": h.has_balcony,
@@ -394,6 +395,27 @@ class HousingService:
                 setattr(occupancy, k, v)
         await self.db.flush()
         return await self.get_occupancy(occupancy_id)
+
+    async def delete_occupancy(self, occupancy_id: int) -> bool:
+        occupancy = await self.db.get(Occupancy, occupancy_id)
+        if not occupancy:
+            return False
+
+        await self.db.execute(
+            delete(occupancy_occupants).where(occupancy_occupants.c.occupancy_id == occupancy_id)
+        )
+        await self.db.execute(delete(Cleaning).where(Cleaning.occupancy_id == occupancy_id))
+        await self.db.execute(
+            delete(OccupancyStatusHistory).where(OccupancyStatusHistory.occupancy_id == occupancy_id)
+        )
+        await self.db.execute(
+            EmailLog.__table__.update()
+            .where(EmailLog.occupancy_id == occupancy_id)
+            .values(occupancy_id=None)
+        )
+        await self.db.delete(occupancy)
+        await self.db.commit()
+        return True
 
     async def change_occupancy_status(self, occupancy_id: int, new_status: str) -> Optional[dict]:
         result = await self.db.execute(select(Occupancy).where(Occupancy.id == occupancy_id))
@@ -1044,6 +1066,7 @@ class HousingService:
                 "nb_rooms": h.nb_rooms,
                 "beds": h.beds,
                 "bed_configuration": h.bed_configuration,
+                "room_names": h.room_names,
             })
 
         return {

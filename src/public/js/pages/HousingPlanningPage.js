@@ -3,6 +3,7 @@ import {
   getPlanning,
   listHousings,
   createOccupancy,
+  deleteOccupancy,
   changeOccupancyStatus,
   listOccupants,
   quickCreateOccupant,
@@ -25,17 +26,11 @@ const MONTH_NAMES = [
 const STATUS_LABELS = {
   pre_reserved: 'Pré-réservé',
   confirmed: 'Confirmé',
-  in_progress: 'En cours',
-  completed: 'Terminé',
-  cancelled: 'Annulé',
 };
 
 const STATUS_COLORS = {
   pre_reserved: { bg: '#f3f4f6', border: '#9ca3af', text: '#374151' },
   confirmed: { bg: '#fef3c7', border: '#f59e0b', text: '#92400e' },
-  in_progress: { bg: '#dbeafe', border: '#3b82f6', text: '#1e40af' },
-  completed: { bg: '#d1fae5', border: '#10b981', text: '#065f46' },
-  cancelled: { bg: '#fee2e2', border: '#ef4444', text: '#991b1b' },
 };
 
 const CLEANING_STATUS_LABELS = {
@@ -57,6 +52,12 @@ function formatDateISO(d) {
   const m = String(d.getMonth() + 1).padStart(2, '0');
   const day = String(d.getDate()).padStart(2, '0');
   return `${y}-${m}-${day}`;
+}
+
+function parseRoomNames(str, count) {
+  let names = [];
+  try { names = JSON.parse(str || '[]'); } catch { names = []; }
+  return Array.from({ length: count }, (_, i) => names[i] || `Chambre ${i + 1}`);
 }
 
 function formatDateShort(d) {
@@ -112,7 +113,9 @@ export class HousingPlanningPage {
         this.housingFilter.length > 0 ? JSON.stringify(this.housingFilter) : null,
         this.statusFilter
       );
-      this.entries = resp.entries || [];
+      this.entries = (resp.entries || []).filter((entry) => (
+        entry.status === 'pre_reserved' || entry.status === 'confirmed'
+      ));
     } catch (e) {
       console.error('Erreur chargement planning:', e);
       this.entries = [];
@@ -230,12 +233,13 @@ export class HousingPlanningPage {
       buildingHousings.forEach(housing => {
         let bedConfig = [];
         try { bedConfig = JSON.parse(housing.bed_configuration || '[]'); } catch { bedConfig = []; }
-        const nbRooms = housing.nb_rooms || 1;
+         const nbRooms = housing.nb_rooms || 1;
+         const roomNames = parseRoomNames(housing.room_names, nbRooms);
         if (bedConfig.length === 0) bedConfig = Array(nbRooms).fill('simple');
 
         bedConfig.forEach((bedType, roomIdx) => {
-          const localName = housing.room?.name || housing.name || '-';
-          const roomName = `Chambre ${roomIdx + 1}`;
+          const localName = housing.room?.name || housing.name || housing.room_name || 'Logement';
+           const roomName = roomNames[roomIdx];
           const bedLabel = bedType === 'double' ? 'Lit double' : 'Lit simple';
           const roomLabel = `${localName} — ${roomName} — ${bedLabel}`;
 
@@ -536,7 +540,9 @@ export class HousingPlanningPage {
     if (bedConfig.length === 0) bedConfig = Array(nbRooms).fill('simple');
     const bedType = bedConfig[roomIndex] || 'simple';
     const bedSymbols = bedType === 'double' ? '🛏️🛏️' : '🛏️';
-    const roomLabel = nbRooms > 1 ? `Chambre ${roomIndex + 1} (${bedSymbols})` : (housing.name || '');
+    const housingName = housing.room?.name || housing.name || housing.room_name || 'Logement';
+    const roomNames = parseRoomNames(housing.room_names, nbRooms);
+    const roomLabel = nbRooms > 1 ? `${roomNames[roomIndex]} (${bedSymbols})` : housingName;
 
     return `
       <div class="modal-header" style="padding:${isMobile ? '12px 16px' : '16px 24px'};border-bottom:1px solid var(--color-border-light);">
@@ -639,7 +645,7 @@ export class HousingPlanningPage {
           </div>
           <div style="flex:1;min-width:${isMobile ? '100px' : '120px'};">
             <label style="font-weight:600;font-size:11px;color:var(--color-text-tertiary);text-transform:uppercase;letter-spacing:0.5px;display:block;margin-bottom:4px;">Chambre</label>
-            <div style="font-weight:500;">${housing ? housing.name : entry.housing_name || '-'}</div>
+          <div style="font-weight:500;">${housing?.room?.name || housing?.name || entry.housing_name || 'Logement'}</div>
           </div>
         </div>
         <div style="display:flex;gap:12px;margin-bottom:16px;flex-wrap:wrap;">
@@ -668,11 +674,10 @@ export class HousingPlanningPage {
           ${occupantsHtml || '<div style="color:var(--color-text-tertiary);font-style:italic;">Aucun occupant</div>'}
         </div>
         <div class="modal-footer" style="display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap;padding-top:16px;border-top:1px solid var(--color-border-light);">
+          <button class="btn btn-danger" data-action="delete-occupancy" style="flex:1;min-width:${isMobile ? '100px' : 'auto'};">Supprimer la réservation</button>
           <button class="btn btn-secondary" data-dismiss style="flex:1;min-width:${isMobile ? '100px' : 'auto'};">Fermer</button>
-          ${entry.status !== 'confirmed' ? `<button class="btn btn-primary" data-action="confirm" style="flex:1;min-width:${isMobile ? '100px' : 'auto'};">Confirmer</button>` : ''}
-          ${entry.status !== 'in_progress' && entry.status !== 'completed' ? `<button class="btn btn-warning" data-action="checkin" style="flex:1;min-width:${isMobile ? '100px' : 'auto'};">Check-in</button>` : ''}
-          ${entry.status === 'in_progress' ? `<button class="btn btn-success" data-action="checkout" style="flex:1;min-width:${isMobile ? '100px' : 'auto'};">Check-out</button>` : ''}
-          ${!entry.has_cleaning_planned ? `<button class="btn btn-secondary" data-action="schedule-cleaning" style="flex:1;min-width:${isMobile ? '100px' : 'auto'};">Nettoyage</button>` : ''}
+          ${entry.status === 'pre_reserved' ? `<button class="btn btn-primary" data-action="confirm" style="flex:1;min-width:${isMobile ? '100px' : 'auto'};">Confirmer la réservation</button>` : ''}
+          ${!entry.has_cleaning_planned ? `<button class="btn btn-secondary" data-action="schedule-cleaning" style="flex:1;min-width:${isMobile ? '100px' : 'auto'};">Planifier un nettoyage</button>` : ''}
           <button class="btn btn-secondary" data-action="send-email" style="flex:1;min-width:${isMobile ? '100px' : 'auto'};">E-mail</button>
         </div>
       </div>
@@ -996,31 +1001,17 @@ export class HousingPlanningPage {
       });
     }
 
-    const checkinBtn = overlay.querySelector('[data-action="checkin"]');
-    if (checkinBtn) {
-      checkinBtn.addEventListener('click', async () => {
-        try {
-          await changeOccupancyStatus(this.selectedEntry.occupancy_id, 'in_progress');
-          this._closeModal();
-          await this.loadData();
-        } catch (e) {
-          alert('Erreur lors du check-in');
-        }
-      });
-    }
-
-    const checkoutBtn = overlay.querySelector('[data-action="checkout"]');
-    if (checkoutBtn) {
-      checkoutBtn.addEventListener('click', async () => {
-        try {
-          await changeOccupancyStatus(this.selectedEntry.occupancy_id, 'completed');
-          this._closeModal();
-          await this.loadData();
-        } catch (e) {
-          alert('Erreur lors du check-out');
-        }
-      });
-    }
+    const deleteOccupancyBtn = overlay.querySelector('[data-action="delete-occupancy"]');
+    deleteOccupancyBtn?.addEventListener('click', async () => {
+      if (!window.confirm('Supprimer définitivement cette réservation ?')) return;
+      try {
+        await deleteOccupancy(this.selectedEntry.occupancy_id);
+        this._closeModal();
+        await this.loadData();
+      } catch (e) {
+        alert(e?.data?.detail || e.message || 'Erreur lors de la suppression');
+      }
+    });
 
     const cleaningBtn = overlay.querySelector('[data-action="schedule-cleaning"]');
     if (cleaningBtn) {
@@ -1096,9 +1087,6 @@ export class HousingPlanningPage {
             <option value="">Tous les statuts</option>
             <option value="pre_reserved">Pré-réservé</option>
             <option value="confirmed">Confirmé</option>
-            <option value="in_progress">En cours</option>
-            <option value="completed">Terminé</option>
-            <option value="cancelled">Annulé</option>
           </select>
         </div>
       </div>

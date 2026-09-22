@@ -7,6 +7,12 @@ function parseBedConfig(str) {
   try { return JSON.parse(str); } catch { return []; }
 }
 
+function parseRoomNames(str, count) {
+  let names = [];
+  try { names = JSON.parse(str || '[]'); } catch { names = []; }
+  return Array.from({ length: count }, (_, i) => names[i] || `Chambre ${i + 1}`);
+}
+
 function renderBedSummary(nbRooms, bedConfig) {
   const beds = parseBedConfig(bedConfig);
   if (beds.length === 0) return `<span class="status-badge inactive">${nbRooms} chambre${nbRooms > 1 ? 's' : ''}</span>`;
@@ -37,7 +43,7 @@ export class HousingListPage {
     this.table = new Table({
       columns: [
         { key: 'room', label: 'Nom du logement', sortable: false, render: (item) => item.room?.name || '-' },
-        { key: 'rooms', label: 'Chambres', sortable: false, render: (item) => renderBedSummary(item.nb_rooms || 1, item.bed_configuration) },
+        { key: 'rooms', label: 'Nombre de chambres', sortable: false, render: (item) => renderBedSummary(item.nb_rooms || 1, item.bed_configuration) },
         { key: 'capacity', label: 'Capacité', sortable: true, render: (item) => `${item.capacity} pers.` },
       ],
       actions: [
@@ -113,6 +119,7 @@ export class HousingListPage {
   async _showEditModal(housing) {
     const nbRooms = housing.nb_rooms || 1;
     const bedConfig = parseBedConfig(housing.bed_configuration);
+    const roomNames = parseRoomNames(housing.room_names, nbRooms);
     while (bedConfig.length < nbRooms) bedConfig.push('simple');
 
     const modal = document.createElement('div');
@@ -128,12 +135,12 @@ export class HousingListPage {
             <div class="form-section">
               <h3>Chambres et lits</h3>
               <div class="form-row">
-                <label><span>Nombre de chambres</span><input type="number" name="nb_rooms" min="0" max="50" value="${nbRooms}" data-nb-rooms></label>
+                <label><span>Nombre de chambres</span><input type="number" name="nb_rooms" min="1" max="50" value="${nbRooms}" data-nb-rooms></label>
               </div>
               <div class="bed-rooms-list" data-bed-rooms>
                 ${bedConfig.map((type, i) => `
                   <div class="form-row bed-room-row">
-                    <label class="bed-room-label">Chambre ${i + 1}</label>
+                    <label class="bed-room-label"><input type="text" name="room_name_${i}" value="${this._escapeAttr(roomNames[i])}" maxlength="100" placeholder="Nom de la chambre"></label>
                     <select name="bed_${i}" data-bed-idx="${i}">
                       <option value="simple" ${type === 'simple' ? 'selected' : ''}>Lit simple</option>
                       <option value="double" ${type === 'double' ? 'selected' : ''}>Lit double</option>
@@ -161,6 +168,7 @@ export class HousingListPage {
             </div>
 
             <input type="hidden" name="bed_configuration" data-bed-config value="${this._escapeAttr(housing.bed_configuration || '[]')}">
+            <input type="hidden" name="room_names" data-room-names value="${this._escapeAttr(housing.room_names || '[]')}">
           </form>
         </div>
         <div class="modal-footer">
@@ -174,16 +182,22 @@ export class HousingListPage {
     const bedsListEl = modal.querySelector('[data-bed-rooms]');
     const nbRoomsInput = modal.querySelector('[data-nb-rooms]');
     const bedConfigInput = modal.querySelector('[data-bed-config]');
+    const syncRoomNames = () => {
+      const names = Array.from(modal.querySelectorAll('input[name^="room_name_"]')).map(input => input.value.trim());
+      const roomNamesInput = modal.querySelector('[data-room-names]');
+      if (roomNamesInput) roomNamesInput.value = JSON.stringify(names);
+    };
 
     const syncBedRows = () => {
       const n = parseInt(nbRoomsInput.value) || 0;
       const currentBeds = parseBedConfig(bedConfigInput.value);
+      const currentNames = Array.from(modal.querySelectorAll('input[name^="room_name_"]')).map(input => input.value);
       while (currentBeds.length < n) currentBeds.push('simple');
       currentBeds.length = n;
       bedConfigInput.value = JSON.stringify(currentBeds);
       bedsListEl.innerHTML = currentBeds.map((type, i) => `
         <div class="form-row bed-room-row">
-          <label class="bed-room-label">Chambre ${i + 1}</label>
+          <label class="bed-room-label"><input type="text" name="room_name_${i}" value="${this._escapeAttr(currentNames[i] || `Chambre ${i + 1}`)}" maxlength="100" placeholder="Nom de la chambre"></label>
           <select name="bed_${i}" data-bed-idx="${i}">
             <option value="simple" ${type === 'simple' ? 'selected' : ''}>Lit simple</option>
             <option value="double" ${type === 'double' ? 'selected' : ''}>Lit double</option>
@@ -198,6 +212,8 @@ export class HousingListPage {
           bedConfigInput.value = JSON.stringify(beds);
         });
       });
+      bedsListEl.querySelectorAll('input[name^="room_name_"]').forEach(input => input.addEventListener('input', syncRoomNames));
+      syncRoomNames();
     };
 
     nbRoomsInput.addEventListener('input', syncBedRows);
@@ -209,6 +225,7 @@ export class HousingListPage {
         bedConfigInput.value = JSON.stringify(beds);
       });
     });
+    bedsListEl.querySelectorAll('input[name^="room_name_"]').forEach(input => input.addEventListener('input', syncRoomNames));
 
     modal.querySelector('[data-action="close"]')?.addEventListener('click', () => modal.remove());
     modal.addEventListener('click', (e) => { if (e.target === modal) modal.remove(); });
@@ -217,6 +234,7 @@ export class HousingListPage {
       const data = {};
       data.nb_rooms = parseInt(fd.get('nb_rooms')) || 1;
       data.bed_configuration = fd.get('bed_configuration') || '[]';
+      data.room_names = fd.get('room_names') || '[]';
       data.capacity = parseInt(fd.get('capacity')) || 1;
       data.is_active = fd.has('is_active');
       data.notes = fd.get('notes') || null;

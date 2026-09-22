@@ -41,6 +41,7 @@ class Housing(Base):
     beds: Mapped[int | None] = mapped_column(Integer, nullable=True)
     nb_rooms: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
     bed_configuration: Mapped[str | None] = mapped_column(Text, nullable=True)
+    room_names: Mapped[str | None] = mapped_column(Text, nullable=True)
     bathrooms: Mapped[int | None] = mapped_column(Integer, nullable=True)
     has_kitchen: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     has_balcony: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)

@@ -296,6 +296,17 @@ async def update_occupancy(
     return item
 
 
+@router.delete("/occupancies/{occupancy_id}", response_model=MessageResponse)
+async def delete_occupancy(
+    occupancy_id: int,
+    service: HousingService = Depends(get_occupancy_manage_service),
+):
+    deleted = await service.delete_occupancy(occupancy_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Occupation non trouvée")
+    return MessageResponse(message="Réservation supprimée")
+
+
 @router.post("/occupancies/{occupancy_id}/status", response_model=OccupancyResponse)
 async def change_occupancy_status(
     occupancy_id: int,

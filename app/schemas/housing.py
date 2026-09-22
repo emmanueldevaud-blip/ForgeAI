@@ -553,6 +553,7 @@ class OccupantQuickCreate(BaseModel):
 class PlanningEntry(BaseModel):
     occupancy_id: int
     housing_id: int
+    room_index: Optional[int] = None
     housing_name: str
     housing_reference: str
     occupants: List[dict] = []  # [{id, first_name, last_name, email, is_primary}]

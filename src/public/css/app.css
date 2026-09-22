@@ -3751,6 +3751,8 @@
   height: 36px;
   position: relative;
   cursor: pointer;
+  touch-action: none;
+  user-select: none;
   transition: background-color 0.1s ease;
   padding: 0 !important;
 }

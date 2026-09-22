@@ -1084,7 +1084,30 @@ class HousingService:
     async def create_occupancy(self, data: dict) -> dict:
         if self.current_user:
             data["created_by"] = self.current_user.id
-        
+
+        arrival_date = data.get("arrival_date")
+        departure_date = data.get("departure_date")
+        if arrival_date.date() < date.today():
+            raise HTTPException(status_code=400, detail="Une réservation ne peut pas commencer dans le passé")
+        if departure_date < arrival_date:
+            raise HTTPException(status_code=400, detail="La date de départ doit être postérieure à la date d'arrivée")
+
+        room_index = data.get("room_index")
+        overlap_query = select(Occupancy.id).where(
+            Occupancy.housing_id == data["housing_id"],
+            Occupancy.status.in_(["pre_reserved", "confirmed", "in_progress"]),
+            Occupancy.arrival_date <= departure_date,
+            Occupancy.departure_date >= arrival_date,
+        )
+        if room_index is None or room_index == 0:
+            overlap_query = overlap_query.where(
+                or_(Occupancy.room_index == room_index, Occupancy.room_index.is_(None))
+            )
+        else:
+            overlap_query = overlap_query.where(Occupancy.room_index == room_index)
+        if (await self.db.execute(overlap_query.limit(1))).scalar_one_or_none() is not None:
+            raise HTTPException(status_code=409, detail="Cette période chevauche déjà une réservation")
+
         occupant_ids = data.pop("occupant_ids", [])
         occupancy = Occupancy(**data)
         self.db.add(occupancy)

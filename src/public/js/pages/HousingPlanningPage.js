@@ -244,8 +244,8 @@ export class HousingPlanningPage {
           const roomLabel = `${localName} — ${roomName} — ${bedLabel}`;
 
           const occupancies = (housingOccupancies[housing.id] || []).filter(occ => {
-            const occRoom = occ.room_index;
-            return occRoom == null || occRoom === roomIdx;
+            const occRoom = occ.room_index == null ? null : Number(occ.room_index);
+            return occRoom == null ? roomIdx === 0 : occRoom === roomIdx;
           });
 
           const dayOccupancyMap = new Array(days.length).fill(null);
@@ -344,6 +344,7 @@ export class HousingPlanningPage {
         const housingId = parseInt(cell.dataset.housingId);
         const roomIndex = parseInt(cell.dataset.roomIndex) || 0;
         const date = cell.dataset.date;
+        if (date < formatDateISO(new Date())) return;
         this.dragState = { housingId, roomIndex, startDate: date, endDate: date };
         cell.classList.add('planning-cell--selected');
       });
@@ -394,10 +395,12 @@ export class HousingPlanningPage {
         touchCurrentCell = cell;
         
         const housingId = parseInt(cell.dataset.housingId);
+        const roomIndex = parseInt(cell.dataset.roomIndex) || 0;
         const date = cell.dataset.date;
+        if (date < formatDateISO(new Date())) return;
         
         longPressTimer = setTimeout(() => {
-          this.dragState = { housingId, startDate: date, endDate: date };
+          this.dragState = { housingId, roomIndex, startDate: date, endDate: date };
           cell.classList.add('planning-cell--selected');
           if (navigator.vibrate) navigator.vibrate(50);
         }, 500);
@@ -415,6 +418,7 @@ export class HousingPlanningPage {
           touchCurrentCell = cellBelow;
           
           if (this.dragState) {
+            if (parseInt(cellBelow.dataset.roomIndex) !== this.dragState.roomIndex) return;
             const date = cellBelow.dataset.date;
             this.dragState.endDate = date;
             this._highlightDragRange();
@@ -431,8 +435,14 @@ export class HousingPlanningPage {
           this.element.querySelectorAll('.planning-cell--selected').forEach(c => c.classList.remove('planning-cell--selected'));
         } else if (touchStartCell === touchCurrentCell) {
           const housingId = parseInt(touchStartCell.dataset.housingId);
+          const roomIndex = parseInt(touchStartCell.dataset.roomIndex) || 0;
           const date = touchStartCell.dataset.date;
-          this.dragState = { housingId, startDate: date, endDate: date };
+          if (date < formatDateISO(new Date())) {
+            touchStartCell = null;
+            touchCurrentCell = null;
+            return;
+          }
+          this.dragState = { housingId, roomIndex, startDate: date, endDate: date };
           this._onDragEnd();
           this.dragState = null;
         }
@@ -457,9 +467,9 @@ export class HousingPlanningPage {
   _highlightDragRange() {
     if (!this.dragState || !this.element) return;
     this.element.querySelectorAll('.planning-cell--drag').forEach(c => c.classList.remove('planning-cell--drag'));
-    const { housingId, startDate, endDate } = this.dragState;
+    const { housingId, roomIndex, startDate, endDate } = this.dragState;
     const [start, end] = startDate <= endDate ? [startDate, endDate] : [endDate, startDate];
-    this.element.querySelectorAll(`.planning-cell[data-housing-id="${housingId}"]`).forEach(cell => {
+    this.element.querySelectorAll(`.planning-cell[data-housing-id="${housingId}"][data-room-index="${roomIndex}"]`).forEach(cell => {
       const d = cell.dataset.date;
       if (d && d >= start && d <= end && !cell.dataset.entryId) {
         cell.classList.add('planning-cell--drag');
@@ -471,6 +481,23 @@ export class HousingPlanningPage {
     if (!this.dragState) return;
     let { startDate, endDate, housingId, roomIndex } = this.dragState;
     if (startDate > endDate) [startDate, endDate] = [endDate, startDate];
+    const today = formatDateISO(new Date());
+    if (startDate < today || endDate < today) {
+      alert('Impossible de créer une réservation sur une date passée');
+      return;
+    }
+
+    const overlaps = this.entries.some(entry => {
+      if (entry.housing_id !== housingId) return false;
+      const entryRoom = entry.room_index == null ? 0 : Number(entry.room_index);
+      if (entryRoom !== roomIndex || !['pre_reserved', 'confirmed', 'in_progress'].includes(entry.status)) return false;
+      return (entry.arrival_date || '').slice(0, 10) <= endDate
+        && (entry.departure_date || '').slice(0, 10) >= startDate;
+    });
+    if (overlaps) {
+      alert('Cette période chevauche déjà une réservation');
+      return;
+    }
     this._showNewOccupancyModal(housingId, startDate, endDate, roomIndex);
   }
 
@@ -606,7 +633,7 @@ export class HousingPlanningPage {
     const bedSymbols = bedType === 'double' ? '🛏️🛏️' : '🛏️';
     const housingName = housing.room?.name || housing.name || housing.room_name || 'Logement';
     const roomNames = parseRoomNames(housing.room_names, nbRooms);
-    const roomLabel = nbRooms > 1 ? `${roomNames[roomIndex]} (${bedSymbols})` : housingName;
+    const roomLabel = `${housingName} — ${roomNames[roomIndex]} (${bedSymbols})`;
 
     return `
       <div class="modal-header" style="padding:${isMobile ? '12px 16px' : '16px 24px'};border-bottom:1px solid var(--color-border-light);">
@@ -941,8 +968,9 @@ export class HousingPlanningPage {
         const container = overlay.querySelector('#occ-occupant-list');
         const entries = container.querySelectorAll('.occupant-entry');
         if (guestTypeSelect.value === 'single' && entries.length > 1) {
-          while (entries.length > 1) {
-            entries[entries.length - 1].remove();
+          while (container.querySelectorAll('.occupant-entry').length > 1) {
+            const currentEntries = container.querySelectorAll('.occupant-entry');
+            currentEntries[currentEntries.length - 1].remove();
           }
         } else if (guestTypeSelect.value === 'couple' && bedType === 'double' && entries.length === 1) {
           addOccupantRow();
@@ -978,6 +1006,11 @@ export class HousingPlanningPage {
           return;
         }
 
+        if (guestType === 'couple' && occupantIds.length !== 2) {
+          alert('Veuillez sélectionner les deux occupants du couple');
+          return;
+        }
+
         if (guestType === 'couple' && bedType === 'simple') {
           alert('Un couple ne peut pas être dans un lit simple');
           return;
@@ -1006,7 +1039,10 @@ export class HousingPlanningPage {
           }
         } catch (e) {
           console.error('Erreur création réservation:', e);
-          alert('Erreur lors de la création de la réservation');
+          const details = Array.isArray(e?.data?.detail)
+            ? e.data.detail.map(error => error.msg).join('\n')
+            : e?.data?.detail || e?.message;
+          alert(details || 'Erreur lors de la création de la réservation');
         }
       });
     }

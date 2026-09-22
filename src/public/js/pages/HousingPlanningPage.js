@@ -555,7 +555,7 @@ export class HousingPlanningPage {
             <label style="font-weight:600;font-size:11px;color:var(--color-text-tertiary);text-transform:uppercase;letter-spacing:0.5px;display:block;margin-bottom:4px;">Chambre</label>
             <input type="text" value="${roomLabel}" disabled class="form-control" style="background:var(--color-gray-50);">
           </div>
-          <div style="display:flex;gap:12px;margin-bottom:12px;">
+          <div class="reservation-fields-row" style="display:flex;gap:12px;margin-bottom:12px;">
             <div class="form-group" style="flex:1;margin-bottom:0;">
               <label style="font-weight:600;font-size:11px;color:var(--color-text-tertiary);text-transform:uppercase;letter-spacing:0.5px;display:block;margin-bottom:4px;">Arrivée</label>
               <input type="date" id="occ-arrival" value="${startDate}" class="form-control">
@@ -565,7 +565,7 @@ export class HousingPlanningPage {
               <input type="date" id="occ-departure" value="${endDate}" class="form-control">
             </div>
           </div>
-          <div style="display:flex;gap:12px;margin-bottom:12px;">
+          <div class="reservation-fields-row" style="display:flex;gap:12px;margin-bottom:12px;">
             <div class="form-group" style="flex:1;margin-bottom:0;">
               <label style="font-weight:600;font-size:11px;color:var(--color-text-tertiary);text-transform:uppercase;letter-spacing:0.5px;display:block;margin-bottom:4px;">Statut</label>
               <select id="occ-status" class="form-control">
@@ -575,10 +575,13 @@ export class HousingPlanningPage {
             </div>
             <div class="form-group" style="flex:1;margin-bottom:0;">
               <label style="font-weight:600;font-size:11px;color:var(--color-text-tertiary);text-transform:uppercase;letter-spacing:0.5px;display:block;margin-bottom:4px;">Type</label>
-              <select id="occ-guest-type" class="form-control">
-                <option value="">— Choisir —</option>
-                <option value="single">Célibataire</option>
-                <option value="couple"${bedType === 'double' ? ' selected' : ''}${bedType === 'simple' ? ' disabled' : ''}>Couple</option>
+              <div class="guest-type-toggle" role="group" aria-label="Type d'invité">
+                <button type="button" class="btn btn-secondary guest-type-btn${bedType !== 'double' ? ' active' : ''}" data-guest-type="single" aria-pressed="${bedType !== 'double' ? 'true' : 'false'}">Célibataire</button>
+                <button type="button" class="btn btn-secondary guest-type-btn${bedType === 'double' ? ' active' : ''}" data-guest-type="couple" aria-pressed="${bedType === 'double' ? 'true' : 'false'}"${bedType === 'simple' ? ' disabled' : ''}>Couple</button>
+              </div>
+              <select id="occ-guest-type" aria-hidden="true" tabindex="-1" style="display:none;">
+                <option value="single"${bedType !== 'double' ? ' selected' : ''}>Célibataire</option>
+                <option value="couple"${bedType === 'double' ? ' selected' : ''}>Couple</option>
               </select>
             </div>
           </div>
@@ -598,7 +601,7 @@ export class HousingPlanningPage {
             <label style="font-weight:600;font-size:11px;color:var(--color-text-tertiary);text-transform:uppercase;letter-spacing:0.5px;display:block;margin-bottom:4px;">Notes</label>
             <textarea id="occ-notes" class="form-control" rows="2" placeholder="Notes internes..."></textarea>
           </div>
-          <div class="modal-footer" style="display:flex;gap:8px;justify-content:flex-end;padding-top:16px;border-top:1px solid var(--color-border-light);">
+          <div class="modal-footer reservation-modal-footer" style="display:flex;gap:8px;justify-content:flex-end;padding-top:16px;border-top:1px solid var(--color-border-light);">
             <button class="btn btn-secondary" data-dismiss style="flex:1;">Annuler</button>
             <button class="btn btn-primary" id="occ-save" style="flex:1;">Enregistrer</button>
           </div>
@@ -634,7 +637,7 @@ export class HousingPlanningPage {
         <button class="modal-close" data-dismiss style="font-size:24px;padding:4px;">&times;</button>
       </div>
       <div class="modal-body" style="padding:${isMobile ? '16px' : '24px'};">
-        <div style="display:flex;gap:12px;margin-bottom:16px;flex-wrap:wrap;">
+        <div class="reservation-detail-row" style="display:flex;gap:12px;margin-bottom:16px;flex-wrap:wrap;">
           <div style="flex:1;min-width:${isMobile ? '100px' : '120px'};">
             <label style="font-weight:600;font-size:11px;color:var(--color-text-tertiary);text-transform:uppercase;letter-spacing:0.5px;display:block;margin-bottom:4px;">Statut</label>
             <div>
@@ -648,7 +651,7 @@ export class HousingPlanningPage {
           <div style="font-weight:500;">${housing?.room?.name || housing?.name || entry.housing_name || 'Logement'}</div>
           </div>
         </div>
-        <div style="display:flex;gap:12px;margin-bottom:16px;flex-wrap:wrap;">
+        <div class="reservation-detail-row" style="display:flex;gap:12px;margin-bottom:16px;flex-wrap:wrap;">
           <div style="flex:1;min-width:${isMobile ? '80px' : '100px'};">
             <label style="font-weight:600;font-size:11px;color:var(--color-text-tertiary);text-transform:uppercase;letter-spacing:0.5px;display:block;margin-bottom:4px;">Arrivée</label>
             <div style="font-size:${isMobile ? '13px' : '14px'};">${formatDateShort(new Date(entry.arrival_date))}</div>
@@ -673,7 +676,7 @@ export class HousingPlanningPage {
           <label style="font-weight:600;font-size:11px;color:var(--color-text-tertiary);text-transform:uppercase;letter-spacing:0.5px;display:block;margin-bottom:8px;">Occupants</label>
           ${occupantsHtml || '<div style="color:var(--color-text-tertiary);font-style:italic;">Aucun occupant</div>'}
         </div>
-        <div class="modal-footer" style="display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap;padding-top:16px;border-top:1px solid var(--color-border-light);">
+        <div class="modal-footer reservation-modal-footer" style="display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap;padding-top:16px;border-top:1px solid var(--color-border-light);">
           <button class="btn btn-danger" data-action="delete-occupancy" style="flex:1;min-width:${isMobile ? '100px' : 'auto'};">Supprimer la réservation</button>
           <button class="btn btn-secondary" data-dismiss style="flex:1;min-width:${isMobile ? '100px' : 'auto'};">Fermer</button>
           ${entry.status === 'pre_reserved' ? `<button class="btn btn-primary" data-action="confirm" style="flex:1;min-width:${isMobile ? '100px' : 'auto'};">Confirmer la réservation</button>` : ''}
@@ -778,6 +781,8 @@ export class HousingPlanningPage {
     const quickBtns = overlay.querySelectorAll('.occ-quick-create');
     const addBtn = overlay.querySelector('#occ-add-occupant');
     const saveBtn = overlay.querySelector('#occ-save');
+    const guestTypeSelect = overlay.querySelector('#occ-guest-type');
+    const guestTypeButtons = overlay.querySelectorAll('.guest-type-btn');
 
     if (occSelects.length > 0) {
       try {
@@ -827,14 +832,19 @@ export class HousingPlanningPage {
         const container = overlay.querySelector('#occ-occupant-list');
         const entries = container.querySelectorAll('.occupant-entry');
         const bedType = bedConfig[roomIndex] || "simple";
+        const guestType = guestTypeSelect?.value;
         
-        // Empêcher d'ajouter un nouvel occupant si lit simple
-        // ou si type célibataire avec déjà 1 occupant
-        if (bedType === 'simple' || guestType === 'single') {
-          if (entries.length >= 1) {
-            alert('Impossible d\'ajouter plus d\'occupant avec un lit simple ou un invité célibataire');
-            return;
-          }
+        if (!guestType) {
+          alert('Veuillez choisir le type d\'invité');
+          return;
+        }
+
+        const maxOccupants = guestType === 'couple' && bedType === 'double' ? 2 : 1;
+        if (entries.length >= maxOccupants) {
+          alert(maxOccupants === 2
+            ? 'Un couple peut avoir au maximum deux occupants'
+            : 'Un célibataire ou une chambre à lit simple ne peut avoir qu\'un seul occupant');
+          return;
         }
         
         const nextIndex = entries.length;
@@ -879,8 +889,23 @@ export class HousingPlanningPage {
       });
     }
 
-    const guestTypeSelect = overlay.querySelector('#occ-guest-type');
     if (guestTypeSelect) {
+      const updateGuestTypeButtons = () => {
+        guestTypeButtons.forEach(button => {
+          const active = button.dataset.guestType === guestTypeSelect.value;
+          button.classList.toggle('active', active);
+          button.setAttribute('aria-pressed', String(active));
+        });
+      };
+
+      guestTypeButtons.forEach(button => {
+        button.addEventListener('click', () => {
+          if (button.disabled) return;
+          guestTypeSelect.value = button.dataset.guestType;
+          guestTypeSelect.dispatchEvent(new Event('change'));
+        });
+      });
+
       guestTypeSelect.addEventListener('change', () => {
         const container = overlay.querySelector('#occ-occupant-list');
         const entries = container.querySelectorAll('.occupant-entry');
@@ -889,7 +914,9 @@ export class HousingPlanningPage {
             entries[entries.length - 1].remove();
           }
         }
+        updateGuestTypeButtons();
       });
+      updateGuestTypeButtons();
     }
 
     if (saveBtn) {
@@ -923,7 +950,7 @@ export class HousingPlanningPage {
         const housingId = this._modalHousingId;
 
         try {
-          await createOccupancy({
+          const createdOccupancy = await createOccupancy({
             housing_id: housingId,
             arrival_date: arrival,
             departure_date: departure,
@@ -931,10 +958,15 @@ export class HousingPlanningPage {
             nb_persons: occupantIds.length || 1,
             occupant_ids: occupantIds,
             guest_type: guestType,
-            notes,
+            observations: notes,
           });
           this._closeModal();
           await this.loadData();
+
+          if (status === 'confirmed' && window.confirm('Voulez-vous envoyer un mail de confirmation ?')) {
+            this.selectedEntry = { ...createdOccupancy, occupancy_id: createdOccupancy.id };
+            this._openModal(this._buildEmailComposerModal(this.selectedEntry));
+          }
         } catch (e) {
           console.error('Erreur création réservation:', e);
           alert('Erreur lors de la création de la réservation');

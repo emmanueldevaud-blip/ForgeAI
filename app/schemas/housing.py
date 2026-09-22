@@ -197,6 +197,7 @@ class OccupantListResponse(BaseModel):
 class OccupancyBase(BaseModel):
     housing_id: int
     occupant_ids: List[int] = Field(default_factory=list, min_length=1)
+    status: str = Field(default="pre_reserved", pattern="^(pre_reserved|confirmed|in_progress|completed)$")
     arrival_date: datetime
     departure_date: datetime
     purpose: Optional[str] = Field(None, max_length=200)

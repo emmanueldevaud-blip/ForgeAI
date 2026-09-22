@@ -4118,6 +4118,46 @@
 
 .occupant-entry .form-control {
   flex: 1;
+  min-width: 0;
+}
+
+.guest-type-toggle {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.guest-type-toggle .guest-type-btn.active {
+  background: var(--color-primary);
+  border-color: var(--color-primary);
+  color: white;
+}
+
+.guest-type-toggle .guest-type-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+@media (max-width: 640px) {
+  .reservation-fields-row {
+    display: grid !important;
+    grid-template-columns: 1fr !important;
+    gap: 12px !important;
+  }
+
+  .reservation-detail-row {
+    display: grid !important;
+    grid-template-columns: 1fr !important;
+    gap: 12px !important;
+  }
+
+  .reservation-modal-footer {
+    flex-direction: column !important;
+  }
+
+  .reservation-modal-footer .btn {
+    width: 100%;
+  }
 }
 
 .detail-occupant-row + .detail-occupant-row {

@@ -1042,6 +1042,8 @@ class HousingService:
                 "site": site_name,
                 "capacity": h.capacity,
                 "nb_rooms": h.nb_rooms,
+                "beds": h.beds,
+                "bed_configuration": h.bed_configuration,
             })
 
         return {

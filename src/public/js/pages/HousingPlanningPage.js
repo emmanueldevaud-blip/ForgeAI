@@ -218,67 +218,95 @@ export class HousingPlanningPage {
 
     const housingOccupancies = this._getOccupanciesByHousing();
 
+    const groupedByBuilding = {};
     filteredHousings.forEach(housing => {
-      const occupancies = housingOccupancies[housing.id] || [];
-      const dayOccupancyMap = new Array(days.length).fill(null);
+      const buildingName = (housing.building && housing.building.name) || 'Autre';
+      if (!groupedByBuilding[buildingName]) groupedByBuilding[buildingName] = [];
+      groupedByBuilding[buildingName].push(housing);
+    });
 
-      occupancies.forEach(occ => {
-        const occArrival = (occ.arrival_date || '').slice(0, 10);
-        const occDeparture = (occ.departure_date || '').slice(0, 10);
-        let startDayIdx = -1;
-        let endDayIdx = -1;
-        days.forEach((day, idx) => {
-          const ds = formatDateISO(day);
-          if (ds === occArrival && startDayIdx === -1) startDayIdx = idx;
-          if (ds === occDeparture) endDayIdx = idx;
-        });
-        if (startDayIdx === -1) startDayIdx = 0;
-        if (endDayIdx === -1) endDayIdx = days.length - 1;
+    Object.keys(groupedByBuilding).sort().forEach(buildingName => {
+      const buildingHousings = groupedByBuilding[buildingName];
 
-        for (let i = startDayIdx; i <= endDayIdx; i++) {
-          dayOccupancyMap[i] = { occ, startDayIdx, endDayIdx, isStart: i === startDayIdx };
-        }
-      });
+      buildingHousings.forEach(housing => {
+        let bedConfig = [];
+        try { bedConfig = JSON.parse(housing.bed_configuration || '[]'); } catch { bedConfig = []; }
+        const nbRooms = housing.nb_rooms || 1;
+        if (bedConfig.length === 0) bedConfig = Array(nbRooms).fill('simple');
 
-      html += '<tr>';
-      html += `<td class="planning-housing-cell" title="${housing.name || ''}"><span class="housing-name">${housing.name || '-'}</span><span class="housing-code">${housing.code || ''}</span></td>`;
+        bedConfig.forEach((bedType, roomIdx) => {
+          const bedSymbols = bedType === 'double' ? '🛏️🛏️' : '🛏️';
+          const logementName = (housing.building && housing.building.name) || housing.name || '-';
+          const roomLabel = bedConfig.length > 1
+            ? `${logementName} — Ch. ${roomIdx + 1}`
+            : logementName;
 
-      let colIdx = 0;
-      while (colIdx < days.length) {
-        const day = days[colIdx];
-        const dateStr = formatDateISO(day);
-        const info = dayOccupancyMap[colIdx];
+          const occupancies = (housingOccupancies[housing.id] || []).filter(occ => {
+            const occRoom = occ.room_index;
+            return occRoom === undefined || occRoom === roomIdx;
+          });
 
-        if (info && info.isStart) {
-          const { occ, startDayIdx, endDayIdx } = info;
-          const span = endDayIdx - startDayIdx + 1;
-          const statusClass = occ.status || 'pre_reserved';
-          const occupants = occ.occupants || [];
-          const names = occupants.map(o => getOccupantDisplayName(o)).filter(n => n);
-          const displayName = names.length > 0 ? names.join(' / ') : '';
-          const extraCount = occupants.length - 1;
-          const extraLabel = extraCount > 0 ? ` +${extraCount}` : '';
+          const dayOccupancyMap = new Array(days.length).fill(null);
 
-          let cleaningHtml = '';
-          if (occ.has_cleaning_planned) {
-            cleaningHtml = `<span class="planning-cleaning-dot" style="background:${CLEANING_STATUS_COLORS[occ.cleaning_status] || '#9ca3af'}" title="Nettoyage: ${CLEANING_STATUS_LABELS[occ.cleaning_status] || 'Planifié'}"></span>`;
-          } else if (occ.status === 'completed') {
-            cleaningHtml = '<span class="planning-cleaning-warning" title="Nettoyage non planifié">⚠</span>';
+          occupancies.forEach(occ => {
+            const occArrival = (occ.arrival_date || '').slice(0, 10);
+            const occDeparture = (occ.departure_date || '').slice(0, 10);
+            let startDayIdx = -1;
+            let endDayIdx = -1;
+            days.forEach((day, idx) => {
+              const ds = formatDateISO(day);
+              if (ds === occArrival && startDayIdx === -1) startDayIdx = idx;
+              if (ds === occDeparture) endDayIdx = idx;
+            });
+            if (startDayIdx === -1) startDayIdx = 0;
+            if (endDayIdx === -1) endDayIdx = days.length - 1;
+
+            for (let i = startDayIdx; i <= endDayIdx; i++) {
+              dayOccupancyMap[i] = { occ, startDayIdx, endDayIdx, isStart: i === startDayIdx };
+            }
+          });
+
+          html += '<tr>';
+          html += `<td class="planning-housing-cell" title="${roomLabel}"><span class="housing-name">${roomLabel}</span><span class="housing-beds">${bedSymbols}</span></td>`;
+
+          let colIdx = 0;
+          while (colIdx < days.length) {
+            const day = days[colIdx];
+            const dateStr = formatDateISO(day);
+            const info = dayOccupancyMap[colIdx];
+
+            if (info && info.isStart) {
+              const { occ, startDayIdx, endDayIdx } = info;
+              const span = endDayIdx - startDayIdx + 1;
+              const statusClass = occ.status || 'pre_reserved';
+              const occupants = occ.occupants || [];
+              const names = occupants.map(o => getOccupantDisplayName(o)).filter(n => n);
+              const displayName = names.length > 0 ? names.join(' / ') : '';
+              const extraCount = occupants.length - 1;
+              const extraLabel = extraCount > 0 ? ` +${extraCount}` : '';
+
+              let cleaningHtml = '';
+              if (occ.has_cleaning_planned) {
+                cleaningHtml = `<span class="planning-cleaning-dot" style="background:${CLEANING_STATUS_COLORS[occ.cleaning_status] || '#9ca3af'}" title="Nettoyage: ${CLEANING_STATUS_LABELS[occ.cleaning_status] || 'Planifié'}"></span>`;
+              } else if (occ.status === 'completed') {
+                cleaningHtml = '<span class="planning-cleaning-warning" title="Nettoyage non planifié">⚠</span>';
+              }
+
+              html += `<td class="planning-cell planning-cell--block" colspan="${span}" data-housing-id="${housing.id}" data-room-index="${roomIdx}" data-date="${dateStr}" data-entry-id="${occ.occupancy_id}">`;
+              html += `<span class="planning-block planning-block--${statusClass}" title="${displayName}${extraLabel} (${STATUS_LABELS[occ.status] || occ.status})">`;
+              html += `<span class="planning-block-inner"><span class="planning-block-name">${displayName}${extraLabel}</span>${cleaningHtml}</span>`;
+              html += '</span>';
+              html += '</td>';
+              colIdx += span;
+            } else {
+              html += `<td class="planning-cell" data-housing-id="${housing.id}" data-room-index="${roomIdx}" data-date="${dateStr}"></td>`;
+              colIdx++;
+            }
           }
 
-          html += `<td class="planning-cell planning-cell--block" colspan="${span}" data-housing-id="${housing.id}" data-date="${dateStr}" data-entry-id="${occ.occupancy_id}">`;
-          html += `<span class="planning-block planning-block--${statusClass}" title="${displayName}${extraLabel} (${STATUS_LABELS[occ.status] || occ.status})">`;
-          html += `<span class="planning-block-inner"><span class="planning-block-name">${displayName}${extraLabel}</span>${cleaningHtml}</span>`;
-          html += '</span>';
-          html += '</td>';
-          colIdx += span;
-        } else {
-          html += `<td class="planning-cell" data-housing-id="${housing.id}" data-date="${dateStr}"></td>`;
-          colIdx++;
-        }
-      }
-
-      html += '</tr>';
+          html += '</tr>';
+        });
+      });
     });
 
     html += '</tbody></table></div></div>';
@@ -312,15 +340,17 @@ export class HousingPlanningPage {
       cell.addEventListener('mousedown', (e) => {
         if (e.target.closest('.planning-block')) return;
         const housingId = parseInt(cell.dataset.housingId);
+        const roomIndex = parseInt(cell.dataset.roomIndex) || 0;
         const date = cell.dataset.date;
-        this.dragState = { housingId, startDate: date, endDate: date };
+        this.dragState = { housingId, roomIndex, startDate: date, endDate: date };
         cell.classList.add('planning-cell--selected');
       });
 
       cell.addEventListener('mouseenter', (e) => {
         if (!this.dragState) return;
         const housingId = parseInt(cell.dataset.housingId);
-        if (housingId !== this.dragState.housingId) return;
+        const roomIndex = parseInt(cell.dataset.roomIndex) || 0;
+        if (housingId !== this.dragState.housingId || roomIndex !== this.dragState.roomIndex) return;
         const date = cell.dataset.date;
         this.dragState.endDate = date;
         this._highlightDragRange();
@@ -437,16 +467,17 @@ export class HousingPlanningPage {
 
   _onDragEnd() {
     if (!this.dragState) return;
-    let { startDate, endDate, housingId } = this.dragState;
+    let { startDate, endDate, housingId, roomIndex } = this.dragState;
     if (startDate > endDate) [startDate, endDate] = [endDate, startDate];
-    this._showNewOccupancyModal(housingId, startDate, endDate);
+    this._showNewOccupancyModal(housingId, startDate, endDate, roomIndex);
   }
 
-  _showNewOccupancyModal(housingId, startDate, endDate) {
+  _showNewOccupancyModal(housingId, startDate, endDate, roomIndex = 0) {
     const housing = this.housings.find(h => h.id === housingId);
     if (!housing) return;
     this._modalHousingId = housingId;
-    this._openModal(this._buildOccupancyFormModal(housing, startDate, endDate));
+    this._modalRoomIndex = roomIndex;
+    this._openModal(this._buildOccupancyFormModal(housing, startDate, endDate, roomIndex));
   }
 
   _showEntryDetailModal(entry) {
@@ -499,8 +530,16 @@ export class HousingPlanningPage {
     });
   }
 
-  _buildOccupancyFormModal(housing, startDate, endDate) {
+  _buildOccupancyFormModal(housing, startDate, endDate, roomIndex = 0) {
     const isMobile = window.innerWidth <= 640;
+    let bedConfig = [];
+    try { bedConfig = JSON.parse(housing.bed_configuration || '[]'); } catch { bedConfig = []; }
+    const nbRooms = housing.nb_rooms || 1;
+    if (bedConfig.length === 0) bedConfig = Array(nbRooms).fill('simple');
+    const bedType = bedConfig[roomIndex] || 'simple';
+    const bedSymbols = bedType === 'double' ? '🛏️🛏️' : '🛏️';
+    const roomLabel = nbRooms > 1 ? `Chambre ${roomIndex + 1} (${bedSymbols})` : (housing.name || '');
+
     return `
       <div class="modal-header" style="padding:${isMobile ? '12px 16px' : '16px 24px'};border-bottom:1px solid var(--color-border-light);">
         <h2 style="margin:0;font-size:${isMobile ? '16px' : '18px'};">Nouvelle réservation</h2>
@@ -510,7 +549,7 @@ export class HousingPlanningPage {
         <div class="modal-form">
           <div class="form-group" style="margin-bottom:12px;">
             <label style="font-weight:600;font-size:11px;color:var(--color-text-tertiary);text-transform:uppercase;letter-spacing:0.5px;display:block;margin-bottom:4px;">Chambre</label>
-            <input type="text" value="${housing.name || ''}" disabled class="form-control" style="background:var(--color-gray-50);">
+            <input type="text" value="${roomLabel}" disabled class="form-control" style="background:var(--color-gray-50);">
           </div>
           <div style="display:flex;gap:12px;margin-bottom:12px;">
             <div class="form-group" style="flex:1;margin-bottom:0;">

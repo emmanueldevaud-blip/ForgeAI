@@ -466,6 +466,13 @@ async def seed_default_rbac(db: AsyncSession) -> None:
         ("housing.manage_email_templates", "Gérer les modèles d'emails", "housing"),
         ("housing.send_emails", "Envoyer des emails", "housing"),
         ("ai.use", "Utiliser l'assistant IA", "ai"),
+        ("sport.access", "Accéder au module Sport", "sport"),
+        ("sport.activities.read", "Consulter les activités sportives", "sport"),
+        ("sport.activities.write", "Importer et créer des activités sportives", "sport"),
+        ("sport.goals.read", "Consulter les objectifs sportifs", "sport"),
+        ("sport.goals.write", "Gérer les objectifs sportifs", "sport"),
+        ("sport.analysis.read", "Consulter les analyses sportives", "sport"),
+        ("sport.admin", "Administrer le module Sport", "sport"),
     ]
     
     for code, name, module in default_permissions:

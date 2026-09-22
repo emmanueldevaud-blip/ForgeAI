@@ -25,6 +25,9 @@ import { createHousingOccupantsPage } from './pages/HousingOccupantsPage.js';
 import { createHousingUnavailabilitiesPage } from './pages/HousingUnavailabilitiesPage.js';
 import { createHousingEmailTemplatesPage } from './pages/HousingEmailTemplatesPage.js?v=2';
 import { createCleaningVolunteersPage } from './pages/CleaningVolunteersPage.js';
+import { createSportDashboardPage } from './pages/SportDashboardPage.js?v=2';
+import { createSportActivitiesPage } from './pages/SportActivitiesPage.js?v=2';
+import { createSportGarminPage } from './pages/SportGarminPage.js?v=2';
 
 const moduleRoutes = [
   'dashboard',
@@ -67,6 +70,9 @@ let housingOccupantsPage = null;
 let housingUnavailabilitiesPage = null;
 let housingEmailTemplatesPage = null;
 let volunteersPage = null;
+let sportDashboardPage = null;
+let sportActivitiesPage = null;
+let sportGarminPage = null;
 
 async function initializeApp() {
   const app = document.getElementById('app');
@@ -178,12 +184,24 @@ async function initializeApp() {
     .addRoute('/housing/email-templates', async (route) => {
       await showHousingEmailTemplatesPage(route);
     }, { requiresAuth: true, permissions: ['housing.view'] })
+    .addRoute('/sport', async (route) => {
+      await showSportDashboardPage(route);
+    }, { requiresAuth: true, permissions: ['sport.access'] })
+    .addRoute('/sport/activities', async (route) => {
+      await showSportActivitiesPage(route);
+    }, { requiresAuth: true, permissions: ['sport.activities.read'] })
+    .addRoute('/sport/goals', async (route) => {
+      await showSportDashboardPage(route);
+    }, { requiresAuth: true, permissions: ['sport.goals.read'] })
+    .addRoute('/sport/garmin', async (route) => {
+      await showSportGarminPage(route);
+    }, { requiresAuth: true, permissions: ['sport.activities.write'] })
     .addRoute('/volunteers', async (route) => {
       await showVolunteersPage(route);
     }, { requiresAuth: true, permissions: ['volunteers.view'] });
 
   moduleRoutes.forEach(module => {
-    if (module === 'dashboard' || module === 'administration' || module === 'buildings' || module === 'equipment') return;
+    if (module === 'dashboard' || module === 'administration' || module === 'buildings' || module === 'equipment' || module === 'sport') return;
     router.addRoute(`/${module}`, async (route) => {
       await showModulePage(route);
     }, { requiresAuth: true });
@@ -412,6 +430,68 @@ async function ensureVolunteersPage() {
     await volunteersPage.initialize();
   }
   return volunteersPage;
+}
+
+async function ensureSportDashboardPage() {
+  if (!sportDashboardPage) {
+    sportDashboardPage = createSportDashboardPage(router);
+    await sportDashboardPage.initialize();
+  }
+  return sportDashboardPage;
+}
+
+async function ensureSportActivitiesPage() {
+  if (!sportActivitiesPage) {
+    sportActivitiesPage = createSportActivitiesPage(router);
+  }
+  return sportActivitiesPage;
+}
+
+async function ensureSportGarminPage() {
+  if (!sportGarminPage) {
+    sportGarminPage = createSportGarminPage(router);
+    await sportGarminPage.initialize();
+  }
+  return sportGarminPage;
+}
+
+async function showSportGarminPage(route) {
+  if (!appShell) return;
+  appShell.showLoading();
+  try {
+    const page = await ensureSportGarminPage();
+    appShell.showContent(page.render());
+  } catch (error) {
+    console.error('Erreur affichage Garmin Sport:', error);
+    appShell.showError(error);
+  }
+}
+
+async function showSportDashboardPage(route) {
+  if (!appShell) return;
+  appShell.showLoading();
+  try {
+    const page = await ensureSportDashboardPage();
+    await page.initialize();
+    appShell.showContent(page.render());
+  } catch (error) {
+    console.error('Erreur affichage Sport:', error);
+    appShell.showError(error);
+  }
+}
+
+async function showSportActivitiesPage(route) {
+  if (!appShell) return;
+  appShell.showLoading();
+  try {
+    const page = await ensureSportActivitiesPage();
+    appShell.showContent(page.render());
+    await page.initialize();
+    appShell.showContent(page.render());
+  } catch (error) {
+    console.error('Erreur affichage activités sportives:', error);
+    appShell.showError(error);
+  }
 }
 
 async function showVolunteersPage(route) {

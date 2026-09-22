@@ -33,6 +33,7 @@ from app.models.rbac import (
     UserRoleAssignment,
 )
 from app.models.user import User, UserRole
+from app.models.sport import SportActivity, SportAthlete, SportGarminConnection, SportGarminSyncLog, SportGoal, SportTrackPoint
 
 __all__ = [
     "ADConfig",
@@ -85,5 +86,11 @@ __all__ = [
     "UserRole",
     "UserRoleAssignment",
     "UsageType",
+    "SportActivity",
+    "SportAthlete",
+    "SportGoal",
+    "SportTrackPoint",
+    "SportGarminConnection",
+    "SportGarminSyncLog",
     "WorkOrderPart",
 ]

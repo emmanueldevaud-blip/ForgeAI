@@ -48,6 +48,10 @@ class SportModule(BaseModule):
             ("*" in user_permissions or
              "sport.goals.read" in user_permissions)
         )
+        has_garmin = (
+            user_permissions and
+            ("*" in user_permissions or "sport.activities.write" in user_permissions)
+        )
 
         children = []
 
@@ -67,6 +71,15 @@ class SportModule(BaseModule):
                 "icon": "target",
                 "route": "/sport/goals",
                 "order": 1,
+            })
+
+        if has_garmin:
+            children.append({
+                "code": "sport-garmin",
+                "name": "Garmin Connect",
+                "icon": "watch",
+                "route": "/sport/garmin",
+                "order": 2,
             })
 
         return [{

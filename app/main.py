@@ -1,4 +1,5 @@
 import os
+import asyncio
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
@@ -9,7 +10,7 @@ from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
 
-from app.api import auth, audit, buildings, dashboard, equipment, housing, maintenance, modules, admin, volunteer
+from app.api import auth, audit, buildings, dashboard, equipment, housing, maintenance, modules, admin, volunteer, sport
 from app.core.config import get_settings
 from app.db.session import close_db, init_db
 from app.modules import register_all_modules
@@ -17,6 +18,7 @@ from app.services.dashboard import register_dashboard_widgets
 from app.services.rbac import seed_default_rbac
 
 settings = get_settings()
+garmin_sync_task = None
 
 limiter = Limiter(
     key_func=get_remote_address,
@@ -26,6 +28,7 @@ limiter = Limiter(
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    global garmin_sync_task
     await init_db()
     register_all_modules()
     register_dashboard_widgets()
@@ -34,8 +37,32 @@ async def lifespan(app: FastAPI):
         await seed_default_rbac(db)
         await _sync_module_statuses(db)
         break
+    garmin_sync_task = asyncio.create_task(_garmin_sync_loop())
     yield
+    if garmin_sync_task:
+        garmin_sync_task.cancel()
+        try:
+            await garmin_sync_task
+        except asyncio.CancelledError:
+            pass
     await close_db()
+
+
+async def _garmin_sync_loop() -> None:
+    from app.db.session import get_db
+    from app.services.garmin import SportGarminConnectService
+
+    while True:
+        try:
+            async for db in get_db():
+                await SportGarminConnectService(db).sync_all_connections()
+                break
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            # Garmin outages must not affect application startup or other modules.
+            pass
+        await asyncio.sleep(900)
 
 
 async def _sync_module_statuses(db):
@@ -120,6 +147,7 @@ app.include_router(equipment.router)
 app.include_router(housing.router)
 app.include_router(maintenance.router)
 app.include_router(volunteer.router)
+app.include_router(sport.router)
 
 frontend_path = os.path.join(os.path.dirname(__file__), "..", "src", "public")
 SPA_INDEX = None

@@ -105,13 +105,16 @@ export class BuildingRefsPage {
       if (type === 'delete') {
         const error = await deleteUsageType(item.id);
         if (error) {
-          this.showToast(error, 'error');
+          this.showToast(error?.data?.detail || error.message || error, 'error');
           return;
         }
         await this.loadData();
       }
     } catch (error) {
-      this.showToast(error.message || 'Erreur lors de l\'opération', 'error');
+      this.showToast(
+        error?.data?.detail || error.message || 'Erreur lors de l\'opération',
+        'error',
+      );
     }
   }
 
@@ -259,8 +262,8 @@ export class BuildingRefsPage {
       sort_order: parseInt(formData.get('sort_order') || '0', 10),
     };
 
-    if (!data.code || !data.name) {
-      this.showToast('Code et Nom sont requis', 'error');
+    if (!data.name) {
+      this.showToast('Le nom est requis', 'error');
       return;
     }
 
@@ -273,7 +276,10 @@ export class BuildingRefsPage {
       this._closeModal();
       await this.loadData();
     } catch (error) {
-      this.showToast(error.message || 'Erreur lors de l\'enregistrement', 'error');
+      this.showToast(
+        error?.data?.detail || error.message || 'Erreur lors de l\'enregistrement',
+        'error',
+      );
     }
   }
 

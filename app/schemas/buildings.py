@@ -36,6 +36,7 @@ class UsageTypeResponse(BaseModel):
     description: Optional[str] = None
     is_active: bool
     sort_order: int
+    usage_count: int = 0
     created_at: datetime
     updated_at: datetime
 
@@ -294,6 +295,8 @@ class RoomResponse(BaseModel):
     used_for_accommodation: bool
     description: Optional[str] = None
     is_active: bool
+    equipment_count: int = 0
+    occupancy_count: int = 0
     created_at: datetime
     updated_at: datetime
 

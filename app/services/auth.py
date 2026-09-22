@@ -72,7 +72,7 @@ def decode_refresh_token(token: str) -> TokenData | None:
         return TokenData(
             sub=payload.get("sub"),
             user_id=payload.get("user_id"),
-            role=payload.get("role"),
+            role=payload.get("role", ""),
             exp=payload.get("exp"),
         )
     except JWTError:

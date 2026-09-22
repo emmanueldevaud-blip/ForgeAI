@@ -2,6 +2,8 @@ import pytest
 from httpx import AsyncClient
 
 from app.models.buildings import Building, Room, Site, UsageType, RoomType
+from app.models.equipment import Equipment
+from app.models.housing import Housing
 
 
 @pytest.mark.asyncio
@@ -520,6 +522,33 @@ async def test_delete_empty_room(client, admin_headers):
 
 
 @pytest.mark.asyncio
+async def test_force_delete_room_removes_associated_data(client, admin_headers, db_session):
+    site_resp = await client.post("/buildings/sites", json={"name": "Force Delete Site"}, headers=admin_headers)
+    building_resp = await client.post(
+        "/buildings",
+        json={"name": "Force Delete Building", "site_id": site_resp.json()["id"]},
+        headers=admin_headers,
+    )
+    room_resp = await client.post(
+        "/buildings/rooms",
+        json={"name": "Room With Dependencies", "building_id": building_resp.json()["id"]},
+        headers=admin_headers,
+    )
+    room_id = room_resp.json()["id"]
+
+    db_session.add(Equipment(reference="EQ-FORCE-DELETE", name="Equipment", room_id=room_id))
+    db_session.add(Housing(room_id=room_id))
+    await db_session.commit()
+
+    blocked = await client.delete(f"/buildings/rooms/{room_id}", headers=admin_headers)
+    assert blocked.status_code == 409
+
+    deleted = await client.delete(f"/buildings/rooms/{room_id}?force=true", headers=admin_headers)
+    assert deleted.status_code == 200
+    assert deleted.json()["message"] == "Local supprimé"
+
+
+@pytest.mark.asyncio
 async def test_delete_unused_room_type(client, admin_headers):
     create_resp = await client.post("/buildings/room-types", json={"name": "Unused Room Type"}, headers=admin_headers)
     assert create_resp.status_code == 201
@@ -547,4 +576,3 @@ async def test_reference_generation_avoids_collision_after_delete(client, admin_
     resp4 = await client.post("/buildings/sites", json={"name": "Site Col 4"}, headers=admin_headers)
     assert resp4.status_code == 201
     assert resp4.json()["reference"] != resp3.json()["reference"]
-

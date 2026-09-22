@@ -36,6 +36,8 @@ export class ConfirmDialog {
       confirmText = 'Confirmer',
       cancelText = 'Annuler',
       variant = 'primary',
+      requireCheckbox = false,
+      checkboxLabel = 'Je comprends que cette action est irréversible.',
     } = options;
 
     const variantClasses = {
@@ -70,16 +72,28 @@ export class ConfirmDialog {
       </div>
       <div class="modal-body">
         <p id="confirm-message">${this._escapeHtml(message)}</p>
+        ${requireCheckbox ? `
+          <label class="confirm-dialog-checkbox">
+            <input type="checkbox" data-action="confirm-checkbox">
+            <span>${this._escapeHtml(checkboxLabel)}</span>
+          </label>
+        ` : ''}
       </div>
       <div class="form-actions">
         <button type="button" class="btn btn-secondary" data-action="cancel">${this._escapeHtml(cancelText)}</button>
-        <button type="button" class="btn ${variantClasses[variant] || 'btn-primary'}" data-action="confirm">${this._escapeHtml(confirmText)}</button>
+        <button type="button" class="btn ${variantClasses[variant] || 'btn-primary'}" data-action="confirm"${requireCheckbox ? ' disabled' : ''}>${this._escapeHtml(confirmText)}</button>
       </div>
     `;
 
     this.overlay.appendChild(this.element);
 
-    this.modalContent.querySelector('[data-action="confirm"]').addEventListener('click', () => {
+    const checkbox = this.modalContent.querySelector('[data-action="confirm-checkbox"]');
+    const confirmButton = this.modalContent.querySelector('[data-action="confirm"]');
+    checkbox?.addEventListener('change', () => {
+      confirmButton.disabled = !checkbox.checked;
+    });
+
+    confirmButton.addEventListener('click', () => {
       this.close();
       this.onConfirm();
     });

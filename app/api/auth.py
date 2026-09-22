@@ -338,7 +338,7 @@ async def register(
     ip_address = request.client.host if request.client else None
     user_agent = request.headers.get("user-agent")
     user = await create_user(db, user_data.model_dump(), audit=audit, current_user=None)
-    return UserResponse.model_validate(user)
+    return await user_response_with_authorization(db, await get_user_by_id(db, user.id))
 
 
 @router.patch("/me", response_model=UserResponse)
@@ -356,7 +356,7 @@ async def update_me(
 
     audit = await get_audit_service(db)
     user = await update_user(db, current_user, update_data, audit=audit, current_user=current_user)
-    return UserResponse.model_validate(user)
+    return await user_response_with_authorization(db, await get_user_by_id(db, user.id))
 
 
 @router.post("/me/password", response_model=MessageResponse)
@@ -389,7 +389,11 @@ async def list_users(
     from sqlalchemy import select
     result = await db.execute(select(User).order_by(User.created_at.desc()))
     users = result.scalars().all()
-    return [UserResponse.model_validate(u) for u in users]
+    responses = []
+    for user in users:
+        loaded_user = await get_user_by_id(db, user.id)
+        responses.append(await user_response_with_authorization(db, loaded_user))
+    return responses
 
 
 @router.get("/users/{user_id}", response_model=UserResponse)
@@ -404,7 +408,7 @@ async def get_user_admin(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Utilisateur non trouvé",
         )
-    return UserResponse.model_validate(user)
+    return await user_response_with_authorization(db, user)
 
 
 @router.post("/users", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
@@ -431,7 +435,7 @@ async def create_user_admin(
 
     audit = await get_audit_service(db)
     user = await create_user(db, user_data.model_dump(), audit=audit, current_user=current_user)
-    return UserResponse.model_validate(user)
+    return await user_response_with_authorization(db, await get_user_by_id(db, user.id))
 
 
 @router.patch("/users/{user_id}", response_model=UserResponse)
@@ -451,7 +455,7 @@ async def update_user_admin(
     update_data = updates.model_dump(exclude_unset=True)
     audit = await get_audit_service(db)
     user = await update_user(db, user, update_data, audit=audit, current_user=current_user)
-    return UserResponse.model_validate(user)
+    return await user_response_with_authorization(db, await get_user_by_id(db, user.id))
 
 
 @router.post("/users/{user_id}/reset-password", response_model=MessageResponse)

@@ -26,6 +26,7 @@ services:
   app:
     build: .
     container_name: forgeai-app
+    user: "${UID:-1000}:${GID:-1000}"
     environment:
       - DATABASE_URL=mysql://forgeai:forgeai_password@mysql:3306/forgeai
       - SECRET_KEY=${SECRET_KEY:-your-super-secret-key-change-in-production-min-32-chars}

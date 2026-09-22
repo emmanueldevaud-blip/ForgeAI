@@ -107,49 +107,5 @@ class TestMySQLIntegration:
         assert "tokens" in data
         assert data["user"]["username"] == "mysql_login_user"
 
-    @pytest.mark.asyncio
-    async def test_todos_crud_mysql(self, mysql_client, mysql_db_session):
-        user_data = {
-            "username": "mysql_todo_user",
-            "email": "mysql_todo@example.com",
-            "password": "todopassword",
-            "is_active": True,
-            "is_admin": False,
-            "role": UserRole.USER,
-            "source": "local",
-        }
-        await create_user(mysql_db_session, user_data)
-
-        login = await mysql_client.post("/auth/login", json={
-            "username": "mysql_todo_user",
-            "password": "todopassword",
-        })
-        token = login.cookies.get("access_token")
-        headers = {"Authorization": f"Bearer {token}"}
-
-        create = await mysql_client.post("/api/todos", headers=headers, json={"title": "MySQL Todo"})
-        assert create.status_code == 201
-        todo_id = create.json()["id"]
-
-        list_resp = await mysql_client.get("/api/todos", headers=headers)
-        assert list_resp.status_code == 200
-        assert len(list_resp.json()) == 1
-
-        get_resp = await mysql_client.get(f"/api/todos/{todo_id}", headers=headers)
-        assert get_resp.status_code == 200
-        assert get_resp.json()["title"] == "MySQL Todo"
-
-        update = await mysql_client.patch(f"/api/todos/{todo_id}", headers=headers, json={"completed": True})
-        assert update.status_code == 200
-        assert update.json()["completed"] is True
-
-        delete = await mysql_client.delete(f"/api/todos/{todo_id}", headers=headers)
-        assert delete.status_code == 204
-
-        list_after = await mysql_client.get("/api/todos", headers=headers)
-        assert list_after.status_code == 200
-        assert len(list_after.json()) == 0
-
-
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

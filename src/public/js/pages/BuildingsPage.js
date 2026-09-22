@@ -70,7 +70,7 @@ export class BuildingsPage {
     this._authUnsubscribe = authStore.subscribe(() => this._updateButtonVisibility());
 
     try {
-      const utResp = await listUsageTypes({ page_size: 100 });
+      const utResp = await listUsageTypes({ page_size: 1000 });
       this.usageTypes = utResp.items || [];
     } catch (_) {
       // reference data optional
@@ -117,10 +117,25 @@ export class BuildingsPage {
         { key: 'delete', label: 'Supprimer', icon: 'trash', permission: 'building.delete' },
       ];
     }
+
+    const deleteAction = this.currentView === 'sites'
+      ? {
+          label: item => item.building_count > 0
+            ? `Suppression impossible (${item.building_count} bâtiment${item.building_count > 1 ? 's' : ''})`
+            : 'Supprimer',
+          disabled: item => item.building_count > 0,
+        }
+      : {
+          label: item => item.room_count > 0
+            ? `Suppression impossible (${item.room_count} local${item.room_count > 1 ? 'aux' : ''})`
+            : 'Supprimer',
+          disabled: item => item.room_count > 0,
+        };
+
     return [
       { key: 'view', label: 'Ouvrir', icon: 'edit', permission: 'building.view' },
       { key: 'edit', label: 'Modifier', icon: 'edit', permission: 'building.update' },
-      { key: 'delete', label: 'Supprimer', icon: 'trash', permission: 'building.delete' },
+      { key: 'delete', icon: 'trash', permission: 'building.delete', ...deleteAction },
     ];
   }
 
@@ -253,9 +268,15 @@ export class BuildingsPage {
 
     this.confirmDialog.open({
       title: 'Confirmer la suppression',
-      message: `Êtes-vous sûr de vouloir supprimer ${typeLabel} ? Cette action est irréversible.`,
-      confirmText: 'Supprimer',
+      message: this.currentView === 'rooms' && (item.equipment_count > 0 || item.occupancy_count > 0)
+        ? `Ce local contient ${item.equipment_count} équipement(s) et ${item.occupancy_count} réservation(s) / occupation(s). Ils seront tous supprimés.`
+        : `Êtes-vous sûr de vouloir supprimer ${typeLabel} ? Cette action est irréversible.`,
+      confirmText: this.currentView === 'rooms' && (item.equipment_count > 0 || item.occupancy_count > 0)
+        ? 'Supprimer définitivement'
+        : 'Supprimer',
       variant: 'danger',
+      requireCheckbox: this.currentView === 'rooms' && (item.equipment_count > 0 || item.occupancy_count > 0),
+      checkboxLabel: 'Je confirme la suppression du local et de toutes ses données associées.',
     });
     this.pendingAction = { item, type: 'delete' };
   }
@@ -273,21 +294,33 @@ export class BuildingsPage {
           rooms: deleteRoom,
         }[this.currentView];
         if (deleteFn) {
-          await deleteFn(item.id);
+          const force = this.currentView === 'rooms'
+            && (item.equipment_count > 0 || item.occupancy_count > 0);
+          await deleteFn(item.id, force);
           this.showToast('Supprimé', 'success');
           this.loadData();
         }
       }
     } catch (error) {
-      this.showToast(error.message || 'Erreur', 'error');
+      this.showToast(error?.data?.detail || error.message || 'Erreur', 'error');
     }
   }
 
-  _openEditModal(item) {
+  async _openEditModal(item) {
     const isEdit = !!item;
     const type = this.currentView === 'sites' ? 'site'
       : this.currentView === 'buildings' ? 'building'
       : 'room';
+
+    if (type === 'room') {
+      try {
+        const utResp = await listUsageTypes({ page_size: 1000 });
+        this.usageTypes = utResp.items || [];
+      } catch (_) {
+        // Keep the last loaded referential if it is temporarily unavailable.
+      }
+    }
+
     const typeLabel = {
       site: 'un site',
       building: 'un bâtiment',

@@ -84,8 +84,8 @@ export async function updateRoom(id, data) {
   return buildingsApi.patch(`/rooms/${id}`, data);
 }
 
-export async function deleteRoom(id) {
-  return buildingsApi.delete(`/rooms/${id}`);
+export async function deleteRoom(id, force = false) {
+  return buildingsApi.delete(`/rooms/${id}${force ? '?force=true' : ''}`);
 }
 
 export async function listUsageTypes(params = {}) {
@@ -137,4 +137,3 @@ export async function updateRoomType(id, data) {
 export async function deleteRoomType(id) {
   return buildingsApi.delete(`/room-types/${id}`);
 }
-

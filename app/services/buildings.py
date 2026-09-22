@@ -2,7 +2,7 @@ import re
 from datetime import UTC, datetime
 from typing import Optional, List
 
-from sqlalchemy import select, func, or_, and_, text, Integer
+from sqlalchemy import select, func, or_, and_, text, Integer, delete
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -100,8 +100,14 @@ class BuildingService:
         is_active: Optional[bool] = None,
         sort_by: str = "sort_order",
         sort_order: str = "asc",
-    ) -> tuple[List[UsageType], int]:
-        query = select(UsageType)
+    ) -> tuple[List[tuple[UsageType, int]], int]:
+        usage_count = (
+            select(func.count(Room.id))
+            .where(Room.usage_type_id == UsageType.id)
+            .correlate(UsageType)
+            .scalar_subquery()
+        )
+        query = select(UsageType, usage_count.label("usage_count"))
         conditions = []
 
         if search:
@@ -142,7 +148,7 @@ class BuildingService:
 
         query = query.offset((page - 1) * page_size).limit(page_size)
         result = await self.db.execute(query)
-        items = list(result.scalars().all())
+        items = [(usage_type, usage_count) for usage_type, usage_count in result.all()]
 
         return items, total
 
@@ -863,24 +869,48 @@ class BuildingService:
         result = await self.db.execute(stmt)
         return result.scalar_one()
 
-    async def delete_room(self, room_id: int) -> Optional[str]:
+    async def delete_room(self, room_id: int, force: bool = False) -> Optional[str]:
         room = await self.get_room(room_id)
         if not room:
             return "Local non trouvé"
 
         equipment_count = await self._count_equipment_for_room(room_id)
-        if equipment_count > 0:
+        if equipment_count > 0 and not force:
             return (
                 f"Impossible de supprimer le local « {room.name} » : "
                 f"il contient {equipment_count} équipement(s)."
             )
 
         occupancy_count = await self._count_occupancies_for_room(room_id)
-        if occupancy_count > 0:
+        if (equipment_count > 0 or occupancy_count > 0) and not force:
             return (
                 f"Impossible de supprimer le local « {room.name} » : "
-                f"il est lié à {occupancy_count} réservation(s) / occupation(s) d'hébergement."
+                f"il contient {equipment_count} équipement(s) et est lié à "
+                f"{occupancy_count} réservation(s) / occupation(s)."
             )
+
+        if force:
+            from app.models.equipment import Equipment
+            from app.models.housing import (
+                Cleaning,
+                Housing,
+                HousingStatusHistory,
+                Occupancy,
+                OccupancyStatusHistory,
+                Unavailability,
+                occupancy_occupants,
+            )
+
+            housing_ids = select(Housing.id).where(Housing.room_id == room_id)
+            occupancy_ids = select(Occupancy.id).where(Occupancy.housing_id.in_(housing_ids))
+            await self.db.execute(delete(Equipment).where(Equipment.room_id == room_id))
+            await self.db.execute(delete(occupancy_occupants).where(occupancy_occupants.c.occupancy_id.in_(occupancy_ids)))
+            await self.db.execute(delete(Cleaning).where(Cleaning.housing_id.in_(housing_ids)))
+            await self.db.execute(delete(OccupancyStatusHistory).where(OccupancyStatusHistory.occupancy_id.in_(occupancy_ids)))
+            await self.db.execute(delete(Occupancy).where(Occupancy.id.in_(occupancy_ids)))
+            await self.db.execute(delete(Unavailability).where(Unavailability.housing_id.in_(housing_ids)))
+            await self.db.execute(delete(HousingStatusHistory).where(HousingStatusHistory.housing_id.in_(housing_ids)))
+            await self.db.execute(delete(Housing).where(Housing.id.in_(housing_ids)))
 
         if self.audit and self.current_user:
             await self.audit.log(

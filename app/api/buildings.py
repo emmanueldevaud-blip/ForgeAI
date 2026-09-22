@@ -77,7 +77,10 @@ async def list_usage_types(
     )
 
     return UsageTypeListResponse(
-        items=[UsageTypeResponse.model_validate(i) for i in items],
+        items=[
+            UsageTypeResponse.model_validate(item).model_copy(update={"usage_count": usage_count})
+            for item, usage_count in items
+        ],
         total=total,
         page=params.page,
         page_size=params.page_size,
@@ -356,7 +359,13 @@ async def list_rooms(
     )
 
     return RoomListResponse(
-        items=[RoomResponse.model_validate(i) for i in items],
+        items=[
+            RoomResponse.model_validate(i).model_copy(update={
+                "equipment_count": await service._count_equipment_for_room(i.id),
+                "occupancy_count": await service._count_occupancies_for_room(i.id),
+            })
+            for i in items
+        ],
         total=total,
         page=params.page,
         page_size=params.page_size,
@@ -521,13 +530,14 @@ async def delete_site(
 @router.delete("/rooms/{room_id}", response_model=MessageResponse)
 async def delete_room(
     room_id: int,
+    force: bool = False,
     current_user: User = Depends(require_permission("building.delete")),
     db: AsyncSession = Depends(get_db),
 ):
     audit = await get_audit_service(db)
     service = BuildingService(db, audit=audit, current_user=current_user)
 
-    error = await service.delete_room(room_id)
+    error = await service.delete_room(room_id, force=force)
     if error == "Local non trouvé":
         raise HTTPException(status_code=404, detail=error)
     if error:

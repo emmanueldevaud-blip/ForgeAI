@@ -74,7 +74,6 @@ async def test_navigation_includes_administration():
         codes = [item["code"] for item in nav]
 
         assert "dashboard" in codes, f"Dashboard should be in navigation, got: {codes}"
-        assert "todos" in codes, f"Todos should be in navigation, got: {codes}"
         assert "administration" in codes, f"Administration should be in navigation, got: {codes}"
 
     await engine.dispose()

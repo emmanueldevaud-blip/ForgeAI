@@ -68,7 +68,15 @@ export class BuildingRefsPage {
 
     return [
       { key: 'edit', label: 'Modifier', icon: 'edit', permission: 'building.manage_refs' },
-      { key: 'delete', label: 'Supprimer', icon: 'trash', permission: 'building.manage_refs' },
+      {
+        key: 'delete',
+        label: item => item.usage_count > 0
+          ? `Suppression impossible (${item.usage_count} local${item.usage_count > 1 ? 'aux' : ''})`
+          : 'Supprimer',
+        icon: 'trash',
+        permission: 'building.manage_refs',
+        disabled: item => item.usage_count > 0,
+      },
     ];
   }
 

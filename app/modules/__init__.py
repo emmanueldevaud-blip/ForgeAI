@@ -68,7 +68,7 @@ class BuildingsModule(BaseModule):
         if has_manage_refs:
             children.append({
                 "code": "buildings-refs",
-                "name": "Référentiels",
+                "name": "Paramètres",
                 "icon": "file-text",
                 "route": "/buildings/refs",
                 "order": 1,

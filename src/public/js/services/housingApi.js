@@ -1,6 +1,7 @@
 import { ApiClient } from './api.js';
 
 const housingApi = new ApiClient('/housing');
+const volunteerApi = new ApiClient('/volunteers');
 
 // ============================================================
 // DASHBOARD
@@ -265,4 +266,28 @@ export async function listEmailLogs(params = {}) {
 
 export async function quickCreateOccupant(data) {
   return housingApi.post('/occupants/quick-create', data);
+}
+
+// ============================================================
+// VOLUNTEERS
+// ============================================================
+
+export async function listVolunteers(params = {}) {
+  const query = new URLSearchParams();
+  if (params.skip) query.append('skip', params.skip);
+  if (params.limit) query.append('limit', params.limit);
+  const endpoint = `/${query.toString() ? '?' + query.toString() : ''}`;
+  return volunteerApi.get(endpoint);
+}
+
+export async function createVolunteer(data) {
+  return volunteerApi.post('/', data);
+}
+
+export async function updateVolunteer(id, data) {
+  return volunteerApi.put(`/${id}`, data);
+}
+
+export async function deleteVolunteer(id) {
+  return volunteerApi.delete(`/${id}`);
 }

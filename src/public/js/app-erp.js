@@ -24,6 +24,7 @@ import { createHousingPlanningPage } from './pages/HousingPlanningPage.js';
 import { createHousingCleaningPage } from './pages/HousingCleaningPage.js';
 import { createHousingOccupantsPage } from './pages/HousingOccupantsPage.js';
 import { createHousingUnavailabilitiesPage } from './pages/HousingUnavailabilitiesPage.js';
+import { createCleaningVolunteersPage } from './pages/CleaningVolunteersPage.js';
 
 const moduleRoutes = [
   'dashboard',
@@ -65,6 +66,7 @@ let housingPlanningPage = null;
 let housingCleaningPage = null;
 let housingOccupantsPage = null;
 let housingUnavailabilitiesPage = null;
+let volunteersPage = null;
 
 async function initializeApp() {
   const app = document.getElementById('app');
@@ -172,7 +174,10 @@ async function initializeApp() {
     }, { requiresAuth: true, permissions: ['housing.view'] })
     .addRoute('/housing/unavailabilities', async (route) => {
       await showHousingUnavailabilitiesPage(route);
-    }, { requiresAuth: true, permissions: ['housing.view'] });
+    }, { requiresAuth: true, permissions: ['housing.view'] })
+    .addRoute('/volunteers', async (route) => {
+      await showVolunteersPage(route);
+    }, { requiresAuth: true, permissions: ['volunteers.view'] });
 
   moduleRoutes.forEach(module => {
     if (module === 'dashboard' || module === 'administration' || module === 'buildings' || module === 'equipment') return;
@@ -384,6 +389,29 @@ async function ensureHousingUnavailabilitiesPage() {
     await housingUnavailabilitiesPage.initialize();
   }
   return housingUnavailabilitiesPage;
+}
+
+async function ensureVolunteersPage() {
+  if (!volunteersPage) {
+    volunteersPage = createCleaningVolunteersPage(router);
+    await volunteersPage.initialize();
+  }
+  return volunteersPage;
+}
+
+async function showVolunteersPage(route) {
+  if (!appShell) return;
+  appShell.showLoading();
+
+  try {
+    const page = await ensureVolunteersPage();
+    const content = page.render();
+    appShell.showContent(content);
+    page.loadData();
+  } catch (error) {
+    console.error('Erreur affichage volontaires:', error);
+    appShell.showError(error);
+  }
 }
 
 async function showDashboardPage(route) {

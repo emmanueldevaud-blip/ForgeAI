@@ -675,6 +675,7 @@ def register_all_modules():
         EquipmentModule(),
         HousingModule(),
         MaintenanceModule(),
+        VolunteersModule(),
         AIModule(),
         CleaningModule(),
         PeopleModule(),
@@ -691,3 +692,28 @@ def register_all_modules():
     ]
     for module in modules:
         module_registry.register(module)
+
+class VolunteersModule(BaseModule):
+    def __init__(self):
+        super().__init__(ModuleInfo(
+            code="volunteers",
+            name="Volontaires",
+            description="Gestion des volontaires pour ménage et maintenance",
+            icon="heart-handshake",
+            order=25,
+            status=ModuleStatus.ACTIVE,
+            version="1.0.0",
+            route_path="/volunteers",
+            component_path="Volunteers",
+            required_permissions=["volunteers.view"],
+            is_core=False,
+        ))
+
+    async def install(self, db):
+        return True
+
+    async def uninstall(self, db):
+        return True
+
+    async def upgrade(self, db, from_version: str):
+        return True

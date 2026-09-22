@@ -68,7 +68,5 @@ class User(Base):
         parts = [self.first_name, self.last_name]
         return " ".join(p for p in parts if p) or self.username
 
-    todos: Mapped[list["Todo"]] = relationship("Todo", back_populates="user", cascade="all, delete-orphan")
-
     def __repr__(self) -> str:
         return f"<User(id={self.id}, username={self.username}, role={self.role})>"

@@ -32,7 +32,6 @@ from app.models.rbac import (
     UserGroup,
     UserRoleAssignment,
 )
-from app.models.todo import Todo
 from app.models.user import User, UserRole
 
 __all__ = [
@@ -80,7 +79,6 @@ __all__ = [
     "Room",
     "RoomType",
     "Site",
-    "Todo",
     "Unavailability",
     "User",
     "UserGroup",

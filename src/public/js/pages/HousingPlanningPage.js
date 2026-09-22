@@ -98,7 +98,7 @@ export class HousingPlanningPage {
       const resp = await listHousings({ page_size: 1000, is_active: true });
       this.housings = resp.items || [];
     } catch (e) {
-      console.error('Erreur chargement logements:', e);
+      console.error('Erreur chargement chambres:', e);
       this.housings = [];
     }
 
@@ -186,8 +186,12 @@ export class HousingPlanningPage {
       }
     }
 
-    let html = '<div class="planning-wrapper"><table class="planning-table"><thead><tr>';
-    html += '<th class="planning-housing-col">Logement</th>';
+    const isMobile = window.innerWidth <= 640;
+    const startStr = formatDateISO(startDate);
+
+    let html = '<div class="planning-container"><div class="planning-wrapper"><table class="planning-table"><thead><tr>';
+    html += '<th class="planning-housing-col"><span class="housing-col-header">Chambre</span></th>';
+    
     days.forEach(day => {
       const dayOfWeek = day.getDay();
       const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
@@ -195,9 +199,11 @@ export class HousingPlanningPage {
       const cls = ['planning-day-col'];
       if (isWeekend) cls.push('planning-weekend');
       if (isToday) cls.push('planning-today');
+      
+      const dayName = isMobile ? DAY_NAMES_SHORT[dayOfWeek].charAt(0) : DAY_NAMES_SHORT[dayOfWeek];
       const label = this.viewMode === 'day'
         ? `${DAY_NAMES_LONG[dayOfWeek]} ${formatDateShort(day)}`
-        : `${DAY_NAMES_SHORT[dayOfWeek]}<br>${formatDateShort(day)}`;
+        : `<span class="day-name">${dayName}</span><span class="day-num">${formatDateShort(day)}</span>`;
       html += `<th class="${cls.join(' ')}"><div>${label}</div></th>`;
     });
     html += '</tr></thead><tbody>';
@@ -207,45 +213,96 @@ export class HousingPlanningPage {
       : this.housings;
 
     if (filteredHousings.length === 0) {
-      html += `<tr><td colspan="${days.length + 1}" style="text-align:center;padding:2rem;color:var(--text-secondary);">Aucun logement trouvé</td></tr>`;
+      html += `<tr><td colspan="${days.length + 1}" style="text-align:center;padding:2rem;color:var(--text-secondary);">Aucune chambre trouvée</td></tr>`;
     }
 
-    filteredHousings.forEach(housing => {
-      html += '<tr>';
-      html += `<td class="planning-housing-cell" title="${housing.name || ''}">${housing.name || '-'}</td>`;
+    const housingOccupancies = this._getOccupanciesByHousing();
 
-      days.forEach(day => {
-        const dateStr = formatDateISO(day);
-        const entries = this._getEntriesForDate(housing.id, dateStr);
-        html += `<td class="planning-cell" data-housing-id="${housing.id}" data-date="${dateStr}">`;
-        entries.forEach(entry => {
-          const sc = STATUS_COLORS[entry.status] || STATUS_COLORS.pre_reserved;
-          const isArrival = dateStr === (entry.arrival_date || '').slice(0, 10);
-          const isDeparture = dateStr === (entry.departure_date || '').slice(0, 10);
-          const primaryOccupant = (entry.occupants && entry.occupants[0]) || null;
-          const name = getOccupantDisplayName(primaryOccupant);
-          const extraCount = (entry.occupants || []).length - 1;
-          const extraLabel = extraCount > 0 ? ` +${extraCount}` : '';
-          const cleaningDot = entry.has_cleaning_planned
-            ? `<span class="planning-cleaning-dot" style="background:${CLEANING_STATUS_COLORS[entry.cleaning_status] || '#9ca3af'}" title="Nettoyage: ${CLEANING_STATUS_LABELS[entry.cleaning_status] || 'Planifié'}"></span>`
-            : '';
-          html += `<span class="planning-occupancy" data-entry-id="${entry.occupancy_id}" style="background:${sc.bg};border-left:3px solid ${sc.border};color:${sc.text}" title="${name}${extraLabel} (${STATUS_LABELS[entry.status] || entry.status})">`;
-          if (isArrival) html += '<span class="planning-marker planning-arrival">&#9654;</span>';
-          if (isDeparture) html += '<span class="planning-marker planning-departure">&#9664;</span>';
-          html += `<span class="planning-entry-text">${name}${extraLabel}</span>`;
-          html += cleaningDot;
-          html += '</span>';
+    filteredHousings.forEach(housing => {
+      const occupancies = housingOccupancies[housing.id] || [];
+      const dayOccupancyMap = new Array(days.length).fill(null);
+
+      occupancies.forEach(occ => {
+        const occArrival = (occ.arrival_date || '').slice(0, 10);
+        const occDeparture = (occ.departure_date || '').slice(0, 10);
+        let startDayIdx = -1;
+        let endDayIdx = -1;
+        days.forEach((day, idx) => {
+          const ds = formatDateISO(day);
+          if (ds === occArrival && startDayIdx === -1) startDayIdx = idx;
+          if (ds === occDeparture) endDayIdx = idx;
         });
-        html += '</td>';
+        if (startDayIdx === -1) startDayIdx = 0;
+        if (endDayIdx === -1) endDayIdx = days.length - 1;
+
+        for (let i = startDayIdx; i <= endDayIdx; i++) {
+          dayOccupancyMap[i] = { occ, startDayIdx, endDayIdx, isStart: i === startDayIdx };
+        }
       });
+
+      html += '<tr>';
+      html += `<td class="planning-housing-cell" title="${housing.name || ''}"><span class="housing-name">${housing.name || '-'}</span><span class="housing-code">${housing.code || ''}</span></td>`;
+
+      let colIdx = 0;
+      while (colIdx < days.length) {
+        const day = days[colIdx];
+        const dateStr = formatDateISO(day);
+        const info = dayOccupancyMap[colIdx];
+
+        if (info && info.isStart) {
+          const { occ, startDayIdx, endDayIdx } = info;
+          const span = endDayIdx - startDayIdx + 1;
+          const statusClass = occ.status || 'pre_reserved';
+          const occupants = occ.occupants || [];
+          const names = occupants.map(o => getOccupantDisplayName(o)).filter(n => n);
+          const displayName = names.length > 0 ? names.join(' / ') : '';
+          const extraCount = occupants.length - 1;
+          const extraLabel = extraCount > 0 ? ` +${extraCount}` : '';
+
+          let cleaningHtml = '';
+          if (occ.has_cleaning_planned) {
+            cleaningHtml = `<span class="planning-cleaning-dot" style="background:${CLEANING_STATUS_COLORS[occ.cleaning_status] || '#9ca3af'}" title="Nettoyage: ${CLEANING_STATUS_LABELS[occ.cleaning_status] || 'Planifié'}"></span>`;
+          } else if (occ.status === 'completed') {
+            cleaningHtml = '<span class="planning-cleaning-warning" title="Nettoyage non planifié">⚠</span>';
+          }
+
+          html += `<td class="planning-cell planning-cell--block" colspan="${span}" data-housing-id="${housing.id}" data-date="${dateStr}" data-entry-id="${occ.occupancy_id}">`;
+          html += `<span class="planning-block planning-block--${statusClass}" title="${displayName}${extraLabel} (${STATUS_LABELS[occ.status] || occ.status})">`;
+          html += `<span class="planning-block-inner"><span class="planning-block-name">${displayName}${extraLabel}</span>${cleaningHtml}</span>`;
+          html += '</span>';
+          html += '</td>';
+          colIdx += span;
+        } else {
+          html += `<td class="planning-cell" data-housing-id="${housing.id}" data-date="${dateStr}"></td>`;
+          colIdx++;
+        }
+      }
 
       html += '</tr>';
     });
 
-    html += '</tbody></table></div>';
+    html += '</tbody></table></div></div>';
     container.innerHTML = html;
 
     this._bindGridEvents();
+    this._bindTouchEvents();
+  }
+
+  _getOccupanciesByHousing() {
+    const map = {};
+    this.entries.forEach(entry => {
+      if (!map[entry.housing_id]) map[entry.housing_id] = [];
+      map[entry.housing_id].push(entry);
+    });
+    return map;
+  }
+
+  _getWeekNumber(date) {
+    const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+    const dayNum = d.getUTCDay() || 7;
+    d.setUTCDate(d.getUTCDate() + 4 - dayNum);
+    const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+    return Math.ceil((((d - yearStart) / 86400000) + 1) / 7);
   }
 
   _bindGridEvents() {
@@ -253,7 +310,7 @@ export class HousingPlanningPage {
 
     this.element.querySelectorAll('.planning-cell').forEach(cell => {
       cell.addEventListener('mousedown', (e) => {
-        if (e.target.closest('.planning-occupancy')) return;
+        if (e.target.closest('.planning-block')) return;
         const housingId = parseInt(cell.dataset.housingId);
         const date = cell.dataset.date;
         this.dragState = { housingId, startDate: date, endDate: date };
@@ -278,13 +335,90 @@ export class HousingPlanningPage {
       }
     });
 
-    this.element.querySelectorAll('.planning-occupancy').forEach(el => {
+    this.element.querySelectorAll('.planning-block').forEach(el => {
       el.addEventListener('click', (e) => {
         e.stopPropagation();
-        const entryId = parseInt(el.dataset.entryId);
+        const td = el.closest('td[data-entry-id]');
+        if (!td) return;
+        const entryId = parseInt(td.dataset.entryId);
         const entry = this.entries.find(en => en.occupancy_id === entryId);
         if (entry) this._showEntryDetailModal(entry);
       });
+    });
+  }
+
+  _bindTouchEvents() {
+    if (!this.element) return;
+
+    let touchStartCell = null;
+    let touchCurrentCell = null;
+    let longPressTimer = null;
+
+    this.element.querySelectorAll('.planning-cell').forEach(cell => {
+      cell.addEventListener('touchstart', (e) => {
+        if (e.target.closest('.planning-block')) return;
+        
+        touchStartCell = cell;
+        touchCurrentCell = cell;
+        
+        const housingId = parseInt(cell.dataset.housingId);
+        const date = cell.dataset.date;
+        
+        longPressTimer = setTimeout(() => {
+          this.dragState = { housingId, startDate: date, endDate: date };
+          cell.classList.add('planning-cell--selected');
+          if (navigator.vibrate) navigator.vibrate(50);
+        }, 500);
+      }, { passive: true });
+
+      cell.addEventListener('touchmove', (e) => {
+        if (!touchStartCell) return;
+        
+        const touch = e.touches[0];
+        const elementBelow = document.elementFromPoint(touch.clientX, touch.clientY);
+        const cellBelow = elementBelow?.closest('.planning-cell');
+        
+        if (cellBelow && cellBelow !== touchCurrentCell) {
+          clearTimeout(longPressTimer);
+          touchCurrentCell = cellBelow;
+          
+          if (this.dragState) {
+            const date = cellBelow.dataset.date;
+            this.dragState.endDate = date;
+            this._highlightDragRange();
+          }
+        }
+      }, { passive: true });
+
+      cell.addEventListener('touchend', (e) => {
+        clearTimeout(longPressTimer);
+        
+        if (this.dragState) {
+          this._onDragEnd();
+          this.dragState = null;
+          this.element.querySelectorAll('.planning-cell--selected').forEach(c => c.classList.remove('planning-cell--selected'));
+        } else if (touchStartCell === touchCurrentCell) {
+          const housingId = parseInt(touchStartCell.dataset.housingId);
+          const date = touchStartCell.dataset.date;
+          this.dragState = { housingId, startDate: date, endDate: date };
+          this._onDragEnd();
+          this.dragState = null;
+        }
+        
+        touchStartCell = null;
+        touchCurrentCell = null;
+      }, { passive: true });
+    });
+
+    this.element.querySelectorAll('.planning-block').forEach(el => {
+      el.addEventListener('touchend', (e) => {
+        e.stopPropagation();
+        const td = el.closest('td[data-entry-id]');
+        if (!td) return;
+        const entryId = parseInt(td.dataset.entryId);
+        const entry = this.entries.find(en => en.occupancy_id === entryId);
+        if (entry) this._showEntryDetailModal(entry);
+      }, { passive: true });
     });
   }
 
@@ -295,7 +429,7 @@ export class HousingPlanningPage {
     const [start, end] = startDate <= endDate ? [startDate, endDate] : [endDate, startDate];
     this.element.querySelectorAll(`.planning-cell[data-housing-id="${housingId}"]`).forEach(cell => {
       const d = cell.dataset.date;
-      if (d >= start && d <= end) {
+      if (d && d >= start && d <= end && !cell.dataset.entryId) {
         cell.classList.add('planning-cell--drag');
       }
     });
@@ -323,8 +457,26 @@ export class HousingPlanningPage {
     this._closeModal();
     const overlay = document.createElement('div');
     overlay.className = 'modal-overlay open';
-    overlay.style.cssText = 'position:fixed;inset:0;z-index:1000;display:flex;align-items:center;justify-content:center;';
-    overlay.innerHTML = `<div class="modal-content" style="max-width:640px;width:95%;max-height:90vh;overflow-y:auto;">${html}</div>`;
+    overlay.style.cssText = 'position:fixed;inset:0;z-index:1000;display:flex;align-items:flex-end;justify-content:center;';
+    
+    const isMobile = window.innerWidth <= 640;
+    const modalWidth = isMobile ? '100%' : '95%';
+    const modalMaxWidth = isMobile ? '100%' : '640px';
+    const modalBorderRadius = isMobile ? '16px 16px 0 0' : 'var(--radius-lg)';
+    const modalMaxHeight = isMobile ? '85vh' : '90vh';
+    
+    overlay.innerHTML = `
+      <div class="modal-content" style="
+        max-width:${modalMaxWidth};
+        width:${modalWidth};
+        max-height:${modalMaxHeight};
+        overflow-y:auto;
+        border-radius:${modalBorderRadius};
+        margin-bottom:${isMobile ? '0' : 'auto'};
+        ${isMobile ? 'padding-bottom:env(safe-area-inset-bottom)' : ''}
+      ">${html}</div>
+    `;
+    
     document.body.appendChild(overlay);
     overlay.addEventListener('click', (e) => {
       if (e.target === overlay) this._closeModal();
@@ -347,59 +499,60 @@ export class HousingPlanningPage {
   }
 
   _buildOccupancyFormModal(housing, startDate, endDate) {
+    const isMobile = window.innerWidth <= 640;
     return `
-      <div class="modal-header">
-        <h2>Nouvelle réservation</h2>
-        <button class="modal-close" data-dismiss>&times;</button>
+      <div class="modal-header" style="padding:${isMobile ? '12px 16px' : '16px 24px'};border-bottom:1px solid var(--color-border-light);">
+        <h2 style="margin:0;font-size:${isMobile ? '16px' : '18px'};">Nouvelle réservation</h2>
+        <button class="modal-close" data-dismiss style="font-size:24px;padding:4px;">&times;</button>
       </div>
-      <div class="modal-body">
+      <div class="modal-body" style="padding:${isMobile ? '16px' : '24px'};">
         <div class="modal-form">
-          <div class="form-group">
-            <label>Logement</label>
-            <input type="text" value="${housing.name || ''}" disabled class="form-control">
+          <div class="form-group" style="margin-bottom:12px;">
+            <label style="font-weight:600;font-size:11px;color:var(--color-text-tertiary);text-transform:uppercase;letter-spacing:0.5px;display:block;margin-bottom:4px;">Chambre</label>
+            <input type="text" value="${housing.name || ''}" disabled class="form-control" style="background:var(--color-gray-50);">
           </div>
-          <div class="form-row">
-            <div class="form-group">
-              <label>Arrivée</label>
+          <div style="display:flex;gap:12px;margin-bottom:12px;">
+            <div class="form-group" style="flex:1;margin-bottom:0;">
+              <label style="font-weight:600;font-size:11px;color:var(--color-text-tertiary);text-transform:uppercase;letter-spacing:0.5px;display:block;margin-bottom:4px;">Arrivée</label>
               <input type="date" id="occ-arrival" value="${startDate}" class="form-control">
             </div>
-            <div class="form-group">
-              <label>Départ</label>
+            <div class="form-group" style="flex:1;margin-bottom:0;">
+              <label style="font-weight:600;font-size:11px;color:var(--color-text-tertiary);text-transform:uppercase;letter-spacing:0.5px;display:block;margin-bottom:4px;">Départ</label>
               <input type="date" id="occ-departure" value="${endDate}" class="form-control">
             </div>
           </div>
-          <div class="form-row">
-            <div class="form-group">
-              <label>Statut</label>
+          <div style="display:flex;gap:12px;margin-bottom:12px;">
+            <div class="form-group" style="flex:1;margin-bottom:0;">
+              <label style="font-weight:600;font-size:11px;color:var(--color-text-tertiary);text-transform:uppercase;letter-spacing:0.5px;display:block;margin-bottom:4px;">Statut</label>
               <select id="occ-status" class="form-control">
                 <option value="pre_reserved">Pré-réservé</option>
                 <option value="confirmed">Confirmé</option>
               </select>
             </div>
-            <div class="form-group">
-              <label>Nombre de personnes</label>
+            <div class="form-group" style="flex:1;margin-bottom:0;">
+              <label style="font-weight:600;font-size:11px;color:var(--color-text-tertiary);text-transform:uppercase;letter-spacing:0.5px;display:block;margin-bottom:4px;">Personnes</label>
               <input type="number" id="occ-nb-persons" value="1" min="1" class="form-control">
             </div>
           </div>
-          <div class="form-group">
-            <label>Occupants principaux</label>
+          <div class="form-group" style="margin-bottom:12px;">
+            <label style="font-weight:600;font-size:11px;color:var(--color-text-tertiary);text-transform:uppercase;letter-spacing:0.5px;display:block;margin-bottom:4px;">Occupants principaux</label>
             <div id="occ-occupant-list" class="occupant-list-container">
               <div class="occupant-entry" data-index="0">
                 <select class="form-control occ-occupant-select" data-index="0">
                   <option value="">— Choisir ou créer —</option>
                 </select>
-                <button class="btn btn-sm btn-secondary occ-quick-create" data-index="0" title="Créer rapidement">+</button>
+                <button class="btn btn-sm btn-secondary occ-quick-create" data-index="0" title="Créer rapidement" style="padding:8px 12px;">+</button>
               </div>
             </div>
-            <button class="btn btn-sm btn-secondary" id="occ-add-occupant" style="margin-top:4px;">+ Ajouter un occupant</button>
+            <button class="btn btn-sm btn-secondary" id="occ-add-occupant" style="margin-top:8px;width:100%;">+ Ajouter un occupant</button>
           </div>
-          <div class="form-group">
-            <label>Notes</label>
+          <div class="form-group" style="margin-bottom:16px;">
+            <label style="font-weight:600;font-size:11px;color:var(--color-text-tertiary);text-transform:uppercase;letter-spacing:0.5px;display:block;margin-bottom:4px;">Notes</label>
             <textarea id="occ-notes" class="form-control" rows="2" placeholder="Notes internes..."></textarea>
           </div>
-          <div class="modal-footer" style="margin-top:1rem;display:flex;gap:8px;justify-content:flex-end;">
-            <button class="btn btn-secondary" data-dismiss>Annuler</button>
-            <button class="btn btn-primary" id="occ-save">Enregistrer</button>
+          <div class="modal-footer" style="display:flex;gap:8px;justify-content:flex-end;padding-top:16px;border-top:1px solid var(--color-border-light);">
+            <button class="btn btn-secondary" data-dismiss style="flex:1;">Annuler</button>
+            <button class="btn btn-primary" id="occ-save" style="flex:1;">Enregistrer</button>
           </div>
         </div>
       </div>
@@ -407,70 +560,78 @@ export class HousingPlanningPage {
   }
 
   _buildEntryDetailModal(entry) {
-    const sc = STATUS_COLORS[entry.status] || STATUS_COLORS.pre_reserved;
+    const statusClass = entry.status || 'pre_reserved';
     const primaryOccupant = (entry.occupants && entry.occupants[0]) || null;
     const housing = this.housings.find(h => h.id === entry.housing_id);
+    const isMobile = window.innerWidth <= 640;
 
     let occupantsHtml = '';
     (entry.occupants || []).forEach((occ, i) => {
+      if (isMobile && i > 0) return;
       occupantsHtml += `
-        <div class="detail-occupant-row" style="display:flex;gap:8px;align-items:center;padding:4px 0;">
-          <span style="flex:1;">${getOccupantDisplayName(occ)}</span>
-          ${i === 0 ? '<span class="badge badge-sm">Principal</span>' : ''}
-          <span style="color:var(--text-secondary);font-size:12px;">${occ.email || ''}</span>
+        <div class="detail-occupant-row" style="display:flex;gap:8px;align-items:center;padding:6px 0;${i > 0 ? 'border-top:1px solid var(--color-border-light);' : ''}">
+          <span style="flex:1;font-size:${isMobile ? '13px' : '14px'};">${getOccupantDisplayName(occ)}</span>
+          ${i === 0 ? '<span class="badge badge-sm" style="background:var(--color-primary-light);color:var(--color-primary);">Principal</span>' : ''}
+          ${!isMobile ? `<span style="color:var(--color-text-tertiary);font-size:12px;">${occ.email || ''}</span>` : ''}
         </div>`;
     });
+    
+    if (isMobile && (entry.occupants || []).length > 1) {
+      occupantsHtml += `<div style="text-align:center;padding:4px;color:var(--color-text-tertiary);font-size:11px;">+${(entry.occupants || []).length - 1} autre(s)</div>`;
+    }
 
     return `
-      <div class="modal-header">
-        <h2>${getOccupantDisplayName(primaryOccupant) || 'Réservation'}</h2>
-        <button class="modal-close" data-dismiss>&times;</button>
+      <div class="modal-header" style="padding:${isMobile ? '12px 16px' : '16px 24px'};border-bottom:1px solid var(--color-border-light);">
+        <h2 style="margin:0;font-size:${isMobile ? '16px' : '18px'};">${getOccupantDisplayName(primaryOccupant) || 'Réservation'}</h2>
+        <button class="modal-close" data-dismiss style="font-size:24px;padding:4px;">&times;</button>
       </div>
-      <div class="modal-body">
-        <div style="display:flex;gap:12px;margin-bottom:12px;">
-          <div style="flex:1;">
-            <label style="font-weight:600;font-size:12px;color:var(--text-secondary);">Statut</label>
+      <div class="modal-body" style="padding:${isMobile ? '16px' : '24px'};">
+        <div style="display:flex;gap:12px;margin-bottom:16px;flex-wrap:wrap;">
+          <div style="flex:1;min-width:${isMobile ? '100px' : '120px'};">
+            <label style="font-weight:600;font-size:11px;color:var(--color-text-tertiary);text-transform:uppercase;letter-spacing:0.5px;display:block;margin-bottom:4px;">Statut</label>
             <div>
-              <span class="badge" style="background:${sc.bg};color:${sc.text};border:1px solid ${sc.border};">${STATUS_LABELS[entry.status] || entry.status}</span>
+              <span class="planning-occupancy planning-occupancy--${statusClass}" style="display:inline-flex;pointer-events:none;">
+                ${STATUS_LABELS[entry.status] || entry.status}
+              </span>
             </div>
           </div>
-          <div style="flex:1;">
-            <label style="font-weight:600;font-size:12px;color:var(--text-secondary);">Logement</label>
-            <div>${housing ? housing.name : entry.housing_name || '-'}</div>
+          <div style="flex:1;min-width:${isMobile ? '100px' : '120px'};">
+            <label style="font-weight:600;font-size:11px;color:var(--color-text-tertiary);text-transform:uppercase;letter-spacing:0.5px;display:block;margin-bottom:4px;">Chambre</label>
+            <div style="font-weight:500;">${housing ? housing.name : entry.housing_name || '-'}</div>
           </div>
         </div>
-        <div style="display:flex;gap:12px;margin-bottom:12px;">
-          <div style="flex:1;">
-            <label style="font-weight:600;font-size:12px;color:var(--text-secondary);">Arrivée</label>
-            <div>${formatDateShort(new Date(entry.arrival_date))}</div>
+        <div style="display:flex;gap:12px;margin-bottom:16px;flex-wrap:wrap;">
+          <div style="flex:1;min-width:${isMobile ? '80px' : '100px'};">
+            <label style="font-weight:600;font-size:11px;color:var(--color-text-tertiary);text-transform:uppercase;letter-spacing:0.5px;display:block;margin-bottom:4px;">Arrivée</label>
+            <div style="font-size:${isMobile ? '13px' : '14px'};">${formatDateShort(new Date(entry.arrival_date))}</div>
           </div>
-          <div style="flex:1;">
-            <label style="font-weight:600;font-size:12px;color:var(--text-secondary);">Départ</label>
-            <div>${formatDateShort(new Date(entry.departure_date))}</div>
+          <div style="flex:1;min-width:${isMobile ? '80px' : '100px'};">
+            <label style="font-weight:600;font-size:11px;color:var(--color-text-tertiary);text-transform:uppercase;letter-spacing:0.5px;display:block;margin-bottom:4px;">Départ</label>
+            <div style="font-size:${isMobile ? '13px' : '14px'};">${formatDateShort(new Date(entry.departure_date))}</div>
           </div>
-          <div style="flex:1;">
-            <label style="font-weight:600;font-size:12px;color:var(--text-secondary);">Personnes</label>
-            <div>${entry.nb_persons || 1}</div>
+          <div style="flex:1;min-width:${isMobile ? '60px' : '80px'};">
+            <label style="font-weight:600;font-size:11px;color:var(--color-text-tertiary);text-transform:uppercase;letter-spacing:0.5px;display:block;margin-bottom:4px;">Personnes</label>
+            <div style="font-size:${isMobile ? '13px' : '14px'};">${entry.nb_persons || 1}</div>
           </div>
         </div>
         ${entry.has_cleaning_planned ? `
-        <div style="margin-bottom:12px;">
-          <label style="font-weight:600;font-size:12px;color:var(--text-secondary);">Nettoyage</label>
+        <div style="margin-bottom:16px;padding:12px;background:var(--color-gray-50);border-radius:var(--radius-md);">
+          <label style="font-weight:600;font-size:11px;color:var(--color-text-tertiary);text-transform:uppercase;letter-spacing:0.5px;display:block;margin-bottom:6px;">Nettoyage</label>
           <div>
             <span class="badge" style="background:${CLEANING_STATUS_COLORS[entry.cleaning_status] || '#9ca3af'};color:white;">${CLEANING_STATUS_LABELS[entry.cleaning_status] || 'Planifié'}</span>
           </div>
         </div>` : ''}
-        <div style="margin-bottom:12px;">
-          <label style="font-weight:600;font-size:12px;color:var(--text-secondary);">Occupants</label>
-          ${occupantsHtml || '<div style="color:var(--text-secondary);">Aucun occupant</div>'}
+        <div style="margin-bottom:16px;">
+          <label style="font-weight:600;font-size:11px;color:var(--color-text-tertiary);text-transform:uppercase;letter-spacing:0.5px;display:block;margin-bottom:8px;">Occupants</label>
+          ${occupantsHtml || '<div style="color:var(--color-text-tertiary);font-style:italic;">Aucun occupant</div>'}
         </div>
-        <div class="modal-footer" style="margin-top:1rem;display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap;">
-          <button class="btn btn-secondary" data-dismiss>Fermer</button>
-          ${entry.status !== 'confirmed' ? `<button class="btn btn-primary" data-action="confirm">Confirmer</button>` : ''}
-          ${entry.status !== 'in_progress' && entry.status !== 'completed' ? `<button class="btn btn-warning" data-action="checkin">Check-in</button>` : ''}
-          ${entry.status === 'in_progress' ? `<button class="btn btn-success" data-action="checkout">Check-out</button>` : ''}
-          ${!entry.has_cleaning_planned ? `<button class="btn btn-secondary" data-action="schedule-cleaning">Planifier nettoyage</button>` : ''}
-          <button class="btn btn-secondary" data-action="send-email">Envoyer e-mail</button>
+        <div class="modal-footer" style="display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap;padding-top:16px;border-top:1px solid var(--color-border-light);">
+          <button class="btn btn-secondary" data-dismiss style="flex:1;min-width:${isMobile ? '100px' : 'auto'};">Fermer</button>
+          ${entry.status !== 'confirmed' ? `<button class="btn btn-primary" data-action="confirm" style="flex:1;min-width:${isMobile ? '100px' : 'auto'};">Confirmer</button>` : ''}
+          ${entry.status !== 'in_progress' && entry.status !== 'completed' ? `<button class="btn btn-warning" data-action="checkin" style="flex:1;min-width:${isMobile ? '100px' : 'auto'};">Check-in</button>` : ''}
+          ${entry.status === 'in_progress' ? `<button class="btn btn-success" data-action="checkout" style="flex:1;min-width:${isMobile ? '100px' : 'auto'};">Check-out</button>` : ''}
+          ${!entry.has_cleaning_planned ? `<button class="btn btn-secondary" data-action="schedule-cleaning" style="flex:1;min-width:${isMobile ? '100px' : 'auto'};">Nettoyage</button>` : ''}
+          <button class="btn btn-secondary" data-action="send-email" style="flex:1;min-width:${isMobile ? '100px' : 'auto'};">E-mail</button>
         </div>
       </div>
     `;
@@ -849,20 +1010,12 @@ export class HousingPlanningPage {
           <h1>Planning d'occupation</h1>
           <p class="page-subtitle">Vue calendrier des réservations</p>
         </div>
-        <div class="page-header-right" style="display:flex;gap:8px;align-items:center;">
+        <div class="page-header-right" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
           <div class="btn-group" style="display:flex;border:1px solid var(--border-color);border-radius:var(--radius-md);overflow:hidden;">
             <button class="btn btn-secondary btn-sm" data-view="day" style="border-radius:0;border:none;">Jour</button>
             <button class="btn btn-secondary btn-sm" data-view="week" style="border-radius:0;border:none;">Semaine</button>
             <button class="btn btn-secondary btn-sm active" data-view="month" style="border-radius:0;border:none;">Mois</button>
           </div>
-        </div>
-      </div>
-      <div class="calendar-nav" style="display:flex;align-items:center;gap:12px;margin-bottom:1rem;">
-        <button class="btn btn-secondary" data-action="prev">&larr;</button>
-        <h2 data-month-label style="margin:0;min-width:200px;text-align:center;"></h2>
-        <button class="btn btn-secondary" data-action="next">&rarr;</button>
-        <button class="btn btn-secondary" data-action="today">Aujourd'hui</button>
-        <div style="margin-left:auto;display:flex;gap:8px;">
           <select class="form-control" id="status-filter" style="width:auto;padding:4px 8px;font-size:13px;">
             <option value="">Tous les statuts</option>
             <option value="pre_reserved">Pré-réservé</option>
@@ -873,7 +1026,13 @@ export class HousingPlanningPage {
           </select>
         </div>
       </div>
-      <div data-planning style="min-height:200px;"></div>
+      <div class="calendar-nav" style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
+        <button class="btn btn-secondary btn-sm" data-action="prev">◀</button>
+        <h2 data-month-label style="margin:0;min-width:180px;text-align:center;font-size:var(--font-size-base);"></h2>
+        <button class="btn btn-secondary btn-sm" data-action="next">▶</button>
+        <button class="btn btn-secondary btn-sm" data-action="today">Aujourd'hui</button>
+      </div>
+      <div data-planning style="flex:1;min-height:0;"></div>
     `;
 
     this.element.querySelector('[data-action="prev"]')?.addEventListener('click', () => {

@@ -95,6 +95,7 @@ export class HousingListPage {
   render() {
     this.element = document.createElement('div');
     this.element.className = 'page-content';
+    this.element.style.cssText = 'display:flex;flex-direction:column;min-height:calc(100vh - var(--header-height) - var(--spacing-6) * 2);';
     this.element.innerHTML = `
       <div class="page-header">
         <div class="page-header-left"><h1>Hébergements</h1><p class="page-subtitle">Configuration des hébergements — chambres, lits et capacités</p></div>
@@ -105,7 +106,7 @@ export class HousingListPage {
         <select class="form-select" data-filter="is_active"><option value="">Tous</option><option value="true" ${this.filters.is_active === 'true' ? 'selected' : ''}>Actif</option><option value="false" ${this.filters.is_active === 'false' ? 'selected' : ''}>Inactif</option></select>
       </div>
       <div class="page-info"><span data-count>${this.total} hébergement${this.total > 1 ? 's' : ''}</span></div>
-      <div data-table></div>
+      <div data-table style="flex:1;"></div>
       <div class="pagination"><button class="btn btn-secondary" data-page="prev" ${this.page <= 1 ? 'disabled' : ''}>Précédent</button><span data-page-info>Page ${this.page} / ${this.totalPages}</span><button class="btn btn-secondary" data-page="next" ${this.page >= this.totalPages ? 'disabled' : ''}>Suivant</button></div>
     `;
     this._setupEvents();

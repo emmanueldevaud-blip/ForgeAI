@@ -9,7 +9,7 @@ from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
 
-from app.api import auth, audit, buildings, dashboard, equipment, housing, maintenance, modules, admin
+from app.api import auth, audit, buildings, dashboard, equipment, housing, maintenance, modules, admin, volunteer
 from app.core.config import get_settings
 from app.db.session import close_db, init_db
 from app.modules import register_all_modules
@@ -92,6 +92,21 @@ app.add_middleware(
 async def health_check():
     return {"status": "ok", "version": settings.APP_VERSION}
 
+SPA_PREFIXES = ("api/", "auth/", "admin/", "docs", "redoc", "openapi", "health", "css/", "js/", "modules/", "dashboard/")
+
+
+@app.middleware("http")
+async def spa_fallback_middleware(request: Request, call_next):
+    response = await call_next(request)
+    if (
+        response.status_code in (401, 404)
+        and SPA_INDEX
+        and request.headers.get("accept", "").startswith("text/html")
+        and not any(request.url.path.startswith(f"/{p}") for p in SPA_PREFIXES)
+    ):
+        return FileResponse(SPA_INDEX)
+    return response
+
 app.include_router(auth.router)
 app.include_router(modules.router)
 app.include_router(admin.router)
@@ -101,6 +116,7 @@ app.include_router(dashboard.router)
 app.include_router(equipment.router)
 app.include_router(housing.router)
 app.include_router(maintenance.router)
+app.include_router(volunteer.router)
 
 frontend_path = os.path.join(os.path.dirname(__file__), "..", "src", "public")
 SPA_INDEX = None

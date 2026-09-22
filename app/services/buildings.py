@@ -2,7 +2,7 @@ import re
 from datetime import UTC, datetime
 from typing import Optional, List
 
-from sqlalchemy import select, func, or_, and_
+from sqlalchemy import select, func, or_, and_, text, Integer
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -41,37 +41,52 @@ class BuildingService:
     # ============================================================
 
     async def _generate_site_code(self) -> str:
-        result = await self.db.execute(
-            select(func.count()).select_from(Site)
-        )
-        count = result.scalar() or 0
-        return f"SITE-{count + 1:04d}"
+        result = await self.db.execute(select(func.count()).select_from(Site))
+        count = (result.scalar() or 0) + 1
+        ref = f"SITE-{count:04d}"
+        while (await self.db.execute(select(Site.id).where(Site.reference == ref))).scalar_one_or_none():
+            count += 1
+            ref = f"SITE-{count:04d}"
+        return ref
 
     async def _generate_building_code(self, site_id: int) -> str:
         result = await self.db.execute(
             select(func.count()).select_from(Building).where(Building.site_id == site_id)
         )
-        count = result.scalar() or 0
-        return f"BAT-{count + 1:04d}"
+        count = (result.scalar() or 0) + 1
+        ref = f"BAT-{count:04d}"
+        while (await self.db.execute(
+            select(Building.id).where(Building.site_id == site_id, Building.reference == ref)
+        )).scalar_one_or_none():
+            count += 1
+            ref = f"BAT-{count:04d}"
+        return ref
 
     async def _generate_room_code(self, building_id: int) -> str:
         result = await self.db.execute(
             select(func.count()).select_from(Room).where(Room.building_id == building_id)
         )
-        count = result.scalar() or 0
-        return f"LOC-{count + 1:04d}"
+        count = (result.scalar() or 0) + 1
+        ref = f"LOC-{count:04d}"
+        while (await self.db.execute(
+            select(Room.id).where(Room.building_id == building_id, Room.reference == ref)
+        )).scalar_one_or_none():
+            count += 1
+            ref = f"LOC-{count:04d}"
+        return ref
 
     async def _generate_referential_code(self, name: str, table_class) -> str:
         base_code = slugify(name, max_length=30).upper()
         if not base_code:
             base_code = "REF"
-        result = await self.db.execute(
-            select(func.count()).select_from(table_class).where(table_class.code.ilike(f"{base_code}%"))
-        )
-        count = result.scalar() or 0
-        if count == 0:
-            return base_code
-        return f"{base_code}-{count + 1}"
+        code = base_code
+        count = 1
+        while (await self.db.execute(
+            select(table_class.id).where(table_class.code == code)
+        )).scalar_one_or_none():
+            count += 1
+            code = f"{base_code}-{count}"
+        return code
 
     # ============================================================
     # USAGE TYPES
@@ -167,10 +182,14 @@ class BuildingService:
         if not usage_type:
             return None
 
+        # Code cannot be modified after creation
+        if "code" in data and data["code"] is not None:
+            data.pop("code")
+
         old_values = {"name": usage_type.name, "is_active": usage_type.is_active}
 
         for key, value in data.items():
-            if value is not None and hasattr(usage_type, key):
+            if value is not None and hasattr(usage_type, key) and key != "code":
                 setattr(usage_type, key, value)
 
         await self.db.commit()
@@ -308,6 +327,34 @@ class BuildingService:
             )
 
         return room_type
+
+    async def delete_room_type(self, room_type_id: int) -> Optional[str]:
+        room_type = await self.get_room_type(room_type_id)
+        if not room_type:
+            return "Type de pièce non trouvé"
+
+        room_count = await self._count_rooms_for_room_type(room_type_id)
+        if room_count > 0:
+            return (
+                f"Impossible de supprimer le type de pièce « {room_type.name} » : "
+                f"il est utilisé par {room_count} local(aux)."
+            )
+
+        if self.audit and self.current_user:
+            await self.audit.log(
+                action="delete",
+                module="buildings",
+                user=self.current_user,
+                object_type="room_type",
+                object_id=str(room_type.id),
+                object_repr=room_type.name,
+                new_values={"code": room_type.code, "name": room_type.name},
+                status="success",
+            )
+
+        await self.db.delete(room_type)
+        await self.db.commit()
+        return None
 
     # ============================================================
     # SITES
@@ -757,7 +804,10 @@ class BuildingService:
 
         building_count = await self._count_buildings_for_site(site_id)
         if building_count > 0:
-            return f"Impossible de supprimer ce site : {building_count} bâtiment(s) existent encore"
+            return (
+                f"Impossible de supprimer le site « {site.name} » : "
+                f"il contient {building_count} bâtiment(s)."
+            )
 
         if self.audit and self.current_user:
             await self.audit.log(
@@ -782,7 +832,10 @@ class BuildingService:
 
         room_count = await self._count_rooms_for_building(building_id)
         if room_count > 0:
-            return f"Impossible de supprimer ce bâtiment : {room_count} local(aux) existent encore"
+            return (
+                f"Impossible de supprimer le bâtiment « {building.name} » : "
+                f"il contient {room_count} local(aux)."
+            )
 
         if self.audit and self.current_user:
             await self.audit.log(
@@ -800,6 +853,16 @@ class BuildingService:
         await self.db.commit()
         return None
 
+    async def _count_occupancies_for_room(self, room_id: int) -> int:
+        from app.models.housing import Housing, Occupancy
+        stmt = (
+            select(func.count(Occupancy.id))
+            .join(Housing, Occupancy.housing_id == Housing.id)
+            .where(Housing.room_id == room_id)
+        )
+        result = await self.db.execute(stmt)
+        return result.scalar_one()
+
     async def delete_room(self, room_id: int) -> Optional[str]:
         room = await self.get_room(room_id)
         if not room:
@@ -807,7 +870,17 @@ class BuildingService:
 
         equipment_count = await self._count_equipment_for_room(room_id)
         if equipment_count > 0:
-            return f"Impossible de supprimer ce local : {equipment_count} équipement(s) existent encore"
+            return (
+                f"Impossible de supprimer le local « {room.name} » : "
+                f"il contient {equipment_count} équipement(s)."
+            )
+
+        occupancy_count = await self._count_occupancies_for_room(room_id)
+        if occupancy_count > 0:
+            return (
+                f"Impossible de supprimer le local « {room.name} » : "
+                f"il est lié à {occupancy_count} réservation(s) / occupation(s) d'hébergement."
+            )
 
         if self.audit and self.current_user:
             await self.audit.log(
@@ -832,7 +905,10 @@ class BuildingService:
 
         room_count = await self._count_rooms_for_usage_type(usage_type_id)
         if room_count > 0:
-            return f"Impossible de supprimer ce type : {room_count} local(aux) l'utilisent encore"
+            return (
+                f"Impossible de supprimer le type d'utilisation « {usage_type.name} » : "
+                f"il est utilisé par {room_count} local(aux)."
+            )
 
         if self.audit and self.current_user:
             await self.audit.log(
@@ -852,5 +928,10 @@ class BuildingService:
 
     async def _count_rooms_for_usage_type(self, usage_type_id: int) -> int:
         stmt = select(func.count(Room.id)).where(Room.usage_type_id == usage_type_id)
+        result = await self.db.execute(stmt)
+        return result.scalar_one()
+
+    async def _count_rooms_for_room_type(self, room_type_id: int) -> int:
+        stmt = select(func.count(Room.id)).where(Room.room_type_id == room_type_id)
         result = await self.db.execute(stmt)
         return result.scalar_one()

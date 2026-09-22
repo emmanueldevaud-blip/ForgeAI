@@ -356,16 +356,20 @@ export class BuildingsPage {
       const formData = new FormData(form);
       const data = Object.fromEntries(formData.entries());
 
-      if (data.area) data.area = parseFloat(data.area);
-      else delete data.area;
-      if (data.floors_count) data.floors_count = parseInt(data.floors_count);
-      else delete data.floors_count;
-      if (data.site_id) data.site_id = parseInt(data.site_id);
-      if (data.building_id) data.building_id = parseInt(data.building_id);
-      if (data.usage_type_id) data.usage_type_id = parseInt(data.usage_type_id);
-      else delete data.usage_type_id;
-      if (data.used_for_accommodation) data.used_for_accommodation = data.used_for_accommodation === 'true';
-      else data.used_for_accommodation = false;
+      if (form.elements['area']) {
+        data.area = data.area ? parseFloat(data.area) : null;
+      }
+      if (form.elements['floors_count']) {
+        data.floors_count = data.floors_count ? parseInt(data.floors_count, 10) : null;
+      }
+      if (data.site_id) data.site_id = parseInt(data.site_id, 10);
+      if (data.building_id) data.building_id = parseInt(data.building_id, 10);
+      if (form.elements['usage_type_id']) {
+        data.usage_type_id = data.usage_type_id ? parseInt(data.usage_type_id, 10) : null;
+      }
+      if (form.elements['used_for_accommodation']) {
+        data.used_for_accommodation = data.used_for_accommodation === 'true';
+      }
 
       try {
         const createFn = {

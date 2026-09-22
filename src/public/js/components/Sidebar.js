@@ -210,6 +210,8 @@ export class Sidebar {
   _handleNavAction(action) {
     if (action.type === 'navigate' && action.route) {
       this.onNavigate(action.route);
+    } else if (action.type === 'toggle') {
+      this._render();
     }
   }
 

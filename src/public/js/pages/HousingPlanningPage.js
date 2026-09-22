@@ -234,11 +234,10 @@ export class HousingPlanningPage {
         if (bedConfig.length === 0) bedConfig = Array(nbRooms).fill('simple');
 
         bedConfig.forEach((bedType, roomIdx) => {
-          const bedSymbols = bedType === 'double' ? '🛏️🛏️' : '🛏️';
-          const logementName = (housing.building && housing.building.name) || housing.name || '-';
-          const roomLabel = bedConfig.length > 1
-            ? `${logementName} — Ch. ${roomIdx + 1}`
-            : logementName;
+          const localName = housing.room?.name || housing.name || '-';
+          const roomName = `Chambre ${roomIdx + 1}`;
+          const bedLabel = bedType === 'double' ? 'Lit double' : 'Lit simple';
+          const roomLabel = `${localName} — ${roomName} — ${bedLabel}`;
 
           const occupancies = (housingOccupancies[housing.id] || []).filter(occ => {
             const occRoom = occ.room_index;
@@ -266,7 +265,7 @@ export class HousingPlanningPage {
           });
 
           html += '<tr>';
-          html += `<td class="planning-housing-cell" title="${roomLabel}"><span class="housing-name">${roomLabel}</span><span class="housing-beds">${bedSymbols}</span></td>`;
+          html += `<td class="planning-housing-cell" title="${roomLabel}"><span class="housing-name">${localName}</span><span class="housing-code">${roomName}</span><span class="housing-beds">${bedLabel}</span></td>`;
 
           let colIdx = 0;
           while (colIdx < days.length) {
@@ -568,6 +567,14 @@ export class HousingPlanningPage {
                 <option value="confirmed">Confirmé</option>
               </select>
             </div>
+            <div class="form-group" style="flex:1;margin-bottom:0;">
+              <label style="font-weight:600;font-size:11px;color:var(--color-text-tertiary);text-transform:uppercase;letter-spacing:0.5px;display:block;margin-bottom:4px;">Type</label>
+              <select id="occ-guest-type" class="form-control">
+                <option value="">— Choisir —</option>
+                <option value="single">Célibataire</option>
+                <option value="couple"${bedType === 'double' ? ' selected' : ''}${bedType === 'simple' ? ' disabled' : ''}>Couple</option>
+              </select>
+            </div>
           </div>
           <div class="form-group" style="margin-bottom:12px;">
             <label style="font-weight:600;font-size:11px;color:var(--color-text-tertiary);text-transform:uppercase;letter-spacing:0.5px;display:block;margin-bottom:4px;">Occupants principaux</label>
@@ -814,6 +821,17 @@ export class HousingPlanningPage {
       addBtn.addEventListener('click', () => {
         const container = overlay.querySelector('#occ-occupant-list');
         const entries = container.querySelectorAll('.occupant-entry');
+        const bedType = bedConfig[roomIndex] || "simple";
+        
+        // Empêcher d'ajouter un nouvel occupant si lit simple
+        // ou si type célibataire avec déjà 1 occupant
+        if (bedType === 'simple' || guestType === 'single') {
+          if (entries.length >= 1) {
+            alert('Impossible d\'ajouter plus d\'occupant avec un lit simple ou un invité célibataire');
+            return;
+          }
+        }
+        
         const nextIndex = entries.length;
         const row = document.createElement('div');
         row.className = 'occupant-entry';
@@ -856,11 +874,25 @@ export class HousingPlanningPage {
       });
     }
 
+    const guestTypeSelect = overlay.querySelector('#occ-guest-type');
+    if (guestTypeSelect) {
+      guestTypeSelect.addEventListener('change', () => {
+        const container = overlay.querySelector('#occ-occupant-list');
+        const entries = container.querySelectorAll('.occupant-entry');
+        if (guestTypeSelect.value === 'single' && entries.length > 1) {
+          while (entries.length > 1) {
+            entries[entries.length - 1].remove();
+          }
+        }
+      });
+    }
+
     if (saveBtn) {
       saveBtn.addEventListener('click', async () => {
         const arrival = overlay.querySelector('#occ-arrival')?.value;
         const departure = overlay.querySelector('#occ-departure')?.value;
         const status = overlay.querySelector('#occ-status')?.value;
+        const guestType = overlay.querySelector('#occ-guest-type')?.value || null;
         const notes = overlay.querySelector('#occ-notes')?.value || '';
         const occupantSelects = overlay.querySelectorAll('.occ-occupant-select');
         const occupantIds = [];
@@ -870,6 +902,16 @@ export class HousingPlanningPage {
 
         if (!arrival || !departure) {
           alert('Veuillez remplir les dates d\'arrivée et de départ');
+          return;
+        }
+
+        if (guestType === 'single' && occupantIds.length > 1) {
+          alert('Un célibataire ne peut avoir qu\'un seul occupant');
+          return;
+        }
+
+        if (guestType === 'couple' && bedType === 'simple') {
+          alert('Un couple ne peut pas être dans un lit simple');
           return;
         }
 
@@ -883,6 +925,7 @@ export class HousingPlanningPage {
             status,
             nb_persons: occupantIds.length || 1,
             occupant_ids: occupantIds,
+            guest_type: guestType,
             notes,
           });
           this._closeModal();

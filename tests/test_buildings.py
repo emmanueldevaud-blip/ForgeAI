@@ -93,6 +93,26 @@ async def test_list_buildings_by_site(client, admin_headers):
     assert response.json()["total"] == 2
 
 
+@pytest.mark.asyncio
+async def test_update_building(client, admin_headers):
+    site_resp = await client.post("/buildings/sites", json={"name": "Update Building Site"}, headers=admin_headers)
+    building_resp = await client.post(
+        "/buildings",
+        json={"name": "Original Building", "site_id": site_resp.json()["id"]},
+        headers=admin_headers,
+    )
+
+    response = await client.patch(
+        f"/buildings/{building_resp.json()['id']}",
+        json={"name": "Updated Building", "building_number": "B-12"},
+        headers=admin_headers,
+    )
+
+    assert response.status_code == 200
+    assert response.json()["name"] == "Updated Building"
+    assert response.json()["building_number"] == "B-12"
+
+
 # ============================================================
 # ROOMS (directly under Building)
 # ============================================================
@@ -349,3 +369,182 @@ async def test_site_not_found(client, admin_headers):
 async def test_building_not_found(client, admin_headers):
     response = await client.get("/buildings/99999", headers=admin_headers)
     assert response.status_code == 404
+
+
+# ============================================================
+# DELETE PROTECTIONS
+# ============================================================
+
+@pytest.mark.asyncio
+async def test_delete_empty_site(client, admin_headers):
+    site_resp = await client.post("/buildings/sites", json={"name": "Empty Site"}, headers=admin_headers)
+
+    response = await client.delete(f"/buildings/sites/{site_resp.json()['id']}", headers=admin_headers)
+
+    assert response.status_code == 200
+    assert response.json()["message"] == "Site supprimé"
+
+
+@pytest.mark.asyncio
+async def test_cannot_delete_site_with_buildings(client, admin_headers):
+    site_resp = await client.post("/buildings/sites", json={"name": "Protected Site"}, headers=admin_headers)
+    site_id = site_resp.json()["id"]
+    await client.post("/buildings", json={"name": "Building in Site", "site_id": site_id}, headers=admin_headers)
+
+    response = await client.delete(f"/buildings/sites/{site_id}", headers=admin_headers)
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == (
+        "Impossible de supprimer le site « Protected Site » : il contient 1 bâtiment(s)."
+    )
+
+
+@pytest.mark.asyncio
+async def test_delete_empty_building(client, admin_headers):
+    site_resp = await client.post("/buildings/sites", json={"name": "Empty Building Site"}, headers=admin_headers)
+    building_resp = await client.post(
+        "/buildings",
+        json={"name": "Empty Building", "site_id": site_resp.json()["id"]},
+        headers=admin_headers,
+    )
+
+    response = await client.delete(f"/buildings/{building_resp.json()['id']}", headers=admin_headers)
+
+    assert response.status_code == 200
+    assert response.json()["message"] == "Bâtiment supprimé"
+
+
+@pytest.mark.asyncio
+async def test_cannot_delete_building_with_rooms(client, admin_headers):
+    site_resp = await client.post("/buildings/sites", json={"name": "Protected Building Site"}, headers=admin_headers)
+    building_resp = await client.post(
+        "/buildings",
+        json={"name": "Protected Building", "site_id": site_resp.json()["id"]},
+        headers=admin_headers,
+    )
+    building_id = building_resp.json()["id"]
+    await client.post("/buildings/rooms", json={"name": "Room in Building", "building_id": building_id}, headers=admin_headers)
+
+    response = await client.delete(f"/buildings/{building_id}", headers=admin_headers)
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == (
+        "Impossible de supprimer le bâtiment « Protected Building » : il contient 1 local(aux)."
+    )
+
+
+@pytest.mark.asyncio
+async def test_create_update_and_delete_unused_usage_type(client, admin_headers):
+    create_response = await client.post("/buildings/usage-types", json={"name": "Unused Type"}, headers=admin_headers)
+    usage_type_id = create_response.json()["id"]
+    assert create_response.status_code == 201
+
+    update_response = await client.patch(
+        f"/buildings/usage-types/{usage_type_id}",
+        json={"name": "Renamed Type"},
+        headers=admin_headers,
+    )
+    assert update_response.status_code == 200
+    assert update_response.json()["name"] == "Renamed Type"
+
+    delete_response = await client.delete(f"/buildings/usage-types/{usage_type_id}", headers=admin_headers)
+    assert delete_response.status_code == 204
+
+
+@pytest.mark.asyncio
+async def test_cannot_delete_usage_type_used_by_room(client, admin_headers):
+    site_resp = await client.post("/buildings/sites", json={"name": "Usage Type Site"}, headers=admin_headers)
+    building_resp = await client.post(
+        "/buildings",
+        json={"name": "Usage Type Building", "site_id": site_resp.json()["id"]},
+        headers=admin_headers,
+    )
+    usage_type_resp = await client.post("/buildings/usage-types", json={"name": "Protected Usage Type"}, headers=admin_headers)
+    usage_type_id = usage_type_resp.json()["id"]
+    await client.post(
+        "/buildings/rooms",
+        json={"name": "Typed Room", "building_id": building_resp.json()["id"], "usage_type_id": usage_type_id},
+        headers=admin_headers,
+    )
+
+    response = await client.delete(f"/buildings/usage-types/{usage_type_id}", headers=admin_headers)
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == (
+        "Impossible de supprimer le type d'utilisation « Protected Usage Type » : il est utilisé par 1 local(aux)."
+    )
+
+
+@pytest.mark.asyncio
+async def test_cannot_delete_room_type_used_by_room(client, admin_headers):
+    site_resp = await client.post("/buildings/sites", json={"name": "Room Type Site"}, headers=admin_headers)
+    building_resp = await client.post(
+        "/buildings",
+        json={"name": "Room Type Building", "site_id": site_resp.json()["id"]},
+        headers=admin_headers,
+    )
+    room_type_resp = await client.post("/buildings/room-types", json={"name": "Protected Room Type"}, headers=admin_headers)
+    room_type_id = room_type_resp.json()["id"]
+    await client.post(
+        "/buildings/rooms",
+        json={"name": "Typed Room", "building_id": building_resp.json()["id"], "room_type_id": room_type_id},
+        headers=admin_headers,
+    )
+
+    response = await client.delete(f"/buildings/room-types/{room_type_id}", headers=admin_headers)
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == (
+        "Impossible de supprimer le type de pièce « Protected Room Type » : il est utilisé par 1 local(aux)."
+    )
+
+
+@pytest.mark.asyncio
+async def test_delete_empty_room(client, admin_headers):
+    site_resp = await client.post("/buildings/sites", json={"name": "Empty Room Site"}, headers=admin_headers)
+    building_resp = await client.post(
+        "/buildings",
+        json={"name": "Empty Room Building", "site_id": site_resp.json()["id"]},
+        headers=admin_headers,
+    )
+    room_resp = await client.post(
+        "/buildings/rooms",
+        json={"name": "Empty Room", "building_id": building_resp.json()["id"]},
+        headers=admin_headers,
+    )
+    room_id = room_resp.json()["id"]
+
+    response = await client.delete(f"/buildings/rooms/{room_id}", headers=admin_headers)
+    assert response.status_code == 200
+    assert response.json()["message"] == "Local supprimé"
+
+
+@pytest.mark.asyncio
+async def test_delete_unused_room_type(client, admin_headers):
+    create_resp = await client.post("/buildings/room-types", json={"name": "Unused Room Type"}, headers=admin_headers)
+    assert create_resp.status_code == 201
+    rt_id = create_resp.json()["id"]
+
+    response = await client.delete(f"/buildings/room-types/{rt_id}", headers=admin_headers)
+    assert response.status_code == 204
+
+
+@pytest.mark.asyncio
+async def test_reference_generation_avoids_collision_after_delete(client, admin_headers):
+    # Create 3 sites
+    resp1 = await client.post("/buildings/sites", json={"name": "Site Col 1"}, headers=admin_headers)
+    resp2 = await client.post("/buildings/sites", json={"name": "Site Col 2"}, headers=admin_headers)
+    resp3 = await client.post("/buildings/sites", json={"name": "Site Col 3"}, headers=admin_headers)
+    assert resp1.status_code == 201
+    assert resp2.status_code == 201
+    assert resp3.status_code == 201
+
+    # Delete the second site (resp2)
+    del_resp = await client.delete(f"/buildings/sites/{resp2.json()['id']}", headers=admin_headers)
+    assert del_resp.status_code == 200
+
+    # Creating a 4th site must NOT fail with reference collision
+    resp4 = await client.post("/buildings/sites", json={"name": "Site Col 4"}, headers=admin_headers)
+    assert resp4.status_code == 201
+    assert resp4.json()["reference"] != resp3.json()["reference"]
+

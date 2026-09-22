@@ -148,7 +148,7 @@ export class BuildingRefsPage {
                 data-name-input
               >
             </div>
-            <input type="hidden" name="code" data-code-input value="${this._escapeHtml(item?.code || '')}">
+            <input type="hidden" name="code" data-code-input value="${this._escapeHtml(item?.code || '')}" readonly>
             <div class="form-group">
               <label for="ref-description">Description</label>
               <textarea
@@ -237,8 +237,9 @@ export class BuildingRefsPage {
 
   async _handleFormSubmit(form) {
     const formData = new FormData(form);
+    const code = this.editingItem ? this.editingItem.code : (formData.get('code')?.trim().toUpperCase() || '');
     const data = {
-      code: formData.get('code')?.trim().toUpperCase(),
+      code,
       name: formData.get('name')?.trim(),
       description: formData.get('description')?.trim() || null,
       sort_order: parseInt(formData.get('sort_order') || '0', 10),

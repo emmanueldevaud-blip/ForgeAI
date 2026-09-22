@@ -4,6 +4,7 @@ from typing import Optional
 
 from sqlalchemy import (
     Boolean,
+    CheckConstraint,
     DateTime,
     ForeignKey,
     Index,
@@ -32,7 +33,7 @@ class UsageType(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
 
     rooms: Mapped[list["Room"]] = relationship("Room", back_populates="usage_type")
-
+    
     __table_args__ = (
         Index("ix_usage_types_code_active", "code", "is_active"),
     )

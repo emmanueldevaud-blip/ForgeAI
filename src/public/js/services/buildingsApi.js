@@ -110,3 +110,31 @@ export async function updateUsageType(id, data) {
 export async function deleteUsageType(id) {
   return buildingsApi.delete(`/usage-types/${id}`);
 }
+
+export async function listRoomTypes(params = {}) {
+  const query = new URLSearchParams();
+  if (params.page) query.set('page', params.page);
+  if (params.page_size) query.set('page_size', params.page_size);
+  if (params.search) query.set('search', params.search);
+  if (params.is_active !== undefined) query.set('is_active', params.is_active);
+  if (params.sort_by) query.set('sort_by', params.sort_by);
+  if (params.sort_order) query.set('sort_order', params.sort_order);
+  return buildingsApi.get(`/room-types?${query.toString()}`);
+}
+
+export async function getRoomType(id) {
+  return buildingsApi.get(`/room-types/${id}`);
+}
+
+export async function createRoomType(data) {
+  return buildingsApi.post('/room-types', data);
+}
+
+export async function updateRoomType(id, data) {
+  return buildingsApi.patch(`/room-types/${id}`, data);
+}
+
+export async function deleteRoomType(id) {
+  return buildingsApi.delete(`/room-types/${id}`);
+}
+

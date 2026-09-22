@@ -141,8 +141,10 @@ async def delete_usage_type(
     service = BuildingService(db, audit=audit, current_user=current_user)
 
     error = await service.delete_usage_type(usage_type_id)
+    if error == "Type d'utilisation non trouvé":
+        raise HTTPException(status_code=404, detail=error)
     if error:
-        raise HTTPException(status_code=400, detail=error)
+        raise HTTPException(status_code=409, detail=error)
 
 
 # ============================================================
@@ -220,6 +222,22 @@ async def update_room_type(
         raise HTTPException(status_code=404, detail="Type de pièce non trouvé")
 
     return RoomTypeResponse.model_validate(item)
+
+
+@router.delete("/room-types/{room_type_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_room_type(
+    room_type_id: int,
+    current_user: User = Depends(require_permission("building.manage_refs")),
+    db: AsyncSession = Depends(get_db),
+):
+    audit = await get_audit_service(db)
+    service = BuildingService(db, audit=audit, current_user=current_user)
+
+    error = await service.delete_room_type(room_type_id)
+    if error == "Type de pièce non trouvé":
+        raise HTTPException(status_code=404, detail=error)
+    if error:
+        raise HTTPException(status_code=409, detail=error)
 
 
 # ============================================================
@@ -498,24 +516,6 @@ async def delete_site(
     return MessageResponse(message="Site supprimé")
 
 
-@router.delete("/{building_id}", response_model=MessageResponse)
-async def delete_building(
-    building_id: int,
-    current_user: User = Depends(require_permission("building.delete")),
-    db: AsyncSession = Depends(get_db),
-):
-    audit = await get_audit_service(db)
-    service = BuildingService(db, audit=audit, current_user=current_user)
-
-    error = await service.delete_building(building_id)
-    if error == "Bâtiment non trouvé":
-        raise HTTPException(status_code=404, detail=error)
-    if error:
-        raise HTTPException(status_code=409, detail=error)
-
-    return MessageResponse(message="Bâtiment supprimé")
-
-
 @router.delete("/rooms/{room_id}", response_model=MessageResponse)
 async def delete_room(
     room_id: int,
@@ -532,3 +532,21 @@ async def delete_room(
         raise HTTPException(status_code=409, detail=error)
 
     return MessageResponse(message="Local supprimé")
+
+
+@router.delete("/{building_id}", response_model=MessageResponse)
+async def delete_building(
+    building_id: int,
+    current_user: User = Depends(require_permission("building.delete")),
+    db: AsyncSession = Depends(get_db),
+):
+    audit = await get_audit_service(db)
+    service = BuildingService(db, audit=audit, current_user=current_user)
+
+    error = await service.delete_building(building_id)
+    if error == "Bâtiment non trouvé":
+        raise HTTPException(status_code=404, detail=error)
+    if error:
+        raise HTTPException(status_code=409, detail=error)
+
+    return MessageResponse(message="Bâtiment supprimé")

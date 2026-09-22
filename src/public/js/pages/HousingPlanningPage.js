@@ -783,6 +783,12 @@ export class HousingPlanningPage {
     const saveBtn = overlay.querySelector('#occ-save');
     const guestTypeSelect = overlay.querySelector('#occ-guest-type');
     const guestTypeButtons = overlay.querySelectorAll('.guest-type-btn');
+    let bedConfig = [];
+    try {
+      const housing = this.housings.find(h => h.id === this._modalHousingId);
+      bedConfig = JSON.parse(housing?.bed_configuration || '[]');
+    } catch { bedConfig = []; }
+    const bedType = bedConfig[this._modalRoomIndex] || 'simple';
 
     if (occSelects.length > 0) {
       try {
@@ -831,7 +837,6 @@ export class HousingPlanningPage {
       addBtn.addEventListener('click', () => {
         const container = overlay.querySelector('#occ-occupant-list');
         const entries = container.querySelectorAll('.occupant-entry');
-        const bedType = bedConfig[roomIndex] || "simple";
         const guestType = guestTypeSelect?.value;
         
         if (!guestType) {
@@ -913,9 +918,16 @@ export class HousingPlanningPage {
           while (entries.length > 1) {
             entries[entries.length - 1].remove();
           }
+        } else if (guestTypeSelect.value === 'couple' && bedType === 'double' && entries.length === 1) {
+          addBtn?.click();
         }
+        if (addBtn) addBtn.hidden = guestTypeSelect.value !== 'couple' || bedType !== 'double';
         updateGuestTypeButtons();
       });
+      if (guestTypeSelect.value === 'couple' && bedType === 'double' && addBtn) {
+        addBtn.click();
+      }
+      if (addBtn) addBtn.hidden = guestTypeSelect.value !== 'couple' || bedType !== 'double';
       updateGuestTypeButtons();
     }
 

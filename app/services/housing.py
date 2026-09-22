@@ -300,7 +300,7 @@ class HousingService:
             select(Occupancy)
             .options(
                 selectinload(Occupancy.housing).selectinload(Housing.room).selectinload(Room.building).selectinload(Building.site),
-                selectinload(Occupancy.occupant),
+                selectinload(Occupancy.occupants),
             )
         )
         count_query = select(func.count(Occupancy.id))

@@ -198,6 +198,7 @@ class OccupancyBase(BaseModel):
     housing_id: int
     occupant_ids: List[int] = Field(default_factory=list, min_length=1)
     status: str = Field(default="pre_reserved", pattern="^(pre_reserved|confirmed|in_progress|completed)$")
+    room_index: Optional[int] = Field(None, ge=0)
     arrival_date: datetime
     departure_date: datetime
     purpose: Optional[str] = Field(None, max_length=200)
@@ -212,6 +213,7 @@ class OccupancyCreate(OccupancyBase):
 
 class OccupancyUpdate(BaseModel):
     occupant_ids: Optional[List[int]] = None
+    room_index: Optional[int] = Field(None, ge=0)
     arrival_date: Optional[datetime] = None
     departure_date: Optional[datetime] = None
     actual_arrival: Optional[datetime] = None
@@ -231,6 +233,7 @@ class OccupancyResponse(BaseModel):
     occupants: List[OccupantResponse] = []
     occupant_ids: List[int] = []
     status: str
+    room_index: Optional[int] = None
     arrival_date: datetime
     departure_date: datetime
     actual_arrival: Optional[datetime] = None

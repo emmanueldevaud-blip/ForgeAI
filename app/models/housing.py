@@ -95,6 +95,7 @@ class Occupancy(Base):
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     housing_id: Mapped[int] = mapped_column(ForeignKey("housings.id", ondelete="CASCADE"), nullable=False, index=True)
     status: Mapped[str] = mapped_column(String(30), default="pre_reserved", nullable=False, index=True)
+    room_index: Mapped[int | None] = mapped_column(Integer, nullable=True)
     arrival_date: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     departure_date: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     actual_arrival: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

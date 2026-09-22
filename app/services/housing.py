@@ -361,7 +361,7 @@ class HousingService:
             select(Occupancy)
             .options(
                 selectinload(Occupancy.housing).selectinload(Housing.room).selectinload(Room.building).selectinload(Building.site),
-                selectinload(Occupancy.occupant),
+                selectinload(Occupancy.occupants),
             )
             .where(Occupancy.id == occupancy_id)
         )
@@ -565,7 +565,7 @@ class HousingService:
     async def list_cleanings(self, params: dict) -> dict:
         query = select(Cleaning).options(
             selectinload(Cleaning.housing).selectinload(Housing.room).selectinload(Room.building),
-            selectinload(Cleaning.occupancy).selectinload(Occupancy.occupant),
+            selectinload(Cleaning.occupancy).selectinload(Occupancy.occupants),
             selectinload(Cleaning.assigned_user),
         )
         count_query = select(func.count(Cleaning.id))
@@ -627,7 +627,7 @@ class HousingService:
             select(Cleaning)
             .options(
                 selectinload(Cleaning.housing).selectinload(Housing.room).selectinload(Room.building),
-                selectinload(Cleaning.occupancy).selectinload(Occupancy.occupant),
+            selectinload(Cleaning.occupancy).selectinload(Occupancy.occupants),
                 selectinload(Cleaning.assigned_user),
             )
             .where(Cleaning.id == cleaning_id)
@@ -1041,6 +1041,7 @@ class HousingService:
             entries.append({
                 "occupancy_id": occ.id,
                 "housing_id": h.id,
+                "room_index": occ.room_index,
                 "housing_name": h.room.name if h.room else "",
                 "housing_reference": h.room.reference if h.room else "",
                 "occupants": occupants_data,

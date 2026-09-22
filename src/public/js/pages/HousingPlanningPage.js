@@ -6,7 +6,7 @@ import {
   deleteOccupancy,
   changeOccupancyStatus,
   listOccupants,
-  quickCreateOccupant,
+  createOccupant,
   createCleaning,
   updateCleaning,
   listCleanings,
@@ -245,7 +245,7 @@ export class HousingPlanningPage {
 
           const occupancies = (housingOccupancies[housing.id] || []).filter(occ => {
             const occRoom = occ.room_index;
-            return occRoom === undefined || occRoom === roomIdx;
+            return occRoom == null || occRoom === roomIdx;
           });
 
           const dayOccupancyMap = new Array(days.length).fill(null);
@@ -526,6 +526,70 @@ export class HousingPlanningPage {
     }
   }
 
+  _showOccupantCreateModal(occupancyOverlay, index) {
+    const modal = document.createElement('div');
+    modal.className = 'modal-overlay open';
+    modal.style.cssText = 'position:fixed;inset:0;z-index:1100;display:flex;align-items:center;justify-content:center;padding:16px;background:var(--color-overlay);';
+    modal.innerHTML = `
+      <div class="modal-content occupant-create-modal" style="width:min(520px,100%);max-height:90vh;">
+        <div class="modal-header">
+          <h2>Nouvel occupant</h2>
+          <button class="modal-close" type="button" data-action="close">&times;</button>
+        </div>
+        <div class="modal-body">
+          <form data-occupant-form>
+            <div class="form-row">
+              <label><span>Nom *</span><input name="last_name" required maxlength="100"></label>
+              <label><span>Prénom *</span><input name="first_name" required maxlength="100"></label>
+            </div>
+            <div class="form-row">
+              <label><span>Téléphone</span><input name="phone" type="tel" maxlength="50"></label>
+              <label><span>E-mail</span><input name="email" type="email" maxlength="200"></label>
+            </div>
+          </form>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-secondary" type="button" data-action="close">Annuler</button>
+          <button class="btn btn-primary" type="button" data-action="save">Créer</button>
+        </div>
+      </div>
+    `;
+
+    const close = () => modal.remove();
+    modal.querySelectorAll('[data-action="close"]').forEach(button => button.addEventListener('click', close));
+    modal.addEventListener('click', event => {
+      if (event.target === modal) close();
+    });
+    modal.querySelector('[data-action="save"]')?.addEventListener('click', async () => {
+      const form = modal.querySelector('[data-occupant-form]');
+      const formData = new FormData(form);
+      const data = Object.fromEntries(formData.entries());
+      if (!data.last_name || !data.first_name) {
+        alert('Le nom et le prénom sont obligatoires');
+        return;
+      }
+
+      try {
+        const occupant = await createOccupant(data);
+        const select = occupancyOverlay.querySelector(`.occ-occupant-select[data-index="${index}"]`);
+        if (select) {
+          const option = document.createElement('option');
+          option.value = occupant.id;
+          option.textContent = `${occupant.last_name || ''} ${occupant.first_name || ''}`.trim();
+          select.appendChild(option);
+          select.value = occupant.id;
+        }
+        close();
+      } catch (error) {
+        console.error('Erreur création occupant:', error);
+        alert(error?.message || 'Erreur lors de la création de l\'occupant');
+      }
+    });
+
+    document.body.appendChild(modal);
+    modal.querySelector('input[name="last_name"]')?.focus();
+  }
+
   _bindModalEvents(overlay) {
     overlay.querySelectorAll('[data-dismiss]').forEach(btn => {
       btn.addEventListener('click', () => this._closeModal());
@@ -595,7 +659,6 @@ export class HousingPlanningPage {
                 <button class="btn btn-sm btn-secondary occ-quick-create" data-index="0" title="Créer rapidement" style="padding:8px 12px;">+</button>
               </div>
             </div>
-            <button class="btn btn-sm btn-secondary" id="occ-add-occupant" style="margin-top:8px;width:100%;">+ Ajouter un occupant</button>
           </div>
           <div class="form-group" style="margin-bottom:16px;">
             <label style="font-weight:600;font-size:11px;color:var(--color-text-tertiary);text-transform:uppercase;letter-spacing:0.5px;display:block;margin-bottom:4px;">Notes</label>
@@ -779,7 +842,6 @@ export class HousingPlanningPage {
 
     const occSelects = overlay.querySelectorAll('.occ-occupant-select');
     const quickBtns = overlay.querySelectorAll('.occ-quick-create');
-    const addBtn = overlay.querySelector('#occ-add-occupant');
     const saveBtn = overlay.querySelector('#occ-save');
     const guestTypeSelect = overlay.querySelector('#occ-guest-type');
     const guestTypeButtons = overlay.querySelectorAll('.guest-type-btn');
@@ -808,33 +870,13 @@ export class HousingPlanningPage {
     }
 
     quickBtns.forEach(btn => {
-      btn.addEventListener('click', async () => {
+      btn.addEventListener('click', () => {
         const index = parseInt(btn.dataset.index);
-        const name = prompt('Nom et prénom de l\'occupant (ex: Dupont Jean):');
-        if (!name) return;
-        const parts = name.trim().split(' ');
-        const lastName = parts[0] || '';
-        const firstName = parts.slice(1).join(' ') || '';
-        const email = prompt('Email (optionnel):') || '';
-        try {
-          const newOcc = await quickCreateOccupant({ last_name: lastName, first_name: firstName, email });
-          const sel = overlay.querySelector(`.occ-occupant-select[data-index="${index}"]`);
-          if (sel) {
-            const opt = document.createElement('option');
-            opt.value = newOcc.id;
-            opt.textContent = `${newOcc.last_name || ''} ${newOcc.first_name || ''}`.trim();
-            sel.appendChild(opt);
-            sel.value = newOcc.id;
-          }
-        } catch (e) {
-          console.error('Erreur création occupant:', e);
-          alert('Erreur lors de la création de l\'occupant');
-        }
+        this._showOccupantCreateModal(overlay, index);
       });
     });
 
-    if (addBtn) {
-      addBtn.addEventListener('click', () => {
+    const addOccupantRow = () => {
         const container = overlay.querySelector('#occ-occupant-list');
         const entries = container.querySelectorAll('.occupant-entry');
         const guestType = guestTypeSelect?.value;
@@ -873,26 +915,10 @@ export class HousingPlanningPage {
             }
           });
         }
-        row.querySelector('.occ-quick-create').addEventListener('click', async () => {
-          const name = prompt('Nom et prénom de l\'occupant:');
-          if (!name) return;
-          const parts = name.trim().split(' ');
-          const lastName = parts[0] || '';
-          const firstName = parts.slice(1).join(' ') || '';
-          const email = prompt('Email (optionnel):') || '';
-          try {
-            const newOcc = await quickCreateOccupant({ last_name: lastName, first_name: firstName, email });
-            const opt = document.createElement('option');
-            opt.value = newOcc.id;
-            opt.textContent = `${newOcc.last_name || ''} ${newOcc.first_name || ''}`.trim();
-            sel.appendChild(opt);
-            sel.value = newOcc.id;
-          } catch (e) {
-            alert('Erreur lors de la création');
-          }
+        row.querySelector('.occ-quick-create').addEventListener('click', () => {
+          this._showOccupantCreateModal(overlay, nextIndex);
         });
-      });
-    }
+    };
 
     if (guestTypeSelect) {
       const updateGuestTypeButtons = () => {
@@ -919,15 +945,13 @@ export class HousingPlanningPage {
             entries[entries.length - 1].remove();
           }
         } else if (guestTypeSelect.value === 'couple' && bedType === 'double' && entries.length === 1) {
-          addBtn?.click();
+          addOccupantRow();
         }
-        if (addBtn) addBtn.hidden = guestTypeSelect.value !== 'couple' || bedType !== 'double';
         updateGuestTypeButtons();
       });
-      if (guestTypeSelect.value === 'couple' && bedType === 'double' && addBtn) {
-        addBtn.click();
+      if (guestTypeSelect.value === 'couple' && bedType === 'double') {
+        addOccupantRow();
       }
-      if (addBtn) addBtn.hidden = guestTypeSelect.value !== 'couple' || bedType !== 'double';
       updateGuestTypeButtons();
     }
 
@@ -964,6 +988,7 @@ export class HousingPlanningPage {
         try {
           const createdOccupancy = await createOccupancy({
             housing_id: housingId,
+            room_index: this._modalRoomIndex,
             arrival_date: arrival,
             departure_date: departure,
             status,

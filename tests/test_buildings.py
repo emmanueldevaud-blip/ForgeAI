@@ -1,9 +1,11 @@
+from datetime import UTC, datetime, timedelta
+
 import pytest
 from httpx import AsyncClient
 
 from app.models.buildings import Building, Room, Site, UsageType, RoomType
 from app.models.equipment import Equipment
-from app.models.housing import Housing
+from app.models.housing import Housing, Occupancy
 
 
 @pytest.mark.asyncio
@@ -537,7 +539,14 @@ async def test_force_delete_room_removes_associated_data(client, admin_headers, 
     room_id = room_resp.json()["id"]
 
     db_session.add(Equipment(reference="EQ-FORCE-DELETE", name="Equipment", room_id=room_id))
-    db_session.add(Housing(room_id=room_id))
+    housing = Housing(room_id=room_id)
+    db_session.add(housing)
+    await db_session.flush()
+    db_session.add(Occupancy(
+        housing_id=housing.id,
+        arrival_date=datetime.now(UTC),
+        departure_date=datetime.now(UTC) + timedelta(days=1),
+    ))
     await db_session.commit()
 
     blocked = await client.delete(f"/buildings/rooms/{room_id}", headers=admin_headers)

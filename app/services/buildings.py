@@ -901,16 +901,33 @@ class BuildingService:
                 occupancy_occupants,
             )
 
-            housing_ids = select(Housing.id).where(Housing.room_id == room_id)
-            occupancy_ids = select(Occupancy.id).where(Occupancy.housing_id.in_(housing_ids))
+            housing_result = await self.db.execute(
+                select(Housing.id).where(Housing.room_id == room_id)
+            )
+            housing_ids = list(housing_result.scalars().all())
+            occupancy_ids = []
+            if housing_ids:
+                occupancy_result = await self.db.execute(
+                    select(Occupancy.id).where(Occupancy.housing_id.in_(housing_ids))
+                )
+                occupancy_ids = list(occupancy_result.scalars().all())
+
             await self.db.execute(delete(Equipment).where(Equipment.room_id == room_id))
-            await self.db.execute(delete(occupancy_occupants).where(occupancy_occupants.c.occupancy_id.in_(occupancy_ids)))
-            await self.db.execute(delete(Cleaning).where(Cleaning.housing_id.in_(housing_ids)))
-            await self.db.execute(delete(OccupancyStatusHistory).where(OccupancyStatusHistory.occupancy_id.in_(occupancy_ids)))
-            await self.db.execute(delete(Occupancy).where(Occupancy.id.in_(occupancy_ids)))
-            await self.db.execute(delete(Unavailability).where(Unavailability.housing_id.in_(housing_ids)))
-            await self.db.execute(delete(HousingStatusHistory).where(HousingStatusHistory.housing_id.in_(housing_ids)))
-            await self.db.execute(delete(Housing).where(Housing.id.in_(housing_ids)))
+            if occupancy_ids:
+                await self.db.execute(
+                    delete(occupancy_occupants).where(occupancy_occupants.c.occupancy_id.in_(occupancy_ids))
+                )
+                await self.db.execute(
+                    delete(OccupancyStatusHistory).where(OccupancyStatusHistory.occupancy_id.in_(occupancy_ids))
+                )
+                await self.db.execute(delete(Occupancy).where(Occupancy.id.in_(occupancy_ids)))
+            if housing_ids:
+                await self.db.execute(delete(Cleaning).where(Cleaning.housing_id.in_(housing_ids)))
+                await self.db.execute(delete(Unavailability).where(Unavailability.housing_id.in_(housing_ids)))
+                await self.db.execute(
+                    delete(HousingStatusHistory).where(HousingStatusHistory.housing_id.in_(housing_ids))
+                )
+                await self.db.execute(delete(Housing).where(Housing.id.in_(housing_ids)))
 
         if self.audit and self.current_user:
             await self.audit.log(

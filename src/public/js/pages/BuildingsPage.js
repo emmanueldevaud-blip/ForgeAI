@@ -268,14 +268,14 @@ export class BuildingsPage {
 
     this.confirmDialog.open({
       title: 'Confirmer la suppression',
-      message: this.currentView === 'rooms' && (item.equipment_count > 0 || item.occupancy_count > 0)
-        ? `Ce local contient ${item.equipment_count} équipement(s) et ${item.occupancy_count} réservation(s) / occupation(s). Ils seront tous supprimés.`
+      message: this.currentView === 'rooms'
+        ? `Toutes les données associées à ce local, notamment les équipements et occupations éventuels, seront supprimées.`
         : `Êtes-vous sûr de vouloir supprimer ${typeLabel} ? Cette action est irréversible.`,
-      confirmText: this.currentView === 'rooms' && (item.equipment_count > 0 || item.occupancy_count > 0)
+      confirmText: this.currentView === 'rooms'
         ? 'Supprimer définitivement'
         : 'Supprimer',
       variant: 'danger',
-      requireCheckbox: this.currentView === 'rooms' && (item.equipment_count > 0 || item.occupancy_count > 0),
+      requireCheckbox: this.currentView === 'rooms',
       checkboxLabel: 'Je confirme la suppression du local et de toutes ses données associées.',
     });
     this.pendingAction = { item, type: 'delete' };
@@ -294,8 +294,7 @@ export class BuildingsPage {
           rooms: deleteRoom,
         }[this.currentView];
         if (deleteFn) {
-          const force = this.currentView === 'rooms'
-            && (item.equipment_count > 0 || item.occupancy_count > 0);
+          const force = this.currentView === 'rooms';
           await deleteFn(item.id, force);
           this.showToast('Supprimé', 'success');
           this.loadData();

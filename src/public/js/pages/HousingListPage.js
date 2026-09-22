@@ -1,9 +1,6 @@
 import { Table } from '../components/Table.js';
 import { authStore } from '../stores/auth.js';
 import { listHousings, getHousing, updateHousing } from '../services/housingApi.js';
-import { listSites } from '../services/buildingsApi.js';
-
-function getStatusColor(s) { return s === 'confirmed' || s === 'in_progress' ? '#f59e0b' : '#10b981'; }
 
 function parseBedConfig(str) {
   if (!str) return [];
@@ -33,21 +30,15 @@ export class HousingListPage {
     this.sortBy = 'created_at';
     this.sortOrder = 'desc';
     this.search = '';
-    this.filters = { is_active: '', site_id: '' };
     this.table = null;
-    this.sites = [];
   }
 
   async initialize() {
     this.table = new Table({
       columns: [
-        { key: 'room', label: 'Référence', sortable: false, render: (item) => item.room ? `<code>${item.room.reference}</code> ${item.room.name}` : '-' },
-        { key: 'site', label: 'Site', sortable: false, render: (item) => item.site ? item.site.name : '-' },
-        { key: 'building', label: 'Bâtiment', sortable: false, render: (item) => item.building ? item.building.name : '-' },
+        { key: 'room', label: 'Nom du logement', sortable: false, render: (item) => item.room?.name || '-' },
         { key: 'rooms', label: 'Chambres', sortable: false, render: (item) => renderBedSummary(item.nb_rooms || 1, item.bed_configuration) },
         { key: 'capacity', label: 'Capacité', sortable: true, render: (item) => `${item.capacity} pers.` },
-        { key: 'current_occupancy', label: 'Occupation', sortable: false, render: (item) => item.current_occupancy ? `<span class="status-badge" style="background:${getStatusColor(item.current_occupancy)}">${item.current_occupancy}</span>` : '<span class="status-badge" style="background:#10b981">Libre</span>' },
-        { key: 'is_active', label: 'Statut', sortable: true, render: (item) => `<span class="status-badge status-${item.is_active ? 'active' : 'inactive'}">${item.is_active ? 'Actif' : 'Inactif'}</span>` },
       ],
       actions: [
         { key: 'edit', label: 'Configurer', icon: 'edit', disabled: (item) => !authStore.hasPermission('housing.manage') },
@@ -55,19 +46,12 @@ export class HousingListPage {
       onAction: (action, item) => this._handleAction(action, item),
       emptyMessage: 'Aucun hébergement trouvé',
     });
-    await this._loadSites();
-  }
-
-  async _loadSites() {
-    try { const r = await listSites({ page_size: 1000, is_active: true }); this.sites = r.items || []; } catch (e) { this.sites = []; }
   }
 
   async loadData() {
     try {
       const params = { page: this.page, page_size: this.pageSize, sort_by: this.sortBy, sort_order: this.sortOrder };
       if (this.search) params.search = this.search;
-      if (this.filters.is_active !== '') params.is_active = this.filters.is_active;
-      if (this.filters.site_id) params.site_id = this.filters.site_id;
       const r = await listHousings(params);
       this.items = r.items || [];
       this.total = r.total || 0;
@@ -98,12 +82,10 @@ export class HousingListPage {
     this.element.style.cssText = 'display:flex;flex-direction:column;min-height:calc(100vh - var(--header-height) - var(--spacing-6) * 2);';
     this.element.innerHTML = `
       <div class="page-header">
-        <div class="page-header-left"><h1>Hébergements</h1><p class="page-subtitle">Configuration des hébergements — chambres, lits et capacités</p></div>
+        <div class="page-header-left"><h1>Configuration des logements</h1><p class="page-subtitle">Configuration des logements — chambres, lits et capacités</p></div>
       </div>
       <div class="page-filters">
         <input type="text" class="form-input" placeholder="Rechercher..." data-filter="search" value="${this.search}">
-        <select class="form-select" data-filter="site_id"><option value="">Tous les sites</option>${this.sites.map(s => `<option value="${s.id}" ${this.filters.site_id == s.id ? 'selected' : ''}>${s.name}</option>`).join('')}</select>
-        <select class="form-select" data-filter="is_active"><option value="">Tous</option><option value="true" ${this.filters.is_active === 'true' ? 'selected' : ''}>Actif</option><option value="false" ${this.filters.is_active === 'false' ? 'selected' : ''}>Inactif</option></select>
       </div>
       <div class="page-info"><span data-count>${this.total} hébergement${this.total > 1 ? 's' : ''}</span></div>
       <div data-table style="flex:1;"></div>
@@ -118,8 +100,6 @@ export class HousingListPage {
     const si = this.element.querySelector('[data-filter="search"]');
     let t;
     if (si) si.addEventListener('input', (e) => { clearTimeout(t); t = setTimeout(() => { this.search = e.target.value; this.page = 1; this.loadData(); }, 300); });
-    this.element.querySelector('[data-filter="site_id"]')?.addEventListener('change', (e) => { this.filters.site_id = e.target.value; this.page = 1; this.loadData(); });
-    this.element.querySelector('[data-filter="is_active"]')?.addEventListener('change', (e) => { this.filters.is_active = e.target.value; this.page = 1; this.loadData(); });
     this.element.querySelector('[data-page="prev"]')?.addEventListener('click', () => { if (this.page > 1) { this.page--; this.loadData(); } });
     this.element.querySelector('[data-page="next"]')?.addEventListener('click', () => { if (this.page < this.totalPages) { this.page++; this.loadData(); } });
   }

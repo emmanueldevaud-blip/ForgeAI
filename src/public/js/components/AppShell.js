@@ -182,7 +182,7 @@ export class AppShell {
   }
 
   _handleResize() {
-    const isMobile = window.innerWidth < 1024;
+    const isMobile = window.innerWidth <= 1024;
     const sidebar = document.getElementById('sidebar');
     if (sidebar) {
       sidebar.classList.toggle('sidebar--mobile-hidden', isMobile);

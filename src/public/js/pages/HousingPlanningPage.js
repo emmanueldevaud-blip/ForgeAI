@@ -445,6 +445,7 @@ export class HousingPlanningPage {
   _showNewOccupancyModal(housingId, startDate, endDate) {
     const housing = this.housings.find(h => h.id === housingId);
     if (!housing) return;
+    this._modalHousingId = housingId;
     this._openModal(this._buildOccupancyFormModal(housing, startDate, endDate));
   }
 
@@ -528,10 +529,6 @@ export class HousingPlanningPage {
                 <option value="pre_reserved">Pré-réservé</option>
                 <option value="confirmed">Confirmé</option>
               </select>
-            </div>
-            <div class="form-group" style="flex:1;margin-bottom:0;">
-              <label style="font-weight:600;font-size:11px;color:var(--color-text-tertiary);text-transform:uppercase;letter-spacing:0.5px;display:block;margin-bottom:4px;">Personnes</label>
-              <input type="number" id="occ-nb-persons" value="1" min="1" class="form-control">
             </div>
           </div>
           <div class="form-group" style="margin-bottom:12px;">
@@ -826,7 +823,6 @@ export class HousingPlanningPage {
         const arrival = overlay.querySelector('#occ-arrival')?.value;
         const departure = overlay.querySelector('#occ-departure')?.value;
         const status = overlay.querySelector('#occ-status')?.value;
-        const nbPersons = parseInt(overlay.querySelector('#occ-nb-persons')?.value) || 1;
         const notes = overlay.querySelector('#occ-notes')?.value || '';
         const occupantSelects = overlay.querySelectorAll('.occ-occupant-select');
         const occupantIds = [];
@@ -839,8 +835,7 @@ export class HousingPlanningPage {
           return;
         }
 
-        const housingId = parseInt(overlay.querySelector('[data-housing-id]')?.dataset?.housingId)
-          || this._modalHousingId;
+        const housingId = this._modalHousingId;
 
         try {
           await createOccupancy({
@@ -848,7 +843,7 @@ export class HousingPlanningPage {
             arrival_date: arrival,
             departure_date: departure,
             status,
-            nb_persons: nbPersons,
+            nb_persons: occupantIds.length || 1,
             occupant_ids: occupantIds,
             notes,
           });

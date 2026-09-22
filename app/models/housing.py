@@ -30,6 +30,13 @@ occupancy_occupants = Table(
     Column("is_primary", Boolean, default=False, nullable=False),  # Primary occupant for communications
 )
 
+email_attachment_housings = Table(
+    "housing_email_attachment_housings",
+    Base.metadata,
+    Column("attachment_id", Integer, ForeignKey("housing_email_template_attachments.id", ondelete="CASCADE"), primary_key=True, index=True),
+    Column("housing_id", Integer, ForeignKey("housings.id", ondelete="CASCADE"), primary_key=True, index=True),
+)
+
 
 class Housing(Base):
     __tablename__ = "housings"
@@ -54,6 +61,9 @@ class Housing(Base):
     room: Mapped["Room"] = relationship("Room", back_populates="housings")
     occupancies: Mapped[list["Occupancy"]] = relationship("Occupancy", back_populates="housing", cascade="all, delete-orphan")
     unavailabilities: Mapped[list["Unavailability"]] = relationship("Unavailability", back_populates="housing", cascade="all, delete-orphan")
+    email_attachments: Mapped[list["EmailTemplateAttachment"]] = relationship(
+        "EmailTemplateAttachment", secondary=email_attachment_housings, back_populates="housings"
+    )
 
     __table_args__ = (
         Index("ix_housings_active", "is_active"),
@@ -257,6 +267,9 @@ class EmailTemplateAttachment(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
     template: Mapped["EmailTemplate"] = relationship("EmailTemplate", back_populates="attachments")
+    housings: Mapped[list[Housing]] = relationship(
+        "Housing", secondary=email_attachment_housings, back_populates="email_attachments"
+    )
 
     def __repr__(self) -> str:
         return f"<EmailTemplateAttachment(id={self.id}, template_id={self.template_id}, filename={self.filename})>"

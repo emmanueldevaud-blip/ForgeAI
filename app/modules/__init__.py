@@ -140,6 +140,13 @@ class HousingModule(BaseModule):
                 "order": 2,
             },
             {
+                "code": "housing-email-templates",
+                "name": "Modèles d’e-mails",
+                "icon": "file-text",
+                "route": "/housing/email-templates",
+                "order": 5,
+            },
+            {
                 "code": "housing-unavailabilities",
                 "name": "Indisponibilités",
                 "icon": "calendar-x",

@@ -8,7 +8,7 @@ export class ModulePlaceholder {
     const modules = {
       dashboard: { name: 'Tableau de bord', icon: 'dashboard', description: 'Vue d\'ensemble et indicateurs clés de votre activité' },
       buildings: { name: 'Bâtiments', icon: 'building', description: 'Gestion des bâtiments et immeubles' },
-      housing: { name: 'Logements', icon: 'home', description: 'Gestion des logements et appartements' },
+      housing: { name: 'Hébergements', icon: 'home', description: 'Gestion des hébergements et appartements' },
       maintenance: { name: 'Maintenance', icon: 'wrench', description: 'Gestion des interventions de maintenance' },
       cleaning: { name: 'Nettoyage', icon: 'sparkles', description: 'Gestion des prestations de nettoyage' },
       people: { name: 'Personnes', icon: 'users', description: 'Gestion des personnes (locataires, propriétaires, contacts)' },

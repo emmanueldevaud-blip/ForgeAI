@@ -1,3 +1,7 @@
+import asyncio
+import smtplib
+from email.message import EmailMessage
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -5,6 +9,7 @@ from sqlalchemy.orm import selectinload
 
 from app.api.deps import require_permission
 from app.db.session import get_db
+from app.models.module import Module, ModuleConfig
 from app.models.rbac import Group, PermissionModel
 from app.models.user import User
 from app.schemas.admin import (
@@ -38,6 +43,9 @@ from app.schemas.admin import (
     UserToggleActive,
     UserUpdateAdmin,
     UserWithRolesResponse,
+    SmtpSettingsResponse,
+    SmtpSettingsUpdate,
+    SmtpTestRequest,
 )
 from app.services.admin import AdminUserService
 from app.services.audit import get_audit_service
@@ -47,6 +55,119 @@ router = APIRouter(
     prefix="/admin/users",
     tags=["admin-users"]
 )
+
+settings_router = APIRouter(prefix="/admin/settings", tags=["admin-settings"])
+
+
+async def _get_administration_configs(db: AsyncSession) -> dict[str, ModuleConfig]:
+    result = await db.execute(
+        select(ModuleConfig)
+        .join(Module)
+        .where(Module.code == "administration")
+    )
+    return {config.key: config for config in result.scalars().all()}
+
+
+@settings_router.get("/smtp", response_model=SmtpSettingsResponse)
+async def get_smtp_settings(
+    current_user: User = Depends(require_permission("settings_view")),
+    db: AsyncSession = Depends(get_db),
+):
+    configs = await _get_administration_configs(db)
+    get_value = lambda key, default="": configs.get(key).value if configs.get(key) and configs.get(key).value is not None else default
+    return SmtpSettingsResponse(
+        host=get_value("smtp_host"),
+        port=int(get_value("smtp_port", "587")),
+        username=get_value("smtp_username"),
+        password_configured=bool(get_value("smtp_password")),
+        use_tls=get_value("smtp_use_tls", "true").lower() == "true",
+        use_ssl=get_value("smtp_use_ssl", "false").lower() == "true",
+        from_email=get_value("smtp_from_email"),
+        from_name=get_value("smtp_from_name", "ForgeAI"),
+    )
+
+
+@settings_router.put("/smtp", response_model=SmtpSettingsResponse)
+async def update_smtp_settings(
+    data: SmtpSettingsUpdate,
+    current_user: User = Depends(require_permission("settings_update")),
+    db: AsyncSession = Depends(get_db),
+):
+    module_result = await db.execute(select(Module).where(Module.code == "administration"))
+    module = module_result.scalar_one_or_none()
+    if not module:
+        raise HTTPException(status_code=500, detail="Module Administration non trouvé")
+
+    values = {
+        "smtp_host": data.host,
+        "smtp_port": str(data.port),
+        "smtp_username": data.username,
+        "smtp_use_tls": str(data.use_tls).lower(),
+        "smtp_use_ssl": str(data.use_ssl).lower(),
+        "smtp_from_email": data.from_email or "",
+        "smtp_from_name": data.from_name,
+    }
+    if data.password is not None and data.password != "":
+        values["smtp_password"] = data.password
+
+    configs = await _get_administration_configs(db)
+    for key, value in values.items():
+        config = configs.get(key)
+        if config:
+            config.value = value
+        else:
+            db.add(ModuleConfig(
+                module_id=module.id,
+                key=key,
+                value=value,
+                value_type="boolean" if key in {"smtp_use_tls", "smtp_use_ssl"} else "string",
+                is_secret=key == "smtp_password",
+            ))
+    await db.commit()
+    return await get_smtp_settings(current_user=current_user, db=db)
+
+
+@settings_router.post("/smtp/test", response_model=MessageResponse)
+async def test_smtp_settings(
+    data: SmtpTestRequest,
+    current_user: User = Depends(require_permission("settings_update")),
+    db: AsyncSession = Depends(get_db),
+):
+    configs = await _get_administration_configs(db)
+    get_value = lambda key, default="": configs.get(key).value if configs.get(key) and configs.get(key).value is not None else default
+    smtp = {
+        "host": get_value("smtp_host"),
+        "port": int(get_value("smtp_port", "587")),
+        "username": get_value("smtp_username"),
+        "password": get_value("smtp_password"),
+        "use_tls": get_value("smtp_use_tls", "true").lower() == "true",
+        "use_ssl": get_value("smtp_use_ssl", "false").lower() == "true",
+        "from_email": get_value("smtp_from_email"),
+        "from_name": get_value("smtp_from_name", "ForgeAI"),
+    }
+    if not smtp["host"] or not smtp["from_email"]:
+        raise HTTPException(status_code=400, detail="Enregistrez d'abord le serveur et l'adresse d'envoi SMTP")
+
+    message = EmailMessage()
+    message["From"] = f'{smtp["from_name"]} <{smtp["from_email"]}>'
+    message["To"] = data.recipient
+    message["Subject"] = "Test SMTP ForgeAI"
+    message.set_content("Cet e-mail confirme que la configuration SMTP de ForgeAI fonctionne.")
+
+    def send() -> None:
+        smtp_class = smtplib.SMTP_SSL if smtp["use_ssl"] else smtplib.SMTP
+        with smtp_class(smtp["host"], smtp["port"], timeout=30) as client:
+            if smtp["use_tls"] and not smtp["use_ssl"]:
+                client.starttls()
+            if smtp["username"]:
+                client.login(smtp["username"], smtp["password"])
+            client.send_message(message)
+
+    try:
+        await asyncio.to_thread(send)
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Échec du test SMTP : {exc}") from exc
+    return {"message": f"E-mail de test envoyé à {data.recipient}"}
 
 
 async def get_admin_service(

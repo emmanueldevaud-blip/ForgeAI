@@ -119,7 +119,7 @@ export class AppShell {
       dashboard: 'Tableau de bord',
       buildings: 'Bâtiments',
       equipment: 'Équipements',
-      housing: 'Logements',
+      housing: 'Hébergements',
       maintenance: 'Maintenance',
       cleaning: 'Nettoyage',
       people: 'Personnes',
@@ -149,7 +149,7 @@ export class AppShell {
       const modules = {
         buildings: 'Bâtiments',
         equipment: 'Équipements',
-        housing: 'Logements',
+        housing: 'Hébergements',
         maintenance: 'Maintenance',
         cleaning: 'Nettoyage',
         people: 'Personnes',

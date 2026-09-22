@@ -2,6 +2,18 @@ import { ApiClient, ApiError } from './api.js';
 
 const adminApi = new ApiClient('/admin');
 
+export async function getSmtpSettings() {
+  return adminApi.get('/settings/smtp');
+}
+
+export async function updateSmtpSettings(settings) {
+  return adminApi.put('/settings/smtp', settings);
+}
+
+export async function testSmtpSettings(recipient) {
+  return adminApi.post('/settings/smtp/test', { recipient });
+}
+
 export async function getUser(userId) {
   return adminApi.get(`/users/${userId}`);
 }

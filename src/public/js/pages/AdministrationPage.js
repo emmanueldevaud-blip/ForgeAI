@@ -17,6 +17,7 @@ export class AdministrationPage {
       { id: 'permissions', label: 'Permissions', permission: 'permission_view', component: null },
       { id: 'audit', label: 'Audit', permission: 'audit_log_view', component: null },
       { id: 'active-directory', label: 'Active Directory', permission: 'ad_config', component: null },
+      { id: 'smtp', label: 'E-mail / SMTP', permission: 'settings_view', component: null },
     ];
     this.usersPage = null;
     this.groupsPage = null;
@@ -24,6 +25,7 @@ export class AdministrationPage {
     this.permissionsPage = null;
     this.auditPage = null;
     this.adPage = null;
+    this.smtpPage = null;
     this._authUnsubscribe = null;
   }
 
@@ -63,6 +65,11 @@ export class AdministrationPage {
     this.adPage = createActiveDirectoryPage(this.router);
     await this.adPage.initialize();
     this.tabs[5].component = this.adPage;
+
+    const { createSmtpSettingsPage } = await import('./SmtpSettingsPage.js');
+    this.smtpPage = createSmtpSettingsPage();
+    if (authStore.hasPermission('settings_view')) await this.smtpPage.initialize();
+    this.tabs[6].component = this.smtpPage;
 
     this.currentTab = this._getTabFromPath();
 
@@ -212,6 +219,12 @@ export class AdministrationPage {
       adPanel.appendChild(this.adPage.render());
     }
 
+    const smtpPanel = this.element.querySelector('[data-tab-panel="smtp"]');
+    if (smtpPanel && this.smtpPage) {
+      smtpPanel.innerHTML = '';
+      smtpPanel.appendChild(this.smtpPage.render());
+    }
+
     return this.element;
   }
 
@@ -230,6 +243,7 @@ export class AdministrationPage {
     this.permissionsPage?.destroy?.();
     this.auditPage?.destroy?.();
     this.adPage?.destroy?.();
+    this.smtpPage?.destroy?.();
   }
 }
 

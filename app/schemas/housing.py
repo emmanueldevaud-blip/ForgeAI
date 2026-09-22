@@ -458,6 +458,7 @@ class EmailTemplateAttachmentResponse(BaseModel):
     file_path: str
     mime_type: Optional[str] = None
     file_size: Optional[int] = None
+    housing_ids: List[int] = []
     created_at: datetime
 
 

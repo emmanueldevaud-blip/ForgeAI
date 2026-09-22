@@ -503,9 +503,24 @@ async def update_email_template(
 async def upload_email_template_attachment(
     template_id: int,
     file: UploadFile = File(...),
+    housing_ids: str = Form("[]"),
     service: HousingService = Depends(get_email_template_manage_service),
 ):
-    return await service.upload_email_template_attachment(template_id, file)
+    import json
+    return await service.upload_email_template_attachment(template_id, file, json.loads(housing_ids) if housing_ids else [])
+
+
+@router.put("/email-templates/{template_id}/attachments/{attachment_id}", response_model=EmailTemplateAttachmentResponse)
+async def update_email_template_attachment_housings(
+    template_id: int,
+    attachment_id: int,
+    housing_ids: List[int],
+    service: HousingService = Depends(get_email_template_manage_service),
+):
+    attachment = await service.update_email_template_attachment_housings(attachment_id, housing_ids)
+    if not attachment:
+        raise HTTPException(status_code=404, detail="Pièce jointe non trouvée")
+    return attachment
 
 
 @router.delete("/email-templates/{template_id}/attachments/{attachment_id}", response_model=MessageResponse)

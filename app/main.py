@@ -48,6 +48,8 @@ async def _sync_module_statuses(db):
     for code, reg_module in module_registry._modules.items():
         db_mod = db_modules.get(code)
         if db_mod:
+            db_mod.name = reg_module.info.name
+            db_mod.description = reg_module.info.description
             reg_module.info.status = db_mod.status
         else:
             new_mod = ModuleModel(
@@ -110,6 +112,7 @@ async def spa_fallback_middleware(request: Request, call_next):
 app.include_router(auth.router)
 app.include_router(modules.router)
 app.include_router(admin.router)
+app.include_router(admin.settings_router)
 app.include_router(audit.router)
 app.include_router(buildings.router)
 app.include_router(dashboard.router)

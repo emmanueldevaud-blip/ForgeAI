@@ -797,9 +797,9 @@ export class HousingPlanningPage {
             </div>
           </div>
           <div class="form-group">
-            <label>Modèle (optionnel)</label>
+            <label>Modèle d’e-mail</label>
             <select id="email-template" class="form-control">
-              <option value="">— Sans modèle —</option>
+              <option value="">Chargement des modèles...</option>
             </select>
           </div>
           <div class="form-group">
@@ -1052,13 +1052,25 @@ export class HousingPlanningPage {
       try {
         const tplResp = await listEmailTemplates({ page_size: 100, is_active: true });
         const tplSel = overlay.querySelector('#email-template');
-        (tplResp.items || []).forEach(t => {
+        const templates = tplResp.items || [];
+        tplSel.innerHTML = '<option value="">— Sans modèle —</option>';
+        templates.forEach(t => {
           const opt = document.createElement('option');
           opt.value = t.id;
           opt.textContent = t.name;
           tplSel.appendChild(opt);
         });
-      } catch (e) { /* ignore */ }
+        tplSel.addEventListener('change', () => {
+          const template = templates.find(t => String(t.id) === tplSel.value);
+          if (!template) return;
+          overlay.querySelector('#email-subject').value = template.subject || '';
+          overlay.querySelector('#email-body').value = template.body_text || template.body_html || '';
+        });
+      } catch (e) {
+        console.error('Erreur chargement modèles d’e-mail:', e);
+        const tplSel = overlay.querySelector('#email-template');
+        if (tplSel) tplSel.innerHTML = '<option value="">Modèles indisponibles</option>';
+      }
 
       emailSendBtn.addEventListener('click', async () => {
         const subject = overlay.querySelector('#email-subject')?.value;
@@ -1088,7 +1100,7 @@ export class HousingPlanningPage {
           this._closeModal();
         } catch (e) {
           console.error('Erreur envoi e-mail:', e);
-          alert('Erreur lors de l\'envoi');
+          alert(e?.data?.detail || e?.message || 'Erreur lors de l\'envoi');
         }
       });
     }
@@ -1097,11 +1109,18 @@ export class HousingPlanningPage {
     if (confirmBtn) {
       confirmBtn.addEventListener('click', async () => {
         try {
-          await changeOccupancyStatus(this.selectedEntry.occupancy_id, 'confirmed');
+          const confirmedEntry = await changeOccupancyStatus(this.selectedEntry.occupancy_id, 'confirmed');
           this._closeModal();
           await this.loadData();
+          if (window.confirm('Voulez-vous envoyer un mail de confirmation ?')) {
+            this.selectedEntry = { ...confirmedEntry, occupancy_id: confirmedEntry.id || confirmedEntry.occupancy_id };
+            this._openModal(this._buildEmailComposerModal(this.selectedEntry));
+          }
         } catch (e) {
-          alert('Erreur lors de la confirmation');
+          const details = Array.isArray(e?.data?.detail)
+            ? e.data.detail.map(error => error.msg).join('\n')
+            : e?.data?.detail || e?.message;
+          alert(details || 'Erreur lors de la confirmation');
         }
       });
     }

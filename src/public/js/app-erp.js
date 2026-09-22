@@ -1,7 +1,7 @@
 import { router, createAuthGuard, createNotFoundPage, createForbiddenPage } from './router/router.js';
 import { authStore } from './stores/auth.js';
-import { AppShell } from './components/AppShell.js';
-import { createModulePlaceholderPage } from './pages/ModulePlaceholder.js';
+import { AppShell } from './components/AppShell.js?v=2';
+import { createModulePlaceholderPage } from './pages/ModulePlaceholder.js?v=2';
 import { createLoginPage } from './pages/LoginPage.js';
 import { createRegisterPage } from './pages/RegisterPage.js';
 import { createAdministrationPage } from './pages/AdministrationPage.js';
@@ -19,10 +19,11 @@ import { createMaintenanceRefsPage } from './pages/MaintenanceRefsPage.js';
 import { createMaintenanceCalendarPage } from './pages/MaintenanceCalendarPage.js';
 import { createAIAssistantPage } from './pages/AIAssistantPage.js';
 import { createHousingListPage } from './pages/HousingListPage.js';
-import { createHousingPlanningPage } from './pages/HousingPlanningPage.js';
+import { createHousingPlanningPage } from './pages/HousingPlanningPage.js?v=2';
 import { createHousingCleaningPage } from './pages/HousingCleaningPage.js';
 import { createHousingOccupantsPage } from './pages/HousingOccupantsPage.js';
 import { createHousingUnavailabilitiesPage } from './pages/HousingUnavailabilitiesPage.js';
+import { createHousingEmailTemplatesPage } from './pages/HousingEmailTemplatesPage.js?v=2';
 import { createCleaningVolunteersPage } from './pages/CleaningVolunteersPage.js';
 
 const moduleRoutes = [
@@ -64,6 +65,7 @@ let housingPlanningPage = null;
 let housingCleaningPage = null;
 let housingOccupantsPage = null;
 let housingUnavailabilitiesPage = null;
+let housingEmailTemplatesPage = null;
 let volunteersPage = null;
 
 async function initializeApp() {
@@ -113,6 +115,9 @@ async function initializeApp() {
     .addRoute('/administration/active-directory', async (route) => {
       await showAdministrationPage(route);
     }, { requiresAuth: true, permissions: ['ad_config'] })
+    .addRoute('/administration/smtp', async (route) => {
+      await showAdministrationPage(route);
+    }, { requiresAuth: true, permissions: ['settings_view'] })
     .addRoute('/buildings', async (route) => {
       await showBuildingsPage(route);
     }, { requiresAuth: true, permissions: ['building.view'] })
@@ -169,6 +174,9 @@ async function initializeApp() {
     }, { requiresAuth: true, permissions: ['housing.view'] })
     .addRoute('/housing/unavailabilities', async (route) => {
       await showHousingUnavailabilitiesPage(route);
+    }, { requiresAuth: true, permissions: ['housing.view'] })
+    .addRoute('/housing/email-templates', async (route) => {
+      await showHousingEmailTemplatesPage(route);
     }, { requiresAuth: true, permissions: ['housing.view'] })
     .addRoute('/volunteers', async (route) => {
       await showVolunteersPage(route);
@@ -376,6 +384,26 @@ async function ensureHousingUnavailabilitiesPage() {
     await housingUnavailabilitiesPage.initialize();
   }
   return housingUnavailabilitiesPage;
+}
+
+async function ensureHousingEmailTemplatesPage() {
+  if (!housingEmailTemplatesPage) {
+    housingEmailTemplatesPage = createHousingEmailTemplatesPage(router);
+    await housingEmailTemplatesPage.initialize();
+  }
+  return housingEmailTemplatesPage;
+}
+
+async function showHousingEmailTemplatesPage(route) {
+  if (!appShell) return;
+  appShell.showLoading();
+  try {
+    const page = await ensureHousingEmailTemplatesPage();
+    appShell.showContent(page.render());
+  } catch (error) {
+    console.error('Erreur affichage modèles d’e-mails:', error);
+    appShell.showError(error);
+  }
 }
 
 async function ensureVolunteersPage() {

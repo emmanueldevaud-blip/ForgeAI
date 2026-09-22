@@ -24,6 +24,11 @@ class ApiClient {
       ...options,
     };
 
+    if (config.body instanceof FormData) {
+      delete config.headers['Content-Type'];
+      delete config.headers['content-type'];
+    }
+
     if (config.body && typeof config.body === 'object' && !(config.body instanceof FormData)) {
       config.body = JSON.stringify(config.body);
     }

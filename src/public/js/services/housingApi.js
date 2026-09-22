@@ -1,4 +1,4 @@
-import { ApiClient } from './api.js';
+import { ApiClient } from './api.js?v=2';
 
 const housingApi = new ApiClient('/housing');
 const volunteerApi = new ApiClient('/volunteers');
@@ -192,12 +192,17 @@ export async function updateEmailTemplate(id, data) {
   return housingApi.patch(`/email-templates/${id}`, data);
 }
 
-export async function uploadEmailTemplateAttachment(templateId, file) {
+export async function uploadEmailTemplateAttachment(templateId, file, housingIds = []) {
   const formData = new FormData();
   formData.append('file', file);
+  formData.append('housing_ids', JSON.stringify(housingIds));
   return housingApi.post(`/email-templates/${templateId}/attachments`, formData, {
     headers: { 'Content-Type': 'multipart/form-data' }
   });
+}
+
+export async function updateEmailTemplateAttachmentHousings(templateId, attachmentId, housingIds) {
+  return housingApi.put(`/email-templates/${templateId}/attachments/${attachmentId}`, housingIds);
 }
 
 export async function deleteEmailTemplateAttachment(templateId, attachmentId) {
@@ -213,9 +218,7 @@ export async function sendConfirmationEmail(occupancyId, templateId, recipientId
   formData.append('template_id', templateId);
   formData.append('recipient_ids', JSON.stringify(recipientIds));
   formData.append('send_to_all', sendToAll);
-  return housingApi.post(`/occupancies/${occupancyId}/send-confirmation`, formData, {
-    headers: { 'Content-Type': 'multipart/form-data' }
-  });
+  return housingApi.post(`/occupancies/${occupancyId}/send-confirmation`, formData);
 }
 
 export async function sendCustomMessage(occupancyId, subject, bodyText, recipientIds, templateId = null, attachmentIds = []) {
@@ -225,9 +228,7 @@ export async function sendCustomMessage(occupancyId, subject, bodyText, recipien
   formData.append('recipient_ids', JSON.stringify(recipientIds));
   if (templateId) formData.append('template_id', templateId);
   formData.append('attachment_ids', JSON.stringify(attachmentIds));
-  return housingApi.post(`/occupancies/${occupancyId}/send-message`, formData, {
-    headers: { 'Content-Type': 'multipart/form-data' }
-  });
+  return housingApi.post(`/occupancies/${occupancyId}/send-message`, formData);
 }
 
 export async function listEmailLogs(params = {}) {

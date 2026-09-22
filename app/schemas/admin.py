@@ -110,6 +110,32 @@ class MessageResponse(BaseModel):
     message: str
 
 
+class SmtpSettingsResponse(BaseModel):
+    host: str = ""
+    port: int = 587
+    username: str = ""
+    password_configured: bool = False
+    use_tls: bool = True
+    use_ssl: bool = False
+    from_email: str = ""
+    from_name: str = "ForgeAI"
+
+
+class SmtpSettingsUpdate(BaseModel):
+    host: str = Field("", max_length=255)
+    port: int = Field(587, ge=1, le=65535)
+    username: str = Field("", max_length=255)
+    password: Optional[str] = Field(None, max_length=500)
+    use_tls: bool = True
+    use_ssl: bool = False
+    from_email: Optional[str] = Field(None, max_length=255)
+    from_name: str = Field("ForgeAI", max_length=100)
+
+
+class SmtpTestRequest(BaseModel):
+    recipient: EmailStr
+
+
 class PermissionResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

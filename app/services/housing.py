@@ -2,8 +2,11 @@ from datetime import datetime, date, timedelta
 from decimal import Decimal
 from typing import Optional, List
 from uuid import uuid4
+import asyncio
 import os
 import json
+import smtplib
+from email.message import EmailMessage
 
 from fastapi import UploadFile, HTTPException, Form
 from sqlalchemy import select, func, and_, or_, case, extract, insert, delete
@@ -19,6 +22,7 @@ from app.models.housing import (
     occupancy_occupants
 )
 from app.models.user import User
+from app.models.module import Module, ModuleConfig
 
 
 HOUSING_STATUSES = ["pre_reserved", "confirmed", "in_progress", "completed", "cancelled"]
@@ -424,6 +428,29 @@ class HousingService:
             return None
 
         old_status = occupancy.status
+
+        if new_status == "confirmed" and old_status != "confirmed":
+            if occupancy.arrival_date.date() < date.today():
+                raise HTTPException(status_code=400, detail="Une réservation ne peut pas commencer dans le passé")
+            if occupancy.departure_date < occupancy.arrival_date:
+                raise HTTPException(status_code=400, detail="La date de départ doit être postérieure à la date d'arrivée")
+
+            overlap_query = select(Occupancy.id).where(
+                Occupancy.id != occupancy_id,
+                Occupancy.housing_id == occupancy.housing_id,
+                Occupancy.status.in_(["pre_reserved", "confirmed", "in_progress"]),
+                Occupancy.arrival_date <= occupancy.departure_date,
+                Occupancy.departure_date >= occupancy.arrival_date,
+            )
+            if occupancy.room_index is None or occupancy.room_index == 0:
+                overlap_query = overlap_query.where(
+                    or_(Occupancy.room_index == occupancy.room_index, Occupancy.room_index.is_(None))
+                )
+            else:
+                overlap_query = overlap_query.where(Occupancy.room_index == occupancy.room_index)
+            if (await self.db.execute(overlap_query.limit(1))).scalar_one_or_none() is not None:
+                raise HTTPException(status_code=409, detail="Cette période chevauche déjà une réservation")
+
         occupancy.status = new_status
 
         if new_status == "in_progress" and not occupancy.actual_arrival:
@@ -672,7 +699,9 @@ class HousingService:
     # ============================================================
 
     async def list_email_templates(self, params: dict) -> dict:
-        query = select(EmailTemplate).options(selectinload(EmailTemplate.attachments))
+        query = select(EmailTemplate).options(
+            selectinload(EmailTemplate.attachments).selectinload(EmailTemplateAttachment.housings)
+        )
         count_query = select(func.count(EmailTemplate.id))
 
         if params.get("template_type"):
@@ -700,7 +729,7 @@ class HousingService:
         items = result.scalars().all()
 
         return {
-            "items": [EmailTemplateResponse.model_validate(i, from_attributes=True).model_dump() for i in items],
+            "items": [self._email_template_response(i) for i in items],
             "total": total,
             "page": page,
             "page_size": page_size,
@@ -710,13 +739,25 @@ class HousingService:
     async def get_email_template(self, template_id: int) -> Optional[dict]:
         result = await self.db.execute(
             select(EmailTemplate)
-            .options(selectinload(EmailTemplate.attachments))
+            .options(selectinload(EmailTemplate.attachments).selectinload(EmailTemplateAttachment.housings))
             .where(EmailTemplate.id == template_id)
         )
         t = result.scalar_one_or_none()
         if not t:
             return None
-        return EmailTemplateResponse.model_validate(t, from_attributes=True).model_dump()
+        return self._email_template_response(t)
+
+    @staticmethod
+    def _email_template_response(template: EmailTemplate) -> dict:
+        data = EmailTemplateResponse.model_validate(template, from_attributes=True).model_dump()
+        data["attachments"] = [
+            {
+                **EmailTemplateAttachmentResponse.model_validate(attachment, from_attributes=True).model_dump(),
+                "housing_ids": [housing.id for housing in attachment.housings],
+            }
+            for attachment in template.attachments
+        ]
+        return data
 
     async def create_email_template(self, data: dict) -> dict:
         if self.current_user:
@@ -739,7 +780,7 @@ class HousingService:
         await self.db.commit()
         return await self.get_email_template(template_id)
 
-    async def upload_email_template_attachment(self, template_id: int, file: UploadFile) -> dict:
+    async def upload_email_template_attachment(self, template_id: int, file: UploadFile, housing_ids: List[int] | None = None) -> dict:
         import os
         from uuid import uuid4
         
@@ -765,11 +806,32 @@ class HousingService:
             mime_type=file.content_type,
             file_size=len(content),
         )
+        if housing_ids:
+            housing_result = await self.db.execute(select(Housing).where(Housing.id.in_(housing_ids)))
+            attachment.housings = list(housing_result.scalars().all())
         self.db.add(attachment)
         await self.db.flush()
         await self.db.commit()
         
-        return EmailTemplateAttachmentResponse.model_validate(attachment, from_attributes=True).model_dump()
+        return {
+            **EmailTemplateAttachmentResponse.model_validate(attachment, from_attributes=True).model_dump(),
+            "housing_ids": [housing.id for housing in attachment.housings],
+        }
+
+    async def update_email_template_attachment_housings(self, attachment_id: int, housing_ids: List[int]) -> Optional[dict]:
+        result = await self.db.execute(
+            select(EmailTemplateAttachment).options(selectinload(EmailTemplateAttachment.housings)).where(EmailTemplateAttachment.id == attachment_id)
+        )
+        attachment = result.scalar_one_or_none()
+        if not attachment:
+            return None
+        housing_result = await self.db.execute(select(Housing).where(Housing.id.in_(housing_ids))) if housing_ids else None
+        attachment.housings = list(housing_result.scalars().all()) if housing_result else []
+        await self.db.commit()
+        return {
+            **EmailTemplateAttachmentResponse.model_validate(attachment, from_attributes=True).model_dump(),
+            "housing_ids": [housing.id for housing in attachment.housings],
+        }
 
     async def delete_email_template_attachment(self, attachment_id: int) -> bool:
         result = await self.db.execute(select(EmailTemplateAttachment).where(EmailTemplateAttachment.id == attachment_id))
@@ -790,11 +852,65 @@ class HousingService:
     # EMAIL SENDING
     # ============================================================
 
+    async def _get_smtp_settings(self) -> dict:
+        result = await self.db.execute(
+            select(ModuleConfig)
+            .join(Module)
+            .where(Module.code == "administration", ModuleConfig.key.like("smtp_%"))
+        )
+        values = {config.key: config.value or "" for config in result.scalars().all()}
+        return {
+            "host": values.get("smtp_host", ""),
+            "port": int(values.get("smtp_port", "587")),
+            "username": values.get("smtp_username", ""),
+            "password": values.get("smtp_password", ""),
+            "use_tls": values.get("smtp_use_tls", "true").lower() == "true",
+            "use_ssl": values.get("smtp_use_ssl", "false").lower() == "true",
+            "from_email": values.get("smtp_from_email", ""),
+            "from_name": values.get("smtp_from_name", "ForgeAI"),
+        }
+
+    async def _send_email(self, recipient: str, subject: str, body_text: str, body_html: Optional[str] = None, attachments: list[EmailTemplateAttachment] | None = None) -> None:
+        smtp = await self._get_smtp_settings()
+        if not smtp["host"] or not smtp["from_email"]:
+            raise RuntimeError("La configuration SMTP est incomplète dans Administration")
+
+        message = EmailMessage()
+        message["From"] = f'{smtp["from_name"]} <{smtp["from_email"]}>'
+        message["To"] = recipient
+        message["Subject"] = subject
+        message.set_content(body_text)
+        if body_html:
+            message.add_alternative(body_html, subtype="html")
+        for attachment in attachments or []:
+            with open(attachment.file_path, "rb") as file_handle:
+                content = file_handle.read()
+            maintype, _, subtype = (attachment.mime_type or "application/octet-stream").partition("/")
+            message.add_attachment(content, maintype=maintype, subtype=subtype or "octet-stream", filename=attachment.filename)
+
+        def send() -> None:
+            smtp_class = smtplib.SMTP_SSL if smtp["use_ssl"] else smtplib.SMTP
+            with smtp_class(smtp["host"], smtp["port"], timeout=30) as client:
+                if smtp["use_tls"] and not smtp["use_ssl"]:
+                    client.starttls()
+                if smtp["username"]:
+                    client.login(smtp["username"], smtp["password"])
+                client.send_message(message)
+
+        await asyncio.to_thread(send)
+
     def _render_email_template(self, template: EmailTemplate, context: dict) -> tuple[str, str]:
         from jinja2 import Template
         html_template = Template(template.body_html)
         text_template = Template(template.body_text or template.body_html)
         return html_template.render(**context), text_template.render(**context)
+
+    @staticmethod
+    def _select_email_attachments(template: EmailTemplate, housing_id: int) -> list[EmailTemplateAttachment]:
+        return [
+            attachment for attachment in template.attachments
+            if not attachment.housings or any(housing.id == housing_id for housing in attachment.housings)
+        ]
 
     async def send_confirmation_email(self, occupancy_id: int, template_id: int, recipient_ids: List[int], send_to_all: bool) -> str:
         # Get occupancy with occupants
@@ -808,7 +924,9 @@ class HousingService:
             return "Occupation non trouvée"
         
         template_result = await self.db.execute(
-            select(EmailTemplate).options(selectinload(EmailTemplate.attachments))
+            select(EmailTemplate).options(
+                selectinload(EmailTemplate.attachments).selectinload(EmailTemplateAttachment.housings)
+            )
             .where(EmailTemplate.id == template_id)
         )
         template = template_result.scalar_one_or_none()
@@ -845,6 +963,11 @@ class HousingService:
                 "departure_date": occupancy.departure_date.strftime("%d/%m/%Y"),
                 "site_name": site.name if site else "",
                 "building_name": building.name if building else "",
+                "room_index": occupancy.room_index if occupancy.room_index is not None else 0,
+                "nb_persons": occupancy.nb_persons,
+                "guest_type": occupancy.guest_type or "",
+                "purpose": occupancy.purpose or "",
+                "observations": occupancy.observations or "",
             }
             
             html_body, text_body = self._render_email_template(template, context)
@@ -862,10 +985,14 @@ class HousingService:
             self.db.add(email_log)
             await self.db.flush()
             
-            # Send email (placeholder - would integrate with actual email service)
             try:
-                # TODO: Integrate with actual email sending service (SMTP, SendGrid, etc.)
-                # For now, just log as sent
+                await self._send_email(
+                    occupant.email,
+                    template.subject,
+                    text_body,
+                    html_body,
+                    self._select_email_attachments(template, occupancy.housing_id),
+                )
                 email_log.status = "sent"
                 email_log.sent_at = datetime.utcnow()
                 sent_count += 1
@@ -882,12 +1009,24 @@ class HousingService:
                                   attachment_ids: List[int]) -> str:
         result = await self.db.execute(
             select(Occupancy)
-            .options(selectinload(Occupancy.occupants))
+            .options(
+                selectinload(Occupancy.occupants),
+                selectinload(Occupancy.housing).selectinload(Housing.room).selectinload(Room.building).selectinload(Building.site),
+            )
             .where(Occupancy.id == occupancy_id)
         )
         occupancy = result.scalar_one_or_none()
         if not occupancy:
             return "Occupation non trouvée"
+
+        template = None
+        if template_id:
+            template_result = await self.db.execute(
+                select(EmailTemplate)
+                .options(selectinload(EmailTemplate.attachments).selectinload(EmailTemplateAttachment.housings))
+                .where(EmailTemplate.id == template_id)
+            )
+            template = template_result.scalar_one_or_none()
         
         recipients = [o for o in occupancy.occupants if o.id in recipient_ids and o.email]
         if not recipients:
@@ -895,20 +1034,46 @@ class HousingService:
         
         sent_count = 0
         for occupant in recipients:
+            rendered_subject = subject
+            rendered_body = body_text
+            if template:
+                housing = occupancy.housing
+                room = housing.room if housing else None
+                building = room.building if room else None
+                site = building.site if building else None
+                context = {
+                    "occupant_first_name": occupant.first_name,
+                    "occupant_last_name": occupant.last_name,
+                    "occupant_email": occupant.email,
+                    "housing_name": room.name if room else "",
+                    "housing_reference": room.reference if room else "",
+                    "arrival_date": occupancy.arrival_date.strftime("%d/%m/%Y"),
+                    "departure_date": occupancy.departure_date.strftime("%d/%m/%Y"),
+                    "site_name": site.name if site else "",
+                    "building_name": building.name if building else "",
+                    "room_index": occupancy.room_index if occupancy.room_index is not None else 0,
+                    "nb_persons": occupancy.nb_persons,
+                    "guest_type": occupancy.guest_type or "",
+                    "purpose": occupancy.purpose or "",
+                    "observations": occupancy.observations or "",
+                }
+                rendered_subject = Template(subject).render(**context)
+                rendered_body = Template(body_text).render(**context)
             email_log = EmailLog(
                 template_id=template_id,
                 occupancy_id=occupancy_id,
                 recipient_email=occupant.email,
                 recipient_name=f"{occupant.first_name} {occupant.last_name}",
-                subject=subject,
-                body_text=body_text,
+                subject=rendered_subject,
+                body_text=rendered_body,
                 status="pending",
             )
             self.db.add(email_log)
             await self.db.flush()
             
             try:
-                # TODO: Integrate with actual email sending service
+                attachments = self._select_email_attachments(template, occupancy.housing_id) if template else []
+                await self._send_email(occupant.email, rendered_subject, rendered_body, attachments=attachments)
                 email_log.status = "sent"
                 email_log.sent_at = datetime.utcnow()
                 sent_count += 1

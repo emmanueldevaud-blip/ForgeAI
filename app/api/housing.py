@@ -558,6 +558,7 @@ async def send_custom_message(
     occupancy_id: int,
     subject: str = Form(...),
     body_text: str = Form(...),
+    body_html: Optional[str] = Form(None),
     recipient_ids: str = Form(...),
     template_id: Optional[int] = Form(None),
     attachment_ids: str = Form("[]"),
@@ -566,7 +567,7 @@ async def send_custom_message(
     import json
     recipients = json.loads(recipient_ids) if recipient_ids else []
     attachments = json.loads(attachment_ids) if attachment_ids else []
-    result = await service.send_custom_message(occupancy_id, subject, body_text, recipients, template_id, attachments)
+    result = await service.send_custom_message(occupancy_id, subject, body_text, recipients, template_id, attachments, body_html)
     return {"message": result}
 
 

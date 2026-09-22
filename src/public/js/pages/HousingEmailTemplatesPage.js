@@ -92,7 +92,24 @@ export class HousingEmailTemplatesPage {
           </div>
           <label><span>Sujet *</span><input name="subject" required maxlength="200" value="${this._attribute(template?.subject)}"></label>
           <div style="margin:12px 0;display:flex;gap:6px;flex-wrap:wrap;align-items:center;"><strong>Variables :</strong>${VARIABLES.map(variable => `<button type="button" class="btn btn-sm btn-secondary" data-variable="${variable}">{{${variable}}}</button>`).join('')}</div>
-          <label><span>Contenu HTML *</span><textarea name="body_html" required rows="10">${this._escape(template?.body_html)}</textarea></label>
+          <label><span>Contenu HTML *</span>
+            <input type="hidden" name="body_html" value="">
+            <div data-rich-editor-wrapper style="border:1px solid var(--color-border);border-radius:6px;overflow:hidden;">
+              <div data-rich-toolbar style="display:flex;gap:4px;flex-wrap:wrap;padding:8px;background:var(--color-gray-50);border-bottom:1px solid var(--color-border);">
+                <button type="button" class="btn btn-sm btn-secondary" data-command="bold"><strong>Gras</strong></button>
+                <button type="button" class="btn btn-sm btn-secondary" data-command="italic"><em>Italique</em></button>
+                <button type="button" class="btn btn-sm btn-secondary" data-command="underline"><u>Souligné</u></button>
+                <select data-format-block class="form-control" style="width:auto;padding:4px 8px;"><option value="p">Paragraphe</option><option value="h2">Titre</option><option value="h3">Sous-titre</option></select>
+                <button type="button" class="btn btn-sm btn-secondary" data-command="insertUnorderedList">Liste</button>
+                <button type="button" class="btn btn-sm btn-secondary" data-command="insertOrderedList">Liste numérotée</button>
+                <button type="button" class="btn btn-sm btn-secondary" data-command="justifyLeft">Gauche</button>
+                <button type="button" class="btn btn-sm btn-secondary" data-command="justifyCenter">Centrer</button>
+                <button type="button" class="btn btn-sm btn-secondary" data-action="insert-link">Lien</button>
+                <button type="button" class="btn btn-sm btn-secondary" data-command="removeFormat">Effacer le format</button>
+              </div>
+              <div data-rich-editor contenteditable="true" role="textbox" aria-multiline="true" style="min-height:240px;padding:12px;outline:none;">${template?.body_html || ''}</div>
+            </div>
+          </label>
           <label><span>Contenu texte</span><textarea name="body_text" rows="6">${this._escape(template?.body_text)}</textarea></label>
           <label class="checkbox-label"><input name="is_active" type="checkbox" ${template?.is_active !== false ? 'checked' : ''}> Modèle actif</label>
           ${template ? this._renderAttachments(template) : ''}
@@ -102,10 +119,40 @@ export class HousingEmailTemplatesPage {
     document.body.appendChild(overlay);
     overlay.querySelectorAll('[data-close]').forEach(button => button.addEventListener('click', () => overlay.remove()));
     overlay.querySelector('select[name="template_type"]').value = template?.template_type || 'confirmation';
+    const editor = overlay.querySelector('[data-rich-editor]');
+    let savedRange = null;
+    const saveRange = () => {
+      const selection = window.getSelection();
+      if (selection.rangeCount && editor.contains(selection.anchorNode)) savedRange = selection.getRangeAt(0).cloneRange();
+    };
+    editor.addEventListener('keyup', saveRange);
+    editor.addEventListener('mouseup', saveRange);
+    overlay.querySelectorAll('[data-command]').forEach(button => button.addEventListener('click', () => {
+      editor.focus();
+      document.execCommand(button.dataset.command, false, null);
+      saveRange();
+    }));
+    overlay.querySelector('[data-format-block]').addEventListener('change', event => {
+      editor.focus();
+      document.execCommand('formatBlock', false, event.target.value);
+      saveRange();
+    });
+    overlay.querySelector('[data-action="insert-link"]').addEventListener('click', () => {
+      const url = window.prompt('Adresse du lien :', 'https://');
+      if (!url) return;
+      editor.focus();
+      document.execCommand('createLink', false, url);
+      saveRange();
+    });
     overlay.querySelectorAll('[data-variable]').forEach(button => button.addEventListener('click', () => {
-      const field = overlay.querySelector('textarea[name="body_html"]');
-      field.setRangeText(`{{${button.dataset.variable}}}`, field.selectionStart, field.selectionEnd, 'end');
-      field.focus();
+      editor.focus();
+      if (savedRange) {
+        const selection = window.getSelection();
+        selection.removeAllRanges();
+        selection.addRange(savedRange);
+      }
+      document.execCommand('insertText', false, `{{${button.dataset.variable}}}`);
+      saveRange();
     }));
     overlay.querySelector('[data-template-form]').addEventListener('submit', event => this._saveTemplate(event, overlay, template));
     overlay.querySelectorAll('[data-action="upload-attachment"]').forEach(button => button.addEventListener('click', () => this._uploadAttachment(overlay, template.id)));
@@ -137,6 +184,7 @@ export class HousingEmailTemplatesPage {
   async _saveTemplate(event, overlay, template) {
     event.preventDefault();
     const form = overlay.querySelector('[data-template-form]');
+    form.elements.body_html.value = overlay.querySelector('[data-rich-editor]').innerHTML;
     const data = Object.fromEntries(new FormData(form).entries());
     data.is_active = form.elements.is_active.checked;
     try {

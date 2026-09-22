@@ -808,7 +808,18 @@ export class HousingPlanningPage {
           </div>
           <div class="form-group">
             <label>Message</label>
-            <textarea id="email-body" class="form-control" rows="6" placeholder="Contenu du message..."></textarea>
+            <input type="hidden" id="email-body" value="">
+            <div style="border:1px solid var(--color-border);border-radius:6px;overflow:hidden;">
+              <div style="display:flex;gap:4px;flex-wrap:wrap;padding:8px;background:var(--color-gray-50);border-bottom:1px solid var(--color-border);">
+                <button type="button" class="btn btn-sm btn-secondary" data-email-command="bold"><strong>Gras</strong></button>
+                <button type="button" class="btn btn-sm btn-secondary" data-email-command="italic"><em>Italique</em></button>
+                <button type="button" class="btn btn-sm btn-secondary" data-email-command="underline"><u>Souligné</u></button>
+                <button type="button" class="btn btn-sm btn-secondary" data-email-command="insertUnorderedList">Liste</button>
+                <button type="button" class="btn btn-sm btn-secondary" data-email-command="justifyCenter">Centrer</button>
+                <button type="button" class="btn btn-sm btn-secondary" data-email-action="link">Lien</button>
+              </div>
+              <div id="email-body-editor" contenteditable="true" style="min-height:160px;padding:12px;outline:none;"></div>
+            </div>
           </div>
           <div class="modal-footer" style="margin-top:1rem;display:flex;gap:8px;justify-content:flex-end;">
             <button class="btn btn-secondary" data-dismiss>Annuler</button>
@@ -1064,7 +1075,9 @@ export class HousingPlanningPage {
           const template = templates.find(t => String(t.id) === tplSel.value);
           if (!template) return;
           overlay.querySelector('#email-subject').value = template.subject || '';
-          overlay.querySelector('#email-body').value = template.body_text || template.body_html || '';
+          const editor = overlay.querySelector('#email-body-editor');
+          if (template.body_html) editor.innerHTML = template.body_html;
+          else editor.textContent = template.body_text || '';
         });
       } catch (e) {
         console.error('Erreur chargement modèles d’e-mail:', e);
@@ -1072,9 +1085,22 @@ export class HousingPlanningPage {
         if (tplSel) tplSel.innerHTML = '<option value="">Modèles indisponibles</option>';
       }
 
+      const editor = overlay.querySelector('#email-body-editor');
+      overlay.querySelectorAll('[data-email-command]').forEach(button => button.addEventListener('click', () => {
+        editor.focus();
+        document.execCommand(button.dataset.emailCommand, false, null);
+      }));
+      overlay.querySelector('[data-email-action="link"]')?.addEventListener('click', () => {
+        const url = window.prompt('Adresse du lien :', 'https://');
+        if (!url) return;
+        editor.focus();
+        document.execCommand('createLink', false, url);
+      });
+
       emailSendBtn.addEventListener('click', async () => {
         const subject = overlay.querySelector('#email-subject')?.value;
-        const body = overlay.querySelector('#email-body')?.value;
+        const bodyHtml = editor?.innerHTML || '';
+        const body = editor?.innerText?.trim() || '';
         const recipientCheckboxes = overlay.querySelectorAll('.email-recipient:checked');
         const recipientIds = Array.from(recipientCheckboxes).map(cb => parseInt(cb.value));
         const templateId = overlay.querySelector('#email-template')?.value || null;
@@ -1094,7 +1120,9 @@ export class HousingPlanningPage {
             subject,
             body,
             recipientIds,
-            templateId ? parseInt(templateId) : null
+            templateId ? parseInt(templateId) : null,
+            [],
+            bodyHtml,
           );
           alert('E-mail envoyé avec succès');
           this._closeModal();

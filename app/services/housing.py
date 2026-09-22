@@ -1006,7 +1006,7 @@ class HousingService:
 
     async def send_custom_message(self, occupancy_id: int, subject: str, body_text: str, 
                                   recipient_ids: List[int], template_id: Optional[int], 
-                                  attachment_ids: List[int]) -> str:
+                                  attachment_ids: List[int], body_html: Optional[str] = None) -> str:
         result = await self.db.execute(
             select(Occupancy)
             .options(
@@ -1036,6 +1036,7 @@ class HousingService:
         for occupant in recipients:
             rendered_subject = subject
             rendered_body = body_text
+            rendered_html = body_html
             if template:
                 housing = occupancy.housing
                 room = housing.room if housing else None
@@ -1059,6 +1060,7 @@ class HousingService:
                 }
                 rendered_subject = Template(subject).render(**context)
                 rendered_body = Template(body_text).render(**context)
+                rendered_html = Template(body_html or body_text).render(**context)
             email_log = EmailLog(
                 template_id=template_id,
                 occupancy_id=occupancy_id,
@@ -1073,7 +1075,7 @@ class HousingService:
             
             try:
                 attachments = self._select_email_attachments(template, occupancy.housing_id) if template else []
-                await self._send_email(occupant.email, rendered_subject, rendered_body, attachments=attachments)
+                await self._send_email(occupant.email, rendered_subject, rendered_body, rendered_html, attachments)
                 email_log.status = "sent"
                 email_log.sent_at = datetime.utcnow()
                 sent_count += 1

@@ -221,10 +221,11 @@ export async function sendConfirmationEmail(occupancyId, templateId, recipientId
   return housingApi.post(`/occupancies/${occupancyId}/send-confirmation`, formData);
 }
 
-export async function sendCustomMessage(occupancyId, subject, bodyText, recipientIds, templateId = null, attachmentIds = []) {
+export async function sendCustomMessage(occupancyId, subject, bodyText, recipientIds, templateId = null, attachmentIds = [], bodyHtml = null) {
   const formData = new FormData();
   formData.append('subject', subject);
   formData.append('body_text', bodyText);
+  if (bodyHtml) formData.append('body_html', bodyHtml);
   formData.append('recipient_ids', JSON.stringify(recipientIds));
   if (templateId) formData.append('template_id', templateId);
   formData.append('attachment_ids', JSON.stringify(attachmentIds));

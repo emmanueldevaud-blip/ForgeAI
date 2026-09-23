@@ -434,8 +434,9 @@ class DatabaseADService:
                         groups_created += 1
 
                     # Collecte des DN membres
-                    if g_entry.member:
-                        for member_dn in g_entry.member:
+                    members = getattr(g_entry, "member", None)
+                    if members:
+                        for member_dn in members:
                             filtered_member_dns.add(str(member_dn))
 
                 # Nettoyage des groupes absents de l'AD

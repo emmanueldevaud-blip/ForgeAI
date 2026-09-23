@@ -34,7 +34,9 @@ from app.models.rbac import (
 )
 from app.models.user import User, UserRole
 from app.models.volunteer import Volunteer
-from app.models.sport import SportActivity, SportAthlete, SportGarminConnection, SportGarminSyncLog, SportGoal, SportTrackPoint
+from app.models.sport import (SportActivity, SportActivityAnalysis, SportAthlete, SportAthleteObservation,
+                               SportCoachConversation, SportCoachMessage, SportGarminConnection,
+                               SportGarminSyncLog, SportGoal, SportTrackPoint)
 from app.models.administrative import AdministrativeAssignment, AdministrativeCapability, AdministrativeMonthlySession, AdministrativeProgramType, AdministrativeRoleType, VolunteerCapability, VolunteerUnavailability
 
 __all__ = [
@@ -91,6 +93,10 @@ __all__ = [
     "Volunteer",
     "UsageType",
     "SportActivity",
+    "SportActivityAnalysis",
+    "SportAthleteObservation",
+    "SportCoachConversation",
+    "SportCoachMessage",
     "SportAthlete",
     "SportGoal",
     "SportTrackPoint",

@@ -88,6 +88,69 @@ class SportDashboardResponse(BaseModel):
     recent_activities: list[SportActivityResponse] = Field(default_factory=list)
     goals: list[SportGoalResponse] = Field(default_factory=list)
     ai: dict[str, Any] = Field(default_factory=lambda: {"available": False})
+    analysis: dict[str, Any] = Field(default_factory=dict)
+    goal_analysis: list[dict[str, Any]] = Field(default_factory=list)
+
+
+class SportCoachRequest(BaseModel):
+    question: str = Field(..., min_length=1, max_length=1000)
+    conversation_id: Optional[int] = Field(None, ge=1)
+
+
+class SportCoachResponse(BaseModel):
+    available: bool
+    provider: str | None = None
+    answer: str
+    sources: list[str] = Field(default_factory=list)
+    conversation_id: Optional[int] = None
+    message_id: Optional[int] = None
+
+
+class SportCoachMessageResponse(BaseModel):
+    id: int
+    role: str
+    content: str
+    provider: Optional[str] = None
+    sources: list[str] = Field(default_factory=list)
+    created_at: datetime
+
+
+class SportCoachConversationResponse(BaseModel):
+    id: int
+    title: Optional[str] = None
+    created_at: datetime
+    updated_at: datetime
+    messages: list[SportCoachMessageResponse] = Field(default_factory=list)
+
+
+class SportObservationCreate(BaseModel):
+    content: str = Field(..., min_length=1, max_length=2000)
+    activity_id: Optional[int] = Field(None, ge=1)
+    kind: str = Field("observed", max_length=30)
+
+
+class SportObservationResponse(BaseModel):
+    id: int
+    activity_id: Optional[int] = None
+    kind: str
+    content: str
+    status: str
+    sources: dict[str, Any] = Field(default_factory=dict)
+    created_at: datetime
+    confirmed_at: Optional[datetime] = None
+
+
+class SportHeartRateConfig(BaseModel):
+    rest_hr: Optional[float] = Field(None, ge=20, le=250)
+    max_hr: Optional[float] = Field(None, ge=80, le=250)
+    custom_zones: Optional[list[float]] = Field(None, min_length=5, max_length=5)
+
+
+class SportAthleteProfileResponse(BaseModel):
+    athlete_id: int
+    display_name: Optional[str] = None
+    heart_rate: Optional[SportHeartRateConfig] = None
+    profile: dict[str, Any]
 
 
 class GarminConnectRequest(BaseModel):

@@ -11,7 +11,7 @@ from app.api.deps import require_permission
 from app.db.session import get_db
 from app.models.module import Module, ModuleConfig
 from app.models.rbac import Group, PermissionModel
-from app.models.user import User
+from app.models.user import User, UserRole
 from app.schemas.admin import (
     AdminPasswordReset,
     GroupCreate,
@@ -1288,6 +1288,11 @@ async def get_user_permissions(
     permissions = await rbac.get_user_permissions(
         user
     )
+
+    # Legacy admin users do not receive RBAC access implicitly. Keep the
+    # permissions screen informative without changing effective authorization.
+    if not permissions and user.role == UserRole.ADMIN:
+        permissions = {"*"}
 
     if "*" in permissions:
         result = await db.execute(

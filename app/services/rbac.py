@@ -15,13 +15,20 @@ class RBACService:
 
     async def get_user_permissions(self, user: User) -> set[str]:
         permissions = set()
+        result = await self.db.execute(
+            select(User).options(
+                selectinload(User.roles).selectinload(Role.permissions),
+                selectinload(User.groups).selectinload(Group.roles).selectinload(Role.permissions),
+            ).where(User.id == user.id)
+        )
+        loaded_user = result.scalar_one_or_none() or user
 
-        for role in user.roles:
+        for role in loaded_user.roles:
             if role.is_active:
                 for perm in role.permissions:
                     permissions.add(perm.code)
 
-        for group in user.groups:
+        for group in loaded_user.groups:
             if group.is_active:
                 for role in group.roles:
                     if role.is_active:

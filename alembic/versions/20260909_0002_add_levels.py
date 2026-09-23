@@ -8,7 +8,7 @@ Create Date: 2026-09-09
 from collections.abc import Sequence
 
 import sqlalchemy as sa
-from alembic import op
+from alembic import context, op
 
 revision: str = "20260909_0002"
 down_revision: str | Sequence[str] | None = "20260909_0001"
@@ -37,10 +37,8 @@ def upgrade() -> None:
     op.add_column("premises", sa.Column("level_id", sa.Integer, nullable=True))
 
     # 3. Migrate data: create levels from premises.floor values
-    conn = op.get_bind()
-
     # Create levels for each unique (building_id, floor) pair
-    conn.execute(sa.text("""
+    op.execute(sa.text("""
         INSERT INTO levels (building_id, reference, name, level_order, is_active, created_at, updated_at)
         SELECT DISTINCT
             p.building_id,
@@ -56,7 +54,7 @@ def upgrade() -> None:
     """))
 
     # Create default level for buildings with premises having NULL floor
-    conn.execute(sa.text("""
+    op.execute(sa.text("""
         INSERT INTO levels (building_id, reference, name, level_order, is_active, created_at, updated_at)
         SELECT DISTINCT
             p.building_id,
@@ -76,7 +74,7 @@ def upgrade() -> None:
     """))
 
     # Update level_id on each premise
-    conn.execute(sa.text("""
+    op.execute(sa.text("""
         UPDATE premises p
         JOIN levels l ON l.building_id = p.building_id
             AND l.reference = COALESCE(p.floor, 'NIVEAU_1')
@@ -84,16 +82,19 @@ def upgrade() -> None:
     """))
 
     # 4. Verify no orphan premises
-    orphans = conn.execute(sa.text(
-        "SELECT COUNT(*) FROM premises WHERE level_id IS NULL"
-    )).scalar()
+    if context.is_offline_mode():
+        orphans = 0
+    else:
+        orphans = op.get_bind().execute(sa.text(
+            "SELECT COUNT(*) FROM premises WHERE level_id IS NULL"
+        )).scalar()
     if orphans and orphans > 0:
         raise Exception(
             f"{orphans} premises have no level assigned. Migration cannot proceed."
         )
 
     # 5. Make level_id NOT NULL
-    op.alter_column("premises", "level_id", sa.Integer, nullable=False)
+    op.alter_column("premises", "level_id", type_=sa.Integer, nullable=False)
 
     # 6. Add FK for level_id
     op.create_foreign_key(
@@ -131,18 +132,17 @@ def downgrade() -> None:
     op.add_column("premises", sa.Column("floor", sa.String(50), nullable=True))
 
     # Restore building_id from level -> building
-    conn = op.get_bind()
-    conn.execute(sa.text("""
+    op.execute(sa.text("""
         UPDATE premises p
         JOIN levels l ON l.id = p.level_id
         SET p.building_id = l.building_id
     """))
 
     # Make building_id NOT NULL
-    op.alter_column("premises", "building_id", sa.Integer, nullable=False)
+    op.alter_column("premises", "building_id", type_=sa.Integer, nullable=False)
 
     # Restore floor from level name
-    conn.execute(sa.text("""
+    op.execute(sa.text("""
         UPDATE premises p
         JOIN levels l ON l.id = p.level_id
         SET p.floor = l.name

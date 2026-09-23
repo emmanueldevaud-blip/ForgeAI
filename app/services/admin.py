@@ -411,7 +411,8 @@ class AdminUserService:
         result = await self.db.execute(
             select(Role)
             .options(
-                selectinload(Role.permissions)
+                selectinload(Role.permissions),
+                selectinload(Role.groups),
             )
             .order_by(Role.code)
         )
@@ -426,7 +427,8 @@ class AdminUserService:
         result = await self.db.execute(
             select(Role)
             .options(
-                selectinload(Role.permissions)
+                selectinload(Role.permissions),
+                selectinload(Role.groups),
             )
             .where(Role.id == role_id)
         )

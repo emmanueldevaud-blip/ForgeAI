@@ -13,6 +13,30 @@ export async function listSportActivities(params = {}) {
   return sportApi.get(`/activities${query.toString() ? `?${query}` : ''}`);
 }
 
+export async function analyzeSportActivity(activityId) {
+  return sportApi.get(`/analysis/activities/${encodeURIComponent(activityId)}`);
+}
+
+export async function askSportCoach(question, conversationId = null) {
+  return sportApi.post('/coach', { question, conversation_id: conversationId });
+}
+
+export async function getSportCoachConversation(conversationId) {
+  return sportApi.get(`/coach/conversations/${encodeURIComponent(conversationId)}`);
+}
+
+export async function listSportCoachConversations() {
+  return sportApi.get('/coach/conversations');
+}
+
+export async function getSportAthleteProfile() {
+  return sportApi.get('/athlete/profile');
+}
+
+export async function updateSportHeartRateConfig(data) {
+  return sportApi.put('/athlete/heart-rate', data);
+}
+
 export async function createSportActivity(data) {
   return sportApi.post('/activities', data);
 }

@@ -8,7 +8,7 @@ Create Date: 2026-09-10
 from collections.abc import Sequence
 
 import sqlalchemy as sa
-from alembic import op
+from alembic import context, op
 
 revision: str = "20260910_0001"
 down_revision: str | Sequence[str] | None = "20260909_0002"
@@ -18,6 +18,10 @@ depends_on: str | Sequence[str] | None = None
 
 def _drop_fks_on_table(conn, table: str):
     """Drop all FK constraints on a table."""
+    if context.is_offline_mode():
+        for constraint in ("premises_ibfk_1", "premises_ibfk_2", "fk_premises_level_id"):
+            op.execute(f"ALTER TABLE {table} DROP FOREIGN KEY {constraint}")
+        return
     fks = conn.execute(sa.text(
         "SELECT CONSTRAINT_NAME FROM information_schema.TABLE_CONSTRAINTS "
         "WHERE CONSTRAINT_TYPE = 'FOREIGN KEY' AND TABLE_NAME = :t AND CONSTRAINT_SCHEMA = DATABASE()"
@@ -28,6 +32,9 @@ def _drop_fks_on_table(conn, table: str):
 
 def _drop_fk_referencing(conn, table: str, ref_table: str):
     """Drop FK on `table` that references `ref_table`."""
+    if context.is_offline_mode():
+        op.execute(f"ALTER TABLE {table} DROP FOREIGN KEY rooms_ibfk_1")
+        return
     fks = conn.execute(sa.text(
         "SELECT tc.CONSTRAINT_NAME FROM information_schema.TABLE_CONSTRAINTS tc "
         "JOIN information_schema.KEY_COLUMN_USAGE kcu ON tc.CONSTRAINT_NAME = kcu.CONSTRAINT_NAME "
@@ -40,7 +47,7 @@ def _drop_fk_referencing(conn, table: str, ref_table: str):
 
 
 def upgrade() -> None:
-    conn = op.get_bind()
+    conn = None if context.is_offline_mode() else op.get_bind()
 
     # 1. Add new columns to rooms (nullable initially)
     op.add_column("rooms", sa.Column("level_id", sa.Integer, nullable=True))
@@ -48,7 +55,7 @@ def upgrade() -> None:
     op.add_column("rooms", sa.Column("usage_type_id", sa.Integer, nullable=True))
 
     # 2. Migrate data: copy from Premise → Room
-    conn.execute(sa.text("""
+    op.execute(sa.text("""
         UPDATE rooms r
         JOIN premises p ON p.id = r.premise_id
         SET r.level_id = p.level_id,
@@ -57,9 +64,12 @@ def upgrade() -> None:
     """))
 
     # 3. Verify no orphan rooms
-    orphans = conn.execute(sa.text(
-        "SELECT COUNT(*) FROM rooms WHERE level_id IS NULL"
-    )).scalar()
+    if context.is_offline_mode():
+        orphans = 0
+    else:
+        orphans = op.get_bind().execute(sa.text(
+            "SELECT COUNT(*) FROM rooms WHERE level_id IS NULL"
+        )).scalar()
     if orphans and orphans > 0:
         raise Exception(
             f"{orphans} rooms have no level assigned after migration. Cannot proceed."
@@ -103,8 +113,6 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    conn = op.get_bind()
-
     # 1. Recreate premises table
     op.create_table(
         "premises",
@@ -124,7 +132,7 @@ def downgrade() -> None:
     op.create_index("ix_premises_level_id", "premises", ["level_id"])
 
     # 2. Populate premises from rooms (one premise per unique level_id + reference)
-    conn.execute(sa.text("""
+    op.execute(sa.text("""
         INSERT INTO premises (level_id, reference, name, usage_type_id, area, description, is_active, created_at, updated_at)
         SELECT DISTINCT
             r.level_id,
@@ -144,14 +152,14 @@ def downgrade() -> None:
     op.add_column("rooms", sa.Column("premise_id", sa.Integer, nullable=True))
 
     # 4. Link rooms to premises
-    conn.execute(sa.text("""
+    op.execute(sa.text("""
         UPDATE rooms r
         JOIN premises p ON p.level_id = r.level_id AND p.reference = r.reference
         SET r.premise_id = p.id
     """))
 
     # 5. Make premise_id NOT NULL
-    op.alter_column("rooms", "premise_id", sa.Integer, nullable=False)
+    op.alter_column("rooms", "premise_id", type_=sa.Integer, nullable=False)
 
     # 6. Add FK for premise_id
     op.create_foreign_key(

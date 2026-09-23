@@ -54,6 +54,13 @@ class Settings(BaseSettings):
         }
     )
 
+    # Sport coach provider (OpenAI-compatible API, optional)
+    SPORT_AI_PROVIDER: str = "local"
+    SPORT_AI_BASE_URL: str = "https://api.openai.com/v1"
+    SPORT_AI_API_KEY: str = ""
+    SPORT_AI_MODEL: str = "gpt-4o-mini"
+    SPORT_AI_TIMEOUT_SECONDS: float = 20.0
+
     # Security
     RATE_LIMIT_ENABLED: bool = True
     RATE_LIMIT_REQUESTS: int = 10

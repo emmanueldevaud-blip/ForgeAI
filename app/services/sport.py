@@ -1,4 +1,5 @@
 import json
+import logging
 import os
 from collections import defaultdict
 from datetime import date, datetime, timedelta, timezone
@@ -12,11 +13,16 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import load_only, selectinload
 
-from app.models.sport import SportActivity, SportAthlete, SportGoal, SportTrackPoint
+from app.models.sport import (SportActivity, SportActivityAnalysis, SportAthlete, SportAthleteObservation,
+                               SportCoachConversation, SportCoachMessage, SportGoal, SportTrackPoint)
 from app.models.user import User
-from app.schemas.sport import SportActivityCreate, SportGoalCreate, SportNormalizedActivity
+from app.schemas.sport import (SportActivityCreate, SportGoalCreate, SportNormalizedActivity,
+                                SportHeartRateConfig, SportObservationCreate)
 from app.services.sport_normalizer import SportNormalizer
+from app.services.sport_analysis import SportAnalysisEngine
+from app.services.sport_ai import get_sport_ai_provider
 
+logger = logging.getLogger(__name__)
 
 class SportService:
     def __init__(self, db: AsyncSession, current_user: User):
@@ -74,7 +80,102 @@ class SportService:
                 key: value for key, value in point.items() if key != "recorded_at"
             }))
         await self.db.commit()
+        await self._calculate_and_store_activity_analysis(activity.id)
         return await self.get_activity(activity.id)
+
+    async def _calculate_and_store_activity_analysis(self, activity_id: int) -> None:
+        try:
+            analysis = await self._calculate_activity_analysis(activity_id)
+            if not analysis:
+                return
+            stored = await self.db.scalar(select(SportActivityAnalysis).where(SportActivityAnalysis.activity_id == activity_id))
+            if stored:
+                stored.analysis_json = analysis
+                stored.status = "calculated"
+            else:
+                self.db.add(SportActivityAnalysis(activity_id=activity_id, analysis_json=analysis, status="calculated"))
+            await self.db.commit()
+        except Exception:
+            await self.db.rollback()
+
+    async def generate_activity_ai_analysis(self, activity_id: int) -> bool:
+        """Generate the optional AI summary without affecting activity persistence."""
+        try:
+            deterministic = await self._calculate_activity_analysis(activity_id)
+            if deterministic is None:
+                return False
+            await self._calculate_and_store_activity_analysis(activity_id)
+            stored = await self.db.scalar(select(SportActivityAnalysis).where(SportActivityAnalysis.activity_id == activity_id))
+            if stored is None:
+                return False
+            stored.ai_attempts = (stored.ai_attempts or 0) + 1
+            stored.ai_status = "pending"
+            stored.ai_error = None
+            await self.db.commit()
+
+            athlete = await self.get_or_create_athlete()
+            activity = await self.db.scalar(select(SportActivity).where(
+                SportActivity.id == activity_id, SportActivity.athlete_id == athlete.id,
+            ))
+            if activity is None:
+                return False
+            reference_day = activity.started_at.date()
+            result = await self.db.execute(select(SportActivity).where(
+                SportActivity.athlete_id == athlete.id,
+                SportActivity.started_at >= datetime.combine(reference_day - timedelta(days=179), datetime.min.time()),
+                SportActivity.started_at <= datetime.combine(reference_day, datetime.max.time()),
+            ).order_by(SportActivity.started_at.desc()))
+            activities = list(result.scalars().all())
+            zones = (athlete.metadata_json or {}).get("heart_rate_zones")
+            weekly = SportAnalysisEngine.analyze_period(activities, reference_day - timedelta(days=27), reference_day, reference_day - timedelta(days=55), zones)
+            monthly = SportAnalysisEngine.analyze_period(activities, reference_day - timedelta(days=89), reference_day, reference_day - timedelta(days=179), zones)
+            goals_result = await self.db.execute(select(SportGoal).where(SportGoal.athlete_id == athlete.id))
+            goals = list(goals_result.scalars().all())
+            context = SportAnalysisEngine.build_context(
+                {"display_name": athlete.display_name, "profile": SportAnalysisEngine.athlete_profile(activities, goals),
+                 "heart_rate": zones}, activities[:10], weekly, monthly, goals,
+            )
+            context["current_activity"] = deterministic
+            answer = await get_sport_ai_provider().answer("Analyse cette activité dans son contexte historique.", context)
+            stored.ai_analysis_json = {"answer": answer.get("answer"), "provider": answer.get("provider"), "sources": answer.get("sources", [])}
+            stored.ai_status = "available" if answer.get("available") else "unavailable"
+            stored.ai_generated_at = datetime.now(timezone.utc)
+            stored.ai_error = None
+            await self.db.commit()
+            return True
+        except Exception as exc:
+            await self.db.rollback()
+            logger.exception("Sport AI analysis failed for activity %s", activity_id)
+            stored = await self.db.scalar(select(SportActivityAnalysis).where(SportActivityAnalysis.activity_id == activity_id))
+            if stored:
+                stored.ai_status = "failed"
+                stored.ai_error = str(exc)[:1000]
+                try:
+                    await self.db.commit()
+                except Exception:
+                    await self.db.rollback()
+            return False
+
+    async def _calculate_activity_analysis(self, activity_id: int) -> dict | None:
+        athlete = await self.get_or_create_athlete()
+        result = await self.db.execute(
+            select(SportActivity).options(selectinload(SportActivity.track_points)).where(
+                SportActivity.id == activity_id,
+                SportActivity.athlete_id == athlete.id,
+            )
+        )
+        activity = result.scalar_one_or_none()
+        if not activity:
+            return None
+        similar_result = await self.db.execute(
+            select(SportActivity).where(
+                SportActivity.athlete_id == athlete.id,
+                SportActivity.id != activity_id,
+                SportActivity.sport_type == activity.sport_type,
+            ).order_by(SportActivity.started_at.desc()).limit(20)
+        )
+        zones = (athlete.metadata_json or {}).get("heart_rate_zones")
+        return SportAnalysisEngine.analyze_activity(activity, similar_result.scalars().all(), zones)
 
     async def list_activities(self, page: int, page_size: int) -> dict:
         athlete = await self.get_or_create_athlete()
@@ -128,6 +229,7 @@ class SportService:
             select(SportGoal).where(SportGoal.athlete_id == athlete.id).order_by(SportGoal.target_date.asc())
         )
         goals = list(goals_result.scalars().all())
+        athlete_zones = (athlete.metadata_json or {}).get("heart_rate_zones")
         current_summary = self._summary(current)
         previous_summary = self._summary(previous)
         summary = {
@@ -149,8 +251,225 @@ class SportService:
             "latest_activity": activities[0] if activities else None,
             "recent_activities": activities[:6],
             "goals": goals,
-            "ai": {"available": False},
+            "goal_analysis": SportAnalysisEngine.analyze_goals(goals, activities, today),
+            "ai": {"available": True, "provider": "local", "llm": False},
+            "analysis": SportAnalysisEngine.analyze_period(
+                activities,
+                period_start,
+                today,
+                previous_start,
+                athlete_zones,
+            ),
         }
+
+    async def analyze_period(self, period_days: int = 28) -> dict:
+        athlete = await self.get_or_create_athlete()
+        period_days = period_days if period_days in {7, 28, 90, 365} else 28
+        today = datetime.now(timezone.utc).date()
+        start = today - timedelta(days=period_days - 1)
+        query_start = start - timedelta(days=period_days)
+        result = await self.db.execute(
+            select(SportActivity).where(
+                SportActivity.athlete_id == athlete.id,
+                SportActivity.started_at >= datetime.combine(query_start, datetime.min.time()),
+            ).order_by(SportActivity.started_at.desc())
+        )
+        return SportAnalysisEngine.analyze_period(
+            list(result.scalars().all()), start, today, query_start,
+            (athlete.metadata_json or {}).get("heart_rate_zones"),
+        )
+
+    async def analyze_activity(self, activity_id: int) -> dict:
+        analysis = await self._calculate_activity_analysis(activity_id)
+        if analysis is None:
+            return {}
+        await self._calculate_and_store_activity_analysis(activity_id)
+        stored = await self.db.scalar(select(SportActivityAnalysis).where(SportActivityAnalysis.activity_id == activity_id))
+        if stored:
+            analysis["ai_analysis"] = {
+                "status": stored.ai_status,
+                "result": stored.ai_analysis_json,
+                "generated_at": stored.ai_generated_at,
+                "attempts": stored.ai_attempts,
+                "error": stored.ai_error,
+            }
+        return analysis
+
+    async def analyze_week(self) -> dict:
+        today = datetime.now(timezone.utc).date()
+        start = today - timedelta(days=today.weekday())
+        return await self._analyze_range(start, today, 7)
+
+    async def analyze_month(self) -> dict:
+        today = datetime.now(timezone.utc).date()
+        start = today - timedelta(days=29)
+        return await self._analyze_range(start, today, 30)
+
+    async def analyze_day(self, day: date | None = None) -> dict:
+        athlete = await self.get_or_create_athlete()
+        target = day or datetime.now(timezone.utc).date()
+        previous = target - timedelta(days=1)
+        result = await self.db.execute(select(SportActivity).where(
+            SportActivity.athlete_id == athlete.id,
+            SportActivity.started_at >= datetime.combine(previous, datetime.min.time()),
+        ))
+        return SportAnalysisEngine.analyze_period(
+            list(result.scalars().all()), target, target, previous,
+            (athlete.metadata_json or {}).get("heart_rate_zones"),
+        )
+
+    async def analyze_goals(self) -> list[dict]:
+        athlete = await self.get_or_create_athlete()
+        activities_result = await self.db.execute(select(SportActivity).where(SportActivity.athlete_id == athlete.id))
+        goals_result = await self.db.execute(select(SportGoal).where(SportGoal.athlete_id == athlete.id))
+        return SportAnalysisEngine.analyze_goals(
+            goals_result.scalars().all(), activities_result.scalars().all(), datetime.now(timezone.utc).date(),
+        )
+
+    async def athlete_profile(self) -> dict:
+        athlete = await self.get_or_create_athlete()
+        result = await self.db.execute(
+            select(SportActivity).where(SportActivity.athlete_id == athlete.id).order_by(SportActivity.started_at.asc())
+        )
+        goals_result = await self.db.execute(select(SportGoal).where(SportGoal.athlete_id == athlete.id))
+        goals = [{"name": goal.name, "goal_type": goal.goal_type, "target_value": goal.target_value,
+                  "unit": goal.unit, "target_date": goal.target_date} for goal in goals_result.scalars().all()]
+        metadata = athlete.metadata_json or {}
+        return {
+            "athlete_id": athlete.id,
+            "display_name": athlete.display_name,
+            "heart_rate": metadata.get("heart_rate_zones"),
+            "profile": SportAnalysisEngine.athlete_profile(result.scalars().all(), goals),
+        }
+
+    async def update_heart_rate_config(self, config: SportHeartRateConfig) -> dict:
+        athlete = await self.get_or_create_athlete()
+        values = config.model_dump(exclude_none=True)
+        if values.get("custom_zones") and values["custom_zones"] != sorted(values["custom_zones"]):
+            raise ValueError("Les limites des zones cardiaques doivent être croissantes")
+        metadata = dict(athlete.metadata_json or {})
+        if values:
+            metadata["heart_rate_zones"] = values
+        else:
+            metadata.pop("heart_rate_zones", None)
+        athlete.metadata_json = metadata
+        await self.db.commit()
+        return await self.athlete_profile()
+
+    async def _analyze_range(self, start: date, end: date, period_days: int) -> dict:
+        athlete = await self.get_or_create_athlete()
+        previous_start = start - timedelta(days=period_days)
+        result = await self.db.execute(select(SportActivity).where(
+            SportActivity.athlete_id == athlete.id,
+            SportActivity.started_at >= datetime.combine(previous_start, datetime.min.time()),
+        ))
+        return SportAnalysisEngine.analyze_period(
+            list(result.scalars().all()), start, end, previous_start,
+            (athlete.metadata_json or {}).get("heart_rate_zones"),
+        )
+
+    async def coach(self, question: str, conversation_id: int | None = None) -> dict:
+        athlete = await self.get_or_create_athlete()
+        conversation = None
+        if conversation_id is not None:
+            conversation = await self.db.scalar(select(SportCoachConversation).where(
+                SportCoachConversation.id == conversation_id,
+                SportCoachConversation.athlete_id == athlete.id,
+            ))
+            if conversation is None:
+                raise ValueError("Conversation Sport introuvable")
+        else:
+            conversation = SportCoachConversation(athlete_id=athlete.id, title=question[:300])
+            self.db.add(conversation)
+            await self.db.flush()
+
+        self.db.add(SportCoachMessage(conversation_id=conversation.id, role="user", content=question, sources_json=[]))
+        await self.db.flush()
+        today = datetime.now(timezone.utc).date()
+        start = today - timedelta(days=27)
+        result = await self.db.execute(
+            select(SportActivity).where(
+                SportActivity.athlete_id == athlete.id,
+                SportActivity.started_at >= datetime.combine(today - timedelta(days=120), datetime.min.time()),
+            ).order_by(SportActivity.started_at.desc())
+        )
+        activities = list(result.scalars().all())
+        zones = (athlete.metadata_json or {}).get("heart_rate_zones")
+        weekly = SportAnalysisEngine.analyze_period(activities, start, today, today - timedelta(days=55), zones)
+        monthly = SportAnalysisEngine.analyze_period(activities, today - timedelta(days=89), today, today - timedelta(days=179), zones)
+        goals_result = await self.db.execute(select(SportGoal).where(SportGoal.athlete_id == athlete.id))
+        goals = [{"name": goal.name, "goal_type": goal.goal_type, "target_value": goal.target_value, "unit": goal.unit, "target_date": goal.target_date} for goal in goals_result.scalars().all()]
+        profile = SportAnalysisEngine.athlete_profile(activities, goals)
+        profile["goal_analysis"] = SportAnalysisEngine.analyze_goals(goals, activities, today)
+        context = SportAnalysisEngine.build_context(
+            {"display_name": athlete.display_name, "profile": profile, "heart_rate": (athlete.metadata_json or {}).get("heart_rate_zones")},
+            activities[:10], weekly, monthly, goals,
+        )
+        result = await get_sport_ai_provider().answer(question, context)
+        assistant_message = SportCoachMessage(
+            conversation_id=conversation.id,
+            role="assistant",
+            content=result["answer"],
+            provider=result.get("provider"),
+            sources_json=result.get("sources", []),
+        )
+        self.db.add(assistant_message)
+        conversation.updated_at = datetime.now(timezone.utc)
+        await self.db.commit()
+        await self.db.refresh(assistant_message)
+        return {**result, "conversation_id": conversation.id, "message_id": assistant_message.id}
+
+    async def list_coach_conversations(self) -> list[dict]:
+        athlete = await self.get_or_create_athlete()
+        result = await self.db.execute(select(SportCoachConversation).where(
+            SportCoachConversation.athlete_id == athlete.id,
+        ).order_by(SportCoachConversation.updated_at.desc()).limit(50))
+        return [{"id": item.id, "title": item.title, "created_at": item.created_at, "updated_at": item.updated_at, "messages": []}
+                for item in result.scalars().all()]
+
+    async def get_coach_conversation(self, conversation_id: int) -> dict | None:
+        athlete = await self.get_or_create_athlete()
+        result = await self.db.execute(select(SportCoachConversation).options(selectinload(SportCoachConversation.messages)).where(
+            SportCoachConversation.id == conversation_id,
+            SportCoachConversation.athlete_id == athlete.id,
+        ))
+        conversation = result.scalar_one_or_none()
+        if not conversation:
+            return None
+        return {
+            "id": conversation.id,
+            "title": conversation.title,
+            "created_at": conversation.created_at,
+            "updated_at": conversation.updated_at,
+            "messages": [{"id": message.id, "role": message.role, "content": message.content,
+                           "provider": message.provider, "sources": message.sources_json,
+                           "created_at": message.created_at} for message in conversation.messages],
+        }
+
+    async def create_observation(self, data: SportObservationCreate) -> SportAthleteObservation:
+        athlete = await self.get_or_create_athlete()
+        if data.activity_id:
+            activity = await self.db.scalar(select(SportActivity).where(
+                SportActivity.id == data.activity_id, SportActivity.athlete_id == athlete.id,
+            ))
+            if activity is None:
+                raise ValueError("Activité Sport introuvable")
+        observation = SportAthleteObservation(
+            athlete_id=athlete.id, activity_id=data.activity_id, kind=data.kind,
+            content=data.content, status="confirmed", sources_json={"source": "user"},
+            confirmed_at=datetime.now(timezone.utc),
+        )
+        self.db.add(observation)
+        await self.db.commit()
+        await self.db.refresh(observation)
+        return observation
+
+    async def list_observations(self) -> list[SportAthleteObservation]:
+        athlete = await self.get_or_create_athlete()
+        result = await self.db.execute(select(SportAthleteObservation).where(
+            SportAthleteObservation.athlete_id == athlete.id,
+        ).order_by(SportAthleteObservation.created_at.desc()).limit(100))
+        return list(result.scalars().all())
 
     @staticmethod
     def _summary(activities: list[SportActivity]) -> dict:

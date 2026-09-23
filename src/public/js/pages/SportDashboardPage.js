@@ -1,4 +1,4 @@
-import { getSportDashboard } from '../services/sportApi.js?v=3';
+import { askSportCoach, getSportAthleteProfile, getSportCoachConversation, getSportDashboard, listSportCoachConversations, updateSportHeartRateConfig } from '../services/sportApi.js?v=3';
 
 const PERIODS = [
   { value: 7, label: '7 jours' },
@@ -20,6 +20,10 @@ export class SportDashboardPage {
     this.period = 28;
     this.metric = 'distance_m';
     this.error = null;
+    this.conversationId = null;
+    this.conversations = [];
+    this.messages = [];
+    this.profile = null;
   }
 
   async initialize() {
@@ -28,6 +32,16 @@ export class SportDashboardPage {
       this.data = await getSportDashboard(this.period);
     } catch (error) {
       this.error = error;
+    }
+    try {
+      this.conversations = await listSportCoachConversations();
+    } catch (error) {
+      this.conversations = [];
+    }
+    try {
+      this.profile = await getSportAthleteProfile();
+    } catch (error) {
+      this.profile = null;
     }
   }
 
@@ -61,6 +75,7 @@ export class SportDashboardPage {
         ${summary.avg_heart_rate != null ? this._summaryCard('FC moyenne', `${Math.round(summary.avg_heart_rate)} bpm`, this._trendFor(data, 'avg_heart_rate'), 'heart') : ''}
       </section>
       ${this._trendStrip(data)}
+      ${this._analysisFindings(data.analysis || {})}
       <section class="sport-dashboard-grid sport-dashboard-grid--main">
         <div class="card sport-card sport-card--wide">
           <div class="card-header sport-card-header"><div><span class="sport-eyebrow">CHARGE D’ENTRAÎNEMENT</span><h2>Volume dans le temps</h2></div><select class="form-control sport-metric-select" data-metric aria-label="Métrique du graphique"><option value="distance_m" ${this.metric === 'distance_m' ? 'selected' : ''}>Distance</option><option value="elevation_gain_m" ${this.metric === 'elevation_gain_m' ? 'selected' : ''}>Dénivelé</option><option value="duration_seconds" ${this.metric === 'duration_seconds' ? 'selected' : ''}>Durée</option></select></div>
@@ -77,11 +92,11 @@ export class SportDashboardPage {
         <div class="card sport-card"><div class="card-header"><div><span class="sport-eyebrow">HISTORIQUE</span><h2>Activités récentes</h2></div><button class="btn btn-sm btn-secondary" data-action="activities">Tout voir</button></div><div class="card-body sport-recent-list">${this._recent(data.recent_activities || [])}</div></div>
       </section>
       <section class="sport-dashboard-grid sport-dashboard-grid--three">
-        ${this._heartRate(data.heart_rate)}
+         ${this._heartRate(data.heart_rate, this.profile)}
         ${this._elevation(data.elevation || {})}
-        ${this._goal(data.goals || [])}
+         ${this._goal(data.goals || [], data.goal_analysis || [])}
       </section>
-      <section class="card sport-ai-card"><div class="sport-ai-icon">✦</div><div><span class="sport-eyebrow">PROCHAINEMENT</span><h2>Analyse de ton entraînement</h2><p>L’analyse intelligente de tes entraînements sera disponible prochainement.</p></div><span class="sport-ai-badge">IA ForgeAI</span></section>
+       <section class="card sport-ai-card"><div class="sport-ai-icon">✦</div><div class="sport-ai-content"><span class="sport-eyebrow">COACH SPORT</span><h2>Une question sur ton entraînement ?</h2><p>Les réponses utilisent uniquement les statistiques disponibles dans ton historique.</p><div class="sport-coach-toolbar"><select class="form-control" data-coach-conversation aria-label="Conversation Coach Sport"><option value="">Nouvelle conversation</option>${this._conversationOptions()}</select><button class="btn btn-secondary" type="button" data-new-conversation>Nouvelle</button></div><div class="sport-coach-history" aria-live="polite">${this._coachHistory()}</div><form class="sport-coach-form"><input class="form-control" name="question" maxlength="1000" placeholder="Comment s’est passée ma semaine ?" required><button class="btn btn-primary" type="submit">Analyser</button></form><div class="sport-coach-answer" aria-live="polite"></div></div><span class="sport-ai-badge">IA ForgeAI</span></section>
     `;
     this._bindEvents();
   }
@@ -97,6 +112,77 @@ export class SportDashboardPage {
       this._renderContent();
     });
     this.element.querySelector('[data-action="activities"]')?.addEventListener('click', () => this.router.navigate('/sport/activities'));
+    this.element.querySelector('.sport-heart-rate-form')?.addEventListener('submit', async event => {
+      event.preventDefault();
+      const form = event.currentTarget;
+      const button = form.querySelector('button');
+      const status = form.querySelector('[data-heart-rate-status]');
+      button.disabled = true;
+      status.textContent = 'Enregistrement...';
+      try {
+        const values = Object.fromEntries(new FormData(form).entries());
+        const customZones = [...form.querySelectorAll('[name="zone"]')].map(input => input.value ? Number(input.value) : null);
+        this.profile = await updateSportHeartRateConfig({ rest_hr: values.rest_hr ? Number(values.rest_hr) : null, max_hr: values.max_hr ? Number(values.max_hr) : null, custom_zones: customZones.every(value => value == null) ? null : customZones });
+        status.textContent = 'Configuration enregistrée.';
+      } catch (error) {
+        status.textContent = 'Configuration invalide ou indisponible.';
+      } finally {
+        button.disabled = false;
+      }
+    });
+    this.element.querySelector('[data-new-conversation]')?.addEventListener('click', () => {
+      this.conversationId = null;
+      this.messages = [];
+      this.element.querySelector('[data-coach-conversation]').value = '';
+      this._renderCoachHistory();
+    });
+    this.element.querySelector('[data-coach-conversation]')?.addEventListener('change', async event => {
+      this.conversationId = event.target.value ? Number(event.target.value) : null;
+      this.messages = [];
+      if (this.conversationId) {
+        try {
+          const conversation = await getSportCoachConversation(this.conversationId);
+          this.messages = conversation.messages || [];
+        } catch (error) {
+          this.conversationId = null;
+        }
+      }
+      this._renderCoachHistory();
+    });
+    this.element.querySelector('.sport-coach-form')?.addEventListener('submit', async event => {
+      event.preventDefault();
+      const form = event.currentTarget;
+      const answer = this.element.querySelector('.sport-coach-answer');
+      const button = form.querySelector('button');
+      button.disabled = true;
+      answer.textContent = 'Analyse en cours...';
+      try {
+        const result = await askSportCoach(new FormData(form).get('question'), this.conversationId);
+        this.conversationId = result.conversation_id || this.conversationId;
+        answer.textContent = result.answer || 'Aucune analyse disponible.';
+        this.messages.push({ role: 'user', content: new FormData(form).get('question') });
+        this.messages.push({ role: 'assistant', content: result.answer || 'Aucune analyse disponible.', provider: result.provider });
+        this._renderCoachHistory();
+      } catch (error) {
+        answer.textContent = 'Le coach est temporairement indisponible. Les statistiques du dashboard restent accessibles.';
+      } finally {
+        button.disabled = false;
+      }
+    });
+  }
+
+  _conversationOptions() {
+    return this.conversations.map(item => `<option value="${item.id}" ${item.id === this.conversationId ? 'selected' : ''}>${this._escape(item.title || `Conversation ${item.id}`)}</option>`).join('');
+  }
+
+  _coachHistory() {
+    if (!this.messages.length) return '<p class="text-muted">Aucun message dans cette conversation.</p>';
+    return this.messages.map(message => `<div class="sport-coach-message sport-coach-message--${message.role === 'user' ? 'user' : 'assistant'}"><strong>${message.role === 'user' ? 'Toi' : 'Coach Sport'}</strong><p>${this._escape(message.content)}</p></div>`).join('');
+  }
+
+  _renderCoachHistory() {
+    const history = this.element?.querySelector('.sport-coach-history');
+    if (history) history.innerHTML = this._coachHistory();
   }
 
   _summaryCard(label, value, change, icon) {
@@ -111,6 +197,13 @@ export class SportDashboardPage {
     const trends = (data.trends || []).filter(item => item.change_percent != null).slice(0, 4);
     if (!trends.length) return '';
     return `<div class="sport-trend-strip">${trends.map(item => `<div><span>${item.label}</span><strong class="${item.change_percent >= 0 ? 'is-positive' : 'is-negative'}">${item.change_percent >= 0 ? '+' : ''}${item.change_percent}%</strong></div>`).join('')}</div>`;
+  }
+
+  _analysisFindings(analysis) {
+    const findings = analysis.findings || [];
+    const load = analysis.training_load?.available ? `<p><strong>Charge calculée :</strong> ${analysis.training_load.score} points · ${analysis.training_load.activity_count} activité(s)</p>` : '';
+    if (!findings.length && !load) return '';
+    return `<section class="card sport-analysis-findings"><div class="card-header"><div><span class="sport-eyebrow">EXPLICABILITÉ</span><h2>Points calculés</h2></div></div><div class="card-body">${load}${findings.map(item => `<details class="sport-analysis-finding"><summary>${this._escape(item.message)}</summary><pre>${this._escape(JSON.stringify(item.evidence || {}, null, 2))}</pre></details>`).join('')}</div></section>`;
   }
 
   _dailyChart(items) {
@@ -150,9 +243,11 @@ export class SportDashboardPage {
     return items.map(item => `<button class="sport-recent-item" type="button" title="Ouvrir les activités"><span class="sport-recent-icon">${this._icon(item.sport_type)}</span><span class="sport-recent-main"><strong>${this._escape(item.activity_name || SPORT_LABELS[item.sport_type] || item.sport_type)}</strong><small>${this._date(item.started_at)} · ${this._distance(item.distance_m)} · ${this._duration(item.duration_seconds)}</small></span><span class="sport-recent-elevation">${this._elevationValue(item.elevation_gain_m)}</span></button>`).join('');
   }
 
-  _heartRate(data) {
-    if (!data) return '';
-    return `<div class="card sport-card"><div class="card-header"><div><span class="sport-eyebrow">RÉCUPÉRATION</span><h2>Fréquence cardiaque</h2></div></div><div class="card-body sport-health-card"><div><span>FC moyenne</span><strong>${Math.round(data.avg_bpm)} <small>bpm</small></strong></div>${data.max_bpm != null ? `<div><span>FC max</span><strong>${Math.round(data.max_bpm)} <small>bpm</small></strong></div>` : ''}<p class="text-muted">Les zones cardiaques seront disponibles lorsque les données détaillées seront importées.</p></div></div>`;
+  _heartRate(data, profile) {
+    const config = profile?.heart_rate || {};
+    const zones = config.custom_zones || [];
+    const zoneInputs = [0, 1, 2, 3, 4].map(index => `<label>Z${index + 1} max<input class="form-control" name="zone" type="number" min="40" max="250" value="${zones[index] ?? ''}" placeholder="limite bpm"></label>`).join('');
+    return `<div class="card sport-card"><div class="card-header"><div><span class="sport-eyebrow">RÉCUPÉRATION</span><h2>Fréquence cardiaque</h2></div></div><div class="card-body sport-health-card">${data ? `<div><span>FC moyenne</span><strong>${Math.round(data.avg_bpm)} <small>bpm</small></strong></div>${data.max_bpm != null ? `<div><span>FC max</span><strong>${Math.round(data.max_bpm)} <small>bpm</small></strong></div>` : ''}` : '<p class="text-muted">Aucune fréquence cardiaque disponible sur la période.</p>'}<form class="sport-heart-rate-form"><label>FC repos<input class="form-control" name="rest_hr" type="number" min="20" max="250" value="${config.rest_hr ?? ''}" placeholder="ex. 50"></label><label>FC max<input class="form-control" name="max_hr" type="number" min="80" max="250" value="${config.max_hr ?? ''}" placeholder="ex. 190"></label><div class="sport-zones-config"><span>Limites personnalisées (optionnel)</span>${zoneInputs}</div><button class="btn btn-secondary" type="submit">Enregistrer</button><small data-heart-rate-status class="text-muted">Les zones personnalisées doivent être croissantes.</small></form></div></div>`;
   }
 
   _elevation(data) {
@@ -160,10 +255,12 @@ export class SportDashboardPage {
     return `<div class="card sport-card"><div class="card-header"><div><span class="sport-eyebrow">TRAIL</span><h2>Dénivelé</h2></div></div><div class="card-body sport-health-card"><div><span>D+ sur 4 semaines</span><strong>${this._elevationValue(data.month_m)}</strong></div><div><span>Moyenne hebdo.</span><strong>${this._elevationValue(data.weekly_average_m)}</strong></div><div class="sport-mini-bars">${(data.weekly || []).map(item => `<i style="height:${Math.max(4, Math.min(100, (item.elevation_gain_m || 0) / Math.max(...(data.weekly || []).map(value => value.elevation_gain_m || 1)) * 100))}%" title="${this._elevationValue(item.elevation_gain_m)}"></i>`).join('')}</div></div></div>`;
   }
 
-  _goal(goals) {
+  _goal(goals, analyses = []) {
     const goal = goals.find(item => item.status === 'active') || goals[0];
     if (!goal) return `<div class="card sport-card sport-goal-empty"><div class="card-header"><div><span class="sport-eyebrow">OBJECTIF</span><h2>Objectif sportif</h2></div></div><div class="card-body">${this._empty('Aucun objectif défini', 'Ajoute un objectif pour suivre ta progression ici.')}</div></div>`;
-    return `<div class="card sport-card"><div class="card-header"><div><span class="sport-eyebrow">OBJECTIF</span><h2>${this._escape(goal.name)}</h2></div></div><div class="card-body sport-goal"><strong>${goal.target_value != null ? `${goal.target_value} ${this._escape(goal.unit || '')}` : 'Objectif en préparation'}</strong>${goal.target_date ? `<span>Échéance · ${this._date(goal.target_date)}</span>` : ''}<div class="sport-goal-track"><i></i></div><small>La progression détaillée sera calculée à partir des activités compatibles.</small></div></div>`;
+     const analysis = analyses.find(item => item.goal_id === goal.id);
+     const context = analysis ? `${analysis.compatible_activity_count} activité(s) compatible(s) · ${analysis.recent_28_days.activity_count} sur les 28 derniers jours` : 'Aucune analyse compatible disponible';
+     return `<div class="card sport-card"><div class="card-header"><div><span class="sport-eyebrow">OBJECTIF</span><h2>${this._escape(goal.name)}</h2></div></div><div class="card-body sport-goal"><strong>${goal.target_value != null ? `${goal.target_value} ${this._escape(goal.unit || '')}` : 'Objectif en préparation'}</strong>${goal.target_date ? `<span>Échéance · ${this._date(goal.target_date)}</span>` : ''}<div class="sport-goal-track"><i></i></div><small>${this._escape(context)}. Aucune prédiction de réussite n'est calculée.</small></div></div>`;
   }
 
   _metricValue(value) { return this.metric === 'distance_m' ? this._distance(value) : this.metric === 'elevation_gain_m' ? this._elevationValue(value) : this._duration(value); }

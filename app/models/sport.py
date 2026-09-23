@@ -79,6 +79,65 @@ class SportTrackPoint(Base):
     activity: Mapped[SportActivity] = relationship("SportActivity", back_populates="track_points")
 
 
+class SportActivityAnalysis(Base):
+    __tablename__ = "sport_activity_analyses"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    activity_id: Mapped[int] = mapped_column(ForeignKey("sport_activities.id", ondelete="CASCADE"), nullable=False, unique=True, index=True)
+    analysis_json: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False)
+    status: Mapped[str] = mapped_column(String(30), nullable=False, default="calculated")
+    generated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    ai_status: Mapped[str] = mapped_column(String(30), nullable=False, default="pending", index=True)
+    ai_analysis_json: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    ai_generated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    ai_attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    ai_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    activity: Mapped[SportActivity] = relationship("SportActivity")
+
+
+class SportCoachConversation(Base):
+    __tablename__ = "sport_coach_conversations"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    athlete_id: Mapped[int] = mapped_column(ForeignKey("sport_athletes.id", ondelete="CASCADE"), nullable=False, index=True)
+    title: Mapped[str | None] = mapped_column(String(300), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
+    messages: Mapped[list["SportCoachMessage"]] = relationship(
+        "SportCoachMessage", back_populates="conversation", cascade="all, delete-orphan", order_by="SportCoachMessage.created_at"
+    )
+
+
+class SportCoachMessage(Base):
+    __tablename__ = "sport_coach_messages"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    conversation_id: Mapped[int] = mapped_column(ForeignKey("sport_coach_conversations.id", ondelete="CASCADE"), nullable=False, index=True)
+    role: Mapped[str] = mapped_column(String(20), nullable=False)
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    provider: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    sources_json: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    conversation: Mapped[SportCoachConversation] = relationship("SportCoachConversation", back_populates="messages")
+
+
+class SportAthleteObservation(Base):
+    __tablename__ = "sport_athlete_observations"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    athlete_id: Mapped[int] = mapped_column(ForeignKey("sport_athletes.id", ondelete="CASCADE"), nullable=False, index=True)
+    activity_id: Mapped[int | None] = mapped_column(ForeignKey("sport_activities.id", ondelete="SET NULL"), nullable=True, index=True)
+    kind: Mapped[str] = mapped_column(String(30), nullable=False, default="observed")
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(String(30), nullable=False, default="calculated", index=True)
+    sources_json: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    confirmed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
 class SportGoal(Base):
     __tablename__ = "sport_goals"
 

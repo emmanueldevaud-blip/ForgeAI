@@ -7,7 +7,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
-from app.models.user import User
+from app.models.user import User, UserRole
 from app.schemas.auth import Token, TokenData
 from app.services.ad import DatabaseADService
 from app.services.audit import AuditService
@@ -320,6 +320,7 @@ async def create_user(db: AsyncSession, user_data: dict, audit: AuditService | N
         last_name=user_data.get("last_name"),
         password_hash=hash_password(user_data["password"]) if user_data.get("password") else None,
         is_active=user_data.get("is_active", True),
+        role=user_data.get("role", UserRole.USER),
         source=user_data.get("source", "local"),
     )
     db.add(user)

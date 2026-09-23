@@ -16,10 +16,7 @@ depends_on = None
 
 
 def upgrade() -> None:
-    bind = op.get_bind()
-    columns = {column["name"] for column in sa.inspect(bind).get_columns("occupancies")}
-    if "room_index" not in columns:
-        op.add_column("occupancies", sa.Column("room_index", sa.Integer(), nullable=True))
+    op.add_column("occupancies", sa.Column("room_index", sa.Integer(), nullable=True))
 
 
 def downgrade() -> None:

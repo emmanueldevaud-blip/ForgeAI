@@ -1,6 +1,6 @@
 """Add volunteer usage and cleaning assignments."""
 
-from alembic import op
+from alembic import context, op
 import sqlalchemy as sa
 
 
@@ -11,6 +11,24 @@ depends_on = None
 
 
 def upgrade() -> None:
+    if context.is_offline_mode():
+        op.add_column(
+            "volunteers",
+            sa.Column("usage_type", sa.String(length=50), nullable=False, server_default="cleaning"),
+        )
+        op.create_table(
+            "cleaning_volunteers",
+            sa.Column("cleaning_id", sa.Integer(), nullable=False),
+            sa.Column("volunteer_id", sa.Integer(), nullable=False),
+            sa.ForeignKeyConstraint(["cleaning_id"], ["housing_cleanings.id"], ondelete="CASCADE"),
+            sa.ForeignKeyConstraint(["volunteer_id"], ["volunteers.id"], ondelete="CASCADE"),
+            sa.PrimaryKeyConstraint("cleaning_id", "volunteer_id"),
+            mysql_engine="InnoDB", mysql_charset="utf8mb4", mysql_collate="utf8mb4_unicode_ci",
+        )
+        op.create_index("ix_cleaning_volunteers_cleaning", "cleaning_volunteers", ["cleaning_id"])
+        op.create_index("ix_cleaning_volunteers_volunteer", "cleaning_volunteers", ["volunteer_id"])
+        return
+
     bind = op.get_bind()
     inspector = sa.inspect(bind)
     tables = set(inspector.get_table_names())

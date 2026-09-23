@@ -4,8 +4,11 @@ __pycache__/
 *$py.class
 *.so
 .Python
+.venv/
 venv/
 env/
+.mypy_cache/
+.ruff_cache/
 .env
 pip-wheel-metadata/
 *.egg-info/

@@ -89,7 +89,7 @@ Pour rendre explicitement l'application et SSH accessibles depuis Windows,
 ouvrez PowerShell **en administrateur** depuis le projet et executez :
 
 ```powershell
-.\windows-wsl-forwarding.ps1
+.\tools\wsl\forwarding.ps1
 ```
 
 Avant la premiere utilisation, installez et demarrez SSH dans WSL :

@@ -85,9 +85,7 @@ All three direct children now have explicit `grid-area` assignments matching the
 
 6. **Paste and run** the verification script:
    ```javascript
-   // Copy contents of verify-dashboard.js and paste in console
-   // Or run this one-liner:
-   fetch('/verify-dashboard.js').then(r=>r.text()).then(eval)
+   // Copy the contents of tools/dashboard/verify-dashboard.js into the console.
    ```
 
 7. **Check output** for ✅ (pass) or ❌ (fail) indicators

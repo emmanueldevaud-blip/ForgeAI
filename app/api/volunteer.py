@@ -31,7 +31,10 @@ async def create_volunteer(
     db: AsyncSession = Depends(get_db),
 ):
     """Create a new volunteer."""
-    volunteer = await volunteer_service.create_volunteer(db, volunteer_in)
+    try:
+        volunteer = await volunteer_service.create_volunteer(db, volunteer_in)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     return VolunteerResponse.model_validate(volunteer)
 
 
@@ -57,7 +60,10 @@ async def update_volunteer(
     db: AsyncSession = Depends(get_db),
 ):
     """Update a volunteer."""
-    volunteer = await volunteer_service.update_volunteer(db, volunteer_id, volunteer_in)
+    try:
+        volunteer = await volunteer_service.update_volunteer(db, volunteer_id, volunteer_in)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     if not volunteer:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -72,7 +78,10 @@ async def delete_volunteer(
     db: AsyncSession = Depends(get_db),
 ):
     """Delete a volunteer."""
-    success = await volunteer_service.delete_volunteer(db, volunteer_id)
+    try:
+        success = await volunteer_service.delete_volunteer(db, volunteer_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     if not success:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,

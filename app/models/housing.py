@@ -16,6 +16,7 @@ from sqlalchemy import (
     func,
     Table,
     Column,
+    UniqueConstraint,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -101,6 +102,7 @@ class Occupant(Base):
 
     __table_args__ = (
         Index("ix_occupants_name", "last_name", "first_name"),
+        UniqueConstraint("last_name", "first_name", name="uq_occupants_name"),
     )
 
     def __repr__(self) -> str:

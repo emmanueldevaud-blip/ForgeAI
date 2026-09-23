@@ -174,7 +174,7 @@ export class HousingCleaningPage {
           dayIndex += span;
           continue;
         }
-        html += `<td class="planning-cell" data-date="${date}" data-housing-id="${housing.id}"></td>`;
+        html += `<td class="planning-cell" data-date="${date}" data-housing-id="${housing.id}" title="Cliquer pour planifier un ménage" style="cursor:pointer;"></td>`;
         dayIndex++;
       }
       html += '</tr>';
@@ -198,6 +198,14 @@ export class HousingCleaningPage {
       block.addEventListener('dragend', () => { draggedEntry = null; });
     });
     container.querySelectorAll('[data-date]').forEach(cell => {
+      cell.addEventListener('click', () => {
+        if (cell.dataset.date < formatDate(new Date())) {
+          alert('Un ménage ne peut pas être planifié à une date passée.');
+          return;
+        }
+        const housing = this.housings.find(item => String(item.id) === cell.dataset.housingId);
+        if (housing) this._showDirectCleaningModal(housing, cell.dataset.date);
+      });
       cell.addEventListener('dragover', event => {
         if (draggedEntry) {
           event.preventDefault();
@@ -209,6 +217,10 @@ export class HousingCleaningPage {
         if (!draggedEntry) return;
         const targetDate = cell.dataset.date;
         const departureDate = (draggedEntry.departure_date || '').slice(0, 10);
+        if (targetDate < formatDate(new Date())) {
+          alert('Un ménage ne peut pas être planifié à une date passée.');
+          return;
+        }
         if (targetDate <= departureDate) {
           alert('Le ménage doit être planifié après le départ de l’occupation.');
           return;
@@ -299,6 +311,33 @@ export class HousingCleaningPage {
       this._planningModal = new HousingPlanningPage(this.router);
       this._planningModal.loadData = async () => this.loadData();
     }
+    this._planningModal.selectedEntry = entry;
+    this._planningModal.housings = this.housings;
+    this._planningModal._openModal(this._planningModal._buildCleaningModal(entry));
+    this._planningModal._loadCleaningVolunteers(this._planningModal._currentModal, entry);
+  }
+
+  _showDirectCleaningModal(housing, scheduledDate) {
+    if (!this._planningModal) {
+      this._planningModal = new HousingPlanningPage(this.router);
+      this._planningModal.loadData = async () => this.loadData();
+    }
+    const entry = {
+      occupancy_id: null,
+      housing_id: housing.id,
+      housing_name: housing.room?.name || housing.name || 'Logement',
+      housing_reference: housing.room?.reference || housing.reference || '',
+      occupants: [],
+      status: 'confirmed',
+      departure_date: scheduledDate,
+      cleaning_status: 'not_planned',
+      has_cleaning_planned: false,
+      cleaning_id: null,
+      is_direct_cleaning: true,
+      cleaning_scheduled_date: scheduledDate,
+      cleaning_volunteers_needed: 1,
+      cleaning_volunteer_ids: [],
+    };
     this._planningModal.selectedEntry = entry;
     this._planningModal.housings = this.housings;
     this._planningModal._openModal(this._planningModal._buildCleaningModal(entry));

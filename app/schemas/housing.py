@@ -446,7 +446,7 @@ class CleaningListResponse(BaseModel):
 
 class EmailTemplateBase(BaseModel):
     name: str = Field(..., min_length=1, max_length=100)
-    template_type: str = Field(..., pattern="^(confirmation|cancellation|reminder|custom|cleaning_invitation|cleaning_confirmation|cleaning_cancellation)$")
+    template_type: str = Field(..., pattern="^(confirmation|cancellation|reminder|custom|cleaning_invitation|cleaning_confirmation|cleaning_cancellation|cleaning_not_selected)$")
     subject: str = Field(..., min_length=1, max_length=200)
     body_html: str = Field(..., min_length=1)
     body_text: Optional[str] = None
@@ -460,7 +460,7 @@ class EmailTemplateCreate(EmailTemplateBase):
 
 class EmailTemplateUpdate(BaseModel):
     name: Optional[str] = Field(None, min_length=1, max_length=100)
-    template_type: Optional[str] = Field(None, pattern="^(confirmation|cancellation|reminder|custom|cleaning_invitation|cleaning_confirmation|cleaning_cancellation)$")
+    template_type: Optional[str] = Field(None, pattern="^(confirmation|cancellation|reminder|custom|cleaning_invitation|cleaning_confirmation|cleaning_cancellation|cleaning_not_selected)$")
     subject: Optional[str] = Field(None, min_length=1, max_length=200)
     body_html: Optional[str] = None
     body_text: Optional[str] = None
@@ -584,8 +584,10 @@ class PlanningEntry(BaseModel):
     cleaning_status: Optional[str] = None  # planned, in_progress, etc.
     has_cleaning_planned: bool = False
     cleaning_id: Optional[int] = None
+    is_direct_cleaning: bool = False
     cleaning_volunteers_needed: Optional[int] = None
     cleaning_volunteer_ids: List[int] = []
+    selected_volunteer_ids: List[int] = []
     cleaning_scheduled_date: Optional[date] = None
     cleaning_invitation_status: Optional[str] = None
     cleaning_cancelled: bool = False

@@ -5,6 +5,7 @@ from sqlalchemy import (
     Index,
     Integer,
     String,
+    UniqueConstraint,
     func,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -18,7 +19,7 @@ class Volunteer(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     first_name: Mapped[str] = mapped_column(String(100), nullable=False)
     last_name: Mapped[str] = mapped_column(String(100), nullable=False)
-    email: Mapped[str] = mapped_column(String(255), unique=True, nullable=True)
+    email: Mapped[str] = mapped_column(String(255), nullable=True)
     phone: Mapped[str] = mapped_column(String(50), nullable=True)
     usage_type: Mapped[str] = mapped_column(String(50), default="cleaning", nullable=False)
     communication_preference: Mapped[str] = mapped_column(String(10), default="both", nullable=False)
@@ -28,6 +29,10 @@ class Volunteer(Base):
     )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+    __table_args__ = (
+        UniqueConstraint("first_name", "last_name", name="uq_volunteers_name"),
     )
 
     def __repr__(self) -> str:

@@ -153,7 +153,7 @@ export class HousingEmailTemplatesPage {
         <form data-template-form class="modal-body">
           <div class="form-row">
             <label><span>Nom *</span><input name="name" required maxlength="100" value="${this._attribute(template?.name)}"></label>
-            <label><span>Type *</span><select name="template_type"><option value="confirmation">Confirmation réservation</option><option value="cancellation">Annulation réservation</option><option value="cleaning_invitation">Invitation ménage</option><option value="cleaning_confirmation">Confirmation ménage</option><option value="cleaning_cancellation">Annulation ménage</option><option value="reminder">Rappel</option><option value="custom">Personnalisé</option></select></label>
+            <label><span>Type *</span><select name="template_type"><option value="confirmation">Confirmation réservation</option><option value="cancellation">Annulation réservation</option><option value="cleaning_invitation">Invitation ménage</option><option value="cleaning_confirmation">Confirmation ménage</option><option value="cleaning_not_selected">Volontaire non retenu</option><option value="cleaning_cancellation">Annulation ménage</option><option value="reminder">Rappel</option><option value="custom">Personnalisé</option></select></label>
           </div>
            <label><span>Sujet *</span><input name="subject" data-template-subject required maxlength="200" value="${this._attribute(template?.subject)}"></label>
            <section data-variables-panel style="margin:12px 0;padding:12px;border:1px solid var(--color-border);border-radius:8px;background:var(--color-gray-50);">

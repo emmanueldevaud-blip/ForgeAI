@@ -911,6 +911,7 @@ export class HousingPlanningPage {
     const departureDate = (entry.departure_date || '').slice(0, 10);
     const defaultCleaningDate = entry.cleaning_scheduled_date || getNextWeekdayAfter(departureDate);
     const hasCleaning = Boolean(entry.cleaning_id);
+    const directCreation = entry.is_direct_cleaning && !hasCleaning;
     const cleaningStatus = entry.cleaning_status || 'not_planned';
     const isPlanned = cleaningStatus === 'planned';
     const showInvitationDetails = !isPlanned && (cleaningStatus !== 'in_progress' || invitationMode);
@@ -954,7 +955,9 @@ export class HousingPlanningPage {
             <div data-cleaning-volunteers style="max-height:180px;overflow-y:auto;border:1px solid var(--color-border-light);padding:8px;">Chargement des volontaires...</div>
           </div>` : ''}
           <div class="modal-footer" style="margin-top:1rem;display:flex;gap:8px;justify-content:flex-end;">
-             ${hasCleaning
+             ${directCreation
+               ? '<button class="btn btn-primary" id="cleaning-invite">Inviter les volontaires</button><button class="btn btn-secondary" data-dismiss>Fermer</button>'
+               : hasCleaning
               ? isPlanned
                 ? '<button class="btn btn-danger" id="cleaning-delete" type="button">Annuler le ménage</button><button class="btn btn-secondary" data-dismiss>Fermer</button>'
                : `${entry.cleaning_status === 'not_planned'
@@ -1414,13 +1417,15 @@ export class HousingPlanningPage {
 
         const cleaningData = {
           housing_id: this.selectedEntry.housing_id,
-          occupancy_id: this.selectedEntry.occupancy_id,
           scheduled_date: scheduledDate,
           type: 'exit',
           volunteers_needed: volunteersNeeded,
           invitation_status: 'not_sent',
           notes,
         };
+        if (this.selectedEntry.occupancy_id > 0) {
+          cleaningData.occupancy_id = this.selectedEntry.occupancy_id;
+        }
         if (this.selectedEntry.cleaning_id) {
           await updateCleaning(this.selectedEntry.cleaning_id, cleaningData);
         } else {
@@ -1605,7 +1610,7 @@ export class HousingPlanningPage {
     try {
       const volunteers = await listVolunteers({ limit: 1000, usage_type: 'cleaning', is_active: true });
       if (entry.cleaning_status === 'planned') {
-        const selectedIds = new Set(entry.cleaning_volunteer_ids || []);
+        const selectedIds = new Set(entry.selected_volunteer_ids || []);
         const selectedVolunteers = volunteers.filter(volunteer => selectedIds.has(volunteer.id));
         container.innerHTML = selectedVolunteers.length
           ? selectedVolunteers.map(volunteer => `<div style="padding:6px 0;border-bottom:1px solid var(--color-border-light);">${volunteer.last_name} ${volunteer.first_name}</div>`).join('')

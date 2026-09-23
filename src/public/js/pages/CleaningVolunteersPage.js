@@ -6,12 +6,6 @@ import {
   updateVolunteer,
   deleteVolunteer,
 } from '../services/housingApi.js';
-import {
-  listAdministrativeCapabilities,
-  listVolunteerCapabilities,
-  assignVolunteerCapability,
-  deleteVolunteerCapability,
-} from '../services/administrativeApi.js';
 
 const USAGE_LABELS = {
   cleaning: { label: 'Ménage', color: '#f59e0b' },
@@ -266,11 +260,6 @@ export class CleaningVolunteersPage {
                 <label class="form-check-label" for="vol-usage-maintenance">🔧 Maintenance</label>
               </div>
             </div>
-            ${isEdit && authStore.hasPermission('administration.programs.view') ? `
-            <div class="form-group">
-              <label>Capacités administratives</label>
-              <div data-volunteer-capabilities>Chargement...</div>
-            </div>` : ''}
             <div class="form-row">
               <div class="form-group">
                 <label>Téléphone</label>
@@ -293,10 +282,6 @@ export class CleaningVolunteersPage {
     document.body.appendChild(modal);
     modal.querySelectorAll('[data-dismiss]').forEach(btn => btn.addEventListener('click', () => modal.remove()));
     modal.addEventListener('click', (e) => { if (e.target === modal) modal.remove(); });
-    if (isEdit && authStore.hasPermission('administration.programs.view')) {
-      this._loadVolunteerCapabilities(modal, item.id);
-    }
-
     modal.querySelector('[data-action="save"]')?.addEventListener('click', async () => {
       const lastname = modal.querySelector('#vol-lastname').value.trim();
       const firstname = modal.querySelector('#vol-firstname').value.trim();
@@ -331,35 +316,6 @@ export class CleaningVolunteersPage {
         alert('Erreur: ' + (e.message || 'Enregistrement échoué'));
       }
     });
-  }
-
-  async _loadVolunteerCapabilities(modal, volunteerId) {
-    const container = modal.querySelector('[data-volunteer-capabilities]');
-    if (!container) return;
-    try {
-      const [capabilities, assigned] = await Promise.all([
-        listAdministrativeCapabilities(),
-        listVolunteerCapabilities(volunteerId),
-      ]);
-      const assignedIds = new Set((assigned || []).map(item => item.capability_id));
-      const canManage = authStore.hasPermission('administration.programs.manage');
-      container.innerHTML = (capabilities || []).map(capability => `
-        <label style="display:inline-flex;align-items:center;gap:6px;margin:0 12px 8px 0;">
-          <input type="checkbox" data-volunteer-capability="${capability.id}" ${assignedIds.has(capability.id) ? 'checked' : ''} ${canManage ? '' : 'disabled'}>
-          <span>${capability.name}</span>
-        </label>`).join('') || '<span>Aucune capacité configurée.</span>';
-      container.querySelectorAll('[data-volunteer-capability]').forEach(input => input.addEventListener('change', async () => {
-        try {
-          if (input.checked) await assignVolunteerCapability(volunteerId, { capability_id: Number(input.dataset.volunteerCapability) });
-          else await deleteVolunteerCapability(volunteerId, Number(input.dataset.volunteerCapability));
-        } catch (error) {
-          input.checked = !input.checked;
-          alert(error?.data?.detail || error.message || 'Modification de la capacité impossible');
-        }
-      }));
-    } catch (error) {
-      container.textContent = error?.data?.detail || 'Capacités indisponibles';
-    }
   }
 
   destroy() {

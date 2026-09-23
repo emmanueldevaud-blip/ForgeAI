@@ -39,7 +39,8 @@ class OpenAICompatibleSportAIProvider:
         self._client = client
 
     async def answer(self, question: str, context: dict[str, Any]) -> dict[str, Any]:
-        if not self.settings.SPORT_AI_API_KEY:
+        local_endpoint = self.settings.SPORT_AI_BASE_URL.startswith(("http://127.0.0.1", "http://localhost", "http://host.docker.internal"))
+        if not self.settings.SPORT_AI_API_KEY and not local_endpoint:
             return await LocalSportAIProvider().answer(question, context)
 
         payload = {
@@ -50,7 +51,7 @@ class OpenAICompatibleSportAIProvider:
                 {"role": "user", "content": f"Question: {question}\nContexte JSON:\n{json.dumps(context, ensure_ascii=True, default=str)}"},
             ],
         }
-        headers = {"Authorization": f"Bearer {self.settings.SPORT_AI_API_KEY}"}
+        headers = {"Authorization": f"Bearer {self.settings.SPORT_AI_API_KEY}"} if self.settings.SPORT_AI_API_KEY else {}
         client = self._client or httpx.AsyncClient(timeout=self.settings.SPORT_AI_TIMEOUT_SECONDS)
         close_client = self._client is None
         try:

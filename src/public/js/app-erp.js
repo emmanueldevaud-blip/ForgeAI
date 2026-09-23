@@ -26,7 +26,7 @@ import { createHousingUnavailabilitiesPage } from './pages/HousingUnavailabiliti
 import { createHousingEmailTemplatesPage } from './pages/HousingEmailTemplatesPage.js?v=11';
 import { createCleaningVolunteersPage } from './pages/CleaningVolunteersPage.js';
 import { createAdministrativeProgramsPage } from './pages/AdministrativeProgramsPage.js';
-import { createSportDashboardPage } from './pages/SportDashboardPage.js?v=2';
+import { createSportDashboardPage } from './pages/SportDashboardPage.js?v=3';
 import { createSportActivitiesPage } from './pages/SportActivitiesPage.js?v=2';
 import { createSportGarminPage } from './pages/SportGarminPage.js?v=2';
 

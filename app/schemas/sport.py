@@ -73,11 +73,21 @@ class SportGoalResponse(SportGoalCreate):
 
 
 class SportDashboardResponse(BaseModel):
-    activity_count: int
-    recent_distance_m: float
-    recent_duration_seconds: int
-    recent_elevation_gain_m: float
+    period_days: int
+    period_start: date
+    period_end: date
+    summary: dict[str, Any]
+    trends: list[dict[str, Any]] = Field(default_factory=list)
+    daily: list[dict[str, Any]] = Field(default_factory=list)
+    weekly: list[dict[str, Any]] = Field(default_factory=list)
+    sports: list[dict[str, Any]] = Field(default_factory=list)
+    calendar: list[dict[str, Any]] = Field(default_factory=list)
+    heart_rate: Optional[dict[str, Any]] = None
+    elevation: dict[str, Any] = Field(default_factory=dict)
     latest_activity: Optional[SportActivityResponse] = None
+    recent_activities: list[SportActivityResponse] = Field(default_factory=list)
+    goals: list[SportGoalResponse] = Field(default_factory=list)
+    ai: dict[str, Any] = Field(default_factory=lambda: {"available": False})
 
 
 class GarminConnectRequest(BaseModel):

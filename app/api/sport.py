@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
 from xml.etree.ElementTree import ParseError
 
@@ -62,8 +62,11 @@ async def get_sport_athlete(service: SportService = Depends(get_sport_service)):
 
 
 @router.get("/dashboard", response_model=SportDashboardResponse)
-async def sport_dashboard(service: SportService = Depends(get_sport_service)):
-    return await service.dashboard()
+async def sport_dashboard(
+    period: int = Query(28, description="Période en jours: 7, 28, 90 ou 365"),
+    service: SportService = Depends(get_sport_service),
+):
+    return await service.dashboard(period)
 
 
 @router.get("/activities", response_model=SportActivityListResponse)

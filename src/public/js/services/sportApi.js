@@ -2,8 +2,8 @@ import { ApiClient } from './api.js?v=2';
 
 const sportApi = new ApiClient('/sport');
 
-export async function getSportDashboard() {
-  return sportApi.get('/dashboard');
+export async function getSportDashboard(period = 28) {
+  return sportApi.get(`/dashboard?period=${encodeURIComponent(period)}`);
 }
 
 export async function listSportActivities(params = {}) {

@@ -1,7 +1,9 @@
 from datetime import date, datetime
 from typing import Optional, List
 
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, Request
+from fastapi.responses import HTMLResponse
+from uuid import UUID
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import require_permission
@@ -35,6 +37,7 @@ from app.schemas.housing import (
     CleaningListResponse,
     CleaningResponse,
     CleaningUpdate,
+    CleaningVolunteerRequest,
     EmailTemplateCreate,
     EmailTemplateListParams,
     EmailTemplateListResponse,
@@ -447,6 +450,75 @@ async def delete_cleaning(
     return {"message": "Ménage supprimé"}
 
 
+@router.post("/cleanings/{cleaning_id}/cancel")
+async def cancel_cleaning(
+    cleaning_id: int,
+    service: HousingService = Depends(get_cleaning_manage_service),
+):
+    result = await service.cancel_cleaning(cleaning_id)
+    return {"message": result["message"], "phones": result.get("phones", [])}
+
+
+@router.post("/cleanings/{cleaning_id}/volunteer-request")
+async def send_cleaning_volunteer_request(
+    cleaning_id: int,
+    data: CleaningVolunteerRequest,
+    request: Request,
+    service: HousingService = Depends(get_cleaning_manage_service),
+):
+    forwarded_proto = request.headers.get("x-forwarded-proto", request.url.scheme).split(",", 1)[0].strip()
+    forwarded_host = request.headers.get("x-forwarded-host", request.headers.get("host", "")).split(",", 1)[0].strip()
+    public_base_url = (
+        f"{forwarded_proto}://{forwarded_host}"
+        if forwarded_host
+        else str(request.base_url).rstrip("/")
+    )
+    return await service.send_cleaning_volunteer_request(
+        cleaning_id,
+        data.volunteer_ids,
+        data.channel,
+        data.template_id,
+        data.message,
+        public_base_url,
+    )
+
+
+@router.get("/public/cleaning-invitations/{response_token}", response_class=HTMLResponse)
+async def respond_to_cleaning_invitation(
+    response_token: UUID,
+    response: Optional[str] = None,
+    db: AsyncSession = Depends(get_db),
+):
+    from app.models.housing import CleaningInvitationLog
+    from sqlalchemy import select
+
+    result = await db.execute(select(CleaningInvitationLog).where(CleaningInvitationLog.response_token == str(response_token)))
+    invitation = result.scalar_one_or_none()
+    if not invitation:
+        raise HTTPException(status_code=404, detail="Invitation introuvable")
+    if response in {"available", "unavailable"}:
+        invitation.availability_response = response
+        await db.commit()
+        message = "Merci, votre disponibilité a bien été enregistrée."
+        return HTMLResponse(
+            "<html><head><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"></head>"
+            "<body style=\"font-family:Arial,sans-serif;max-width:640px;margin:48px auto;padding:16px;\">"
+            f"<h1>{message}</h1></body></html>"
+        )
+    base = f"/housing/public/cleaning-invitations/{response_token}"
+    return HTMLResponse(
+        "<html><head><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"></head>"
+        "<body style=\"font-family:Arial,sans-serif;max-width:640px;margin:48px auto;padding:16px;\">"
+        "<h1>Êtes-vous disponible pour ce ménage ?</h1>"
+        f'<p><a href="{base}?response=available" style="display:inline-block;margin:8px 8px 8px 0;'
+        'padding:12px 18px;background:#198754;color:#fff;text-decoration:none;border-radius:5px;">'
+        "Disponible</a>"
+        f'<a href="{base}?response=unavailable" style="display:inline-block;padding:12px 18px;'
+        'background:#dc3545;color:#fff;text-decoration:none;border-radius:5px;">'
+        "Pas disponible</a></p></body></html>"
+    )
+
+
 # ============================================================
 # EMAIL TEMPLATES
 # ============================================================
@@ -553,6 +625,15 @@ async def send_confirmation_email(
     return {"message": result}
 
 
+@router.post("/occupancies/{occupancy_id}/send-cancellation", response_model=MessageResponse)
+async def send_cancellation_email(
+    occupancy_id: int,
+    service: HousingService = Depends(get_email_send_service),
+):
+    result = await service.send_cancellation_email(occupancy_id)
+    return {"message": result}
+
+
 @router.post("/occupancies/{occupancy_id}/send-message", response_model=MessageResponse)
 async def send_custom_message(
     occupancy_id: int,
@@ -604,11 +685,12 @@ async def get_planning(
     view: str = "month",  # day, week, month
     housing_ids: Optional[str] = None,  # JSON array
     status_filter: Optional[str] = None,
+    include_completed: bool = False,
     service: HousingService = Depends(get_planning_manage_service),
 ):
     import json
     housing_id_list = json.loads(housing_ids) if housing_ids else None
-    return await service.get_planning(start_date, end_date, view, housing_id_list, status_filter)
+    return await service.get_planning(start_date, end_date, view, housing_id_list, status_filter, include_completed)
 
 
 # ============================================================

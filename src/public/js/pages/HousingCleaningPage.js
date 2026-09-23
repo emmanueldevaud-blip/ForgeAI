@@ -1,263 +1,229 @@
-import { Table } from '../components/Table.js';
 import { authStore } from '../stores/auth.js';
-import { listHousings, updateHousing } from '../services/housingApi.js';
+import { getPlanning, listHousings } from '../services/housingApi.js';
+import { HousingPlanningPage } from './HousingPlanningPage.js';
 
-const CLEANING_STATUSES = [
-  { value: 'to_clean', label: 'A nettoyer', color: '#ef4444' },
-  { value: 'cleaning', label: 'En cours', color: '#f59e0b' },
-  { value: 'to_check', label: 'A verifier', color: '#8b5cf6' },
-  { value: 'checked', label: 'Verifie', color: '#06b6d4' },
-  { value: 'clean', label: 'Propre', color: '#10b981' },
-];
+const DAY_NAMES = ['Dim', 'Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam'];
+const MONTH_NAMES = ['Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin', 'Juillet', 'Août', 'Septembre', 'Octobre', 'Novembre', 'Décembre'];
+const CLEANING_STATUSES = {
+  missing: { label: 'Non planifié', color: '#ef4444' },
+  planned: { label: 'Planifié', color: '#f59e0b' },
+  in_progress: { label: 'En cours de planification', color: '#3b82f6' },
+};
 
-function getCleaningLabel(s) {
-  return (CLEANING_STATUSES.find(x => x.value === s) || {}).label || s;
+function formatDate(date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
 }
 
-function getCleaningColor(s) {
-  return (CLEANING_STATUSES.find(x => x.value === s) || {}).color || '#6b7280';
+function nextWeekdayAfter(value) {
+  const date = new Date(`${value.slice(0, 10)}T00:00:00`);
+  date.setDate(date.getDate() + 1);
+  while (date.getDay() === 0 || date.getDay() === 6) date.setDate(date.getDate() + 1);
+  return formatDate(date);
 }
 
-function formatDate(d) {
-  return d ? new Date(d).toLocaleDateString('fr-FR') : '-';
+function addDays(date, count) {
+  const result = new Date(date);
+  result.setDate(result.getDate() + count);
+  return result;
+}
+
+function statusInfo(status) {
+  return CLEANING_STATUSES[status] || CLEANING_STATUSES.planned;
 }
 
 export class HousingCleaningPage {
   constructor(router) {
     this.router = router;
     this.element = null;
-    this.items = [];
-    this.total = 0;
-    this.page = 1;
-    this.pageSize = 20;
-    this.totalPages = 1;
-    this.sortBy = 'name';
-    this.sortOrder = 'asc';
-    this.search = '';
-    this.filters = { cleaning_status: '' };
-    this.table = null;
+    this.currentDate = new Date();
+    this.viewMode = 'month';
+    this.housings = [];
+    this.entries = [];
+    this._planningModal = null;
     this._authUnsubscribe = null;
   }
 
-  async initialize() {
-    this.table = new Table({
-      columns: [
-        { key: 'name', label: 'Logement', sortable: true },
-        {
-          key: 'cleaning_status',
-          label: 'Statut nettoyage',
-          sortable: true,
-          render: (item) => {
-            const s = item.cleaning_status || 'to_clean';
-            return `<span class="status-badge" style="background:${getCleaningColor(s)}22;color:${getCleaningColor(s)};border:1px solid ${getCleaningColor(s)}44">${getCleaningLabel(s)}</span>`;
-          },
-        },
-        {
-          key: 'last_departure',
-          label: 'Dernier depart',
-          sortable: true,
-          render: (item) => formatDate(item.last_departure_date),
-        },
-        {
-          key: 'housing_type',
-          label: 'Type',
-          sortable: false,
-          render: (item) => item.housing_type || '-',
-        },
-      ],
-      actions: [
-        {
-          key: 'change_status',
-          label: 'Changer statut',
-          icon: 'edit',
-          disabled: (item) => !authStore.hasPermission('housing.update'),
-        },
-      ],
-      onAction: (action, item) => this._handleAction(action, item),
-      emptyMessage: 'Aucun logement trouve',
-    });
-    this._authUnsubscribe = authStore.subscribe(() => {
-      if (this.element) this.renderTableState();
-    });
+  async initialize() {}
+
+  _getDateRange() {
+    const date = this.currentDate;
+    if (this.viewMode === 'day') return { startDate: new Date(date), endDate: new Date(date) };
+    if (this.viewMode === 'week') {
+      const startDate = addDays(date, -date.getDay());
+      return { startDate, endDate: addDays(startDate, 6) };
+    }
+    return {
+      startDate: new Date(date.getFullYear(), date.getMonth(), 1),
+      endDate: new Date(date.getFullYear(), date.getMonth() + 1, 0),
+    };
+  }
+
+  _getDays() {
+    const { startDate, endDate } = this._getDateRange();
+    const days = [];
+    for (let date = new Date(startDate); date <= endDate; date.setDate(date.getDate() + 1)) days.push(new Date(date));
+    return days;
   }
 
   async loadData() {
+    const { startDate, endDate } = this._getDateRange();
+    const queryStart = addDays(startDate, -7);
     try {
-      const params = {
-        page: this.page,
-        page_size: this.pageSize,
-        sort_by: this.sortBy,
-        sort_order: this.sortOrder,
-      };
-      if (this.search) params.search = this.search;
-      if (this.filters.cleaning_status) params.cleaning_status = this.filters.cleaning_status;
-
-      const response = await listHousings(params);
-      this.items = response.items || [];
-      this.total = response.total || 0;
-      this.totalPages = response.total_pages || 1;
-      this.renderTableState();
+      const housingsResponse = await listHousings({ page_size: 1000, is_active: true });
+      const response = await getPlanning(formatDate(queryStart), formatDate(endDate), this.viewMode, null, 'confirmed', true);
+      this.housings = housingsResponse.items || [];
+      this.entries = response.entries || [];
+      this._renderGrid();
     } catch (error) {
-      console.error('Erreur chargement logements:', error);
+      console.error('Erreur chargement planning ménage:', error);
+      if (this.element) this.element.querySelector('[data-cleaning-planning]').innerHTML = '<p class="alert alert-danger">Impossible de charger le planning des ménages.</p>';
     }
   }
 
-  renderTableState() {
-    if (!this.element) return;
+  _cleaningForEntry(entry) {
+    const scheduledDate = entry.cleaning_scheduled_date || nextWeekdayAfter((entry.departure_date || '').slice(0, 10));
+    return {
+      ...entry,
+      scheduledDate,
+      cleaningState: entry.has_cleaning_planned
+        ? (entry.cleaning_status === 'in_progress' ? 'in_progress' : 'planned')
+        : 'missing',
+    };
+  }
 
-    const countEl = this.element.querySelector('[data-count]');
-    if (countEl) countEl.textContent = `${this.total} logement${this.total > 1 ? 's' : ''}`;
+  _renderGrid() {
+    const container = this.element?.querySelector('[data-cleaning-planning]');
+    if (!container) return;
+    const days = this._getDays();
+    const { startDate, endDate } = this._getDateRange();
+    const label = this.element.querySelector('[data-month-label]');
+    if (this.viewMode === 'day') label.textContent = `${DAY_NAMES[this.currentDate.getDay()]} ${this.currentDate.getDate()} ${MONTH_NAMES[this.currentDate.getMonth()]} ${this.currentDate.getFullYear()}`;
+    else if (this.viewMode === 'week') label.textContent = `${startDate.getDate()} — ${endDate.getDate()} ${MONTH_NAMES[endDate.getMonth()]} ${endDate.getFullYear()}`;
+    else label.textContent = `${MONTH_NAMES[this.currentDate.getMonth()]} ${this.currentDate.getFullYear()}`;
 
-    const tableContainer = this.element.querySelector('[data-table]');
-    if (tableContainer) {
-      this.table.setData({
-        items: this.items,
-        total: this.total,
-        page: this.page,
-        pageSize: this.pageSize,
-        totalPages: this.totalPages,
-        sortBy: this.sortBy,
-        sortOrder: this.sortOrder,
+    const entries = this.entries.map(entry => this._cleaningForEntry(entry));
+    const byHousing = new Map();
+    entries.forEach(entry => {
+      if (!byHousing.has(entry.housing_id)) byHousing.set(entry.housing_id, []);
+      byHousing.get(entry.housing_id).push(entry);
+    });
+    const roomRows = [];
+    const groupedByBuilding = {};
+    this.housings.forEach(housing => {
+      const buildingName = (housing.building && housing.building.name) || 'Autre';
+      if (!groupedByBuilding[buildingName]) groupedByBuilding[buildingName] = [];
+      groupedByBuilding[buildingName].push(housing);
+    });
+    Object.keys(groupedByBuilding).sort().forEach(buildingName => {
+      groupedByBuilding[buildingName].forEach(housing => {
+        const housingEntries = byHousing.get(housing.id) || [];
+        let roomNames = [];
+        try { roomNames = JSON.parse(housing.room_names || '[]'); } catch { roomNames = []; }
+        const roomCount = housing.nb_rooms || Math.max(1, ...housingEntries.map(entry => entry.room_index == null ? 0 : Number(entry.room_index) + 1));
+        for (let roomIndex = 0; roomIndex < roomCount; roomIndex++) {
+          const roomEntries = housingEntries.filter(entry => entry.room_index == null ? roomIndex === 0 : Number(entry.room_index) === roomIndex);
+          roomRows.push({ housing, roomIndex, roomName: roomNames[roomIndex] || `Chambre ${roomIndex + 1}`, entries: roomEntries });
+        }
       });
-      tableContainer.innerHTML = '';
-      tableContainer.appendChild(this.table.render());
-    }
+    });
+    let html = '<div class="planning-container"><div class="planning-wrapper"><table class="planning-table"><thead><tr><th class="planning-housing-col"><span class="housing-col-header">Chambre</span></th>';
+    days.forEach(day => {
+      const weekend = day.getDay() === 0 || day.getDay() === 6;
+      html += `<th class="planning-day-col${weekend ? ' planning-weekend' : ''}"><div><span class="day-name">${DAY_NAMES[day.getDay()]}</span><span class="day-num">${day.getDate()}</span></div></th>`;
+    });
+    html += '</tr></thead><tbody>';
 
-    const pageInfo = this.element.querySelector('[data-page-info]');
-    if (pageInfo) pageInfo.textContent = `Page ${this.page} / ${this.totalPages}`;
-
-    const prevBtn = this.element.querySelector('[data-page="prev"]');
-    const nextBtn = this.element.querySelector('[data-page="next"]');
-    if (prevBtn) prevBtn.disabled = this.page <= 1;
-    if (nextBtn) nextBtn.disabled = this.page >= this.totalPages;
+    roomRows.forEach(({ housing, roomName, entries: roomEntries }) => {
+      const housingEntries = roomEntries;
+      const name = housing.room?.name || housing.name || housing.room_name || 'Logement';
+      html += `<tr><td class="planning-housing-cell"><span class="housing-name">${name}</span><span class="housing-code">${roomName}</span></td>`;
+      let dayIndex = 0;
+      while (dayIndex < days.length) {
+        const day = days[dayIndex];
+        const date = formatDate(day);
+        const entry = housingEntries.find(item => item.scheduledDate === date);
+        if (entry) {
+          const info = statusInfo(entry.cleaningState);
+          const occupant = (entry.occupants || []).map(item => `${item.first_name || ''} ${item.last_name || ''}`.trim()).filter(Boolean).join(' / ');
+          const title = entry.cleaningState === 'missing' ? `Ménage à planifier après le départ du ${entry.departure_date.slice(0, 10)}` : `${info.label}${occupant ? ` · ${occupant}` : ''}`;
+          html += `<td class="planning-cell planning-cell--block cleaning-cell cleaning-cell--${entry.cleaningState}" data-cleaning-entry="${entry.occupancy_id}" title="${title}"><span class="cleaning-block" style="display:flex;flex-direction:column;gap:2px;min-height:38px;padding:5px 6px;border-radius:4px;background:${info.color};color:white;font-size:11px;font-weight:600;"><span>${info.label}</span>${occupant ? `<small style="font-weight:400;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${occupant}</small>` : ''}</span></td>`;
+          dayIndex++;
+          continue;
+        }
+        const occupancy = housingEntries.find(item => {
+          const arrival = (item.arrival_date || '').slice(0, 10);
+          const departure = (item.departure_date || '').slice(0, 10);
+          return date >= arrival && date <= departure;
+        });
+        if (occupancy) {
+          let span = 1;
+          while (dayIndex + span < days.length) {
+            const nextDate = formatDate(days[dayIndex + span]);
+            const hasCleaning = housingEntries.some(item => item.scheduledDate === nextDate);
+            const nextArrival = (occupancy.arrival_date || '').slice(0, 10);
+            const nextDeparture = (occupancy.departure_date || '').slice(0, 10);
+            if (hasCleaning || nextDate < nextArrival || nextDate > nextDeparture) break;
+            span++;
+          }
+          html += `<td class="planning-cell planning-cell--block" colspan="${span}" title="Réservation d'occupation"><span style="display:flex;align-items:center;min-height:38px;padding:5px 6px;border-radius:4px;background:#9ca3af;color:white;font-size:11px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">Occupé</span></td>`;
+          dayIndex += span;
+          continue;
+        }
+        html += `<td class="planning-cell" data-date="${date}" data-housing-id="${housing.id}"></td>`;
+        dayIndex++;
+      }
+      html += '</tr>';
+    });
+    if (!roomRows.length) html += `<tr><td colspan="${days.length + 1}" style="text-align:center;padding:2rem;color:var(--text-secondary);">Aucun ménage ou départ à afficher.</td></tr>`;
+    html += '</tbody></table></div></div>';
+    container.innerHTML = html;
+    container.querySelectorAll('[data-cleaning-entry]').forEach(cell => cell.addEventListener('click', () => {
+      const entry = entries.find(item => String(item.occupancy_id) === cell.dataset.cleaningEntry);
+      if (entry) this._showCleaningModal(entry);
+    }));
   }
 
   render() {
     this.element = document.createElement('div');
     this.element.className = 'page-content';
     this.element.innerHTML = `
-      <div class="page-header">
-        <div class="page-header-left">
-          <h1>Nettoyage</h1>
-          <p class="page-subtitle">Gestion de l'etat de nettoyage des logements</p>
-        </div>
-      </div>
-      <div class="page-filters">
-        <input type="text" class="form-input" placeholder="Rechercher..." data-filter="search" value="${this.search}">
-        <select class="form-select" data-filter="cleaning_status">
-          <option value="">Tous les statuts</option>
-          ${CLEANING_STATUSES.map(s => `<option value="${s.value}" ${this.filters.cleaning_status === s.value ? 'selected' : ''}>${s.label}</option>`).join('')}
-        </select>
-      </div>
-      <div class="page-info"><span data-count>${this.total} logement${this.total > 1 ? 's' : ''}</span></div>
-      <div data-table></div>
-      <div class="pagination">
-        <button class="btn btn-secondary" data-page="prev" ${this.page <= 1 ? 'disabled' : ''}>Precedent</button>
-        <span data-page-info>Page ${this.page} / ${this.totalPages}</span>
-        <button class="btn btn-secondary" data-page="next" ${this.page >= this.totalPages ? 'disabled' : ''}>Suivant</button>
-      </div>
+      <div class="page-header"><div class="page-header-left"><h1>Planning des ménages</h1><p class="page-subtitle">Ménages attendus après les réservations</p></div><div class="page-header-right"><div class="btn-group" style="display:flex;"><button class="btn btn-secondary btn-sm" data-view="day">Jour</button><button class="btn btn-secondary btn-sm" data-view="week">Semaine</button><button class="btn btn-secondary btn-sm active" data-view="month">Mois</button></div></div></div>
+      <div class="calendar-nav" style="display:flex;align-items:center;gap:8px;margin-bottom:8px;"><button class="btn btn-secondary btn-sm" data-nav="prev">◀</button><h2 data-month-label style="margin:0;min-width:220px;text-align:center;font-size:var(--font-size-base);"></h2><button class="btn btn-secondary btn-sm" data-nav="next">▶</button><button class="btn btn-secondary btn-sm" data-nav="today">Aujourd’hui</button></div>
+      <div style="display:flex;gap:14px;flex-wrap:wrap;margin-bottom:12px;font-size:12px;">${Object.entries(CLEANING_STATUSES).map(([key, value]) => `<span><i style="display:inline-block;width:10px;height:10px;border-radius:50%;background:${value.color};margin-right:4px;"></i>${value.label}</span>`).join('')}</div>
+      <div data-cleaning-planning style="flex:1;min-height:0;"></div>
     `;
-
-    this._setupEventListeners();
-    this.renderTableState();
+    this.element.querySelectorAll('[data-view]').forEach(button => button.addEventListener('click', () => { this.viewMode = button.dataset.view; this.loadData(); }));
+    this.element.querySelector('[data-nav="prev"]').addEventListener('click', () => { this._move(-1); this.loadData(); });
+    this.element.querySelector('[data-nav="next"]').addEventListener('click', () => { this._move(1); this.loadData(); });
+    this.element.querySelector('[data-nav="today"]').addEventListener('click', () => { this.currentDate = new Date(); this.loadData(); });
+    this._authUnsubscribe = authStore.subscribe(() => {});
     return this.element;
   }
 
-  _setupEventListeners() {
-    const searchInput = this.element.querySelector('[data-filter="search"]');
-    let searchTimeout;
-    if (searchInput) {
-      searchInput.addEventListener('input', (e) => {
-        clearTimeout(searchTimeout);
-        searchTimeout = setTimeout(() => {
-          this.search = e.target.value;
-          this.page = 1;
-          this.loadData();
-        }, 300);
-      });
+  _move(direction) {
+    if (this.viewMode === 'day') this.currentDate.setDate(this.currentDate.getDate() + direction);
+    else if (this.viewMode === 'week') this.currentDate.setDate(this.currentDate.getDate() + (direction * 7));
+    else this.currentDate.setMonth(this.currentDate.getMonth() + direction);
+  }
+
+  _showCleaningModal(entry) {
+    if (!this._planningModal) {
+      this._planningModal = new HousingPlanningPage(this.router);
+      this._planningModal.loadData = async () => this.loadData();
     }
-
-    this.element.querySelectorAll('.form-select[data-filter]').forEach(select => {
-      select.addEventListener('change', (e) => {
-        this.filters[select.dataset.filter] = e.target.value;
-        this.page = 1;
-        this.loadData();
-      });
-    });
-
-    this.element.querySelector('[data-page="prev"]')?.addEventListener('click', () => {
-      if (this.page > 1) { this.page--; this.loadData(); }
-    });
-    this.element.querySelector('[data-page="next"]')?.addEventListener('click', () => {
-      if (this.page < this.totalPages) { this.page++; this.loadData(); }
-    });
-  }
-
-  async _handleAction(action, item) {
-    if (action === 'change_status') {
-      this._showChangeStatusModal(item);
-    }
-  }
-
-  _showChangeStatusModal(item) {
-    const currentStatus = item.cleaning_status || 'to_clean';
-    const nextStatuses = CLEANING_STATUSES.filter(s => s.value !== currentStatus);
-
-    const modal = document.createElement('div');
-    modal.className = 'modal-overlay';
-    modal.innerHTML = `
-      <div class="modal">
-        <div class="modal-content">
-          <div class="modal-header">
-            <h2>Changer le statut - ${item.name}</h2>
-            <button class="modal-close" data-action="close">&times;</button>
-          </div>
-          <div class="modal-body">
-            <p>Statut actuel : <strong>${getCleaningLabel(currentStatus)}</strong></p>
-            <div class="form-row">
-              <label><span>Nouveau statut</span>
-                <select data-new-status>
-                  ${nextStatuses.map(s => `<option value="${s.value}">${s.label}</option>`).join('')}
-                </select>
-              </label>
-            </div>
-          </div>
-          <div class="modal-footer">
-            <button class="btn btn-secondary" data-action="close">Annuler</button>
-            <button class="btn btn-primary" data-action="save">Enregistrer</button>
-          </div>
-        </div>
-      </div>
-    `;
-
-    document.body.appendChild(modal);
-    modal.querySelector('[data-action="close"]')?.addEventListener('click', () => modal.remove());
-    modal.addEventListener('click', (e) => { if (e.target === modal) modal.remove(); });
-
-    modal.querySelector('[data-action="save"]')?.addEventListener('click', async () => {
-      const newStatus = modal.querySelector('[data-new-status]').value;
-      try {
-        await updateHousing(item.id, { cleaning_status: newStatus });
-        modal.remove();
-        this.loadData();
-        this._showToast('Statut mis a jour');
-      } catch (e) {
-        alert(e.message || 'Erreur lors de la mise a jour');
-      }
-    });
-  }
-
-  _showToast(message) {
-    const toast = document.createElement('div');
-    toast.className = 'toast toast-success';
-    toast.textContent = message;
-    document.body.appendChild(toast);
-    setTimeout(() => toast.remove(), 3000);
+    this._planningModal.selectedEntry = entry;
+    this._planningModal.housings = this.housings;
+    this._planningModal._openModal(this._planningModal._buildCleaningModal(entry));
+    this._planningModal._loadCleaningVolunteers(this._planningModal._currentModal, entry);
   }
 
   destroy() {
     this._authUnsubscribe?.();
-    if (this.element) this.element.remove();
+    this._planningModal?._closeModal();
+    this.element?.remove();
     this.element = null;
   }
 }

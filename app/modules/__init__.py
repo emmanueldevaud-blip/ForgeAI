@@ -553,6 +553,77 @@ class AdministrationModule(BaseModule):
             is_core=True,
         ))
 
+    def get_navigation_items(self, user_permissions=None):
+        permissions = user_permissions or []
+        if "*" not in permissions and "admin.access" not in permissions:
+            return []
+        children = []
+        general_children = [
+            ("administration-users", "Utilisateurs", "users", "/administration/users", "user_view"),
+            ("administration-groups", "Groupes", "users", "/administration/groups", "group_view"),
+            ("administration-roles", "Rôles", "shield", "/administration/roles", "role_view"),
+            ("administration-permissions", "Permissions", "lock", "/administration/permissions", "permission_view"),
+            ("administration-audit", "Audit", "clipboard", "/administration/audit", "audit_log_view"),
+            ("administration-ad", "Active Directory", "database", "/administration/active-directory", "ad_config"),
+            ("administration-smtp", "E-mail / SMTP", "mail", "/administration/smtp", "settings_view"),
+        ]
+        for code, name, icon, route, permission in general_children:
+            if "*" in permissions or permission in permissions:
+                children.append({"code": code, "name": name, "icon": icon, "route": route, "order": len(children)})
+        return [{
+            "code": self.info.code,
+            "name": self.info.name,
+            "icon": self.info.icon,
+            "route": self.info.route_path,
+            "order": self.info.order,
+            "children": children,
+        }]
+
+    async def install(self, db):
+        return True
+
+    async def uninstall(self, db):
+        return True
+
+    async def upgrade(self, db, from_version: str):
+        return True
+
+
+class AdministrativeProgramsModule(BaseModule):
+    def __init__(self):
+        super().__init__(ModuleInfo(
+            code="administratif",
+            name="Administratif",
+            description="Gestion des programmes des volontaires",
+            icon="calendar",
+            order=1001,
+            status=ModuleStatus.ACTIVE,
+            version="1.0.0",
+            route_path="/administratif",
+            component_path="AdministrativePrograms",
+            required_permissions=["administration.programs.view"],
+            is_core=False,
+        ))
+
+    def get_navigation_items(self, user_permissions=None):
+        permissions = user_permissions or []
+        if "*" not in permissions and "administration.programs.view" not in permissions:
+            return []
+        return [{
+            "code": self.info.code,
+            "name": self.info.name,
+            "icon": self.info.icon,
+            "route": self.info.route_path,
+            "order": self.info.order,
+            "children": [{
+                "code": "administratif-programs",
+                "name": "Programmes",
+                "icon": "calendar",
+                "route": "/administratif/programs",
+                "order": 0,
+            }],
+        }]
+
     async def install(self, db):
         return True
 
@@ -689,6 +760,7 @@ def register_all_modules():
         DocumentsModule(),
         ReportsModule(),
         AdministrationModule(),
+        AdministrativeProgramsModule(),
     ]
     for module in modules:
         module_registry.register(module)

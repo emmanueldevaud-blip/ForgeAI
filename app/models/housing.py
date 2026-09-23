@@ -1,6 +1,7 @@
 from datetime import datetime, date
 from decimal import Decimal
 from typing import Optional, List
+from uuid import uuid4
 
 from sqlalchemy import (
     Boolean,
@@ -35,6 +36,13 @@ email_attachment_housings = Table(
     Base.metadata,
     Column("attachment_id", Integer, ForeignKey("housing_email_template_attachments.id", ondelete="CASCADE"), primary_key=True, index=True),
     Column("housing_id", Integer, ForeignKey("housings.id", ondelete="CASCADE"), primary_key=True, index=True),
+)
+
+cleaning_volunteers = Table(
+    "cleaning_volunteers",
+    Base.metadata,
+    Column("cleaning_id", Integer, ForeignKey("housing_cleanings.id", ondelete="CASCADE"), primary_key=True, index=True),
+    Column("volunteer_id", Integer, ForeignKey("volunteers.id", ondelete="CASCADE"), primary_key=True, index=True),
 )
 
 
@@ -201,6 +209,8 @@ class Cleaning(Base):
     type: Mapped[str] = mapped_column(String(20), default="exit", nullable=False)
     status: Mapped[str] = mapped_column(String(30), default="planned", nullable=False, index=True)
     scheduled_date: Mapped[date] = mapped_column(Date, nullable=False, index=True)
+    volunteers_needed: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    invitation_status: Mapped[str] = mapped_column(String(30), default="not_sent", nullable=False)
     scheduled_time_start: Mapped[str | None] = mapped_column(String(5), nullable=True)  # HH:MM
     scheduled_time_end: Mapped[str | None] = mapped_column(String(5), nullable=True)
     actual_start: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
@@ -214,6 +224,10 @@ class Cleaning(Base):
 
     housing: Mapped["Housing"] = relationship("Housing")
     occupancy: Mapped[Optional["Occupancy"]] = relationship("Occupancy", back_populates="cleanings")
+    volunteers: Mapped[list["Volunteer"]] = relationship("Volunteer", secondary=cleaning_volunteers)
+    invitation_logs: Mapped[list["CleaningInvitationLog"]] = relationship(
+        "CleaningInvitationLog", back_populates="cleaning", cascade="all, delete-orphan"
+    )
     assigned_user: Mapped[Optional["User"]] = relationship("User", foreign_keys=[assigned_to])
 
     __table_args__ = (
@@ -223,6 +237,23 @@ class Cleaning(Base):
 
     def __repr__(self) -> str:
         return f"<Cleaning(id={self.id}, housing_id={self.housing_id}, status={self.status})>"
+
+
+class CleaningInvitationLog(Base):
+    __tablename__ = "housing_cleaning_invitation_logs"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    cleaning_id: Mapped[int] = mapped_column(ForeignKey("housing_cleanings.id", ondelete="CASCADE"), nullable=False, index=True)
+    volunteer_id: Mapped[int] = mapped_column(ForeignKey("volunteers.id", ondelete="CASCADE"), nullable=False, index=True)
+    channel: Mapped[str] = mapped_column(String(10), nullable=False)
+    status: Mapped[str] = mapped_column(String(20), nullable=False)
+    message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    response_token: Mapped[str] = mapped_column(String(36), unique=True, default=lambda: str(uuid4()), nullable=False, index=True)
+    availability_response: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    sent_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    cleaning: Mapped["Cleaning"] = relationship("Cleaning", back_populates="invitation_logs")
+    volunteer: Mapped["Volunteer"] = relationship("Volunteer")
 
 
 # ============================================================

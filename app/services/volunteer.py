@@ -9,9 +9,14 @@ from app.schemas.volunteer import VolunteerCreate, VolunteerUpdate
 class VolunteerService:
     """Service layer for volunteer operations."""
     
-    async def list_volunteers(self, db: AsyncSession, skip: int = 0, limit: int = 100) -> List[Volunteer]:
+    async def list_volunteers(self, db: AsyncSession, skip: int = 0, limit: int = 100, usage_type: str | None = None, is_active: bool | None = None) -> List[Volunteer]:
+        filters = []
+        if usage_type:
+            filters.append(Volunteer.usage_type.like(f"%{usage_type}%"))
+        if is_active is not None:
+            filters.append(Volunteer.is_active == is_active)
         result = await db.execute(
-            select(Volunteer).offset(skip).limit(limit).order_by(Volunteer.last_name)
+            select(Volunteer).where(*filters).offset(skip).limit(limit).order_by(Volunteer.last_name)
         )
         return result.scalars().all()
     
@@ -30,6 +35,8 @@ class VolunteerService:
             last_name=volunteer_in.last_name,
             email=volunteer_in.email,
             phone=volunteer_in.phone,
+            usage_type=volunteer_in.usage_type,
+            communication_preference=volunteer_in.communication_preference,
             is_active=volunteer_in.is_active,
         )
         db.add(volunteer)

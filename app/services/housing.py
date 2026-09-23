@@ -18,10 +18,11 @@ from app.models.buildings import Room, Building, Site, UsageType
 from app.models.housing import (
     Housing, Occupancy, Occupant, Unavailability, 
     HousingStatusHistory, OccupancyStatusHistory,
-    Cleaning, EmailTemplate, EmailTemplateAttachment, EmailLog,
+    Cleaning, CleaningInvitationLog, EmailTemplate, EmailTemplateAttachment, EmailLog,
     occupancy_occupants
 )
 from app.models.user import User
+from app.models.volunteer import Volunteer
 from app.models.module import Module, ModuleConfig
 
 
@@ -453,6 +454,25 @@ class HousingService:
 
         occupancy.status = new_status
 
+        if new_status == "confirmed" and old_status != "confirmed":
+            cleaning_result = await self.db.execute(
+                select(Cleaning.id).where(Cleaning.occupancy_id == occupancy.id).limit(1)
+            )
+            if cleaning_result.scalar_one_or_none() is None:
+                scheduled_date = occupancy.departure_date.date() + timedelta(days=1)
+                while scheduled_date.weekday() >= 5:
+                    scheduled_date += timedelta(days=1)
+                self.db.add(Cleaning(
+                    housing_id=occupancy.housing_id,
+                    occupancy_id=occupancy.id,
+                    type="exit",
+                    status="planned",
+                    scheduled_date=scheduled_date,
+                    volunteers_needed=1,
+                    invitation_status="not_sent",
+                    created_by=self.current_user.id if self.current_user else None,
+                ))
+
         if new_status == "in_progress" and not occupancy.actual_arrival:
             occupancy.actual_arrival = datetime.utcnow()
         elif new_status == "completed" and not occupancy.actual_departure:
@@ -591,9 +611,10 @@ class HousingService:
 
     async def list_cleanings(self, params: dict) -> dict:
         query = select(Cleaning).options(
-            selectinload(Cleaning.housing).selectinload(Housing.room).selectinload(Room.building),
-            selectinload(Cleaning.occupancy).selectinload(Occupancy.occupants),
-            selectinload(Cleaning.assigned_user),
+                selectinload(Cleaning.housing).selectinload(Housing.room).selectinload(Room.building),
+                selectinload(Cleaning.occupancy).selectinload(Occupancy.occupants),
+                selectinload(Cleaning.assigned_user),
+                selectinload(Cleaning.invitation_logs).selectinload(CleaningInvitationLog.volunteer),
         )
         count_query = select(func.count(Cleaning.id))
 
@@ -654,15 +675,30 @@ class HousingService:
             select(Cleaning)
             .options(
                 selectinload(Cleaning.housing).selectinload(Housing.room).selectinload(Room.building),
-            selectinload(Cleaning.occupancy).selectinload(Occupancy.occupants),
+                selectinload(Cleaning.occupancy).selectinload(Occupancy.occupants),
                 selectinload(Cleaning.assigned_user),
+                selectinload(Cleaning.invitation_logs).selectinload(CleaningInvitationLog.volunteer),
             )
             .where(Cleaning.id == cleaning_id)
         )
         c = result.scalar_one_or_none()
         if not c:
             return None
-        return CleaningResponse.model_validate(c, from_attributes=True).model_dump()
+        data = CleaningResponse.model_validate(c, from_attributes=True).model_dump()
+        data["invitation_history"] = [
+            {
+                "id": log.id,
+                "volunteer_id": log.volunteer_id,
+                "volunteer_name": f"{log.volunteer.first_name} {log.volunteer.last_name}",
+                "channel": log.channel,
+                "status": log.status,
+                "availability_response": log.availability_response,
+                "message": log.message,
+                "sent_at": log.sent_at,
+            }
+            for log in c.invitation_logs
+        ]
+        return data
 
     async def create_cleaning(self, data: dict) -> dict:
         if self.current_user:
@@ -693,6 +729,261 @@ class HousingService:
         await self.db.delete(cleaning)
         await self.db.commit()
         return True
+
+    async def send_cleaning_volunteer_request(
+        self,
+        cleaning_id: int,
+        volunteer_ids: list[int],
+        channel: str,
+        template_id: int | None = None,
+        message: str | None = None,
+        public_base_url: str = "",
+    ) -> dict:
+        result = await self.db.execute(
+            select(Cleaning)
+            .options(
+                selectinload(Cleaning.volunteers),
+                selectinload(Cleaning.housing).selectinload(Housing.room),
+            )
+            .where(Cleaning.id == cleaning_id)
+        )
+        cleaning = result.scalar_one_or_none()
+        if not cleaning:
+            raise HTTPException(status_code=404, detail="Ménage non trouvé")
+        if not volunteer_ids:
+            raise HTTPException(status_code=400, detail="Sélectionnez au moins un volontaire")
+
+        volunteers_result = await self.db.execute(
+            select(Volunteer).where(
+                Volunteer.id.in_(volunteer_ids),
+                Volunteer.is_active.is_(True),
+                Volunteer.usage_type.like("%cleaning%"),
+            )
+        )
+        volunteers = list(volunteers_result.scalars().all())
+        if len(volunteers) != len(set(volunteer_ids)):
+            raise HTTPException(status_code=400, detail="Un ou plusieurs volontaires ne sont pas disponibles pour le ménage")
+
+        cleaning.volunteers = volunteers
+        await self.db.commit()
+
+        housing_name = cleaning.housing.room.name if cleaning.housing and cleaning.housing.room else "le logement"
+        subject = f"Demande de ménage - {housing_name} - {cleaning.scheduled_date:%d/%m/%Y}"
+        request_message = message or (
+            f"Bonjour,\n\nUne intervention de ménage est demandée pour {housing_name} "
+            f"le {cleaning.scheduled_date:%d/%m/%Y}. Merci d'indiquer si vous êtes disponible.\n\n"
+            "Merci."
+        )
+
+        template_query = select(EmailTemplate).options(
+            selectinload(EmailTemplate.attachments).selectinload(EmailTemplateAttachment.housings)
+        ).where(
+            EmailTemplate.template_type == "cleaning_invitation",
+            EmailTemplate.is_active.is_(True),
+        )
+        if template_id:
+            template_query = template_query.where(EmailTemplate.id == template_id)
+        else:
+            template_query = template_query.where(EmailTemplate.is_default.is_(True)).limit(1)
+        template_result = await self.db.execute(template_query)
+        template = template_result.scalar_one_or_none()
+        if template_id and not template:
+            raise HTTPException(status_code=400, detail="Modèle d’invitation ménage introuvable ou inactif")
+
+        email_recipients = [
+            volunteer for volunteer in volunteers
+            if volunteer.email and (channel in (None, "email") and volunteer.communication_preference in ("email", "both"))
+        ]
+        sms_recipients = [
+            volunteer for volunteer in volunteers
+            if volunteer.phone and (channel in (None, "sms") and volunteer.communication_preference in ("sms", "both"))
+        ]
+        if email_recipients and not template:
+            raise HTTPException(status_code=400, detail="Configurez un modèle d’invitation ménage avant l’envoi par e-mail")
+        if not email_recipients and not sms_recipients:
+            raise HTTPException(status_code=400, detail="Aucun contact ne correspond aux préférences des volontaires sélectionnés")
+
+        template_context = {
+            "housing_name": housing_name,
+            "scheduled_date": cleaning.scheduled_date.strftime("%d/%m/%Y"),
+            "cleaning_date": cleaning.scheduled_date.strftime("%d/%m/%Y"),
+            "volunteers_needed": cleaning.volunteers_needed,
+        }
+        rendered_subject = template.subject if template else subject
+        rendered_html = template.body_html if template else None
+        rendered_body = (template.body_text or template.body_html) if template else request_message
+
+        sent_count = 0
+        sms_messages = []
+        for volunteer in email_recipients:
+                log = CleaningInvitationLog(
+                    cleaning_id=cleaning.id,
+                    volunteer_id=volunteer.id,
+                    channel="email",
+                    status="pending",
+                    message=rendered_body,
+                )
+                self.db.add(log)
+                await self.db.flush()
+                available_url = f"{public_base_url}/housing/public/cleaning-invitations/{log.response_token}?response=available"
+                unavailable_url = f"{public_base_url}/housing/public/cleaning-invitations/{log.response_token}?response=unavailable"
+                try:
+                    volunteer_context = {
+                        **template_context,
+                        "volunteer_first_name": volunteer.first_name,
+                        "volunteer_last_name": volunteer.last_name,
+                        "volunteer_email": volunteer.email,
+                        "available_url": available_url,
+                        "unavailable_url": unavailable_url,
+                    }
+                    email_subject = Template(rendered_subject).render(**volunteer_context)
+                    email_html, email_body = self._render_email_template(template, volunteer_context) if template else (None, rendered_body)
+                    email_body = f"{email_body}\n\nDisponible : {available_url}\nPas disponible : {unavailable_url}"
+                    response_actions = (
+                        '<div style="margin-top:24px;padding:16px;border:1px solid #d9e2ec;'
+                        'border-radius:8px;font-family:Arial,sans-serif;">'
+                        '<p style="margin:0 0 12px;font-weight:600;">Pouvez-vous assurer ce ménage ?</p>'
+                        f'<a href="{available_url}" style="display:inline-block;margin-right:8px;'
+                        'padding:14px 24px;background:#198754;color:#fff;text-decoration:none;'
+                        'font-size:16px;font-weight:700;border-radius:5px;">Je suis disponible</a>'
+                        f'<a href="{unavailable_url}" style="display:inline-block;'
+                        'padding:14px 24px;background:#dc3545;color:#fff;text-decoration:none;'
+                        'font-size:16px;font-weight:700;border-radius:5px;">'
+                        'Je ne suis pas disponible</a></div>'
+                    )
+                    email_html = email_html or f"<p>{email_body}</p>"
+                    closing_tag = "</body>"
+                    closing_index = email_html.lower().rfind(closing_tag)
+                    if closing_index < 0:
+                        closing_tag = "</html>"
+                        closing_index = email_html.lower().rfind(closing_tag)
+                    if closing_index >= 0:
+                        email_html = email_html[:closing_index] + response_actions + email_html[closing_index:]
+                    else:
+                        email_html += response_actions
+                    log.message = email_body
+                    await self._send_email(
+                        volunteer.email,
+                        email_subject,
+                        email_body,
+                        email_html,
+                        self._select_email_attachments(template, cleaning.housing_id) if template else [],
+                    )
+                    log.status = "sent"
+                    sent_count += 1
+                except Exception as exc:
+                    log.status = "failed"
+                    log.message = f"{rendered_body}\n\nErreur: {exc}"
+        phones = [volunteer.phone for volunteer in sms_recipients]
+        for volunteer in sms_recipients:
+            log = CleaningInvitationLog(
+                cleaning_id=cleaning.id,
+                volunteer_id=volunteer.id,
+                channel="sms",
+                status="prepared",
+                message=rendered_body,
+            )
+            self.db.add(log)
+            await self.db.flush()
+            available_url = f"{public_base_url}/housing/public/cleaning-invitations/{log.response_token}?response=available"
+            unavailable_url = f"{public_base_url}/housing/public/cleaning-invitations/{log.response_token}?response=unavailable"
+            sms_messages.append({
+                "phone": volunteer.phone,
+                "message": f"{request_message}\n\nDisponible : {available_url}\nPas disponible : {unavailable_url}",
+            })
+            log.message = sms_messages[-1]["message"]
+        cleaning.invitation_status = "sent" if sent_count or phones else "not_sent"
+        await self.db.commit()
+        channels = []
+        if sent_count:
+            channels.append(f"{sent_count} e-mail(s)")
+        if phones:
+            channels.append(f"{len(phones)} SMS prêt(s)")
+        return {
+            "message": "Demande envoyée : " + " et ".join(channels),
+            "channel": "mixed" if sent_count and phones else ("email" if sent_count else "sms"),
+            "phones": phones,
+            "sms_message": sms_messages[0]["message"] if len(sms_messages) == 1 else request_message,
+            "sms_messages": sms_messages,
+        }
+
+    async def cancel_cleaning(self, cleaning_id: int) -> dict:
+        result = await self.db.execute(
+            select(Cleaning).options(
+                selectinload(Cleaning.volunteers),
+                selectinload(Cleaning.housing).selectinload(Housing.room),
+            ).where(Cleaning.id == cleaning_id)
+        )
+        cleaning = result.scalar_one_or_none()
+        if not cleaning:
+            raise HTTPException(status_code=404, detail="Ménage non trouvé")
+
+        template_result = await self.db.execute(
+            select(EmailTemplate).options(
+                selectinload(EmailTemplate.attachments).selectinload(EmailTemplateAttachment.housings)
+            ).where(
+                EmailTemplate.template_type == "cleaning_cancellation",
+                EmailTemplate.is_active.is_(True),
+                EmailTemplate.is_default.is_(True),
+            ).limit(1)
+        )
+        template = template_result.scalar_one_or_none()
+        housing_name = cleaning.housing.room.name if cleaning.housing and cleaning.housing.room else "le logement"
+        context = {
+            "housing_name": housing_name,
+            "scheduled_date": cleaning.scheduled_date.strftime("%d/%m/%Y"),
+            "cleaning_date": cleaning.scheduled_date.strftime("%d/%m/%Y"),
+        }
+        phones = []
+        sent_count = 0
+        for volunteer in cleaning.volunteers:
+            preference = volunteer.communication_preference
+            if volunteer.email and preference in ("email", "both") and template:
+                volunteer_context = {
+                    **context,
+                    "volunteer_first_name": volunteer.first_name,
+                    "volunteer_last_name": volunteer.last_name,
+                    "volunteer_email": volunteer.email,
+                }
+                html_body, text_body = self._render_email_template(template, volunteer_context)
+                log = CleaningInvitationLog(
+                    cleaning_id=cleaning.id,
+                    volunteer_id=volunteer.id,
+                    channel="email",
+                    status="pending",
+                    message=text_body,
+                )
+                self.db.add(log)
+                try:
+                    await self._send_email(
+                        volunteer.email,
+                        Template(template.subject).render(**volunteer_context),
+                        text_body,
+                        html_body,
+                        self._select_email_attachments(template, cleaning.housing_id),
+                    )
+                    log.status = "sent"
+                    sent_count += 1
+                except Exception as exc:
+                    log.status = "failed"
+                    log.message = f"{text_body}\n\nErreur: {exc}"
+            if volunteer.phone and preference in ("sms", "both"):
+                phones.append(volunteer.phone)
+                self.db.add(CleaningInvitationLog(
+                    cleaning_id=cleaning.id,
+                    volunteer_id=volunteer.id,
+                    channel="sms",
+                    status="prepared",
+                    message=f"Annulation du ménage prévu le {cleaning.scheduled_date:%d/%m/%Y}.",
+                ))
+
+        cleaning.status = "cancelled"
+        await self.db.commit()
+        if not template and any(v.email and v.communication_preference in ("email", "both") for v in cleaning.volunteers):
+            message = "Ménage annulé, mais aucun modèle d’annulation ménage par défaut n’est configuré"
+        else:
+            message = f"Ménage annulé. {sent_count} e-mail(s) envoyé(s)"
+        return {"message": message, "phones": phones, "sms_message": f"Le ménage du {cleaning.scheduled_date:%d/%m/%Y} à {housing_name} est annulé."}
 
     # ============================================================
     # EMAIL TEMPLATES
@@ -1004,6 +1295,41 @@ class HousingService:
         
         return f"{sent_count} email(s) envoyé(s) sur {len(recipients)} destinataire(s)"
 
+    async def send_cancellation_email(self, occupancy_id: int) -> str:
+        template_result = await self.db.execute(
+            select(EmailTemplate)
+            .where(
+                EmailTemplate.template_type == "cancellation",
+                EmailTemplate.is_active.is_(True),
+            )
+            .order_by(EmailTemplate.is_default.desc(), EmailTemplate.id.asc())
+            .limit(1)
+        )
+        template = template_result.scalar_one_or_none()
+        if not template:
+            return "Aucun modèle d'annulation actif n'est configuré"
+
+        occupancy_result = await self.db.execute(
+            select(Occupancy)
+            .options(selectinload(Occupancy.occupants))
+            .where(Occupancy.id == occupancy_id)
+        )
+        occupancy = occupancy_result.scalar_one_or_none()
+        if not occupancy:
+            return "Occupation non trouvée"
+        recipient_ids = [occupant.id for occupant in occupancy.occupants if occupant.email]
+        if not recipient_ids:
+            return "Aucun occupant ne possède d'adresse e-mail"
+        return await self.send_custom_message(
+            occupancy_id,
+            template.subject,
+            template.body_text or template.body_html,
+            recipient_ids,
+            template.id,
+            [],
+            template.body_html,
+        )
+
     async def send_custom_message(self, occupancy_id: int, subject: str, body_text: str, 
                                   recipient_ids: List[int], template_id: Optional[int], 
                                   attachment_ids: List[int], body_html: Optional[str] = None) -> str:
@@ -1140,7 +1466,8 @@ class HousingService:
     # ============================================================
 
     async def get_planning(self, start_date: date, end_date: date, view: str = "month", 
-                          housing_ids: Optional[List[int]] = None, status_filter: Optional[str] = None) -> dict:
+                          housing_ids: Optional[List[int]] = None, status_filter: Optional[str] = None,
+                          include_completed: bool = False) -> dict:
         query = select(Housing).options(
             selectinload(Housing.room).selectinload(Room.building).selectinload(Building.site),
         ).where(Housing.is_active == True)
@@ -1157,7 +1484,7 @@ class HousingService:
             selectinload(Occupancy.occupants),
             selectinload(Occupancy.cleanings),
         ).where(
-            Occupancy.status.in_(["pre_reserved", "confirmed", "in_progress"]),
+            Occupancy.status.in_(["pre_reserved", "confirmed", "in_progress"] + (["completed"] if include_completed else [])),
             func.date(Occupancy.departure_date) >= start_date,
             func.date(Occupancy.arrival_date) <= end_date,
         )
@@ -1171,7 +1498,7 @@ class HousingService:
         cleaning_query = select(Cleaning).where(
             Cleaning.scheduled_date >= start_date,
             Cleaning.scheduled_date <= end_date,
-        )
+        ).options(selectinload(Cleaning.volunteers))
         cleaning_result = await self.db.execute(cleaning_query)
         cleanings = cleaning_result.scalars().all()
         cleanings_by_housing = {}
@@ -1218,6 +1545,11 @@ class HousingService:
                 "nb_persons": occ.nb_persons,
                 "cleaning_status": cleaning_status,
                 "has_cleaning_planned": has_cleaning_planned,
+                "cleaning_id": occ_cleanings[0].id if occ_cleanings else None,
+                "cleaning_volunteers_needed": occ_cleanings[0].volunteers_needed if occ_cleanings else None,
+                "cleaning_volunteer_ids": [v.id for v in occ_cleanings[0].volunteers] if occ_cleanings else [],
+                "cleaning_scheduled_date": occ_cleanings[0].scheduled_date if occ_cleanings else None,
+                "cleaning_invitation_status": occ_cleanings[0].invitation_status if occ_cleanings else None,
             })
 
         housing_list = []

@@ -6,6 +6,25 @@ import {
   updateVolunteer,
   deleteVolunteer,
 } from '../services/housingApi.js';
+import {
+  listAdministrativeCapabilities,
+  listVolunteerCapabilities,
+  assignVolunteerCapability,
+  deleteVolunteerCapability,
+} from '../services/administrativeApi.js';
+
+const USAGE_LABELS = {
+  cleaning: { label: 'Ménage', color: '#f59e0b' },
+  maintenance: { label: 'Maintenance', color: '#3b82f6' },
+};
+
+function renderUsageTypes(value) {
+  const usages = String(value || 'cleaning').split(',').filter(Boolean);
+  return usages.map(usage => {
+    const config = USAGE_LABELS[usage] || { label: usage, color: '#6b7280' };
+    return `<span style="display:inline-block;padding:3px 8px;margin:2px;border-radius:999px;font-size:11px;background:${config.color}18;color:${config.color};border:1px solid ${config.color}33;">${config.label}</span>`;
+  }).join('');
+}
 
 export class CleaningVolunteersPage {
   constructor(router) {
@@ -33,21 +52,10 @@ export class CleaningVolunteersPage {
           key: 'usage_type',
           label: 'Utilisé pour',
           sortable: true,
-          render: (item) => {
-            const types = { cleaning: '🧹 Ménage', maintenance: '🔧 Maintenance' };
-            const colors = { cleaning: '#f59e0b', maintenance: '#3b82f6' };
-            const c = colors[item.usage_type] || '#6b7280';
-            return `<span style="padding:2px 8px;border-radius:4px;font-size:11px;background:${c}18;color:${c};border:1px solid ${c}33;">${types[item.usage_type] || item.usage_type}</span>`;
-          },
+          render: (item) => renderUsageTypes(item.usage_type),
         },
         { key: 'phone', label: 'Téléphone', sortable: false },
         { key: 'email', label: 'Email', sortable: true },
-        {
-          key: 'is_active',
-          label: 'Actif',
-          sortable: true,
-          render: (item) => `<span class="status-badge" style="background:${item.is_active ? '#d1fae5' : '#fee2e2'};color:${item.is_active ? '#065f46' : '#991b1b'};">${item.is_active ? 'Oui' : 'Non'}</span>`,
-        },
       ],
       actions: [
         {
@@ -83,9 +91,9 @@ export class CleaningVolunteersPage {
       if (this.usageFilter !== 'all') params.usage_type = this.usageFilter;
 
       const response = await listVolunteers(params);
-      this.items = response.items || [];
-      this.total = response.total || 0;
-      this.totalPages = response.total_pages || 1;
+      this.items = Array.isArray(response) ? response : (response.items || []);
+      this.total = Array.isArray(response) ? this.items.length : (response.total || 0);
+      this.totalPages = Array.isArray(response) ? 1 : (response.total_pages || 1);
       this.renderTableState();
     } catch (error) {
       console.error('Erreur chargement volontaires:', error);
@@ -240,6 +248,14 @@ export class CleaningVolunteersPage {
               </div>
             </div>
             <div class="form-group">
+              <label>Préférence de communication</label>
+              <select id="vol-communication-preference" class="form-control">
+                <option value="both" ${!isEdit || item.communication_preference === 'both' ? 'selected' : ''}>E-mail et SMS</option>
+                <option value="email" ${isEdit && item.communication_preference === 'email' ? 'selected' : ''}>E-mail uniquement</option>
+                <option value="sms" ${isEdit && item.communication_preference === 'sms' ? 'selected' : ''}>SMS uniquement</option>
+              </select>
+            </div>
+            <div class="form-group">
               <label>Utilisé pour <span style="color:red;">*</span></label>
               <div class="form-check form-check-flat form-check-inline">
                 <input class="form-check-input" type="checkbox" id="vol-usage-cleaning" value="cleaning"${currentUsage === 'cleaning' || (currentUsage.includes && currentUsage.includes('cleaning')) ? ' checked' : ''}>
@@ -250,6 +266,11 @@ export class CleaningVolunteersPage {
                 <label class="form-check-label" for="vol-usage-maintenance">🔧 Maintenance</label>
               </div>
             </div>
+            ${isEdit && authStore.hasPermission('administration.programs.view') ? `
+            <div class="form-group">
+              <label>Capacités administratives</label>
+              <div data-volunteer-capabilities>Chargement...</div>
+            </div>` : ''}
             <div class="form-row">
               <div class="form-group">
                 <label>Téléphone</label>
@@ -259,12 +280,6 @@ export class CleaningVolunteersPage {
                 <label>Email</label>
                 <input type="email" id="vol-email" class="form-control" value="${isEdit ? (item.email || '') : ''}">
               </div>
-            </div>
-            <div class="form-group">
-              <label class="checkbox-label" style="display:flex;align-items:center;gap:8px;">
-                <input type="checkbox" id="vol-active" ${isEdit ? (item.is_active ? 'checked' : '') : 'checked'}>
-                <span>Actif</span>
-              </label>
             </div>
           </div>
         </div>
@@ -278,6 +293,9 @@ export class CleaningVolunteersPage {
     document.body.appendChild(modal);
     modal.querySelectorAll('[data-dismiss]').forEach(btn => btn.addEventListener('click', () => modal.remove()));
     modal.addEventListener('click', (e) => { if (e.target === modal) modal.remove(); });
+    if (isEdit && authStore.hasPermission('administration.programs.view')) {
+      this._loadVolunteerCapabilities(modal, item.id);
+    }
 
     modal.querySelector('[data-action="save"]')?.addEventListener('click', async () => {
       const lastname = modal.querySelector('#vol-lastname').value.trim();
@@ -289,15 +307,19 @@ export class CleaningVolunteersPage {
       if (volUsageMaintenance.checked) usageType += usageType ? ',maintenance' : 'maintenance';
       const phone = modal.querySelector('#vol-phone').value.trim() || null;
       const email = modal.querySelector('#vol-email').value.trim() || null;
-      const isActive = modal.querySelector('#vol-active').checked;
+      const communicationPreference = modal.querySelector('#vol-communication-preference').value;
 
       if (!lastname || !firstname) {
         alert('Nom et prénom requis');
         return;
       }
+      if (!usageType) {
+        alert('Sélectionnez au moins un usage');
+        return;
+      }
 
       try {
-        const data = { last_name: lastname, first_name: firstname, usage_type: usageType, phone, email, is_active: isActive };
+        const data = { last_name: lastname, first_name: firstname, usage_type: usageType, phone, email, communication_preference: communicationPreference };
         if (isEdit) {
           await updateVolunteer(item.id, data);
         } else {
@@ -309,6 +331,35 @@ export class CleaningVolunteersPage {
         alert('Erreur: ' + (e.message || 'Enregistrement échoué'));
       }
     });
+  }
+
+  async _loadVolunteerCapabilities(modal, volunteerId) {
+    const container = modal.querySelector('[data-volunteer-capabilities]');
+    if (!container) return;
+    try {
+      const [capabilities, assigned] = await Promise.all([
+        listAdministrativeCapabilities(),
+        listVolunteerCapabilities(volunteerId),
+      ]);
+      const assignedIds = new Set((assigned || []).map(item => item.capability_id));
+      const canManage = authStore.hasPermission('administration.programs.manage');
+      container.innerHTML = (capabilities || []).map(capability => `
+        <label style="display:inline-flex;align-items:center;gap:6px;margin:0 12px 8px 0;">
+          <input type="checkbox" data-volunteer-capability="${capability.id}" ${assignedIds.has(capability.id) ? 'checked' : ''} ${canManage ? '' : 'disabled'}>
+          <span>${capability.name}</span>
+        </label>`).join('') || '<span>Aucune capacité configurée.</span>';
+      container.querySelectorAll('[data-volunteer-capability]').forEach(input => input.addEventListener('change', async () => {
+        try {
+          if (input.checked) await assignVolunteerCapability(volunteerId, { capability_id: Number(input.dataset.volunteerCapability) });
+          else await deleteVolunteerCapability(volunteerId, Number(input.dataset.volunteerCapability));
+        } catch (error) {
+          input.checked = !input.checked;
+          alert(error?.data?.detail || error.message || 'Modification de la capacité impossible');
+        }
+      }));
+    } catch (error) {
+      container.textContent = error?.data?.detail || 'Capacités indisponibles';
+    }
   }
 
   destroy() {

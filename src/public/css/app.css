@@ -3809,13 +3809,13 @@
 
 /* Status colors - blocs */
 .planning-block--pre_reserved {
-  background: var(--color-gray-400);
-  border-left: 3px solid var(--color-gray-500);
+  background: var(--color-warning);
+  border-left: 3px solid var(--color-warning-hover);
 }
 
 .planning-block--confirmed {
-  background: var(--color-warning);
-  border-left: 3px solid var(--color-warning-hover);
+  background: var(--color-success);
+  border-left: 3px solid var(--color-success-hover);
 }
 
 .planning-block--in_progress {

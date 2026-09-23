@@ -19,12 +19,13 @@ import { createMaintenanceRefsPage } from './pages/MaintenanceRefsPage.js';
 import { createMaintenanceCalendarPage } from './pages/MaintenanceCalendarPage.js';
 import { createAIAssistantPage } from './pages/AIAssistantPage.js';
 import { createHousingListPage } from './pages/HousingListPage.js';
-import { createHousingPlanningPage } from './pages/HousingPlanningPage.js?v=2';
+import { createHousingPlanningPage } from './pages/HousingPlanningPage.js?v=12';
 import { createHousingCleaningPage } from './pages/HousingCleaningPage.js';
 import { createHousingOccupantsPage } from './pages/HousingOccupantsPage.js';
 import { createHousingUnavailabilitiesPage } from './pages/HousingUnavailabilitiesPage.js';
 import { createHousingEmailTemplatesPage } from './pages/HousingEmailTemplatesPage.js?v=2';
 import { createCleaningVolunteersPage } from './pages/CleaningVolunteersPage.js';
+import { createAdministrativeProgramsPage } from './pages/AdministrativeProgramsPage.js';
 import { createSportDashboardPage } from './pages/SportDashboardPage.js?v=2';
 import { createSportActivitiesPage } from './pages/SportActivitiesPage.js?v=2';
 import { createSportGarminPage } from './pages/SportGarminPage.js?v=2';
@@ -46,6 +47,7 @@ const moduleRoutes = [
   'documents',
   'reports',
   'administration',
+  'administratif',
 ];
 
 let appShell = null;
@@ -70,6 +72,7 @@ let housingOccupantsPage = null;
 let housingUnavailabilitiesPage = null;
 let housingEmailTemplatesPage = null;
 let volunteersPage = null;
+let administrativeProgramsPage = null;
 let sportDashboardPage = null;
 let sportActivitiesPage = null;
 let sportGarminPage = null;
@@ -82,6 +85,8 @@ async function initializeApp() {
   await appShell.initialize();
 
   const authGuard = createAuthGuard(authStore);
+
+  const initialPath = window.location.pathname;
 
   router
     .addRoute('/login', async () => {
@@ -118,12 +123,24 @@ async function initializeApp() {
     .addRoute('/administration/permissions', async (route) => {
       await showAdministrationPage(route);
     }, { requiresAuth: true, permissions: ['permission_view'] })
+    .addRoute('/administration/audit', async (route) => {
+      await showAdministrationPage(route);
+    }, { requiresAuth: true, permissions: ['audit_log_view'] })
     .addRoute('/administration/active-directory', async (route) => {
       await showAdministrationPage(route);
     }, { requiresAuth: true, permissions: ['ad_config'] })
     .addRoute('/administration/smtp', async (route) => {
       await showAdministrationPage(route);
     }, { requiresAuth: true, permissions: ['settings_view'] })
+    .addRoute('/administration/programs', async (route) => {
+      await showAdministrativeProgramsPage(route);
+    }, { requiresAuth: true, permissions: ['administration.programs.view'] })
+    .addRoute('/administratif', async (route) => {
+      await showAdministrativeProgramsPage(route);
+    }, { requiresAuth: true, permissions: ['administration.programs.view'] })
+    .addRoute('/administratif/programs', async (route) => {
+      await showAdministrativeProgramsPage(route);
+    }, { requiresAuth: true, permissions: ['administration.programs.view'] })
     .addRoute('/buildings', async (route) => {
       await showBuildingsPage(route);
     }, { requiresAuth: true, permissions: ['building.view'] })
@@ -201,7 +218,7 @@ async function initializeApp() {
     }, { requiresAuth: true, permissions: ['volunteers.view'] });
 
   moduleRoutes.forEach(module => {
-    if (module === 'dashboard' || module === 'administration' || module === 'buildings' || module === 'equipment' || module === 'sport') return;
+    if (module === 'dashboard' || module === 'administration' || module === 'administratif' || module === 'buildings' || module === 'equipment' || module === 'sport') return;
     router.addRoute(`/${module}`, async (route) => {
       await showModulePage(route);
     }, { requiresAuth: true });
@@ -232,7 +249,9 @@ async function initializeApp() {
     await ensureBuildingRefsPage();
     await ensureEquipmentPage();
     await ensureEquipmentRefsPage();
-    router.navigate('/dashboard', { replace: true });
+    if (initialPath === '/') {
+      router.navigate('/dashboard', { replace: true });
+    }
   } else {
     router.navigate('/login', { replace: true });
   }
@@ -430,6 +449,26 @@ async function ensureVolunteersPage() {
     await volunteersPage.initialize();
   }
   return volunteersPage;
+}
+
+async function ensureAdministrativeProgramsPage() {
+  if (!administrativeProgramsPage) {
+    administrativeProgramsPage = createAdministrativeProgramsPage(router);
+    await administrativeProgramsPage.initialize();
+  }
+  return administrativeProgramsPage;
+}
+
+async function showAdministrativeProgramsPage(route) {
+  if (!appShell) return;
+  appShell.showLoading();
+  try {
+    const page = await ensureAdministrativeProgramsPage();
+    appShell.showContent(page.render());
+  } catch (error) {
+    console.error('Erreur affichage programmes administratifs:', error);
+    appShell.showError(error);
+  }
 }
 
 async function ensureSportDashboardPage() {

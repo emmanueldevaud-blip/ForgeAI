@@ -16,10 +16,12 @@ volunteer_service = VolunteerService()
 async def list_volunteers(
     skip: int = 0,
     limit: int = 100,
+    usage_type: str | None = None,
+    is_active: bool | None = None,
     db: AsyncSession = Depends(get_db),
 ):
     """List all volunteers."""
-    volunteers = await volunteer_service.list_volunteers(db, skip, limit)
+    volunteers = await volunteer_service.list_volunteers(db, skip, limit, usage_type, is_active)
     return [VolunteerResponse.model_validate(v) for v in volunteers]
 
 

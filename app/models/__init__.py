@@ -3,7 +3,7 @@ from app.models.ad_integration import ADConfig, ADGroupMapping, ADSyncLog, ADSyn
 from app.models.audit import AuditLog
 from app.models.buildings import Building, Room, RoomType, Site, UsageType
 from app.models.equipment import Equipment, EquipmentType
-from app.models.housing import Housing, Occupant, Occupancy, OccupancyStatusHistory, HousingStatusHistory, Unavailability, Cleaning, EmailTemplate, EmailTemplateAttachment, EmailLog
+from app.models.housing import Housing, Occupant, Occupancy, OccupancyStatusHistory, HousingStatusHistory, Unavailability, Cleaning, CleaningInvitationLog, EmailTemplate, EmailTemplateAttachment, EmailLog
 from app.models.module import Module, ModuleConfig, ModuleStatus
 from app.models.maintenance import (
     AIConversation,
@@ -33,7 +33,9 @@ from app.models.rbac import (
     UserRoleAssignment,
 )
 from app.models.user import User, UserRole
+from app.models.volunteer import Volunteer
 from app.models.sport import SportActivity, SportAthlete, SportGarminConnection, SportGarminSyncLog, SportGoal, SportTrackPoint
+from app.models.administrative import AdministrativeAssignment, AdministrativeCapability, AdministrativeMonthlySession, AdministrativeProgramType, AdministrativeRoleType, VolunteerCapability, VolunteerUnavailability
 
 __all__ = [
     "ADConfig",
@@ -70,6 +72,7 @@ __all__ = [
     "OccupancyStatusHistory",
     "Occupant",
     "Cleaning",
+    "CleaningInvitationLog",
     "EmailTemplate",
     "EmailTemplateAttachment",
     "EmailLog",
@@ -85,6 +88,7 @@ __all__ = [
     "UserGroup",
     "UserRole",
     "UserRoleAssignment",
+    "Volunteer",
     "UsageType",
     "SportActivity",
     "SportAthlete",
@@ -93,4 +97,11 @@ __all__ = [
     "SportGarminConnection",
     "SportGarminSyncLog",
     "WorkOrderPart",
+    "AdministrativeAssignment",
+    "AdministrativeCapability",
+    "AdministrativeMonthlySession",
+    "AdministrativeProgramType",
+    "AdministrativeRoleType",
+    "VolunteerCapability",
+    "VolunteerUnavailability",
 ]

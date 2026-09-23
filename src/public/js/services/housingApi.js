@@ -120,10 +120,11 @@ export async function deleteUnavailability(id) {
 // PLANNING
 // ============================================================
 
-export async function getPlanning(startDate, endDate, view = 'month', housingIds = null, statusFilter = null) {
+export async function getPlanning(startDate, endDate, view = 'month', housingIds = null, statusFilter = null, includeCompleted = false) {
   let url = `/planning?start_date=${startDate}&end_date=${endDate}&view=${view}`;
   if (housingIds) url += `&housing_ids=${encodeURIComponent(JSON.stringify(housingIds))}`;
   if (statusFilter) url += `&status_filter=${statusFilter}`;
+  if (includeCompleted) url += '&include_completed=true';
   return housingApi.get(url);
 }
 
@@ -162,6 +163,14 @@ export async function updateCleaning(id, data) {
 
 export async function deleteCleaning(id) {
   return housingApi.delete(`/cleanings/${id}`);
+}
+
+export async function cancelCleaning(id) {
+  return housingApi.post(`/cleanings/${id}/cancel`, {});
+}
+
+export async function sendCleaningVolunteerRequest(id, data) {
+  return housingApi.post(`/cleanings/${id}/volunteer-request`, data);
 }
 
 // ============================================================
@@ -221,6 +230,10 @@ export async function sendConfirmationEmail(occupancyId, templateId, recipientId
   return housingApi.post(`/occupancies/${occupancyId}/send-confirmation`, formData);
 }
 
+export async function sendCancellationEmail(occupancyId) {
+  return housingApi.post(`/occupancies/${occupancyId}/send-cancellation`, {});
+}
+
 export async function sendCustomMessage(occupancyId, subject, bodyText, recipientIds, templateId = null, attachmentIds = [], bodyHtml = null) {
   const formData = new FormData();
   formData.append('subject', subject);
@@ -263,6 +276,8 @@ export async function listVolunteers(params = {}) {
   const query = new URLSearchParams();
   if (params.skip) query.append('skip', params.skip);
   if (params.limit) query.append('limit', params.limit);
+  if (params.usage_type) query.append('usage_type', params.usage_type);
+  if (params.is_active !== undefined) query.append('is_active', params.is_active);
   const endpoint = `/${query.toString() ? '?' + query.toString() : ''}`;
   return volunteerApi.get(endpoint);
 }

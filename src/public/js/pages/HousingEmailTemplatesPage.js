@@ -13,6 +13,8 @@ const VARIABLES = [
   'arrival_date', 'departure_date', 'housing_name', 'housing_reference',
   'building_name', 'site_name', 'room_index', 'nb_persons', 'guest_type',
   'purpose', 'observations',
+  'volunteer_first_name', 'volunteer_last_name', 'volunteer_email',
+  'available_url', 'unavailable_url',
 ];
 
 export class HousingEmailTemplatesPage {
@@ -88,7 +90,7 @@ export class HousingEmailTemplatesPage {
         <form data-template-form class="modal-body">
           <div class="form-row">
             <label><span>Nom *</span><input name="name" required maxlength="100" value="${this._attribute(template?.name)}"></label>
-            <label><span>Type *</span><select name="template_type"><option value="confirmation">Confirmation</option><option value="reminder">Rappel</option><option value="custom">Personnalisé</option></select></label>
+            <label><span>Type *</span><select name="template_type"><option value="confirmation">Confirmation réservation</option><option value="cancellation">Annulation réservation</option><option value="cleaning_invitation">Invitation ménage</option><option value="cleaning_cancellation">Annulation ménage</option><option value="reminder">Rappel</option><option value="custom">Personnalisé</option></select></label>
           </div>
           <label><span>Sujet *</span><input name="subject" required maxlength="200" value="${this._attribute(template?.subject)}"></label>
           <div style="margin:12px 0;display:flex;gap:6px;flex-wrap:wrap;align-items:center;"><strong>Variables :</strong>${VARIABLES.map(variable => `<button type="button" class="btn btn-sm btn-secondary" data-variable="${variable}">{{${variable}}}</button>`).join('')}</div>
@@ -110,8 +112,9 @@ export class HousingEmailTemplatesPage {
               <div data-rich-editor contenteditable="true" role="textbox" aria-multiline="true" style="min-height:240px;padding:12px;outline:none;">${template?.body_html || ''}</div>
             </div>
           </label>
-          <label><span>Contenu texte</span><textarea name="body_text" rows="6">${this._escape(template?.body_text)}</textarea></label>
-          <label class="checkbox-label"><input name="is_active" type="checkbox" ${template?.is_active !== false ? 'checked' : ''}> Modèle actif</label>
+           <label><span>Contenu texte</span><textarea name="body_text" rows="6">${this._escape(template?.body_text)}</textarea></label>
+           <label class="checkbox-label"><input name="is_default" type="checkbox" ${template?.is_default ? 'checked' : ''}> Utiliser comme modèle par défaut pour cette action</label>
+           <label class="checkbox-label"><input name="is_active" type="checkbox" ${template?.is_active !== false ? 'checked' : ''}> Modèle actif</label>
           ${template ? this._renderAttachments(template) : ''}
           <div class="modal-footer" style="margin-top:16px;display:flex;justify-content:flex-end;gap:8px;"><button type="button" class="btn btn-secondary" data-close>Annuler</button><button class="btn btn-primary">Enregistrer</button></div>
         </form>
@@ -187,6 +190,7 @@ export class HousingEmailTemplatesPage {
     form.elements.body_html.value = overlay.querySelector('[data-rich-editor]').innerHTML;
     const data = Object.fromEntries(new FormData(form).entries());
     data.is_active = form.elements.is_active.checked;
+    data.is_default = form.elements.is_default.checked;
     try {
       const saved = template ? await updateEmailTemplate(template.id, data) : await createEmailTemplate(data);
       if (!template) this.templates.push(saved);

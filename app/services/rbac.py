@@ -473,6 +473,10 @@ async def seed_default_rbac(db: AsyncSession) -> None:
         ("sport.goals.write", "Gérer les objectifs sportifs", "sport"),
         ("sport.analysis.read", "Consulter les analyses sportives", "sport"),
         ("sport.admin", "Administrer le module Sport", "sport"),
+        ("administration.programs.view", "Consulter les programmes administratifs", "administration"),
+        ("administration.programs.manage", "Gérer les séances et affectations", "administration"),
+        ("administration.programs.configure", "Configurer les programmes administratifs", "administration"),
+        ("administration.programs.validate", "Valider les programmes administratifs", "administration"),
     ]
     
     for code, name, module in default_permissions:

@@ -10,7 +10,7 @@ from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
 
-from app.api import auth, audit, buildings, dashboard, equipment, housing, maintenance, modules, admin, volunteer, sport
+from app.api import auth, audit, buildings, dashboard, equipment, housing, maintenance, modules, admin, volunteer, sport, administrative
 from app.core.config import get_settings
 from app.db.session import close_db, init_db
 from app.modules import register_all_modules
@@ -148,6 +148,7 @@ app.include_router(housing.router)
 app.include_router(maintenance.router)
 app.include_router(volunteer.router)
 app.include_router(sport.router)
+app.include_router(administrative.router)
 
 frontend_path = os.path.join(os.path.dirname(__file__), "..", "src", "public")
 SPA_INDEX = None

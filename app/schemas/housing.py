@@ -351,6 +351,8 @@ class CleaningBase(BaseModel):
     type: str = Field(default="exit", pattern="^(exit|intermediate|deep)$")
     status: str = Field(default="planned", pattern="^(planned|in_progress|to_check|checked|completed|cancelled)$")
     scheduled_date: date
+    volunteers_needed: int = Field(default=1, ge=1)
+    invitation_status: str = Field(default="not_sent", pattern="^(not_sent|sent)$")
     scheduled_time_start: Optional[str] = Field(None, pattern="^([01]?[0-9]|2[0-3]):[0-5][0-9]$")
     scheduled_time_end: Optional[str] = Field(None, pattern="^([01]?[0-9]|2[0-3]):[0-5][0-9]$")
     assigned_to: Optional[int] = None
@@ -368,11 +370,20 @@ class CleaningUpdate(BaseModel):
     type: Optional[str] = Field(None, pattern="^(exit|intermediate|deep)$")
     status: Optional[str] = Field(None, pattern="^(planned|in_progress|to_check|checked|completed|cancelled)$")
     scheduled_date: Optional[date] = None
+    volunteers_needed: Optional[int] = Field(None, ge=1)
+    invitation_status: Optional[str] = Field(None, pattern="^(not_sent|sent)$")
     scheduled_time_start: Optional[str] = Field(None, pattern="^([01]?[0-9]|2[0-3]):[0-5][0-9]$")
     scheduled_time_end: Optional[str] = Field(None, pattern="^([01]?[0-9]|2[0-3]):[0-5][0-9]$")
     assigned_to: Optional[int] = None
     notes: Optional[str] = None
     checklist: Optional[str] = None
+
+
+class CleaningVolunteerRequest(BaseModel):
+    volunteer_ids: List[int] = Field(default_factory=list)
+    channel: Optional[str] = Field(None, pattern="^(email|sms)$")
+    template_id: Optional[int] = None
+    message: Optional[str] = None
 
 
 class CleaningResponse(BaseModel):
@@ -386,6 +397,9 @@ class CleaningResponse(BaseModel):
     type: str
     status: str
     scheduled_date: date
+    volunteers_needed: int
+    invitation_status: str
+    invitation_history: List[dict] = []
     scheduled_time_start: Optional[str] = None
     scheduled_time_end: Optional[str] = None
     actual_start: Optional[datetime] = None
@@ -427,7 +441,7 @@ class CleaningListResponse(BaseModel):
 
 class EmailTemplateBase(BaseModel):
     name: str = Field(..., min_length=1, max_length=100)
-    template_type: str = Field(..., pattern="^(confirmation|reminder|custom)$")
+    template_type: str = Field(..., pattern="^(confirmation|cancellation|reminder|custom|cleaning_invitation|cleaning_cancellation)$")
     subject: str = Field(..., min_length=1, max_length=200)
     body_html: str = Field(..., min_length=1)
     body_text: Optional[str] = None
@@ -441,7 +455,7 @@ class EmailTemplateCreate(EmailTemplateBase):
 
 class EmailTemplateUpdate(BaseModel):
     name: Optional[str] = Field(None, min_length=1, max_length=100)
-    template_type: Optional[str] = Field(None, pattern="^(confirmation|reminder|custom)$")
+    template_type: Optional[str] = Field(None, pattern="^(confirmation|cancellation|reminder|custom|cleaning_invitation|cleaning_cancellation)$")
     subject: Optional[str] = Field(None, min_length=1, max_length=200)
     body_html: Optional[str] = None
     body_text: Optional[str] = None
@@ -564,6 +578,11 @@ class PlanningEntry(BaseModel):
     nb_persons: int
     cleaning_status: Optional[str] = None  # planned, in_progress, etc.
     has_cleaning_planned: bool = False
+    cleaning_id: Optional[int] = None
+    cleaning_volunteers_needed: Optional[int] = None
+    cleaning_volunteer_ids: List[int] = []
+    cleaning_scheduled_date: Optional[date] = None
+    cleaning_invitation_status: Optional[str] = None
 
 
 class PlanningResponse(BaseModel):

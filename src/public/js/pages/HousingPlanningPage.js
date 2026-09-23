@@ -9,7 +9,11 @@ import {
   createOccupant,
   createCleaning,
   updateCleaning,
+  deleteCleaning,
+  cancelCleaning,
   listCleanings,
+  listVolunteers,
+  sendCleaningVolunteerRequest,
   listEmailTemplates,
   sendConfirmationEmail,
   sendCustomMessage,
@@ -29,12 +33,12 @@ const STATUS_LABELS = {
 };
 
 const STATUS_COLORS = {
-  pre_reserved: { bg: '#f3f4f6', border: '#9ca3af', text: '#374151' },
-  confirmed: { bg: '#fef3c7', border: '#f59e0b', text: '#92400e' },
+  pre_reserved: { bg: '#fef3c7', border: '#f59e0b', text: '#92400e' },
+  confirmed: { bg: '#dcfce7', border: '#22c55e', text: '#166534' },
 };
 
 const CLEANING_STATUS_LABELS = {
-  planned: 'Planifié',
+  planned: 'Planification en cours',
   in_progress: 'En cours',
   completed: 'Terminé',
   verified: 'Vérifié',
@@ -54,6 +58,15 @@ function formatDateISO(d) {
   return `${y}-${m}-${day}`;
 }
 
+function getNextWeekdayAfter(dateValue) {
+  const date = new Date(`${dateValue.slice(0, 10)}T00:00:00`);
+  date.setDate(date.getDate() + 1);
+  while (date.getDay() === 0 || date.getDay() === 6) {
+    date.setDate(date.getDate() + 1);
+  }
+  return formatDateISO(date);
+}
+
 function parseRoomNames(str, count) {
   let names = [];
   try { names = JSON.parse(str || '[]'); } catch { names = []; }
@@ -71,6 +84,38 @@ function formatDateFull(d) {
 function getOccupantDisplayName(occ) {
   if (!occ) return '';
   return `${occ.last_name || ''} ${occ.first_name || ''}`.trim();
+}
+
+function escapeHtml(value) {
+  const div = document.createElement('div');
+  div.textContent = value == null ? '' : String(value);
+  return div.innerHTML;
+}
+
+function getEmailTemplateContext(entry, occupant) {
+  return {
+    occupant_first_name: occupant?.first_name || '',
+    occupant_last_name: occupant?.last_name || '',
+    occupant_email: occupant?.email || '',
+    arrival_date: entry.arrival_date ? new Date(entry.arrival_date).toLocaleDateString('fr-FR') : '',
+    departure_date: entry.departure_date ? new Date(entry.departure_date).toLocaleDateString('fr-FR') : '',
+    housing_name: entry.housing_name || '',
+    housing_reference: entry.housing_reference || '',
+    building_name: entry.building_name || '',
+    site_name: entry.site_name || '',
+    room_index: entry.room_index ?? 0,
+    nb_persons: entry.nb_persons || 1,
+    guest_type: entry.guest_type || '',
+    purpose: entry.purpose || '',
+    observations: entry.observations || '',
+  };
+}
+
+function renderEmailTemplate(value, context, html = false) {
+  return String(value || '').replace(/{{\s*([a-zA-Z0-9_]+)\s*}}/g, (_, variable) => {
+    const replacement = context[variable] ?? '';
+    return html ? escapeHtml(replacement) : String(replacement);
+  });
 }
 
 export class HousingPlanningPage {
@@ -704,6 +749,8 @@ export class HousingPlanningPage {
     const statusClass = entry.status || 'pre_reserved';
     const primaryOccupant = (entry.occupants && entry.occupants[0]) || null;
     const housing = this.housings.find(h => h.id === entry.housing_id);
+    const roomNames = parseRoomNames(housing?.room_names, housing?.nb_rooms || 1);
+    const roomName = roomNames[entry.room_index || 0];
     const isMobile = window.innerWidth <= 640;
 
     let occupantsHtml = '';
@@ -712,7 +759,6 @@ export class HousingPlanningPage {
       occupantsHtml += `
         <div class="detail-occupant-row" style="display:flex;gap:8px;align-items:center;padding:6px 0;${i > 0 ? 'border-top:1px solid var(--color-border-light);' : ''}">
           <span style="flex:1;font-size:${isMobile ? '13px' : '14px'};">${getOccupantDisplayName(occ)}</span>
-          ${i === 0 ? '<span class="badge badge-sm" style="background:var(--color-primary-light);color:var(--color-primary);">Principal</span>' : ''}
           ${!isMobile ? `<span style="color:var(--color-text-tertiary);font-size:12px;">${occ.email || ''}</span>` : ''}
         </div>`;
     });
@@ -738,7 +784,7 @@ export class HousingPlanningPage {
           </div>
           <div style="flex:1;min-width:${isMobile ? '100px' : '120px'};">
             <label style="font-weight:600;font-size:11px;color:var(--color-text-tertiary);text-transform:uppercase;letter-spacing:0.5px;display:block;margin-bottom:4px;">Chambre</label>
-          <div style="font-weight:500;">${housing?.room?.name || housing?.name || entry.housing_name || 'Logement'}</div>
+           <div style="font-weight:500;">${housing?.room?.name || housing?.name || entry.housing_name || 'Logement'} — ${roomName}</div>
           </div>
         </div>
         <div class="reservation-detail-row" style="display:flex;gap:12px;margin-bottom:16px;flex-wrap:wrap;">
@@ -767,20 +813,22 @@ export class HousingPlanningPage {
           ${occupantsHtml || '<div style="color:var(--color-text-tertiary);font-style:italic;">Aucun occupant</div>'}
         </div>
         <div class="modal-footer reservation-modal-footer" style="display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap;padding-top:16px;border-top:1px solid var(--color-border-light);">
-          <button class="btn btn-danger" data-action="delete-occupancy" style="flex:1;min-width:${isMobile ? '100px' : 'auto'};">Supprimer la réservation</button>
-          <button class="btn btn-secondary" data-dismiss style="flex:1;min-width:${isMobile ? '100px' : 'auto'};">Fermer</button>
           ${entry.status === 'pre_reserved' ? `<button class="btn btn-primary" data-action="confirm" style="flex:1;min-width:${isMobile ? '100px' : 'auto'};">Confirmer la réservation</button>` : ''}
-          ${!entry.has_cleaning_planned ? `<button class="btn btn-secondary" data-action="schedule-cleaning" style="flex:1;min-width:${isMobile ? '100px' : 'auto'};">Planifier un nettoyage</button>` : ''}
+           ${entry.status !== 'cancelled' && entry.status !== 'pre_reserved' ? `<button class="btn btn-danger" data-action="cancel-occupancy" style="flex:1;min-width:${isMobile ? '100px' : 'auto'};">Annuler la réservation</button>` : ''}
+            ${entry.status === 'pre_reserved' ? `<button class="btn btn-danger" data-action="delete-occupancy" style="flex:1;min-width:${isMobile ? '100px' : 'auto'};">Supprimer la réservation</button>` : ''}
+              ${entry.cleaning_status === 'planned' && entry.status !== 'pre_reserved' ? `<button class="btn btn-secondary" data-action="manage-cleaning" style="flex:1;min-width:${isMobile ? '100px' : 'auto'};">Gérer les volontaires</button>` : ''}
           <button class="btn btn-secondary" data-action="send-email" style="flex:1;min-width:${isMobile ? '100px' : 'auto'};">E-mail</button>
+          <button class="btn btn-secondary" data-dismiss style="flex:1;min-width:${isMobile ? '100px' : 'auto'};">Fermer</button>
         </div>
       </div>
     `;
   }
 
-  _buildEmailComposerModal(entry) {
+  _buildEmailComposerModal(entry, requireTemplate = false, templateType = 'custom') {
     const primaryOccupant = (entry.occupants && entry.occupants[0]) || null;
+    const usesConfiguredTemplate = ['confirmation', 'cancellation'].includes(templateType);
     return `
-      <div class="modal-header">
+      <div class="modal-header" data-require-template="${requireTemplate ? 'true' : 'false'}" data-template-type="${templateType}">
         <h2>Envoyer un e-mail</h2>
         <button class="modal-close" data-dismiss>&times;</button>
       </div>
@@ -796,12 +844,18 @@ export class HousingPlanningPage {
                 </label>`).join('')}
             </div>
           </div>
+          ${usesConfiguredTemplate ? `
+          <div class="form-group">
+            <label>Modèle d’e-mail</label>
+            <div id="email-template-label" class="form-control" style="background:var(--color-gray-50);">Chargement du modèle configuré...</div>
+            <input type="hidden" id="email-template" value="">
+          </div>` : `
           <div class="form-group">
             <label>Modèle d’e-mail</label>
             <select id="email-template" class="form-control">
               <option value="">Chargement des modèles...</option>
             </select>
-          </div>
+          </div>`}
           <div class="form-group">
             <label>Sujet</label>
             <input type="text" id="email-subject" class="form-control" placeholder="Objet de l'e-mail">
@@ -814,9 +868,18 @@ export class HousingPlanningPage {
                 <button type="button" class="btn btn-sm btn-secondary" data-email-command="bold"><strong>Gras</strong></button>
                 <button type="button" class="btn btn-sm btn-secondary" data-email-command="italic"><em>Italique</em></button>
                 <button type="button" class="btn btn-sm btn-secondary" data-email-command="underline"><u>Souligné</u></button>
+                <select data-email-format-block class="form-control" style="width:auto;padding:4px 8px;">
+                  <option value="p">Paragraphe</option>
+                  <option value="h2">Titre</option>
+                  <option value="h3">Sous-titre</option>
+                </select>
                 <button type="button" class="btn btn-sm btn-secondary" data-email-command="insertUnorderedList">Liste</button>
+                <button type="button" class="btn btn-sm btn-secondary" data-email-command="insertOrderedList">Liste numérotée</button>
+                <button type="button" class="btn btn-sm btn-secondary" data-email-command="justifyLeft">Gauche</button>
                 <button type="button" class="btn btn-sm btn-secondary" data-email-command="justifyCenter">Centrer</button>
+                <button type="button" class="btn btn-sm btn-secondary" data-email-command="justifyRight">Droite</button>
                 <button type="button" class="btn btn-sm btn-secondary" data-email-action="link">Lien</button>
+                <button type="button" class="btn btn-sm btn-secondary" data-email-command="removeFormat">Effacer le format</button>
               </div>
               <div id="email-body-editor" contenteditable="true" style="min-height:160px;padding:12px;outline:none;"></div>
             </div>
@@ -831,42 +894,52 @@ export class HousingPlanningPage {
   }
 
   _buildCleaningModal(entry) {
+    const departureDate = (entry.departure_date || '').slice(0, 10);
+    const defaultCleaningDate = entry.cleaning_scheduled_date || getNextWeekdayAfter(departureDate);
+    const hasCleaning = Boolean(entry.cleaning_id);
+    const invitationStatus = entry.cleaning_invitation_status === 'sent' ? 'Invitation envoyée' : 'Invitation non envoyée';
     return `
       <div class="modal-header">
-        <h2>Planifier un nettoyage</h2>
+        <h2>${hasCleaning ? 'Planifier le ménage et gérer les volontaires' : 'Planifier un nettoyage'}</h2>
         <button class="modal-close" data-dismiss>&times;</button>
       </div>
       <div class="modal-body">
         <div class="modal-form">
           <div class="form-group">
             <label>Date prévue</label>
-            <input type="date" id="cleaning-date" class="form-control" value="${(entry.departure_date || '').slice(0, 10)}">
+            <input type="date" id="cleaning-date" class="form-control" value="${defaultCleaningDate}">
           </div>
           <div class="form-row">
-            <div class="form-group">
-              <label>Type</label>
-              <select id="cleaning-type" class="form-control">
-                <option value="departure">Départ</option>
-                <option value="arrival">Arrivée</option>
-                <option value="intermediate">Intermédiaire</option>
-                <option value="deep">Complète</option>
-              </select>
-            </div>
-            <div class="form-group">
+             <div class="form-group">
               <label>Statut</label>
-              <select id="cleaning-status" class="form-control">
-                <option value="planned">Planifié</option>
-                <option value="in_progress">En cours</option>
-              </select>
+              <div class="form-control" style="background:var(--color-gray-50);">Planification en cours</div>
             </div>
+          </div>
+          <div class="form-group">
+            <label>Nombre de bénévoles nécessaires</label>
+            <input type="number" id="cleaning-volunteers-needed" class="form-control" min="1" step="1" value="${entry.cleaning_volunteers_needed || 1}" required>
           </div>
           <div class="form-group">
             <label>Notes</label>
             <textarea id="cleaning-notes" class="form-control" rows="2" placeholder="Instructions de nettoyage..."></textarea>
           </div>
+          <div style="margin-bottom:12px;color:var(--color-text-secondary);font-size:13px;">${invitationStatus}</div>
+          <div class="form-group">
+            <label style="display:flex;align-items:center;gap:8px;">
+              <span>Volontaires ménage</span>
+              <label style="margin-left:auto;font-weight:normal;"><input type="checkbox" data-cleaning-select-all> Sélectionner tout</label>
+            </label>
+            <div data-cleaning-volunteers style="max-height:180px;overflow-y:auto;border:1px solid var(--color-border-light);padding:8px;">Chargement des volontaires...</div>
+          </div>
           <div class="modal-footer" style="margin-top:1rem;display:flex;gap:8px;justify-content:flex-end;">
-            <button class="btn btn-secondary" data-dismiss>Annuler</button>
-            <button class="btn btn-primary" id="cleaning-save">Enregistrer</button>
+            ${hasCleaning
+              ? `${entry.cleaning_status === 'planned'
+                ? '<button class="btn btn-primary" id="cleaning-save">Gérer les invitations</button>'
+                : '<button class="btn btn-primary" id="cleaning-save">Enregistrer les modifications</button>'}
+                 <button class="btn btn-danger" id="cleaning-delete" type="button">${entry.cleaning_status === 'planned' ? 'Annuler le ménage' : 'Supprimer le ménage'}</button>
+                 <button class="btn btn-secondary" data-dismiss>Fermer</button>`
+              : `<button class="btn btn-primary" id="cleaning-save">Inviter les volontaires</button>
+                  <button class="btn btn-secondary" data-dismiss>Fermer</button>`}
           </div>
         </div>
       </div>
@@ -1044,9 +1117,9 @@ export class HousingPlanningPage {
           this._closeModal();
           await this.loadData();
 
-          if (status === 'confirmed' && window.confirm('Voulez-vous envoyer un mail de confirmation ?')) {
+          if (status === 'confirmed') {
             this.selectedEntry = { ...createdOccupancy, occupancy_id: createdOccupancy.id };
-            this._openModal(this._buildEmailComposerModal(this.selectedEntry));
+            this._openModal(this._buildEmailComposerModal(this.selectedEntry, true, 'confirmation'));
           }
         } catch (e) {
           console.error('Erreur création réservation:', e);
@@ -1060,36 +1133,70 @@ export class HousingPlanningPage {
 
     const emailSendBtn = overlay.querySelector('#email-send');
     if (emailSendBtn) {
+      const editor = overlay.querySelector('#email-body-editor');
+      const templateType = overlay.querySelector('[data-template-type]')?.dataset.templateType || 'custom';
+      const usesConfiguredTemplate = ['confirmation', 'cancellation'].includes(templateType);
+      const applyTemplate = (template) => {
+        if (!template) return;
+        const occupant = overlay.querySelector('.email-recipient')?.value
+          ? (this.selectedEntry.occupants || []).find(item => String(item.id) === overlay.querySelector('.email-recipient').value)
+          : (this.selectedEntry.occupants || [])[0];
+        const housing = this.housings.find(item => item.id === this.selectedEntry.housing_id);
+        const contextEntry = {
+          ...this.selectedEntry,
+          housing_name: this.selectedEntry.housing_name || housing?.name || '',
+          housing_reference: this.selectedEntry.housing_reference || housing?.reference || '',
+          building_name: this.selectedEntry.building_name || housing?.building || '',
+          site_name: this.selectedEntry.site_name || housing?.site || '',
+        };
+        const context = getEmailTemplateContext(contextEntry, occupant);
+        overlay.querySelector('#email-template').value = template.id;
+        overlay.querySelector('#email-subject').value = renderEmailTemplate(template.subject, context);
+        const templateBody = template.body_html || `<p>${escapeHtml(template.body_text || '')}</p>`;
+        editor.innerHTML = renderEmailTemplate(templateBody, context, true);
+        const label = overlay.querySelector('#email-template-label');
+        if (label) label.textContent = template.name;
+      };
+
       try {
-        const tplResp = await listEmailTemplates({ page_size: 100, is_active: true });
+        const tplResp = await listEmailTemplates({ page_size: 100, template_type: templateType, is_active: true });
         const tplSel = overlay.querySelector('#email-template');
         const templates = tplResp.items || [];
-        tplSel.innerHTML = '<option value="">— Sans modèle —</option>';
-        templates.forEach(t => {
-          const opt = document.createElement('option');
-          opt.value = t.id;
-          opt.textContent = t.name;
-          tplSel.appendChild(opt);
-        });
-        tplSel.addEventListener('change', () => {
-          const template = templates.find(t => String(t.id) === tplSel.value);
-          if (!template) return;
-          overlay.querySelector('#email-subject').value = template.subject || '';
-          const editor = overlay.querySelector('#email-body-editor');
-          if (template.body_html) editor.innerHTML = template.body_html;
-          else editor.textContent = template.body_text || '';
-        });
+        if (usesConfiguredTemplate) {
+          const template = templates.find(item => item.is_default) || templates[0];
+          if (template) applyTemplate(template);
+          else overlay.querySelector('#email-template-label').textContent = `Aucun modèle ${templateType} actif`;
+        } else {
+          tplSel.innerHTML = '<option value="">— Sans modèle —</option>';
+          templates.forEach(t => {
+            const opt = document.createElement('option');
+            opt.value = t.id;
+            opt.textContent = t.name;
+            tplSel.appendChild(opt);
+          });
+          tplSel.addEventListener('change', () => {
+            const template = templates.find(t => String(t.id) === tplSel.value);
+            if (template) applyTemplate(template);
+          });
+        }
       } catch (e) {
         console.error('Erreur chargement modèles d’e-mail:', e);
         const tplSel = overlay.querySelector('#email-template');
-        if (tplSel) tplSel.innerHTML = '<option value="">Modèles indisponibles</option>';
+        if (usesConfiguredTemplate) {
+          overlay.querySelector('#email-template-label').textContent = 'Modèles indisponibles';
+        } else if (tplSel) {
+          tplSel.innerHTML = '<option value="">Modèles indisponibles</option>';
+        }
       }
 
-      const editor = overlay.querySelector('#email-body-editor');
       overlay.querySelectorAll('[data-email-command]').forEach(button => button.addEventListener('click', () => {
         editor.focus();
         document.execCommand(button.dataset.emailCommand, false, null);
       }));
+      overlay.querySelector('[data-email-format-block]')?.addEventListener('change', event => {
+        editor.focus();
+        document.execCommand('formatBlock', false, event.target.value);
+      });
       overlay.querySelector('[data-email-action="link"]')?.addEventListener('click', () => {
         const url = window.prompt('Adresse du lien :', 'https://');
         if (!url) return;
@@ -1104,6 +1211,11 @@ export class HousingPlanningPage {
         const recipientCheckboxes = overlay.querySelectorAll('.email-recipient:checked');
         const recipientIds = Array.from(recipientCheckboxes).map(cb => parseInt(cb.value));
         const templateId = overlay.querySelector('#email-template')?.value || null;
+
+        if (overlay.querySelector('[data-require-template]')?.dataset.requireTemplate === 'true' && !templateId) {
+          alert('Veuillez sélectionner un modèle d’e-mail');
+          return;
+        }
 
         if (!subject || !body) {
           alert('Veuillez remplir le sujet et le message');
@@ -1140,10 +1252,8 @@ export class HousingPlanningPage {
           const confirmedEntry = await changeOccupancyStatus(this.selectedEntry.occupancy_id, 'confirmed');
           this._closeModal();
           await this.loadData();
-          if (window.confirm('Voulez-vous envoyer un mail de confirmation ?')) {
-            this.selectedEntry = { ...confirmedEntry, occupancy_id: confirmedEntry.id || confirmedEntry.occupancy_id };
-            this._openModal(this._buildEmailComposerModal(this.selectedEntry));
-          }
+          this.selectedEntry = { ...confirmedEntry, occupancy_id: confirmedEntry.id || confirmedEntry.occupancy_id };
+          this._openModal(this._buildEmailComposerModal(this.selectedEntry, true, 'confirmation'));
         } catch (e) {
           const details = Array.isArray(e?.data?.detail)
             ? e.data.detail.map(error => error.msg).join('\n')
@@ -1165,11 +1275,26 @@ export class HousingPlanningPage {
       }
     });
 
-    const cleaningBtn = overlay.querySelector('[data-action="schedule-cleaning"]');
-    if (cleaningBtn) {
-      cleaningBtn.addEventListener('click', () => {
+    const cancelOccupancyBtn = overlay.querySelector('[data-action="cancel-occupancy"]');
+    cancelOccupancyBtn?.addEventListener('click', async () => {
+      if (!window.confirm('Confirmer l’annulation de cette réservation ?')) return;
+      try {
+        const cancelledEntry = await changeOccupancyStatus(this.selectedEntry.occupancy_id, 'cancelled');
+        this._closeModal();
+        await this.loadData();
+        this.selectedEntry = { ...this.selectedEntry, ...cancelledEntry, occupancy_id: cancelledEntry.id || cancelledEntry.occupancy_id };
+        this._openModal(this._buildEmailComposerModal(this.selectedEntry, true, 'cancellation'));
+      } catch (error) {
+        alert(error?.data?.detail || error?.message || 'Erreur lors de l’annulation de la réservation');
+      }
+    });
+
+    const manageCleaningBtn = overlay.querySelector('[data-action="manage-cleaning"]');
+    if (manageCleaningBtn) {
+      manageCleaningBtn.addEventListener('click', () => {
         this._closeModal();
         this._openModal(this._buildCleaningModal(this.selectedEntry));
+        this._loadCleaningVolunteers(this._currentModal, this.selectedEntry);
       });
     }
 
@@ -1182,34 +1307,115 @@ export class HousingPlanningPage {
     }
 
     const cleaningSaveBtn = overlay.querySelector('#cleaning-save');
+    const cleaningDeleteBtn = overlay.querySelector('#cleaning-delete');
+    if (cleaningDeleteBtn) {
+      cleaningDeleteBtn.addEventListener('click', async () => {
+        const isPlanned = this.selectedEntry.cleaning_status === 'planned';
+        const question = isPlanned
+          ? 'Annuler ce ménage et envoyer le message d’annulation ?'
+          : 'Supprimer définitivement ce ménage ?';
+        if (!window.confirm(question)) return;
+        try {
+          const result = isPlanned
+            ? await cancelCleaning(this.selectedEntry.cleaning_id)
+            : await deleteCleaning(this.selectedEntry.cleaning_id);
+          if (isPlanned && result.phones?.length) {
+            result.phones.forEach(phone => window.open(`sms:${phone}?body=${encodeURIComponent(result.sms_message)}`, '_blank'));
+          }
+          alert(result.message || 'Ménage supprimé');
+          this._closeModal();
+          await this.loadData();
+        } catch (error) {
+          alert(error?.data?.detail || error?.message || 'Erreur lors de la suppression du ménage');
+        }
+      });
+    }
     if (cleaningSaveBtn) {
       cleaningSaveBtn.addEventListener('click', async () => {
         const scheduledDate = overlay.querySelector('#cleaning-date')?.value;
-        const type = overlay.querySelector('#cleaning-type')?.value;
-        const status = overlay.querySelector('#cleaning-status')?.value;
+        const volunteersNeeded = Number(overlay.querySelector('#cleaning-volunteers-needed')?.value || 0);
         const notes = overlay.querySelector('#cleaning-notes')?.value || '';
+        const selectedIds = [...overlay.querySelectorAll('.cleaning-volunteer-checkbox:checked')]
+          .map(checkbox => Number(checkbox.value));
 
         if (!scheduledDate) {
           alert('Veuillez sélectionner une date');
           return;
         }
+        if (volunteersNeeded < 1) {
+          alert('Le nombre de bénévoles doit être au moins égal à 1');
+          return;
+        }
 
         try {
-          await createCleaning({
+          const cleaningData = {
             housing_id: this.selectedEntry.housing_id,
             occupancy_id: this.selectedEntry.occupancy_id,
             scheduled_date: scheduledDate,
-            type,
-            status,
+            type: 'exit',
+            volunteers_needed: volunteersNeeded,
+            invitation_status: 'not_sent',
             notes,
-          });
-          this._closeModal();
+          };
+          if (this.selectedEntry.cleaning_id) {
+            await updateCleaning(this.selectedEntry.cleaning_id, cleaningData);
+          } else {
+            const createdCleaning = await createCleaning(cleaningData);
+            this.selectedEntry = { ...this.selectedEntry, cleaning_id: createdCleaning.id };
+          }
           await this.loadData();
+          const refreshedEntry = this.entries.find(entry => entry.occupancy_id === this.selectedEntry.occupancy_id);
+          if (refreshedEntry) this.selectedEntry = refreshedEntry;
+          await this._loadCleaningVolunteers(overlay, this.selectedEntry);
+          if (!window.confirm('Voulez-vous envoyer l’invitation aux volontaires sélectionnés ?')) {
+            this._closeModal();
+            return;
+          }
+        if (selectedIds.length < volunteersNeeded) {
+          alert(`Sélectionnez au moins ${volunteersNeeded} volontaire(s) pour envoyer l’invitation`);
+          return;
+        }
+        const result = await sendCleaningVolunteerRequest(this.selectedEntry.cleaning_id, {
+            volunteer_ids: selectedIds,
+          });
+            if (result.sms_messages?.length) {
+              result.sms_messages.forEach(item => {
+                window.open(`sms:${item.phone}?body=${encodeURIComponent(item.message)}`, '_blank');
+              });
+          }
+          alert(result.message);
+          this._closeModal();
         } catch (e) {
           console.error('Erreur création nettoyage:', e);
-          alert('Erreur lors de la création du nettoyage');
+          alert(e?.data?.detail || e?.message || 'Erreur lors de l’enregistrement du ménage');
         }
       });
+    }
+  }
+
+  async _loadCleaningVolunteers(overlay, entry) {
+    const container = overlay.querySelector('[data-cleaning-volunteers]');
+    if (!container) return;
+    try {
+      const volunteers = await listVolunteers({ limit: 1000, usage_type: 'cleaning', is_active: true });
+      if (!volunteers.length) {
+        container.innerHTML = '<div style="color:var(--color-text-tertiary);font-style:italic;">Aucun volontaire ménage actif.</div>';
+        return;
+      }
+      container.innerHTML = volunteers.map(volunteer => `
+        <label style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--color-border-light);">
+          <input type="checkbox" class="cleaning-volunteer-checkbox" value="${volunteer.id}"${entry.cleaning_volunteer_ids?.includes(volunteer.id) ? ' checked' : ''}>
+          <span style="flex:1;">${volunteer.last_name} ${volunteer.first_name}</span>
+          <small style="color:var(--color-text-tertiary);">${volunteer.email || volunteer.phone || 'Aucun contact'}</small>
+        </label>`).join('');
+      overlay.querySelector('[data-cleaning-select-all]')?.addEventListener('change', (event) => {
+        overlay.querySelectorAll('.cleaning-volunteer-checkbox').forEach(checkbox => {
+          checkbox.checked = event.target.checked;
+        });
+      });
+    } catch (error) {
+      console.error('Erreur chargement volontaires ménage:', error);
+      container.innerHTML = '<div style="color:var(--color-danger);">Impossible de charger les volontaires.</div>';
     }
   }
 

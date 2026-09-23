@@ -19,6 +19,17 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
+    existing_tables = set(sa.inspect(op.get_bind()).get_table_names())
+    required_tables = {
+        "occupancy_occupants",
+        "housing_cleanings",
+        "housing_email_templates",
+        "housing_email_template_attachments",
+        "housing_email_logs",
+    }
+    if required_tables.issubset(existing_tables):
+        return
+
     # Create occupancy_occupants association table
     op.create_table(
         'occupancy_occupants',

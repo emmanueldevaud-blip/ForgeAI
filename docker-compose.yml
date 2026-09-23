@@ -36,10 +36,10 @@ services:
       - CORS_ORIGINS=["http://localhost:8000"]
       - AUTH_LOCAL_ENABLED=true
       - AD_ENABLED=${AD_ENABLED:-true}
-      - SPORT_AI_PROVIDER=${SPORT_AI_PROVIDER:-openai}
-      - SPORT_AI_BASE_URL=${SPORT_AI_BASE_URL:-http://host.docker.internal:11434/v1}
+      - SPORT_AI_PROVIDER=${SPORT_AI_PROVIDER:-gemini}
+      - SPORT_AI_BASE_URL=${SPORT_AI_BASE_URL:-https://generativelanguage.googleapis.com/v1beta/openai}
       - SPORT_AI_API_KEY=${SPORT_AI_API_KEY:-}
-      - SPORT_AI_MODEL=${SPORT_AI_MODEL:-qwen3:1.7b}
+      - SPORT_AI_MODEL=${SPORT_AI_MODEL:-gemini-3.7-flash}
       - SPORT_AI_TIMEOUT_SECONDS=${SPORT_AI_TIMEOUT_SECONDS:-20}
     ports:
       - "8000:8000"

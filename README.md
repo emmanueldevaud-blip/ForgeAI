@@ -82,6 +82,29 @@ uvicorn app.main:app --reload --port 8000
 
 Le frontend est servi automatiquement sur `http://localhost:8000`
 
+### Windows avec WSL
+
+Le conteneur publie l'application sur toutes les interfaces WSL (`8000:8000`).
+Pour rendre explicitement l'application et SSH accessibles depuis Windows,
+ouvrez PowerShell **en administrateur** depuis le projet et executez :
+
+```powershell
+.\windows-wsl-forwarding.ps1
+```
+
+Avant la premiere utilisation, installez et demarrez SSH dans WSL :
+
+```bash
+sudo apt update && sudo apt install -y openssh-server
+sudo service ssh start
+```
+
+Le script utilise `192.168.100.2:22` pour SSH et `:8000` pour ForgeAI.
+Le port SSH `22` est expose sur l'adresse Windows, tandis que le port local
+Windows `22` reste reserve au service SSH Windows s'il est actif.
+L'adresse IP interne de WSL pouvant changer apres un redemarrage, relancez le
+script dans ce cas.
+
 ## Commandes utiles
 
 ```bash

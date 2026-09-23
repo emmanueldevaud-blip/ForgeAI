@@ -87,6 +87,6 @@ class OpenAICompatibleSportAIProvider:
 
 def get_sport_ai_provider(settings: Settings | None = None) -> SportAIProvider:
     resolved = settings or get_settings()
-    if resolved.SPORT_AI_PROVIDER.lower() in {"openai", "openai-compatible"}:
+    if resolved.SPORT_AI_PROVIDER.lower() in {"gemini", "openai", "openai-compatible"}:
         return OpenAICompatibleSportAIProvider(resolved)
     return LocalSportAIProvider()

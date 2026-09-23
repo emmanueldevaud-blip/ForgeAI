@@ -54,11 +54,11 @@ class Settings(BaseSettings):
         }
     )
 
-    # Sport coach provider (OpenAI-compatible API, optional)
-    SPORT_AI_PROVIDER: str = "local"
-    SPORT_AI_BASE_URL: str = "https://api.openai.com/v1"
+    # Sport coach provider (Gemini API, OpenAI-compatible)
+    SPORT_AI_PROVIDER: str = "gemini"
+    SPORT_AI_BASE_URL: str = "https://generativelanguage.googleapis.com/v1beta/openai"
     SPORT_AI_API_KEY: str = ""
-    SPORT_AI_MODEL: str = "gpt-4o-mini"
+    SPORT_AI_MODEL: str = "gemini-3.7-flash"
     SPORT_AI_TIMEOUT_SECONDS: float = 20.0
 
     # Security

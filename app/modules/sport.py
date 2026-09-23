@@ -53,7 +53,13 @@ class SportModule(BaseModule):
             ("*" in user_permissions or "sport.activities.write" in user_permissions)
         )
 
-        children = []
+        children = [{
+            "code": "sport-home",
+            "name": "Accueil",
+            "icon": "dashboard",
+            "route": "/sport",
+            "order": -1,
+        }]
 
         if has_activities:
             children.append({

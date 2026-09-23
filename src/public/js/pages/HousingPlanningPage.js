@@ -12,8 +12,10 @@ import {
   deleteCleaning,
   cancelCleaning,
   listCleanings,
+  getCleaningInvitationDetails,
   listVolunteers,
   sendCleaningVolunteerRequest,
+  confirmCleaningVolunteers,
   listEmailTemplates,
   sendConfirmationEmail,
   sendCustomMessage,
@@ -38,15 +40,17 @@ const STATUS_COLORS = {
 };
 
 const CLEANING_STATUS_LABELS = {
-  planned: 'Planification en cours',
-  in_progress: 'En cours',
+  not_planned: 'Non planifié',
+  planned: 'Planifié',
+  in_progress: 'Planification en cours',
   completed: 'Terminé',
   verified: 'Vérifié',
 };
 
 const CLEANING_STATUS_COLORS = {
-  planned: '#f59e0b',
-  in_progress: '#3b82f6',
+  not_planned: '#ef4444',
+  planned: '#22c55e',
+  in_progress: '#f59e0b',
   completed: '#10b981',
   verified: '#6b7280',
 };
@@ -359,8 +363,18 @@ export class HousingPlanningPage {
     html += '</tbody></table></div></div>';
     container.innerHTML = html;
 
+    this._focusToday(container);
     this._bindGridEvents();
     this._bindTouchEvents();
+  }
+
+  _focusToday(container) {
+    const today = container.querySelector('.planning-today');
+    const wrapper = container.querySelector('.planning-wrapper');
+    if (!today || !wrapper) return;
+    requestAnimationFrame(() => {
+      wrapper.scrollLeft = Math.max(0, today.offsetLeft - (wrapper.clientWidth - today.offsetWidth) / 2);
+    });
   }
 
   _getOccupanciesByHousing() {
@@ -611,12 +625,12 @@ export class HousingPlanningPage {
         <div class="modal-body">
           <form data-occupant-form>
             <div class="form-row">
-              <label><span>Nom *</span><input name="last_name" required maxlength="100"></label>
+              <label><span>Nom *</span><input name="last_name" required maxlength="100" style="text-transform:uppercase"></label>
               <label><span>Prénom *</span><input name="first_name" required maxlength="100"></label>
             </div>
             <div class="form-row">
-              <label><span>Téléphone</span><input name="phone" type="tel" maxlength="50"></label>
-              <label><span>E-mail</span><input name="email" type="email" maxlength="200"></label>
+              <label><span>Téléphone *</span><input name="phone" type="tel" required maxlength="50"></label>
+              <label><span>E-mail *</span><input name="email" type="email" required maxlength="200"></label>
             </div>
           </form>
         </div>
@@ -636,8 +650,8 @@ export class HousingPlanningPage {
       const form = modal.querySelector('[data-occupant-form]');
       const formData = new FormData(form);
       const data = Object.fromEntries(formData.entries());
-      if (!data.last_name || !data.first_name) {
-        alert('Le nom et le prénom sont obligatoires');
+      if (!data.last_name || !data.first_name || !data.phone || !data.email) {
+        alert('Le nom, le prénom, le téléphone et l\'e-mail sont obligatoires');
         return;
       }
 
@@ -816,7 +830,7 @@ export class HousingPlanningPage {
           ${entry.status === 'pre_reserved' ? `<button class="btn btn-primary" data-action="confirm" style="flex:1;min-width:${isMobile ? '100px' : 'auto'};">Confirmer la réservation</button>` : ''}
            ${entry.status !== 'cancelled' && entry.status !== 'pre_reserved' ? `<button class="btn btn-danger" data-action="cancel-occupancy" style="flex:1;min-width:${isMobile ? '100px' : 'auto'};">Annuler la réservation</button>` : ''}
             ${entry.status === 'pre_reserved' ? `<button class="btn btn-danger" data-action="delete-occupancy" style="flex:1;min-width:${isMobile ? '100px' : 'auto'};">Supprimer la réservation</button>` : ''}
-              ${entry.cleaning_status === 'planned' && entry.status !== 'pre_reserved' ? `<button class="btn btn-secondary" data-action="manage-cleaning" style="flex:1;min-width:${isMobile ? '100px' : 'auto'};">Gérer les volontaires</button>` : ''}
+              ${['not_planned', 'in_progress', 'planned'].includes(entry.cleaning_status) && entry.status !== 'pre_reserved' ? `<button class="btn btn-secondary" data-action="manage-cleaning" style="flex:1;min-width:${isMobile ? '100px' : 'auto'};">${entry.cleaning_status === 'planned' ? 'Voir le ménage' : 'Gérer les invitations'}</button>` : ''}
           <button class="btn btn-secondary" data-action="send-email" style="flex:1;min-width:${isMobile ? '100px' : 'auto'};">E-mail</button>
           <button class="btn btn-secondary" data-dismiss style="flex:1;min-width:${isMobile ? '100px' : 'auto'};">Fermer</button>
         </div>
@@ -893,10 +907,14 @@ export class HousingPlanningPage {
     `;
   }
 
-  _buildCleaningModal(entry) {
+  _buildCleaningModal(entry, invitationMode = false) {
     const departureDate = (entry.departure_date || '').slice(0, 10);
     const defaultCleaningDate = entry.cleaning_scheduled_date || getNextWeekdayAfter(departureDate);
     const hasCleaning = Boolean(entry.cleaning_id);
+    const cleaningStatus = entry.cleaning_status || 'not_planned';
+    const isPlanned = cleaningStatus === 'planned';
+    const showInvitationDetails = !isPlanned && (cleaningStatus !== 'in_progress' || invitationMode);
+    const cleaningStatusLabel = CLEANING_STATUS_LABELS[cleaningStatus] || 'Non planifié';
     const invitationStatus = entry.cleaning_invitation_status === 'sent' ? 'Invitation envoyée' : 'Invitation non envoyée';
     return `
       <div class="modal-header">
@@ -907,15 +925,19 @@ export class HousingPlanningPage {
         <div class="modal-form">
           <div class="form-group">
             <label>Date prévue</label>
-            <input type="date" id="cleaning-date" class="form-control" value="${defaultCleaningDate}">
+            <input type="date" id="cleaning-date" class="form-control" value="${defaultCleaningDate}"${['in_progress', 'planned'].includes(cleaningStatus) ? ' disabled' : ''}>
           </div>
           <div class="form-row">
              <div class="form-group">
               <label>Statut</label>
-              <div class="form-control" style="background:var(--color-gray-50);">Planification en cours</div>
+              <div class="form-control" style="background:var(--color-gray-50);">${cleaningStatusLabel}</div>
             </div>
           </div>
-          <div class="form-group">
+           ${isPlanned ? `<div class="form-group">
+             <label>Volontaires retenus</label>
+             <div data-cleaning-volunteers style="border:1px solid var(--color-border-light);padding:8px;">Chargement des volontaires...</div>
+           </div>` : ''}
+           ${showInvitationDetails ? `<div class="form-group">
             <label>Nombre de bénévoles nécessaires</label>
             <input type="number" id="cleaning-volunteers-needed" class="form-control" min="1" step="1" value="${entry.cleaning_volunteers_needed || 1}" required>
           </div>
@@ -930,17 +952,42 @@ export class HousingPlanningPage {
               <label style="margin-left:auto;font-weight:normal;"><input type="checkbox" data-cleaning-select-all> Sélectionner tout</label>
             </label>
             <div data-cleaning-volunteers style="max-height:180px;overflow-y:auto;border:1px solid var(--color-border-light);padding:8px;">Chargement des volontaires...</div>
-          </div>
+          </div>` : ''}
           <div class="modal-footer" style="margin-top:1rem;display:flex;gap:8px;justify-content:flex-end;">
-            ${hasCleaning
-              ? `${entry.cleaning_status === 'planned'
-                ? '<button class="btn btn-primary" id="cleaning-save">Gérer les invitations</button>'
-                : '<button class="btn btn-primary" id="cleaning-save">Enregistrer les modifications</button>'}
-                 <button class="btn btn-danger" id="cleaning-delete" type="button">${entry.cleaning_status === 'planned' ? 'Annuler le ménage' : 'Supprimer le ménage'}</button>
+             ${hasCleaning
+              ? isPlanned
+                ? '<button class="btn btn-danger" id="cleaning-delete" type="button">Annuler le ménage</button><button class="btn btn-secondary" data-dismiss>Fermer</button>'
+               : `${entry.cleaning_status === 'not_planned'
+                ? '<button class="btn btn-primary" id="cleaning-invite">Inviter les volontaires</button>'
+                : entry.cleaning_status === 'in_progress'
+                  ? (invitationMode
+                    ? '<button class="btn btn-primary" id="cleaning-invite">Envoyer les invitations</button>'
+                    : '<button class="btn btn-primary" id="cleaning-manage-invitations">Gérer les invitations</button>')
+                  : '<button class="btn btn-primary" id="cleaning-save">Enregistrer les modifications</button>'}
+                 <button class="btn btn-danger" id="cleaning-delete" type="button">${['not_planned', 'in_progress'].includes(entry.cleaning_status) ? 'Annuler le ménage' : 'Supprimer le ménage'}</button>
+                 ${entry.cleaning_status === 'not_planned' ? '<button class="btn btn-secondary" id="cleaning-save" type="button">Enregistrer</button>' : ''}
                  <button class="btn btn-secondary" data-dismiss>Fermer</button>`
-              : `<button class="btn btn-primary" id="cleaning-save">Inviter les volontaires</button>
-                  <button class="btn btn-secondary" data-dismiss>Fermer</button>`}
+              : `${cleaningStatus === 'not_planned' ? '<button class="btn btn-danger" id="cleaning-delete" type="button">Annuler le ménage</button>' : ''}
+                 <button class="btn btn-primary" id="cleaning-invite">Inviter les volontaires</button>
+                   <button class="btn btn-secondary" data-dismiss>Fermer</button>`}
           </div>
+        </div>
+      </div>
+    `;
+  }
+
+  _buildCleaningInvitationTrackingModal(entry) {
+    return `
+      <div class="modal-header">
+        <h2>Gérer les invitations</h2>
+        <button class="modal-close" data-dismiss>&times;</button>
+      </div>
+      <div class="modal-body">
+        <p style="margin-top:0;color:var(--color-text-secondary);">Sélectionnez exactement ${entry.cleaning_volunteers_needed || 1} volontaire(s) disponible(s) à retenir.</p>
+        <div data-cleaning-invitation-tracking>Chargement des réponses...</div>
+        <div class="modal-footer" style="margin-top:1rem;display:flex;gap:8px;justify-content:flex-end;">
+          <button class="btn btn-primary" id="cleaning-confirm-selection">Valider les volontaires retenus</button>
+          <button class="btn btn-secondary" data-dismiss>Fermer</button>
         </div>
       </div>
     `;
@@ -1146,8 +1193,8 @@ export class HousingPlanningPage {
           ...this.selectedEntry,
           housing_name: this.selectedEntry.housing_name || housing?.name || '',
           housing_reference: this.selectedEntry.housing_reference || housing?.reference || '',
-          building_name: this.selectedEntry.building_name || housing?.building || '',
-          site_name: this.selectedEntry.site_name || housing?.site || '',
+           building_name: this.selectedEntry.building_name || housing?.building?.name || housing?.building || '',
+           site_name: this.selectedEntry.site_name || housing?.site?.name || housing?.site || '',
         };
         const context = getEmailTemplateContext(contextEntry, occupant);
         overlay.querySelector('#email-template').value = template.id;
@@ -1307,19 +1354,40 @@ export class HousingPlanningPage {
     }
 
     const cleaningSaveBtn = overlay.querySelector('#cleaning-save');
+    const cleaningInviteBtn = overlay.querySelector('#cleaning-invite');
     const cleaningDeleteBtn = overlay.querySelector('#cleaning-delete');
     if (cleaningDeleteBtn) {
       cleaningDeleteBtn.addEventListener('click', async () => {
-        const isPlanned = this.selectedEntry.cleaning_status === 'planned';
-        const question = isPlanned
+        const sendsCancellation = ['in_progress', 'planned'].includes(this.selectedEntry.cleaning_status);
+        const isNotPlanned = !this.selectedEntry.cleaning_status || this.selectedEntry.cleaning_status === 'not_planned';
+        const question = sendsCancellation
           ? 'Annuler ce ménage et envoyer le message d’annulation ?'
           : 'Supprimer définitivement ce ménage ?';
         if (!window.confirm(question)) return;
+        if (!this.selectedEntry.cleaning_id) {
+          try {
+            const created = await createCleaning({
+              housing_id: this.selectedEntry.housing_id,
+              occupancy_id: this.selectedEntry.occupancy_id,
+              scheduled_date: this.selectedEntry.cleaning_scheduled_date || getNextWeekdayAfter((this.selectedEntry.departure_date || '').slice(0, 10)),
+              type: 'exit',
+              status: 'not_planned',
+              volunteers_needed: 1,
+              invitation_status: 'not_sent',
+            });
+            await cancelCleaning(created.id);
+            this._closeModal();
+            await this.loadData();
+          } catch (error) {
+            alert(error?.data?.detail || error?.message || 'Impossible d’annuler le ménage');
+          }
+          return;
+        }
         try {
-          const result = isPlanned
+          const result = sendsCancellation || isNotPlanned
             ? await cancelCleaning(this.selectedEntry.cleaning_id)
             : await deleteCleaning(this.selectedEntry.cleaning_id);
-          if (isPlanned && result.phones?.length) {
+          if (sendsCancellation && result.phones?.length) {
             result.phones.forEach(phone => window.open(`sms:${phone}?body=${encodeURIComponent(result.sms_message)}`, '_blank'));
           }
           alert(result.message || 'Ménage supprimé');
@@ -1330,66 +1398,204 @@ export class HousingPlanningPage {
         }
       });
     }
-    if (cleaningSaveBtn) {
-      cleaningSaveBtn.addEventListener('click', async () => {
+    const saveCleaning = async () => {
         const scheduledDate = overlay.querySelector('#cleaning-date')?.value;
         const volunteersNeeded = Number(overlay.querySelector('#cleaning-volunteers-needed')?.value || 0);
         const notes = overlay.querySelector('#cleaning-notes')?.value || '';
-        const selectedIds = [...overlay.querySelectorAll('.cleaning-volunteer-checkbox:checked')]
-          .map(checkbox => Number(checkbox.value));
 
         if (!scheduledDate) {
           alert('Veuillez sélectionner une date');
-          return;
+          return false;
         }
         if (volunteersNeeded < 1) {
           alert('Le nombre de bénévoles doit être au moins égal à 1');
-          return;
+          return false;
         }
 
+        const cleaningData = {
+          housing_id: this.selectedEntry.housing_id,
+          occupancy_id: this.selectedEntry.occupancy_id,
+          scheduled_date: scheduledDate,
+          type: 'exit',
+          volunteers_needed: volunteersNeeded,
+          invitation_status: 'not_sent',
+          notes,
+        };
+        if (this.selectedEntry.cleaning_id) {
+          await updateCleaning(this.selectedEntry.cleaning_id, cleaningData);
+        } else {
+          cleaningData.status = 'not_planned';
+          const createdCleaning = await createCleaning(cleaningData);
+          this.selectedEntry = { ...this.selectedEntry, cleaning_id: createdCleaning.id };
+        }
+        await this.loadData();
+        const refreshedEntry = this.entries.find(entry => entry.occupancy_id === this.selectedEntry.occupancy_id);
+        if (refreshedEntry) this.selectedEntry = refreshedEntry;
+        await this._loadCleaningVolunteers(overlay, this.selectedEntry);
+        return true;
+    };
+    if (cleaningSaveBtn) {
+      cleaningSaveBtn.addEventListener('click', async () => {
         try {
-          const cleaningData = {
-            housing_id: this.selectedEntry.housing_id,
-            occupancy_id: this.selectedEntry.occupancy_id,
-            scheduled_date: scheduledDate,
-            type: 'exit',
-            volunteers_needed: volunteersNeeded,
-            invitation_status: 'not_sent',
-            notes,
-          };
-          if (this.selectedEntry.cleaning_id) {
-            await updateCleaning(this.selectedEntry.cleaning_id, cleaningData);
-          } else {
-            const createdCleaning = await createCleaning(cleaningData);
-            this.selectedEntry = { ...this.selectedEntry, cleaning_id: createdCleaning.id };
-          }
-          await this.loadData();
-          const refreshedEntry = this.entries.find(entry => entry.occupancy_id === this.selectedEntry.occupancy_id);
-          if (refreshedEntry) this.selectedEntry = refreshedEntry;
-          await this._loadCleaningVolunteers(overlay, this.selectedEntry);
-          if (!window.confirm('Voulez-vous envoyer l’invitation aux volontaires sélectionnés ?')) {
-            this._closeModal();
-            return;
-          }
+          if (await saveCleaning()) this._closeModal();
+        } catch (e) {
+          console.error('Erreur enregistrement nettoyage:', e);
+          alert(e?.data?.detail || e?.message || 'Erreur lors de l’enregistrement du ménage');
+        }
+      });
+    }
+    if (cleaningInviteBtn) {
+      cleaningInviteBtn.addEventListener('click', async () => {
+        const volunteersNeeded = Number(overlay.querySelector('#cleaning-volunteers-needed')?.value || 0);
+        const selectedIds = [...overlay.querySelectorAll('.cleaning-volunteer-checkbox:checked')]
+          .map(checkbox => Number(checkbox.value));
         if (selectedIds.length < volunteersNeeded) {
           alert(`Sélectionnez au moins ${volunteersNeeded} volontaire(s) pour envoyer l’invitation`);
           return;
         }
-        const result = await sendCleaningVolunteerRequest(this.selectedEntry.cleaning_id, {
+        if (!window.confirm('Voulez-vous envoyer l’invitation aux volontaires sélectionnés ?')) return;
+        try {
+          if (!await saveCleaning()) return;
+          const result = await sendCleaningVolunteerRequest(this.selectedEntry.cleaning_id, {
             volunteer_ids: selectedIds,
           });
-            if (result.sms_messages?.length) {
-              result.sms_messages.forEach(item => {
-                window.open(`sms:${item.phone}?body=${encodeURIComponent(item.message)}`, '_blank');
-              });
+          if (result.sms_messages?.length) {
+            result.sms_messages.forEach(item => {
+              window.open(`sms:${item.phone}?body=${encodeURIComponent(item.message)}`, '_blank');
+            });
           }
+          this.selectedEntry = {
+            ...this.selectedEntry,
+            cleaning_status: result.status || 'in_progress',
+            cleaning_invitation_status: 'sent',
+          };
+          await this.loadData();
           alert(result.message);
           this._closeModal();
         } catch (e) {
-          console.error('Erreur création nettoyage:', e);
-          alert(e?.data?.detail || e?.message || 'Erreur lors de l’enregistrement du ménage');
+          console.error('Erreur invitation nettoyage:', e);
+          alert(e?.data?.detail || e?.message || 'Erreur lors de l’envoi des invitations');
         }
       });
+    }
+    const manageCleaningInvitationsBtn = overlay.querySelector('#cleaning-manage-invitations');
+    if (manageCleaningInvitationsBtn) {
+      manageCleaningInvitationsBtn.addEventListener('click', async () => {
+        try {
+          const details = await getCleaningInvitationDetails(this.selectedEntry.cleaning_id);
+          this.selectedEntry = {
+            ...this.selectedEntry,
+            cleaning_status: details.status,
+            cleaning_volunteers_needed: details.volunteers_needed,
+            invitation_history: details.invitation_history || [],
+            selected_volunteer_ids: details.selected_volunteer_ids || [],
+          };
+          this._closeModal();
+          this._openModal(this._buildCleaningInvitationTrackingModal(this.selectedEntry));
+          this._loadCleaningInvitationTracking(this._currentModal, this.selectedEntry);
+        } catch (error) {
+          alert(error?.data?.detail || error?.message || 'Impossible de charger les invitations');
+        }
+      });
+    }
+    const confirmSelectionBtn = overlay.querySelector('#cleaning-confirm-selection');
+    if (confirmSelectionBtn) {
+      confirmSelectionBtn.addEventListener('click', async () => {
+        const selectedIds = [...overlay.querySelectorAll('.cleaning-selected-checkbox:checked')]
+          .map(checkbox => Number(checkbox.value));
+        const volunteersNeeded = Number(this.selectedEntry.cleaning_volunteers_needed || 1);
+        if (selectedIds.length !== volunteersNeeded) {
+          alert(`Sélectionnez exactement ${volunteersNeeded} volontaire(s)`);
+          return;
+        }
+        if (!window.confirm('Valider les volontaires retenus et envoyer leur confirmation ?')) return;
+        try {
+          const result = await confirmCleaningVolunteers(this.selectedEntry.cleaning_id, selectedIds);
+          result.sms_messages?.forEach(item => {
+            window.open(`sms:${item.phone}?body=${encodeURIComponent(item.message)}`, '_blank');
+          });
+          alert(result.message || 'Volontaires retenus et confirmations envoyées');
+          this._closeModal();
+          await this.loadData();
+        } catch (error) {
+          alert(error?.data?.detail || error?.message || 'Erreur lors de la validation des volontaires');
+        }
+      });
+    }
+  }
+
+  async _loadCleaningInvitationTracking(overlay, entry) {
+    const container = overlay.querySelector('[data-cleaning-invitation-tracking]');
+    if (!container) return;
+    try {
+      const [details, volunteers] = await Promise.all([
+        getCleaningInvitationDetails(entry.cleaning_id),
+        listVolunteers({ limit: 1000, usage_type: 'cleaning', is_active: true }),
+      ]);
+      const history = details.invitation_history || [];
+      const latestByVolunteer = new Map();
+      history.forEach(item => {
+        const current = latestByVolunteer.get(item.volunteer_id);
+        if (!current || new Date(item.sent_at || 0) > new Date(current.sent_at || 0)) {
+          latestByVolunteer.set(item.volunteer_id, item);
+        }
+      });
+      const responded = history
+        .filter(item => item.response_at && item.availability_response)
+        .sort((a, b) => new Date(a.response_at) - new Date(b.response_at));
+      const fastestId = responded[0]?.volunteer_id;
+      const selectedIds = details.selected_volunteer_ids || [];
+      const volunteerById = new Map(volunteers.map(item => [item.id, item]));
+      const invitations = history;
+      const availableCount = invitations.filter(item => item.availability_response === 'available').length;
+      const unavailableCount = invitations.filter(item => item.availability_response === 'unavailable').length;
+      const noResponseCount = invitations.filter(item => !item.availability_response).length;
+      const rows = invitations.map(invitation => {
+        const volunteerId = invitation.volunteer_id;
+        const volunteer = volunteerById.get(volunteerId);
+        const name = volunteer
+          ? `${volunteer.first_name || ''} ${volunteer.last_name || ''}`.trim()
+          : invitation.volunteer_name;
+        const responseLabel = invitation.availability_response === 'available'
+          ? '<span style="color:#15803d;font-weight:600;">Disponible</span>'
+          : invitation.availability_response === 'unavailable'
+            ? '<span style="color:#b91c1c;font-weight:600;">Indisponible</span>'
+            : '<span style="color:var(--color-text-tertiary);">Pas de réponse</span>';
+        const fastestLabel = invitation.response_at && invitation.volunteer_id === fastestId
+          ? '<small style="color:#2563eb;font-weight:600;">Réponse la plus rapide</small>'
+          : '';
+        const isLatestInvitation = latestByVolunteer.get(volunteerId)?.id === invitation.id;
+        const available = isLatestInvitation && invitation.availability_response === 'available';
+        return `<label style="display:grid;grid-template-columns:auto 1fr auto;gap:10px;align-items:center;padding:9px 0;border-bottom:1px solid var(--color-border-light);">
+          <input type="checkbox" class="cleaning-selected-checkbox" value="${volunteerId}"${selectedIds.includes(volunteerId) && isLatestInvitation ? ' checked' : ''}${available ? '' : ' disabled'}>
+          <span><strong>${escapeHtml(name || 'Volontaire')}</strong><br>${responseLabel} ${fastestLabel}</span>
+          <small style="color:var(--color-text-tertiary);">${invitation.channel || ''}</small>
+        </label>`;
+      }).join('');
+      container.innerHTML = `${rows
+        ? `<div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:10px;font-size:12px;">
+             <span>Invités : <strong>${invitations.length}</strong></span>
+             <span style="color:#15803d;">Disponibles : <strong>${availableCount}</strong></span>
+             <span style="color:#b91c1c;">Indisponibles : <strong>${unavailableCount}</strong></span>
+             <span style="color:var(--color-text-tertiary);">Sans réponse : <strong>${noResponseCount}</strong></span>
+           </div>${rows}`
+        : '<p style="color:var(--color-text-tertiary);">Aucune invitation trouvée.</p>'}`;
+      const selectedCheckboxes = () => [...container.querySelectorAll('.cleaning-selected-checkbox:checked')];
+      const refreshCheckboxAvailability = () => {
+        const selectedCount = selectedCheckboxes().length;
+        container.querySelectorAll('.cleaning-selected-checkbox:not(:checked)').forEach(checkbox => {
+          checkbox.disabled = selectedCount >= Number(entry.volunteers_needed || details.volunteers_needed || 1);
+        });
+      };
+      container.querySelectorAll('.cleaning-selected-checkbox').forEach(checkbox => {
+        checkbox.addEventListener('change', () => {
+          refreshCheckboxAvailability();
+        });
+      });
+      refreshCheckboxAvailability();
+    } catch (error) {
+      container.innerHTML = '<p class="alert alert-danger">Impossible de charger les réponses.</p>';
+      console.error('Erreur chargement réponses invitations:', error);
     }
   }
 
@@ -1398,6 +1604,14 @@ export class HousingPlanningPage {
     if (!container) return;
     try {
       const volunteers = await listVolunteers({ limit: 1000, usage_type: 'cleaning', is_active: true });
+      if (entry.cleaning_status === 'planned') {
+        const selectedIds = new Set(entry.cleaning_volunteer_ids || []);
+        const selectedVolunteers = volunteers.filter(volunteer => selectedIds.has(volunteer.id));
+        container.innerHTML = selectedVolunteers.length
+          ? selectedVolunteers.map(volunteer => `<div style="padding:6px 0;border-bottom:1px solid var(--color-border-light);">${volunteer.last_name} ${volunteer.first_name}</div>`).join('')
+          : '<div style="color:var(--color-text-tertiary);font-style:italic;">Aucun volontaire retenu.</div>';
+        return;
+      }
       if (!volunteers.length) {
         container.innerHTML = '<div style="color:var(--color-text-tertiary);font-style:italic;">Aucun volontaire ménage actif.</div>';
         return;
@@ -1424,6 +1638,26 @@ export class HousingPlanningPage {
     this.element.querySelectorAll('[data-view]').forEach(btn => {
       btn.classList.toggle('active', btn.dataset.view === this.viewMode);
     });
+  }
+
+  _bindMonthSwipe(element) {
+    if (!element) return;
+    let startX = 0;
+    let startY = 0;
+    element.addEventListener('touchstart', event => {
+      const touch = event.touches[0];
+      startX = touch.clientX;
+      startY = touch.clientY;
+    }, { passive: true });
+    element.addEventListener('touchend', event => {
+      if (this.viewMode !== 'month') return;
+      const touch = event.changedTouches[0];
+      const deltaX = touch.clientX - startX;
+      const deltaY = touch.clientY - startY;
+      if (Math.abs(deltaX) < 50 || Math.abs(deltaX) < Math.abs(deltaY)) return;
+      this.currentDate.setMonth(this.currentDate.getMonth() + (deltaX < 0 ? 1 : -1));
+      this.loadData();
+    }, { passive: true });
   }
 
   render() {
@@ -1483,6 +1717,7 @@ export class HousingPlanningPage {
       this.currentDate = new Date();
       this.loadData();
     });
+    this._bindMonthSwipe(this.element.querySelector('.calendar-nav'));
 
     this.element.querySelectorAll('[data-view]').forEach(btn => {
       btn.addEventListener('click', () => {

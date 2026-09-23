@@ -112,13 +112,6 @@ class HousingModule(BaseModule):
     def get_navigation_items(self, user_permissions=None):
         children = [
             {
-                "code": "housing-list",
-                "name": "Hébergements",
-                "icon": "home",
-                "route": "/housing/housings",
-                "order": 4,
-            },
-            {
                 "code": "housing-planning",
                 "name": "Planning",
                 "icon": "calendar-days",
@@ -147,11 +140,11 @@ class HousingModule(BaseModule):
                 "order": 5,
             },
             {
-                "code": "housing-unavailabilities",
-                "name": "Indisponibilités",
-                "icon": "calendar-x",
-                "route": "/housing/unavailabilities",
-                "order": 3,
+                "code": "housing-list",
+                "name": "Paramètres",
+                "icon": "home",
+                "route": "/housing/housings",
+                "order": 6,
             },
         ]
 

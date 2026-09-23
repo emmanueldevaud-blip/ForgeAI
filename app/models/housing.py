@@ -196,7 +196,7 @@ class OccupancyStatusHistory(Base):
 # CLEANING (Ménage de sortie)
 # ============================================================
 
-CLEANING_STATUSES = ["planned", "in_progress", "to_check", "checked", "completed", "cancelled"]
+CLEANING_STATUSES = ["not_planned", "planned", "in_progress", "to_check", "checked", "completed", "cancelled"]
 CLEANING_TYPES = ["exit", "intermediate", "deep"]
 
 
@@ -211,6 +211,7 @@ class Cleaning(Base):
     scheduled_date: Mapped[date] = mapped_column(Date, nullable=False, index=True)
     volunteers_needed: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
     invitation_status: Mapped[str] = mapped_column(String(30), default="not_sent", nullable=False)
+    selected_volunteer_ids_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     scheduled_time_start: Mapped[str | None] = mapped_column(String(5), nullable=True)  # HH:MM
     scheduled_time_end: Mapped[str | None] = mapped_column(String(5), nullable=True)
     actual_start: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
@@ -250,6 +251,7 @@ class CleaningInvitationLog(Base):
     message: Mapped[str | None] = mapped_column(Text, nullable=True)
     response_token: Mapped[str] = mapped_column(String(36), unique=True, default=lambda: str(uuid4()), nullable=False, index=True)
     availability_response: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    response_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     sent_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
     cleaning: Mapped["Cleaning"] = relationship("Cleaning", back_populates="invitation_logs")

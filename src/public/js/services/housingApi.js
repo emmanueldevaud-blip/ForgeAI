@@ -70,6 +70,10 @@ export async function updateOccupant(id, data) {
   return housingApi.patch(`/occupants/${id}`, data);
 }
 
+export async function deleteOccupant(id) {
+  return housingApi.delete(`/occupants/${id}`);
+}
+
 // ============================================================
 // OCCUPANCIES
 // ============================================================
@@ -173,6 +177,14 @@ export async function sendCleaningVolunteerRequest(id, data) {
   return housingApi.post(`/cleanings/${id}/volunteer-request`, data);
 }
 
+export async function getCleaningInvitationDetails(id) {
+  return housingApi.get(`/cleanings/${id}`);
+}
+
+export async function confirmCleaningVolunteers(id, volunteerIds) {
+  return housingApi.post(`/cleanings/${id}/confirm-volunteers`, { volunteer_ids: volunteerIds });
+}
+
 // ============================================================
 // EMAIL TEMPLATES
 // ============================================================
@@ -199,6 +211,10 @@ export async function createEmailTemplate(data) {
 
 export async function updateEmailTemplate(id, data) {
   return housingApi.patch(`/email-templates/${id}`, data);
+}
+
+export async function deleteEmailTemplate(id) {
+  return housingApi.delete(`/email-templates/${id}`);
 }
 
 export async function uploadEmailTemplateAttachment(templateId, file, housingIds = []) {

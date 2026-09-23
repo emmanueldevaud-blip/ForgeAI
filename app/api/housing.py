@@ -38,6 +38,7 @@ from app.schemas.housing import (
     CleaningResponse,
     CleaningUpdate,
     CleaningVolunteerRequest,
+    CleaningVolunteerSelection,
     EmailTemplateCreate,
     EmailTemplateListParams,
     EmailTemplateListResponse,
@@ -240,6 +241,17 @@ async def update_occupant(
     if not item:
         raise HTTPException(status_code=404, detail="Occupant non trouvé")
     return item
+
+
+@router.delete("/occupants/{occupant_id}", response_model=MessageResponse)
+async def delete_occupant(
+    occupant_id: int,
+    service: HousingService = Depends(get_occupant_manage_service),
+):
+    deleted = await service.delete_occupant(occupant_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Occupant non trouvé")
+    return MessageResponse(message="Occupant supprimé")
 
 
 # ============================================================
@@ -483,6 +495,15 @@ async def send_cleaning_volunteer_request(
     )
 
 
+@router.post("/cleanings/{cleaning_id}/confirm-volunteers")
+async def confirm_cleaning_volunteers(
+    cleaning_id: int,
+    data: CleaningVolunteerSelection,
+    service: HousingService = Depends(get_cleaning_manage_service),
+):
+    return await service.confirm_cleaning_volunteers(cleaning_id, data.volunteer_ids)
+
+
 @router.get("/public/cleaning-invitations/{response_token}", response_class=HTMLResponse)
 async def respond_to_cleaning_invitation(
     response_token: UUID,
@@ -498,6 +519,7 @@ async def respond_to_cleaning_invitation(
         raise HTTPException(status_code=404, detail="Invitation introuvable")
     if response in {"available", "unavailable"}:
         invitation.availability_response = response
+        invitation.response_at = datetime.utcnow()
         await db.commit()
         message = "Merci, votre disponibilité a bien été enregistrée."
         return HTMLResponse(
@@ -569,6 +591,17 @@ async def update_email_template(
     if not item:
         raise HTTPException(status_code=404, detail="Modèle email non trouvé")
     return item
+
+
+@router.delete("/email-templates/{template_id}", response_model=MessageResponse)
+async def delete_email_template(
+    template_id: int,
+    service: HousingService = Depends(get_email_template_manage_service),
+):
+    ok = await service.delete_email_template(template_id)
+    if not ok:
+        raise HTTPException(status_code=404, detail="Modèle email non trouvé")
+    return {"message": "Modèle email supprimé"}
 
 
 @router.post("/email-templates/{template_id}/attachments", response_model=EmailTemplateAttachmentResponse, status_code=201)

@@ -5,6 +5,7 @@ import {
   getOccupant,
   createOccupant,
   updateOccupant,
+  deleteOccupant,
 } from '../services/housingApi.js';
 
 export class HousingOccupantsPage {
@@ -30,16 +31,20 @@ export class HousingOccupantsPage {
         { key: 'first_name', label: 'Prenom', sortable: true },
         { key: 'email', label: 'Email', sortable: true },
         { key: 'phone', label: 'Telephone', sortable: false },
-        { key: 'id_type', label: 'Type piece', sortable: false },
-        { key: 'id_number', label: 'Numero piece', sortable: false },
-        { key: 'company', label: 'Societe', sortable: false },
       ],
       actions: [
         {
           key: 'edit',
           label: 'Modifier',
           icon: 'edit',
-          disabled: (item) => !authStore.hasPermission('housing.update'),
+          disabled: (item) => !authStore.hasPermission('housing.manage_occupants'),
+        },
+        {
+          key: 'delete',
+          label: 'Supprimer',
+          icon: 'trash',
+          variant: 'danger',
+          disabled: (item) => !authStore.hasPermission('housing.manage_occupants'),
         },
       ],
       onAction: (action, item) => this._handleAction(action, item),
@@ -110,7 +115,7 @@ export class HousingOccupantsPage {
           <p class="page-subtitle">Gestion des occupants</p>
         </div>
         <div class="page-header-right">
-          ${authStore.hasPermission('housing.create') ? '<button class="btn btn-primary" data-action="create">+ Nouvel occupant</button>' : ''}
+          ${authStore.hasPermission('housing.manage_occupants') ? '<button class="btn btn-primary" data-action="create">+ Nouvel occupant</button>' : ''}
         </div>
       </div>
       <div class="page-filters">
@@ -157,6 +162,8 @@ export class HousingOccupantsPage {
   async _handleAction(action, item) {
     if (action === 'edit') {
       await this._showEditModal(item);
+    } else if (action === 'delete') {
+      await this._deleteOccupant(item);
     }
   }
 
@@ -190,29 +197,11 @@ export class HousingOccupantsPage {
             <form data-form>
               <div class="form-row">
                 <label><span>Prenom *</span><input name="first_name" value="${isEdit ? (occupant.first_name || '') : ''}" required maxlength="100"></label>
-                <label><span>Nom *</span><input name="last_name" value="${isEdit ? (occupant.last_name || '') : ''}" required maxlength="100"></label>
+                <label><span>Nom *</span><input name="last_name" value="${isEdit ? (occupant.last_name || '') : ''}" required maxlength="100" style="text-transform:uppercase"></label>
               </div>
               <div class="form-row">
-                <label><span>Email</span><input type="email" name="email" value="${isEdit ? (occupant.email || '') : ''}" maxlength="200"></label>
-                <label><span>Telephone</span><input name="phone" value="${isEdit ? (occupant.phone || '') : ''}" maxlength="50"></label>
-              </div>
-              <div class="form-row">
-                <label><span>Type de piece</span>
-                  <select name="id_type">
-                    <option value="">-- Selectionner --</option>
-                    <option value="carte_identite" ${isEdit && occupant.id_type === 'carte_identite' ? 'selected' : ''}>Carte d'identite</option>
-                    <option value="passeport" ${isEdit && occupant.id_type === 'passeport' ? 'selected' : ''}>Passeport</option>
-                    <option value="permis" ${isEdit && occupant.id_type === 'permis' ? 'selected' : ''}>Permis de conduire</option>
-                    <option value="autre" ${isEdit && occupant.id_type === 'autre' ? 'selected' : ''}>Autre</option>
-                  </select>
-                </label>
-                <label><span>Numero de piece</span><input name="id_number" value="${isEdit ? (occupant.id_number || '') : ''}" maxlength="100"></label>
-              </div>
-              <div class="form-row">
-                <label><span>Societe</span><input name="company" value="${isEdit ? (occupant.company || '') : ''}" maxlength="200"></label>
-              </div>
-              <div class="form-row">
-                <label><span>Notes</span><textarea name="notes" rows="3">${isEdit ? (occupant.notes || '') : ''}</textarea></label>
+                <label><span>Email *</span><input type="email" name="email" value="${isEdit ? (occupant.email || '') : ''}" required maxlength="200"></label>
+                <label><span>Telephone *</span><input name="phone" value="${isEdit ? (occupant.phone || '') : ''}" required maxlength="50"></label>
               </div>
             </form>
           </div>
@@ -236,8 +225,8 @@ export class HousingOccupantsPage {
         if (v === '') continue;
         data[k] = v;
       }
-      if (!data.first_name || !data.last_name) {
-        alert('Les champs Prenom et Nom sont obligatoires');
+      if (!data.first_name || !data.last_name || !data.email || !data.phone) {
+        alert('Les champs Nom, Prenom, Telephone et Email sont obligatoires');
         return;
       }
       try {
@@ -253,6 +242,17 @@ export class HousingOccupantsPage {
         alert(e.message || 'Erreur lors de la sauvegarde');
       }
     });
+  }
+
+  async _deleteOccupant(occupant) {
+    if (!confirm(`Supprimer l'occupant ${occupant.first_name} ${occupant.last_name} ?`)) return;
+    try {
+      await deleteOccupant(occupant.id);
+      await this.loadData();
+      this._showToast('Occupant supprimé');
+    } catch (e) {
+      alert(e.message || 'Erreur lors de la suppression');
+    }
   }
 
   _showToast(message) {

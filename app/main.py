@@ -124,14 +124,25 @@ async def health_check():
 SPA_PREFIXES = ("api/", "auth/", "admin/", "docs", "redoc", "openapi", "health", "css/", "js/", "modules/", "dashboard/")
 
 
+def _is_spa_navigation(request: Request) -> bool:
+    return (
+        request.method == "GET"
+        and SPA_INDEX
+        and request.headers.get("accept", "").startswith("text/html")
+        and not any(request.url.path.startswith(f"/{prefix}") for prefix in SPA_PREFIXES)
+        and not request.url.path.startswith("/housing/public/")
+    )
+
+
 @app.middleware("http")
 async def spa_fallback_middleware(request: Request, call_next):
+    if _is_spa_navigation(request):
+        return FileResponse(SPA_INDEX)
+
     response = await call_next(request)
     if (
         response.status_code in (401, 404, 422)
-        and SPA_INDEX
-        and request.headers.get("accept", "").startswith("text/html")
-        and not any(request.url.path.startswith(f"/{p}") for p in SPA_PREFIXES)
+        and _is_spa_navigation(request)
     ):
         return FileResponse(SPA_INDEX)
     return response

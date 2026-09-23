@@ -131,8 +131,8 @@ class HousingListResponse(BaseModel):
 class OccupantBase(BaseModel):
     first_name: str = Field(..., min_length=1, max_length=100)
     last_name: str = Field(..., min_length=1, max_length=100)
-    email: Optional[str] = Field(None, max_length=200)
-    phone: Optional[str] = Field(None, max_length=50)
+    email: str = Field(..., min_length=1, max_length=200)
+    phone: str = Field(..., min_length=1, max_length=50)
     id_type: Optional[str] = Field(None, max_length=50)
     id_number: Optional[str] = Field(None, max_length=100)
     company: Optional[str] = Field(None, max_length=200)
@@ -349,7 +349,7 @@ class CleaningBase(BaseModel):
     housing_id: int
     occupancy_id: Optional[int] = None
     type: str = Field(default="exit", pattern="^(exit|intermediate|deep)$")
-    status: str = Field(default="planned", pattern="^(planned|in_progress|to_check|checked|completed|cancelled)$")
+    status: str = Field(default="planned", pattern="^(not_planned|planned|in_progress|to_check|checked|completed|cancelled)$")
     scheduled_date: date
     volunteers_needed: int = Field(default=1, ge=1)
     invitation_status: str = Field(default="not_sent", pattern="^(not_sent|sent)$")
@@ -368,7 +368,7 @@ class CleaningUpdate(BaseModel):
     housing_id: Optional[int] = None
     occupancy_id: Optional[int] = None
     type: Optional[str] = Field(None, pattern="^(exit|intermediate|deep)$")
-    status: Optional[str] = Field(None, pattern="^(planned|in_progress|to_check|checked|completed|cancelled)$")
+    status: Optional[str] = Field(None, pattern="^(not_planned|planned|in_progress|to_check|checked|completed|cancelled)$")
     scheduled_date: Optional[date] = None
     volunteers_needed: Optional[int] = Field(None, ge=1)
     invitation_status: Optional[str] = Field(None, pattern="^(not_sent|sent)$")
@@ -386,6 +386,10 @@ class CleaningVolunteerRequest(BaseModel):
     message: Optional[str] = None
 
 
+class CleaningVolunteerSelection(BaseModel):
+    volunteer_ids: List[int] = Field(default_factory=list)
+
+
 class CleaningResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -400,6 +404,7 @@ class CleaningResponse(BaseModel):
     volunteers_needed: int
     invitation_status: str
     invitation_history: List[dict] = []
+    selected_volunteer_ids: List[int] = []
     scheduled_time_start: Optional[str] = None
     scheduled_time_end: Optional[str] = None
     actual_start: Optional[datetime] = None
@@ -441,7 +446,7 @@ class CleaningListResponse(BaseModel):
 
 class EmailTemplateBase(BaseModel):
     name: str = Field(..., min_length=1, max_length=100)
-    template_type: str = Field(..., pattern="^(confirmation|cancellation|reminder|custom|cleaning_invitation|cleaning_cancellation)$")
+    template_type: str = Field(..., pattern="^(confirmation|cancellation|reminder|custom|cleaning_invitation|cleaning_confirmation|cleaning_cancellation)$")
     subject: str = Field(..., min_length=1, max_length=200)
     body_html: str = Field(..., min_length=1)
     body_text: Optional[str] = None
@@ -455,7 +460,7 @@ class EmailTemplateCreate(EmailTemplateBase):
 
 class EmailTemplateUpdate(BaseModel):
     name: Optional[str] = Field(None, min_length=1, max_length=100)
-    template_type: Optional[str] = Field(None, pattern="^(confirmation|cancellation|reminder|custom|cleaning_invitation|cleaning_cancellation)$")
+    template_type: Optional[str] = Field(None, pattern="^(confirmation|cancellation|reminder|custom|cleaning_invitation|cleaning_confirmation|cleaning_cancellation)$")
     subject: Optional[str] = Field(None, min_length=1, max_length=200)
     body_html: Optional[str] = None
     body_text: Optional[str] = None
@@ -557,8 +562,8 @@ class EmailLogListResponse(BaseModel):
 class OccupantQuickCreate(BaseModel):
     first_name: str = Field(..., min_length=1, max_length=100)
     last_name: str = Field(..., min_length=1, max_length=100)
-    email: Optional[str] = Field(None, max_length=200)
-    phone: Optional[str] = Field(None, max_length=50)
+    email: str = Field(..., min_length=1, max_length=200)
+    phone: str = Field(..., min_length=1, max_length=50)
 
 
 # ============================================================
@@ -583,6 +588,7 @@ class PlanningEntry(BaseModel):
     cleaning_volunteer_ids: List[int] = []
     cleaning_scheduled_date: Optional[date] = None
     cleaning_invitation_status: Optional[str] = None
+    cleaning_cancelled: bool = False
 
 
 class PlanningResponse(BaseModel):

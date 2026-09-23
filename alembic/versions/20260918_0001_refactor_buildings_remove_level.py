@@ -17,34 +17,57 @@ depends_on = None
 
 
 def upgrade() -> None:
+    bind = op.get_bind()
+    inspector = sa.inspect(bind)
+    room_columns = {column["name"] for column in inspector.get_columns("rooms")}
+
     # Step 1: Add building_id column to rooms (nullable initially)
-    op.add_column('rooms', sa.Column('building_id', sa.Integer(), nullable=True))
+    if 'building_id' not in room_columns:
+        op.add_column('rooms', sa.Column('building_id', sa.Integer(), nullable=True))
 
     # Step 2: Add used_for_accommodation column to rooms
-    op.add_column('rooms', sa.Column('used_for_accommodation', sa.Boolean(), nullable=False, server_default='0'))
+    if 'used_for_accommodation' not in room_columns:
+        op.add_column('rooms', sa.Column('used_for_accommodation', sa.Boolean(), nullable=False, server_default='0'))
 
     # Step 3: Migrate data - set building_id from level -> building
-    op.execute("""
-        UPDATE rooms r
-        INNER JOIN levels l ON r.level_id = l.id
-        SET r.building_id = l.building_id
-    """)
+    if 'level_id' in room_columns and 'levels' in set(inspector.get_table_names()):
+        op.execute("""
+            UPDATE rooms r
+            INNER JOIN levels l ON r.level_id = l.id
+            SET r.building_id = l.building_id
+        """)
 
     # Step 4: Make building_id NOT NULL using raw SQL (MySQL requires type)
-    op.execute("ALTER TABLE rooms MODIFY COLUMN building_id INTEGER NOT NULL")
+    inspector = sa.inspect(bind)
+    building_column = next(column for column in inspector.get_columns('rooms') if column['name'] == 'building_id')
+    if building_column['nullable']:
+        op.execute("ALTER TABLE rooms MODIFY COLUMN building_id INTEGER NOT NULL")
 
     # Step 5: Drop level_id from rooms
-    op.execute("ALTER TABLE rooms DROP FOREIGN KEY fk_rooms_level_id")
-    op.drop_index('ix_rooms_level_active', table_name='rooms')
-    op.execute("ALTER TABLE rooms DROP INDEX uq_room_level_reference")
-    op.drop_column('rooms', 'level_id')
+    if 'level_id' in room_columns:
+        for foreign_key in inspector.get_foreign_keys('rooms'):
+            if foreign_key['name'] and foreign_key['constrained_columns'] == ['level_id']:
+                op.drop_constraint(foreign_key['name'], 'rooms', type_='foreignkey')
+        indexes = {index['name'] for index in inspector.get_indexes('rooms')}
+        if 'ix_rooms_level_active' in indexes:
+            op.drop_index('ix_rooms_level_active', table_name='rooms')
+        unique_constraints = {constraint['name'] for constraint in inspector.get_unique_constraints('rooms')}
+        if 'uq_room_level_reference' in unique_constraints:
+            op.drop_constraint('uq_room_level_reference', 'rooms', type_='unique')
+        op.drop_column('rooms', 'level_id')
 
     # Step 6: Add new constraints for building_id
-    op.create_unique_constraint('uq_room_building_reference', 'rooms', ['building_id', 'reference'])
-    op.create_index('ix_rooms_building_active', 'rooms', ['building_id', 'is_active'])
+    inspector = sa.inspect(bind)
+    unique_constraints = {constraint['name'] for constraint in inspector.get_unique_constraints('rooms')}
+    if 'uq_room_building_reference' not in unique_constraints:
+        op.create_unique_constraint('uq_room_building_reference', 'rooms', ['building_id', 'reference'])
+    indexes = {index['name'] for index in inspector.get_indexes('rooms')}
+    if 'ix_rooms_building_active' not in indexes:
+        op.create_index('ix_rooms_building_active', 'rooms', ['building_id', 'is_active'])
 
     # Step 7: Drop levels table
-    op.drop_table('levels')
+    if 'levels' in set(inspector.get_table_names()):
+        op.drop_table('levels')
 
 
 def downgrade() -> None:

@@ -121,7 +121,7 @@ export class MaintenanceCalendarPage {
 
   render() {
     this.element = document.createElement('div');
-    this.element.className = 'page-content';
+    this.element.className = 'page-content maintenance-page';
     this.element.innerHTML = `
       <div class="page-header">
         <div class="page-header-left">

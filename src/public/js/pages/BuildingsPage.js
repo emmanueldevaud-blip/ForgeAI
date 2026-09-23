@@ -492,12 +492,13 @@ export class BuildingsPage {
           <p class="users-count">${this._getCountText()}</p>
         </div>
         <div class="users-header-actions">
-          ${breadcrumbs.length > 0 ? `<button type="button" class="btn btn-secondary" data-action="back">← Retour</button>` : ''}
-          ${canCreate ? `<button type="button" class="btn btn-primary" data-action="create">+ Nouveau</button>` : ''}
+           ${breadcrumbs.length > 0 ? `<button type="button" class="btn btn-secondary" data-action="back" aria-label="Retour au niveau précédent">← Retour</button>` : ''}
+           ${canCreate ? `<button type="button" class="btn btn-primary" data-action="create">+ Nouveau</button>` : ''}
         </div>
       </div>
       <div class="users-toolbar">
-        <input type="search" class="form-input" placeholder="Rechercher..." value="${this._escapeHtml(this.search)}" data-action="search">
+         <label class="sr-only" for="buildings-search">Rechercher dans les bâtiments</label>
+         <input id="buildings-search" type="search" class="form-input" placeholder="Rechercher..." value="${this._escapeHtml(this.search)}" data-action="search">
       </div>
       <div data-table-container></div>
       <div class="users-pagination" data-pagination>
@@ -566,7 +567,7 @@ export class BuildingsPage {
     }
 
     if (this.error) {
-      container.innerHTML = `<div class="table-error"><h3>Erreur</h3><p>${this._escapeHtml(this.error)}</p><button class="btn btn-primary" data-action="retry">Réessayer</button></div>`;
+       container.innerHTML = '<div class="table-error" role="alert"><h3>Chargement impossible</h3><p>Les données des bâtiments ne sont pas disponibles pour le moment.</p><button class="btn btn-primary" data-action="retry">Réessayer</button></div>';
       container.querySelector('[data-action="retry"]')?.addEventListener('click', () => this.loadData());
       return;
     }

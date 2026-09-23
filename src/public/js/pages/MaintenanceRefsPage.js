@@ -58,18 +58,18 @@ export class MaintenanceRefsPage {
 
   render() {
     this.element = document.createElement('div');
-    this.element.className = 'page-content';
+    this.element.className = 'page-content maintenance-page';
     this.element.innerHTML = `
       <div class="page-header">
         <div class="page-header-left">
-          <h1>Referentiels Maintenance</h1>
-          <p class="page-subtitle">Types d'equipements et donnees de reference</p>
+          <h1>Référentiels Maintenance</h1>
+          <p class="page-subtitle">Types d’équipements et données de référence</p>
         </div>
       </div>
 
       <div class="refs-section">
-        <h3>Types d'equipements</h3>
-        <p class="section-desc">Les types d'equipements sont geres dans le module Equipements. <a href="/equipment/refs">Gerer les types</a></p>
+        <h3>Types d’équipements</h3>
+        <p class="section-desc">Les types d’équipements sont gérés dans le module Équipements. <a href="/equipment/refs">Gérer les types</a></p>
         <div data-types-list></div>
       </div>
     `;

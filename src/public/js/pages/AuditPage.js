@@ -263,7 +263,7 @@ export class AuditPage {
         <div class="modal-content">
           <div class="modal-header">
             <h2 class="modal-title">Détail de l'entrée d'audit #${log.id}</h2>
-            <button class="modal-close" data-close>&times;</button>
+            <button class="modal-close" data-close aria-label="Fermer">&times;</button>
           </div>
           <div class="modal-body">
             <div class="audit-detail-grid">

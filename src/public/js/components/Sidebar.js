@@ -143,6 +143,7 @@ export class Sidebar {
         isCollapsed: this.collapsed,
         onClick: (action) => this._handleNavAction(action),
         level: 0,
+        currentRoute: this.currentRoute,
       });
       navList.appendChild(navItem.render());
     });
@@ -185,6 +186,7 @@ export class Sidebar {
           if (action.type === 'navigate') this.closeMobile();
         },
         level: 0,
+        currentRoute: this.currentRoute,
       });
       navList.appendChild(navItem.render());
     });
@@ -218,8 +220,8 @@ export class Sidebar {
   _updateActiveStates() {
     if (!this.element) return;
     this.element.querySelectorAll('.nav-item').forEach(itemEl => {
-      const code = itemEl.dataset.navCode;
-      const isActive = code === this._getCodeFromRoute(this.currentRoute);
+      const route = itemEl.dataset.navRoute;
+      const isActive = route && (route === this.currentRoute || this.currentRoute.startsWith(`${route}/`));
       itemEl.classList.toggle('nav-item--active', isActive);
     });
   }

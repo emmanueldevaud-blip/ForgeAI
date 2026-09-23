@@ -84,7 +84,7 @@ export class HousingListPage {
 
   render() {
     this.element = document.createElement('div');
-    this.element.className = 'page-content';
+    this.element.className = 'page-content housing-page';
     this.element.style.cssText = 'display:flex;flex-direction:column;min-height:calc(100vh - var(--header-height) - var(--spacing-6) * 2);';
     this.element.innerHTML = `
       <div class="page-header">
@@ -128,7 +128,7 @@ export class HousingListPage {
       <div class="modal modal-lg"><div class="modal-content">
         <div class="modal-header">
           <h2>Configurer — ${housing.room?.reference || ''} ${housing.room?.name || ''}</h2>
-          <button class="modal-close" data-action="close">&times;</button>
+          <button class="modal-close" data-action="close" aria-label="Fermer">&times;</button>
         </div>
         <div class="modal-body">
           <form data-form>

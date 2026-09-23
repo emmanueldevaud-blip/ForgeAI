@@ -70,7 +70,7 @@ export class MaintenanceProvidersPage {
 
   render() {
     this.element = document.createElement('div');
-    this.element.className = 'page-content';
+    this.element.className = 'page-content maintenance-page';
     this.element.innerHTML = `
       <div class="page-header">
         <div class="page-header-left">
@@ -127,7 +127,7 @@ export class MaintenanceProvidersPage {
         <div class="modal-content">
           <div class="modal-header">
             <h2>${isEdit ? 'Modifier le prestataire' : 'Nouveau prestataire'}</h2>
-            <button class="modal-close" data-action="close">&times;</button>
+            <button class="modal-close" data-action="close" aria-label="Fermer">&times;</button>
           </div>
           <div class="modal-body">
             <form data-form>

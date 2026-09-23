@@ -159,6 +159,7 @@ _renderActions(item) {
       '" data-id="' + this.getItemId(item) +
       '" aria-label="' + this._escapeHtml(title) +
       '" title="' + this._escapeHtml(title) + '"' +
+      ' data-tooltip="' + this._escapeHtml(title) + '"' +
       ((typeof action.disabled === 'function' ? action.disabled(item) : action.disabled) ? ' disabled' : '') +
       '>' + icon + '</button>';
   }).join('');

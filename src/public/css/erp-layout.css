@@ -24,6 +24,7 @@
   width: var(--sidebar-width);
   z-index: var(--z-index-fixed);
   transition: width var(--transition-normal), transform var(--transition-normal);
+  box-shadow: 6px 0 24px rgba(15, 23, 42, 0.03);
 }
 
 .sidebar--collapsed {
@@ -137,6 +138,7 @@
   border-radius: var(--radius-md);
   transition: all var(--transition-fast);
   white-space: nowrap;
+  min-height: 44px;
 }
 
 .nav-link:hover {
@@ -149,6 +151,7 @@
   background: var(--color-sidebar-item-active);
   color: var(--color-sidebar-item-active-text);
   font-weight: var(--font-weight-medium);
+  box-shadow: inset 3px 0 0 var(--color-primary);
 }
 
 .nav-icon {
@@ -576,6 +579,7 @@
   overflow-y: auto;
   background: var(--color-bg-secondary);
   min-height: calc(100vh - var(--header-height));
+  scrollbar-gutter: stable;
 }
 
 .main-content-loading,

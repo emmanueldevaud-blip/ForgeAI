@@ -227,7 +227,7 @@ export class CleaningVolunteersPage {
       <div class="modal-content" style="max-width:500px;width:95%;background:var(--color-bg-primary);border-radius:var(--radius-lg);">
         <div class="modal-header">
           <h2>${isEdit ? 'Modifier' : 'Ajouter'} un volontaire</h2>
-          <button class="modal-close" data-dismiss>&times;</button>
+          <button class="modal-close" data-dismiss aria-label="Fermer">&times;</button>
         </div>
         <div class="modal-body">
           <div class="modal-form">

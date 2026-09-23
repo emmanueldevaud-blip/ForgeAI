@@ -58,10 +58,19 @@ export class MainContent {
       <div class="main-content-error" role="alert">
         <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>
         <h2>Erreur</h2>
-        <p>${this._escapeHtml(this.error?.message || this.error || 'Une erreur est survenue')}</p>
+        <p>${this._escapeHtml(this._getUserMessage())}</p>
         <button class="btn btn-primary" data-action="retry">Réessayer</button>
       </div>
     `;
+  }
+
+  _getUserMessage() {
+    const status = this.error?.status;
+    if (status === 401) return 'Votre session a expiré. Veuillez vous reconnecter.';
+    if (status === 403) return 'Vous n’avez pas les droits nécessaires pour accéder à cette page.';
+    if (status === 404) return 'La ressource demandée est introuvable.';
+    if (status >= 500) return 'Le service rencontre un problème. Veuillez réessayer dans quelques instants.';
+    return 'Impossible de charger cette page. Veuillez réessayer.';
   }
 
   _renderContent() {

@@ -5,6 +5,7 @@ export class NavItem {
     this.isCollapsed = options.isCollapsed || false;
     this.onClick = options.onClick || (() => {});
     this.level = options.level || 0;
+    this.currentRoute = options.currentRoute || '';
   }
 
   render() {
@@ -15,6 +16,7 @@ export class NavItem {
     const li = document.createElement('li');
     li.className = 'nav-item';
     li.dataset.navCode = code;
+    li.dataset.navRoute = route || '';
 
     if (this.isActive) {
       li.classList.add('nav-item--active');
@@ -88,10 +90,11 @@ export class NavItem {
 
       children.forEach(child => {
         const childItem = new NavItem(child, {
-          isActive: this.isActive && child.route === this.item.route,
+          isActive: child.route === this.currentRoute,
           isCollapsed: this.isCollapsed,
           onClick: this.onClick,
           level: this.level + 1,
+          currentRoute: this.currentRoute,
         });
         sublist.appendChild(childItem.render());
       });

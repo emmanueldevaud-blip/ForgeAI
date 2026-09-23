@@ -107,7 +107,7 @@ export class HousingOccupantsPage {
 
   render() {
     this.element = document.createElement('div');
-    this.element.className = 'page-content';
+    this.element.className = 'page-content housing-page';
     this.element.innerHTML = `
       <div class="page-header">
         <div class="page-header-left">
@@ -191,7 +191,7 @@ export class HousingOccupantsPage {
         <div class="modal-content">
           <div class="modal-header">
             <h2>${title}</h2>
-            <button class="modal-close" data-action="close">&times;</button>
+            <button class="modal-close" data-action="close" aria-label="Fermer">&times;</button>
           </div>
           <div class="modal-body">
             <form data-form>

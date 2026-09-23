@@ -151,10 +151,10 @@ export class AdministrationPage {
             <button
               class="admin-tab ${!authStore.hasPermission(tab.permission) ? 'hidden' : ''}"
               role="tab"
+              id="tab-${tab.id}"
               data-tab="${tab.id}"
               aria-selected="${tab.id === this.currentTab}"
               ${!authStore.hasPermission(tab.permission) ? 'disabled' : ''}
-              ${tab.id === this.currentTab ? 'aria-current="true"' : ''}
             >
               ${tab.label}
             </button>

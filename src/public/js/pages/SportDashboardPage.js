@@ -40,7 +40,7 @@ export class SportDashboardPage {
 
   _renderContent() {
     if (this.error) {
-      this.element.innerHTML = `<div class="card"><div class="card-body sport-empty"><h2>Impossible de charger le dashboard</h2><p>${this._escape(this.error.message || 'Une erreur est survenue.')}</p></div></div>`;
+      this.element.innerHTML = '<div class="card" role="alert"><div class="card-body sport-empty"><h2>Impossible de charger le dashboard</h2><p>Les données sportives ne sont pas disponibles pour le moment.</p></div></div>';
       return;
     }
     const data = this.data || {};
@@ -49,7 +49,7 @@ export class SportDashboardPage {
       <div class="page-header sport-dashboard-header">
         <div class="page-header-left"><span class="sport-kicker">FORGEAI SPORT</span><h1>Ton entraînement</h1><p class="page-subtitle">Une vue claire de ton volume, de ta régularité et de ta progression.</p></div>
         <div class="sport-periods" role="group" aria-label="Période d'analyse">
-          ${PERIODS.map(item => `<button class="btn btn-sm ${item.value === this.period ? 'btn-primary' : 'btn-secondary'}" data-period="${item.value}">${item.label}</button>`).join('')}
+          ${PERIODS.map(item => `<button class="btn btn-sm ${item.value === this.period ? 'btn-primary' : 'btn-secondary'}" data-period="${item.value}" aria-pressed="${item.value === this.period}">${item.label}</button>`).join('')}
         </div>
       </div>
       <section class="sport-summary-grid" aria-label="Résumé de la période">

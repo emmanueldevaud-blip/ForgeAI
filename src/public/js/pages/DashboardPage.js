@@ -75,7 +75,8 @@ export class DashboardPage {
         </div>
       </div>
       <div class="dashboard-loading" data-loading>
-        <p>Chargement du tableau de bord...</p>
+        <div class="spinner" aria-hidden="true"></div>
+        <p>Préparation de votre tableau de bord...</p>
       </div>
       <div class="dashboard-modules" data-modules style="display:none"></div>
     `;
@@ -95,7 +96,9 @@ export class DashboardPage {
     if (this.widgets.length === 0) {
       modulesEl.innerHTML = `
         <div class="dashboard-empty">
-          <p>Aucun widget disponible. Contactez un administrateur pour configurer vos droits d'accès.</p>
+          <div class="dashboard-empty-icon" aria-hidden="true">▦</div>
+          <h2>Votre tableau de bord est prêt à être personnalisé</h2>
+          <p>Les indicateurs disponibles apparaîtront ici selon vos accès.</p>
         </div>
       `;
       return;
@@ -172,6 +175,7 @@ export class DashboardPage {
 
   _getIcon(iconName) {
     const icons = {
+      dashboard: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"></rect><rect x="14" y="3" width="7" height="7" rx="1"></rect><rect x="3" y="14" width="7" height="7" rx="1"></rect><rect x="14" y="14" width="7" height="7" rx="1"></rect></svg>',
       building: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="2" width="16" height="20" rx="2" ry="2"></rect><path d="M9 22v-4h6v4"></path><path d="M8 6h.01"></path><path d="M16 6h.01"></path><path d="M12 6h.01"></path><path d="M12 10h.01"></path><path d="M12 14h.01"></path><path d="M16 10h.01"></path><path d="M16 14h.01"></path><path d="M8 10h.01"></path><path d="M8 14h.01"></path></svg>',
       home: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path><polyline points="9 22 9 12 15 12 15 22"></polyline></svg>',
       wrench: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"></path></svg>',

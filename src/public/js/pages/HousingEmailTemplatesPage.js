@@ -82,7 +82,7 @@ export class HousingEmailTemplatesPage {
 
   render() {
     this.element = document.createElement('div');
-    this.element.className = 'page-content';
+    this.element.className = 'page-content housing-page';
     this._renderList();
     return this.element;
   }
@@ -149,7 +149,7 @@ export class HousingEmailTemplatesPage {
     overlay.style.cssText = 'position:fixed;inset:0;z-index:1100;display:flex;align-items:center;justify-content:center;padding:16px;background:var(--color-overlay);';
     overlay.innerHTML = `
       <div class="modal-content" style="width:min(900px,100%);max-height:90vh;overflow:auto;">
-        <div class="modal-header"><h2>${template ? 'Modifier' : 'Nouveau'} modèle</h2><button class="modal-close" data-close>&times;</button></div>
+        <div class="modal-header"><h2>${template ? 'Modifier' : 'Nouveau'} modèle</h2><button class="modal-close" data-close aria-label="Fermer">&times;</button></div>
         <form data-template-form class="modal-body">
           <div class="form-row">
             <label><span>Nom *</span><input name="name" required maxlength="100" value="${this._attribute(template?.name)}"></label>

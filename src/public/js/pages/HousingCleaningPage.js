@@ -264,7 +264,7 @@ export class HousingCleaningPage {
 
   render() {
     this.element = document.createElement('div');
-    this.element.className = 'page-content';
+    this.element.className = 'page-content housing-page';
     this.element.innerHTML = `
       <div class="page-header"><div class="page-header-left"><h1>Planning des ménages</h1><p class="page-subtitle">Ménages attendus après les réservations</p></div><div class="page-header-right"><div class="btn-group" style="display:flex;"><button class="btn btn-secondary btn-sm" data-view="day">Jour</button><button class="btn btn-secondary btn-sm" data-view="week">Semaine</button><button class="btn btn-secondary btn-sm active" data-view="month">Mois</button></div></div></div>
       <div class="calendar-nav" style="display:flex;align-items:center;gap:8px;margin-bottom:8px;"><button class="btn btn-secondary btn-sm" data-nav="prev">◀</button><h2 data-month-label style="margin:0;min-width:220px;text-align:center;font-size:var(--font-size-base);"></h2><button class="btn btn-secondary btn-sm" data-nav="next">▶</button><button class="btn btn-secondary btn-sm" data-nav="today">Aujourd’hui</button></div>

@@ -101,7 +101,7 @@ export class MaintenanceRequestsPage {
 
   render() {
     this.element = document.createElement('div');
-    this.element.className = 'page-content';
+    this.element.className = 'page-content maintenance-page';
     this.element.innerHTML = `
       <div class="page-header">
         <div class="page-header-left">
@@ -113,12 +113,15 @@ export class MaintenanceRequestsPage {
         </div>
       </div>
       <div class="page-filters">
-        <input type="text" class="form-input" placeholder="Rechercher..." data-filter="search" value="${this.search}">
-        <select class="form-select" data-filter="status">
+         <label class="sr-only" for="maintenance-search">Rechercher une demande</label>
+         <input id="maintenance-search" type="text" class="form-input" placeholder="Rechercher..." data-filter="search" value="${this.search}">
+         <label class="sr-only" for="maintenance-status-filter">Filtrer par statut</label>
+         <select id="maintenance-status-filter" class="form-select" data-filter="status">
           <option value="">Tous les statuts</option>
           ${STATUSES.map(s => `<option value="${s.value}" ${this.filters.status === s.value ? 'selected' : ''}>${s.label}</option>`).join('')}
         </select>
-        <select class="form-select" data-filter="priority">
+         <label class="sr-only" for="maintenance-priority-filter">Filtrer par priorité</label>
+         <select id="maintenance-priority-filter" class="form-select" data-filter="priority">
           <option value="">Toutes les priorités</option>
           ${PRIORITIES.map(p => `<option value="${p.value}" ${this.filters.priority === p.value ? 'selected' : ''}>${p.label}</option>`).join('')}
         </select>
@@ -162,7 +165,7 @@ export class MaintenanceRequestsPage {
           <div class="modal-content">
             <div class="modal-header">
               <h2>Demande ${full.reference || ''}</h2>
-              <button class="modal-close" data-action="close">&times;</button>
+               <button class="modal-close" data-action="close" aria-label="Fermer">&times;</button>
             </div>
             <div class="modal-body">
               <div class="detail-grid">
@@ -204,7 +207,7 @@ export class MaintenanceRequestsPage {
         <div class="modal-content">
           <div class="modal-header">
             <h2>${isEdit ? 'Modifier la demande' : 'Nouvelle demande'}</h2>
-            <button class="modal-close" data-action="close">&times;</button>
+             <button class="modal-close" data-action="close" aria-label="Fermer">&times;</button>
           </div>
           <div class="modal-body">
             <form data-form>

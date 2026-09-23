@@ -223,7 +223,7 @@ export class EquipmentRefsPage {
         <div class="modal-content">
           <div class="modal-header">
             <h2>${title}</h2>
-            <button class="modal-close" data-action="close-modal">&times;</button>
+            <button class="modal-close" data-action="close-modal" aria-label="Fermer">&times;</button>
           </div>
           <div class="modal-body">
             <form data-type-form>

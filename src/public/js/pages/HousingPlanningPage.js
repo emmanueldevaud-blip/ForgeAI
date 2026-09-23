@@ -620,7 +620,7 @@ export class HousingPlanningPage {
       <div class="modal-content occupant-create-modal" style="width:min(520px,100%);max-height:90vh;">
         <div class="modal-header">
           <h2>Nouvel occupant</h2>
-          <button class="modal-close" type="button" data-action="close">&times;</button>
+          <button class="modal-close" type="button" data-action="close" aria-label="Fermer">&times;</button>
         </div>
         <div class="modal-body">
           <form data-occupant-form>
@@ -697,7 +697,7 @@ export class HousingPlanningPage {
     return `
       <div class="modal-header" style="padding:${isMobile ? '12px 16px' : '16px 24px'};border-bottom:1px solid var(--color-border-light);">
         <h2 style="margin:0;font-size:${isMobile ? '16px' : '18px'};">Nouvelle réservation</h2>
-        <button class="modal-close" data-dismiss style="font-size:24px;padding:4px;">&times;</button>
+        <button class="modal-close" data-dismiss aria-label="Fermer" style="font-size:24px;padding:4px;">&times;</button>
       </div>
       <div class="modal-body" style="padding:${isMobile ? '16px' : '24px'};">
         <div class="modal-form">
@@ -784,7 +784,7 @@ export class HousingPlanningPage {
     return `
       <div class="modal-header" style="padding:${isMobile ? '12px 16px' : '16px 24px'};border-bottom:1px solid var(--color-border-light);">
         <h2 style="margin:0;font-size:${isMobile ? '16px' : '18px'};">${getOccupantDisplayName(primaryOccupant) || 'Réservation'}</h2>
-        <button class="modal-close" data-dismiss style="font-size:24px;padding:4px;">&times;</button>
+        <button class="modal-close" data-dismiss aria-label="Fermer" style="font-size:24px;padding:4px;">&times;</button>
       </div>
       <div class="modal-body" style="padding:${isMobile ? '16px' : '24px'};">
         <div class="reservation-detail-row" style="display:flex;gap:12px;margin-bottom:16px;flex-wrap:wrap;">
@@ -844,7 +844,7 @@ export class HousingPlanningPage {
     return `
       <div class="modal-header" data-require-template="${requireTemplate ? 'true' : 'false'}" data-template-type="${templateType}">
         <h2>Envoyer un e-mail</h2>
-        <button class="modal-close" data-dismiss>&times;</button>
+        <button class="modal-close" data-dismiss aria-label="Fermer">&times;</button>
       </div>
       <div class="modal-body">
         <div class="modal-form">
@@ -920,7 +920,7 @@ export class HousingPlanningPage {
     return `
       <div class="modal-header">
         <h2>${hasCleaning ? 'Planifier le ménage et gérer les volontaires' : 'Planifier un nettoyage'}</h2>
-        <button class="modal-close" data-dismiss>&times;</button>
+        <button class="modal-close" data-dismiss aria-label="Fermer">&times;</button>
       </div>
       <div class="modal-body">
         <div class="modal-form">
@@ -983,7 +983,7 @@ export class HousingPlanningPage {
     return `
       <div class="modal-header">
         <h2>Gérer les invitations</h2>
-        <button class="modal-close" data-dismiss>&times;</button>
+        <button class="modal-close" data-dismiss aria-label="Fermer">&times;</button>
       </div>
       <div class="modal-body">
         <p style="margin-top:0;color:var(--color-text-secondary);">Sélectionnez exactement ${entry.cleaning_volunteers_needed || 1} volontaire(s) disponible(s) à retenir.</p>
@@ -1667,7 +1667,7 @@ export class HousingPlanningPage {
 
   render() {
     this.element = document.createElement('div');
-    this.element.className = 'page-content';
+    this.element.className = 'page-content housing-page';
     this.element.innerHTML = `
       <div class="page-header">
         <div class="page-header-left">

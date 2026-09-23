@@ -184,7 +184,7 @@ export class EquipmentPage {
 
   render() {
     this.element = document.createElement('div');
-    this.element.className = 'page-content';
+    this.element.className = 'page-content equipment-page';
     this.element.innerHTML = `
       <div class="page-header">
         <div class="page-header-left">
@@ -198,22 +198,26 @@ export class EquipmentPage {
 
       <div class="page-filters">
         <div class="filter-group">
-          <input type="text" class="form-input" placeholder="Rechercher..." data-filter="search" value="${this.search}">
+           <label class="sr-only" for="equipment-search">Rechercher un équipement</label>
+           <input id="equipment-search" type="text" class="form-input" placeholder="Rechercher..." data-filter="search" value="${this.search}">
         </div>
         <div class="filter-group">
-          <select class="form-select" data-filter="equipment_type_id">
+           <label class="sr-only" for="equipment-type-filter">Filtrer par type</label>
+           <select id="equipment-type-filter" class="form-select" data-filter="equipment_type_id">
             <option value="">Tous les types</option>
             ${this.equipmentTypes.map(t => `<option value="${t.id}" ${this.filters.equipment_type_id == t.id ? 'selected' : ''}>${t.name}</option>`).join('')}
           </select>
         </div>
         <div class="filter-group">
-          <select class="form-select" data-filter="status">
+           <label class="sr-only" for="equipment-status-filter">Filtrer par statut</label>
+           <select id="equipment-status-filter" class="form-select" data-filter="status">
             <option value="">Tous les statuts</option>
             ${EQUIPMENT_STATUSES.map(s => `<option value="${s.value}" ${this.filters.status === s.value ? 'selected' : ''}>${s.label}</option>`).join('')}
           </select>
         </div>
         <div class="filter-group">
-          <select class="form-select" data-filter="is_active">
+           <label class="sr-only" for="equipment-active-filter">Filtrer par état</label>
+           <select id="equipment-active-filter" class="form-select" data-filter="is_active">
             <option value="">Tous</option>
             <option value="true" ${this.filters.is_active === 'true' ? 'selected' : ''}>Actif</option>
             <option value="false" ${this.filters.is_active === 'false' ? 'selected' : ''}>Inactif</option>
@@ -345,7 +349,7 @@ export class EquipmentPage {
         <div class="modal-content">
           <div class="modal-header">
             <h2>${title}</h2>
-            <button class="modal-close" data-action="close-modal">&times;</button>
+            <button class="modal-close" data-action="close-modal" aria-label="Fermer">&times;</button>
           </div>
           <div class="modal-body">
             <form data-equipment-form>

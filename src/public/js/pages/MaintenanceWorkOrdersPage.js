@@ -109,7 +109,7 @@ export class MaintenanceWorkOrdersPage {
 
   render() {
     this.element = document.createElement('div');
-    this.element.className = 'page-content';
+    this.element.className = 'page-content maintenance-page';
     this.element.innerHTML = `
       <div class="page-header">
         <div class="page-header-left">
@@ -173,7 +173,7 @@ export class MaintenanceWorkOrdersPage {
           <div class="modal-content">
             <div class="modal-header">
               <h2>OT ${full.reference || ''}</h2>
-              <button class="modal-close" data-action="close">&times;</button>
+              <button class="modal-close" data-action="close" aria-label="Fermer">&times;</button>
             </div>
             <div class="modal-body">
               <div class="detail-grid">
@@ -237,7 +237,7 @@ export class MaintenanceWorkOrdersPage {
         <div class="modal-content">
           <div class="modal-header">
             <h2>${isEdit ? 'Modifier OT' : 'Nouvel ordre de travail'}</h2>
-            <button class="modal-close" data-action="close">&times;</button>
+              <button class="modal-close" data-action="close" aria-label="Fermer">&times;</button>
           </div>
           <div class="modal-body">
             <form data-form>

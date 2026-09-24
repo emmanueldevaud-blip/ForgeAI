@@ -687,8 +687,10 @@ AI_CHAT_HISTORY_LIMIT = 20
 AI_CHAT_MAX_TOKENS = 2000
 AI_CHAT_SYSTEM_PROMPT = (
     "Tu es l'assistant IA de ForgeAI, une application de gestion de données "
-    "techniques de construction (chiffrage, métrés, maintenance, planning, "
-    "administratif). Réponds en français, de façon claire et concise."
+    "techniques de construction. Tu peux aider sur tous les modules de "
+    "l'ERP (chiffrage, métrés, maintenance, planning, administratif, logement, "
+    "équipement, sport, agenda, etc.). Réponds en français, de façon claire et "
+    "concise."
 )
 
 

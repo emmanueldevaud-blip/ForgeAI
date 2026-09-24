@@ -203,6 +203,17 @@ export class HousingOccupantsPage {
                 <label><span>Email *</span><input type="email" name="email" value="${isEdit ? (occupant.email || '') : ''}" required maxlength="200"></label>
                 <label><span>Telephone *</span><input name="phone" value="${isEdit ? (occupant.phone || '') : ''}" required maxlength="50"></label>
               </div>
+              <div class="form-row">
+                <label><span>Utilisateur AD</span>
+                  <select name="ad_user_select" class="form-control" id="adUserSelect" disabled>
+                    <option value="">Chargement des utilisateurs AD...</option>
+                  </select>
+                  <input type="hidden" name="ad_dn" id="ad_dn_input" value="" maxlength="500">
+                </div>
+                <div id="adUsersEmpty" style="display:none; margin-top: 8px; color: var(--color-text-tertiary);">
+                  Aucun utilisateur AD trouvé
+                </div>
+              </div>
             </form>
           </div>
           <div class="modal-footer">
@@ -273,3 +284,52 @@ export class HousingOccupantsPage {
 export function createHousingOccupantsPage(router) {
   return new HousingOccupantsPage(router);
 }
+
+  // Chargement des utilisateurs AD
+  async function loadAdUsers() {
+    try {
+      const { listUsers } = await import("../services/adminApi.js");
+      const users = await listUsers({ source: "ad" });
+      const select = document.getElementById("adUserSelect");
+      const emptyDiv = document.getElementById("adUsersEmpty");
+      
+      if (!users || users.length === 0) {
+        select.innerHTML = "<option value="">Aucun utilisateur AD trouvé</option>";
+        select.disabled = true;
+        emptyDiv.style.display = "block";
+        return;
+      };
+      
+      select.disabled = false;
+      emptyDiv.style.display = "none";
+      select.innerHTML = users.map(user => '
+        <option value="${user.ad_dn || user.id}" data-user-info="\${JSON.stringify({
+          id: user.id,
+          username: user.username,
+          first_name: user.first_name,
+          last_name: user.last_name,
+          email: user.email
+        })}">
+          ${user.first_name || user.username} ${user.last_name || ""} (AD)
+        </option>
+      ').join("");
+      } catch (e) {
+        console.error("Erreur chargement utilisateurs AD:", e);
+        document.getElementById("adUsersEmpty").style.display = "block";
+        document.getElementById("adUserSelect").innerHTML = "<option value="">Erreur chargement</option>";
+      }
+    };
+    
+    // Mise jour du champ ad_dn lors de la sélection
+    const adUserSelect = document.getElementById("adUserSelect");
+    if (adUserSelect) {
+      adUserSelect.addEventListener("change", (e) => {
+        const selected = e.target.options[e.target.selectedIndex];
+        const userInfo = JSON.parse(e.target.options[e.selectedIndex].getAttribute("data-user-info"));
+        document.getElementById("ad_dn_input").value = userInfo.ad_dn || userInfo.id || "";
+      });
+    };
+    
+    // Chargement au show du modal
+    loadAdUsers();
+  ''')

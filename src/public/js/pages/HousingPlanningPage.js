@@ -182,11 +182,11 @@ export class HousingPlanningPage {
     }
 
     if (this.viewMode === 'quarter') {
-      const quarterStartMonth = Math.floor(month / 3) * 3;
-      return {
-        startDate: new Date(year, quarterStartMonth, 1),
-        endDate: new Date(year, quarterStartMonth + 3, 0),
-      };
+      const start = new Date(d);
+      const end = new Date(d);
+      end.setMonth(end.getMonth() + 3);
+      end.setDate(end.getDate() - 1);
+      return { startDate: start, endDate: end };
     }
 
     const startDate = new Date(year, month, 1);
@@ -230,8 +230,10 @@ export class HousingPlanningPage {
         const { endDate } = this._getDateRange();
         monthLabel.textContent = `${formatDateShort(startDate)} — ${formatDateShort(endDate)} ${MONTH_NAMES[endDate.getMonth()]} ${endDate.getFullYear()}`;
       } else if (this.viewMode === 'quarter') {
-        const quarterStartMonth = Math.floor(month / 3) * 3;
-        monthLabel.textContent = `${MONTH_NAMES[quarterStartMonth]} — ${MONTH_NAMES[quarterStartMonth + 2]} ${year}`;
+        const { endDate } = this._getDateRange();
+        monthLabel.textContent = startDate.getFullYear() === endDate.getFullYear()
+          ? `${MONTH_NAMES[startDate.getMonth()]} — ${MONTH_NAMES[endDate.getMonth()]} ${endDate.getFullYear()}`
+          : `${MONTH_NAMES[startDate.getMonth()]} ${startDate.getFullYear()} — ${MONTH_NAMES[endDate.getMonth()]} ${endDate.getFullYear()}`;
       } else {
         monthLabel.textContent = `${MONTH_NAMES[month]} ${year}`;
       }

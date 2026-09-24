@@ -55,11 +55,11 @@ export class HousingCleaningPage {
       return { startDate, endDate: addDays(startDate, 6) };
     }
     if (this.viewMode === 'quarter') {
-      const quarterStartMonth = Math.floor(date.getMonth() / 3) * 3;
-      return {
-        startDate: new Date(date.getFullYear(), quarterStartMonth, 1),
-        endDate: new Date(date.getFullYear(), quarterStartMonth + 3, 0),
-      };
+      const startDate = new Date(date);
+      const endDate = new Date(date);
+      endDate.setMonth(endDate.getMonth() + 3);
+      endDate.setDate(endDate.getDate() - 1);
+      return { startDate, endDate };
     }
     return {
       startDate: new Date(date.getFullYear(), date.getMonth(), 1),
@@ -106,8 +106,9 @@ export class HousingCleaningPage {
     const label = this.element.querySelector('[data-month-label]');
     if (this.viewMode === 'week') label.textContent = `${startDate.getDate()} — ${endDate.getDate()} ${MONTH_NAMES[endDate.getMonth()]} ${endDate.getFullYear()}`;
     else if (this.viewMode === 'quarter') {
-      const quarterStartMonth = Math.floor(this.currentDate.getMonth() / 3) * 3;
-      label.textContent = `${MONTH_NAMES[quarterStartMonth]} — ${MONTH_NAMES[quarterStartMonth + 2]} ${this.currentDate.getFullYear()}`;
+      label.textContent = startDate.getFullYear() === endDate.getFullYear()
+        ? `${MONTH_NAMES[startDate.getMonth()]} — ${MONTH_NAMES[endDate.getMonth()]} ${endDate.getFullYear()}`
+        : `${MONTH_NAMES[startDate.getMonth()]} ${startDate.getFullYear()} — ${MONTH_NAMES[endDate.getMonth()]} ${endDate.getFullYear()}`;
     }
     else label.textContent = `${MONTH_NAMES[this.currentDate.getMonth()]} ${this.currentDate.getFullYear()}`;
 

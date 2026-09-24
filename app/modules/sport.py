@@ -13,7 +13,7 @@ class SportModule(BaseModule):
             name="Sport",
             description="Module de suivi d'activités sportives (course, trail, ultra)",
             icon="run",
-            order=100,
+            order=70,
             status=ModuleStatus.ACTIVE,
             version="1.0.0",
             route_path="/sport",

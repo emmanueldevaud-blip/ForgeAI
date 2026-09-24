@@ -1,3 +1,4 @@
+import asyncio
 import json
 from typing import Any, Protocol
 
@@ -44,7 +45,6 @@ class OpenAICompatibleSportAIProvider:
             return await LocalSportAIProvider().answer(question, context)
 
         payload = {
-            "model": self.settings.SPORT_AI_MODEL,
             "temperature": 0.2,
             "messages": [
                 {"role": "system", "content": self._system_prompt()},
@@ -55,17 +55,29 @@ class OpenAICompatibleSportAIProvider:
         client = self._client or httpx.AsyncClient(timeout=self.settings.SPORT_AI_TIMEOUT_SECONDS)
         close_client = self._client is None
         try:
-            response = await client.post(
-                f"{self.settings.SPORT_AI_BASE_URL.rstrip('/')}/chat/completions",
-                headers=headers,
-                json=payload,
-            )
-            response.raise_for_status()
-            body = response.json()
-            answer = body.get("choices", [{}])[0].get("message", {}).get("content")
-            if not answer:
-                raise ValueError("Réponse LLM vide")
-            return {"available": True, "provider": "openai-compatible", "answer": answer, "sources": self._sources(context)}
+            models = [self.settings.SPORT_AI_MODEL]
+            if self.settings.SPORT_AI_PROVIDER.lower() == "gemini" and "gemini-3.5-flash" not in models:
+                models.append("gemini-3.5-flash")
+            for model in models:
+                payload["model"] = model
+                for attempt in range(3):
+                    response = await client.post(
+                        f"{self.settings.SPORT_AI_BASE_URL.rstrip('/')}/chat/completions",
+                        headers=headers,
+                        json=payload,
+                    )
+                    if response.status_code in {429, 503}:
+                        if attempt < 2:
+                            await asyncio.sleep(attempt + 1)
+                            continue
+                        break
+                    response.raise_for_status()
+                    body = response.json()
+                    answer = body.get("choices", [{}])[0].get("message", {}).get("content")
+                    if not answer:
+                        raise ValueError("Réponse LLM vide")
+                    return {"available": True, "provider": "openai-compatible", "answer": answer, "sources": self._sources(context)}
+            return await LocalSportAIProvider().answer(question, context)
         except (httpx.HTTPError, ValueError, KeyError, IndexError, TypeError):
             return await LocalSportAIProvider().answer(question, context)
         finally:

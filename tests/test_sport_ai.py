@@ -52,3 +52,61 @@ async def test_provider_falls_back_when_endpoint_is_unavailable():
     assert result["available"] is False
     assert result["provider"] == "local-fallback"
     assert "temporairement indisponible" in result["answer"]
+
+
+async def test_provider_retries_when_model_is_temporarily_unavailable(monkeypatch):
+    calls = 0
+
+    async def no_wait(_seconds):
+        pass
+
+    async def handler(request):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            return httpx.Response(503, request=request)
+        return httpx.Response(
+            200,
+            json={"choices": [{"message": {"content": "Analyse disponible après reprise."}}]},
+            request=request,
+        )
+
+    monkeypatch.setattr("app.services.sport_ai.asyncio.sleep", no_wait)
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    provider = OpenAICompatibleSportAIProvider(settings(SPORT_AI_API_KEY="secret"), client)
+
+    result = await provider.answer("Comment va ma semaine ?", {})
+
+    await client.aclose()
+    assert calls == 2
+    assert result["available"] is True
+    assert result["answer"] == "Analyse disponible après reprise."
+
+
+async def test_gemini_provider_uses_flash_fallback_after_retries(monkeypatch):
+    models = []
+
+    async def no_wait(_seconds):
+        pass
+
+    async def handler(request):
+        model = json.loads(request.content)["model"]
+        models.append(model)
+        if model == "gemini-3.7-flash":
+            return httpx.Response(503, request=request)
+        return httpx.Response(
+            200,
+            json={"choices": [{"message": {"content": "Analyse fournie par le modèle de repli."}}]},
+            request=request,
+        )
+
+    monkeypatch.setattr("app.services.sport_ai.asyncio.sleep", no_wait)
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    provider = OpenAICompatibleSportAIProvider(settings(SPORT_AI_API_KEY="secret"), client)
+
+    result = await provider.answer("Comment va ma semaine ?", {})
+
+    await client.aclose()
+    assert models == ["gemini-3.7-flash", "gemini-3.7-flash", "gemini-3.7-flash", "gemini-3.5-flash"]
+    assert result["available"] is True
+    assert result["answer"] == "Analyse fournie par le modèle de repli."

@@ -17,7 +17,7 @@ export class SportGarminPage {
           <p data-message class="text-muted">${connection.connected ? `Compte : ${this._escape(connection.garmin_email)}<br>Dernière synchronisation : ${connection.last_sync_at ? new Date(connection.last_sync_at).toLocaleString('fr-FR') : 'Jamais'}` : 'Le mot de passe est utilisé uniquement pour obtenir une session Garmin et n’est jamais enregistré.'}</p>
           ${connection.last_error ? `<p class="text-danger">${this._escape(connection.last_error)}</p>` : ''}
           ${connection.connected ? `
-            <div style="display:flex;gap:8px;flex-wrap:wrap;"><button class="btn btn-primary" data-action="sync">Synchroniser maintenant</button><button class="btn btn-secondary" data-action="disconnect">Déconnecter</button></div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;"><button class="btn btn-primary" data-action="sync">Synchroniser maintenant</button><button class="btn btn-secondary" data-action="sync-history">Tout l'historique</button><button class="btn btn-secondary" data-action="disconnect">Déconnecter</button></div>
           ` : `
             <form data-garmin-form>
               <div class="form-row"><label><span>E-mail Garmin</span><input name="email" type="email" required autocomplete="username"></label><label><span>Mot de passe Garmin</span><input name="password" type="password" required autocomplete="current-password"></label></div>
@@ -42,6 +42,12 @@ export class SportGarminPage {
     this.element.querySelector('[data-action="sync"]')?.addEventListener('click', async () => {
       this._message('Synchronisation en cours...');
       try { const result = await syncGarmin(); this.connection = await getGarminConnection(); this._message(`${result.imported_count || 0} nouvelle(s) activité(s) importée(s).`); }
+      catch (error) { this._message(error.data?.detail || error.message || 'Synchronisation impossible'); }
+    });
+    this.element.querySelector('[data-action="sync-history"]')?.addEventListener('click', async () => {
+      if (!window.confirm("Importer tout l'historique Garmin disponible ? Cette opération peut prendre plusieurs minutes.")) return;
+      this._message("Import de l'historique Garmin en cours...");
+      try { const result = await syncGarmin(true); this.connection = await getGarminConnection(); this._message(`${result.imported_count || 0} nouvelle(s) activité(s) importée(s).`); }
       catch (error) { this._message(error.data?.detail || error.message || 'Synchronisation impossible'); }
     });
     this.element.querySelector('[data-action="disconnect"]')?.addEventListener('click', async () => {

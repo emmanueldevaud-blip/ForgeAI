@@ -293,11 +293,12 @@ async def connect_garmin(
 
 @router.post("/garmin/sync", response_model=GarminSyncResponse)
 async def sync_garmin(
+    full_history: bool = Query(False, description="Récupère tout l'historique Garmin disponible"),
     service: SportService = Depends(get_sport_activity_write_service),
 ):
     athlete = await service.get_or_create_athlete()
     try:
-        return await SportGarminConnectService(service.db).sync_for_athlete(athlete)
+        return await SportGarminConnectService(service.db).sync_for_athlete(athlete, full_history)
     except GarminServiceError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 

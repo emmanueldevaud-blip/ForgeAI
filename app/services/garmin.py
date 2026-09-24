@@ -103,12 +103,12 @@ class SportGarminConnectService:
         await self.db.commit()
         return True
 
-    async def sync_for_athlete(self, athlete: SportAthlete) -> dict:
+    async def sync_for_athlete(self, athlete: SportAthlete, full_history: bool = False) -> dict:
         async with self._sync_lock:
             connection = await self.get_connection(athlete)
             if not connection:
                 raise GarminServiceError("Aucun compte Garmin n'est connecté")
-            return await self._sync_connection(connection, athlete)
+            return await self._sync_connection(connection, athlete, full_history)
 
     async def sync_all_connections(self) -> None:
         async with self._sync_lock:
@@ -122,7 +122,7 @@ class SportGarminConnectService:
                     # One unavailable Garmin account must never stop the scheduler.
                     continue
 
-    async def _sync_connection(self, connection: SportGarminConnection, athlete: SportAthlete) -> dict:
+    async def _sync_connection(self, connection: SportGarminConnection, athlete: SportAthlete, full_history: bool = False) -> dict:
         started = datetime.now(timezone.utc)
         connection.last_sync_started_at = started
         connection.last_sync_status = "running"
@@ -132,7 +132,7 @@ class SportGarminConnectService:
         await self.db.flush()
         try:
             client = await self._client_from_connection(connection)
-            start_date = (connection.last_sync_at or started - timedelta(days=connection.initial_sync_days)).date() - timedelta(days=2)
+            start_date = date(2000, 1, 1) if full_history else (connection.last_sync_at or started - timedelta(days=connection.initial_sync_days)).date() - timedelta(days=2)
             activities = await asyncio.to_thread(client.get_activities_by_date, start_date.isoformat(), date.today().isoformat())
             imported = 0
             for summary in activities or []:
@@ -141,7 +141,7 @@ class SportGarminConnectService:
                     continue
                 try:
                     async with self.db.begin_nested():
-                        await self._import_summary(client, athlete, summary)
+                        await self._import_summary(client, athlete, summary, include_details=not full_history)
                     imported += 1
                 except Exception:
                     # A malformed activity must not prevent the remaining activities from syncing.
@@ -188,7 +188,13 @@ class SportGarminConnectService:
         )
         return result.scalar_one_or_none() is not None
 
-    async def _import_summary(self, client, athlete: SportAthlete, summary: dict[str, Any]) -> SportActivity:
+    async def _import_summary(
+        self,
+        client,
+        athlete: SportAthlete,
+        summary: dict[str, Any],
+        include_details: bool = True,
+    ) -> SportActivity:
         activity_id = str(summary["activityId"])
         activity_type = summary.get("activityTypeDTO") or {}
         if not isinstance(activity_type, dict):
@@ -203,25 +209,26 @@ class SportGarminConnectService:
         started_at = datetime.fromisoformat(started_raw.replace("Z", "+00:00")) if started_raw else datetime.now(timezone.utc)
         if started_at.tzinfo is None:
             started_at = started_at.replace(tzinfo=timezone.utc)
-        details = await self._safe_garmin_call(client.get_activity_details, activity_id)
-        splits = await self._safe_garmin_call(client.get_activity_split_summaries, activity_id)
+        details = await self._safe_garmin_call(client.get_activity_details, activity_id) if include_details else {}
+        splits = await self._safe_garmin_call(client.get_activity_split_summaries, activity_id) if include_details else {}
         gpx_points: list[dict[str, Any]] = []
         source_path = None
-        try:
-            gpx = await asyncio.to_thread(client.download_activity, activity_id, client.ActivityDownloadFormat.GPX)
-            normalized_gpx = SportNormalizer.from_file(f"garmin_{activity_id}.gpx", gpx)
-            gpx_points = normalized_gpx.track_points
-        except Exception:
-            pass
-        try:
-            original = await asyncio.to_thread(client.download_activity, activity_id, client.ActivityDownloadFormat.ORIGINAL)
-            upload_dir = os.getenv("UPLOAD_DIR", "/app/uploads/sport")
-            os.makedirs(upload_dir, exist_ok=True)
-            source_path = os.path.join(upload_dir, f"garmin_{activity_id}_{uuid4().hex}.zip")
-            with open(source_path, "wb") as handle:
-                handle.write(original)
-        except Exception:
-            pass
+        if include_details:
+            try:
+                gpx = await asyncio.to_thread(client.download_activity, activity_id, client.ActivityDownloadFormat.GPX)
+                normalized_gpx = SportNormalizer.from_file(f"garmin_{activity_id}.gpx", gpx)
+                gpx_points = normalized_gpx.track_points
+            except Exception:
+                pass
+            try:
+                original = await asyncio.to_thread(client.download_activity, activity_id, client.ActivityDownloadFormat.ORIGINAL)
+                upload_dir = os.getenv("UPLOAD_DIR", "/app/uploads/sport")
+                os.makedirs(upload_dir, exist_ok=True)
+                source_path = os.path.join(upload_dir, f"garmin_{activity_id}_{uuid4().hex}.zip")
+                with open(source_path, "wb") as handle:
+                    handle.write(original)
+            except Exception:
+                pass
         activity = SportActivity(
             athlete_id=athlete.id,
             sport_type=sport_type,

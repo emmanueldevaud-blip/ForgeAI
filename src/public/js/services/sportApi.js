@@ -59,8 +59,8 @@ export async function connectGarmin(data) {
   return sportApi.post('/garmin/connect', data);
 }
 
-export async function syncGarmin() {
-  return sportApi.post('/garmin/sync', {});
+export async function syncGarmin(fullHistory = false) {
+  return sportApi.post(`/garmin/sync${fullHistory ? '?full_history=true' : ''}`, {});
 }
 
 export async function disconnectGarmin() {

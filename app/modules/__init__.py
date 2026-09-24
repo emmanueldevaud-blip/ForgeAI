@@ -534,14 +534,14 @@ class ReportsModule(BaseModule):
 class AdministrationModule(BaseModule):
     def __init__(self):
         super().__init__(ModuleInfo(
-            code="administration",
-            name="Administration",
+            code="parametres_generaux",
+            name="Paramètres généraux",
             description="Administration système et configuration",
             icon="settings",
             order=1000,
             status=ModuleStatus.ACTIVE,
             version="1.0.0",
-            route_path="/administration",
+            route_path="/parametres-generaux",
             component_path="Administration",
             required_permissions=["admin.access"],
             is_core=True,

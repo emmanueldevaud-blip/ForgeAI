@@ -23,7 +23,6 @@ import {
 } from '../services/housingApi.js';
 
 const DAY_NAMES_SHORT = ['Dim', 'Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam'];
-const DAY_NAMES_LONG = ['Dimanche', 'Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi', 'Samedi'];
 const MONTH_NAMES = [
   'Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin',
   'Juillet', 'Août', 'Septembre', 'Octobre', 'Novembre', 'Décembre'
@@ -79,10 +78,6 @@ function parseRoomNames(str, count) {
 
 function formatDateShort(d) {
   return d.toLocaleDateString('fr-FR', { day: 'numeric' });
-}
-
-function formatDateFull(d) {
-  return d.toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' });
 }
 
 function getOccupantDisplayName(occ) {
@@ -178,16 +173,20 @@ export class HousingPlanningPage {
     const year = d.getFullYear();
     const month = d.getMonth();
 
-    if (this.viewMode === 'day') {
-      return { startDate: new Date(d), endDate: new Date(d) };
-    }
-
     if (this.viewMode === 'week') {
       const start = new Date(d);
       start.setDate(d.getDate() - d.getDay());
       const end = new Date(start);
       end.setDate(start.getDate() + 6);
       return { startDate: start, endDate: end };
+    }
+
+    if (this.viewMode === 'quarter') {
+      const quarterStartMonth = Math.floor(month / 3) * 3;
+      return {
+        startDate: new Date(year, quarterStartMonth, 1),
+        endDate: new Date(year, quarterStartMonth + 3, 0),
+      };
     }
 
     const startDate = new Date(year, month, 1);
@@ -227,11 +226,12 @@ export class HousingPlanningPage {
 
     const monthLabel = this.element.querySelector('[data-month-label]');
     if (monthLabel) {
-      if (this.viewMode === 'day') {
-        monthLabel.textContent = formatDateFull(this.currentDate);
-      } else if (this.viewMode === 'week') {
+      if (this.viewMode === 'week') {
         const { endDate } = this._getDateRange();
         monthLabel.textContent = `${formatDateShort(startDate)} — ${formatDateShort(endDate)} ${MONTH_NAMES[endDate.getMonth()]} ${endDate.getFullYear()}`;
+      } else if (this.viewMode === 'quarter') {
+        const quarterStartMonth = Math.floor(month / 3) * 3;
+        monthLabel.textContent = `${MONTH_NAMES[quarterStartMonth]} — ${MONTH_NAMES[quarterStartMonth + 2]} ${year}`;
       } else {
         monthLabel.textContent = `${MONTH_NAMES[month]} ${year}`;
       }
@@ -252,9 +252,7 @@ export class HousingPlanningPage {
       if (isToday) cls.push('planning-today');
       
       const dayName = isMobile ? DAY_NAMES_SHORT[dayOfWeek].charAt(0) : DAY_NAMES_SHORT[dayOfWeek];
-      const label = this.viewMode === 'day'
-        ? `${DAY_NAMES_LONG[dayOfWeek]} ${formatDateShort(day)}`
-        : `<span class="day-name">${dayName}</span><span class="day-num">${formatDateShort(day)}</span>`;
+      const label = `<span class="day-name">${dayName}</span><span class="day-num">${formatDateShort(day)}</span>`;
       html += `<th class="${cls.join(' ')}"><div>${label}</div></th>`;
     });
     html += '</tr></thead><tbody>';
@@ -1676,9 +1674,9 @@ export class HousingPlanningPage {
         </div>
         <div class="page-header-right" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
           <div class="btn-group" style="display:flex;border:1px solid var(--border-color);border-radius:var(--radius-md);overflow:hidden;">
-            <button class="btn btn-secondary btn-sm" data-view="day" style="border-radius:0;border:none;">Jour</button>
             <button class="btn btn-secondary btn-sm" data-view="week" style="border-radius:0;border:none;">Semaine</button>
             <button class="btn btn-secondary btn-sm active" data-view="month" style="border-radius:0;border:none;">Mois</button>
+            <button class="btn btn-secondary btn-sm" data-view="quarter" style="border-radius:0;border:none;">Trimestre</button>
           </div>
           <select class="form-control" id="status-filter" style="width:auto;padding:4px 8px;font-size:13px;">
             <option value="">Tous les statuts</option>
@@ -1697,10 +1695,10 @@ export class HousingPlanningPage {
     `;
 
     this.element.querySelector('[data-action="prev"]')?.addEventListener('click', () => {
-      if (this.viewMode === 'day') {
-        this.currentDate.setDate(this.currentDate.getDate() - 1);
-      } else if (this.viewMode === 'week') {
+      if (this.viewMode === 'week') {
         this.currentDate.setDate(this.currentDate.getDate() - 7);
+      } else if (this.viewMode === 'quarter') {
+        this.currentDate.setMonth(this.currentDate.getMonth() - 3);
       } else {
         this.currentDate.setMonth(this.currentDate.getMonth() - 1);
       }
@@ -1708,10 +1706,10 @@ export class HousingPlanningPage {
     });
 
     this.element.querySelector('[data-action="next"]')?.addEventListener('click', () => {
-      if (this.viewMode === 'day') {
-        this.currentDate.setDate(this.currentDate.getDate() + 1);
-      } else if (this.viewMode === 'week') {
+      if (this.viewMode === 'week') {
         this.currentDate.setDate(this.currentDate.getDate() + 7);
+      } else if (this.viewMode === 'quarter') {
+        this.currentDate.setMonth(this.currentDate.getMonth() + 3);
       } else {
         this.currentDate.setMonth(this.currentDate.getMonth() + 1);
       }

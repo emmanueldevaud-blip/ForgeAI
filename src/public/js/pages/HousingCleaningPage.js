@@ -50,10 +50,16 @@ export class HousingCleaningPage {
 
   _getDateRange() {
     const date = this.currentDate;
-    if (this.viewMode === 'day') return { startDate: new Date(date), endDate: new Date(date) };
     if (this.viewMode === 'week') {
       const startDate = addDays(date, -date.getDay());
       return { startDate, endDate: addDays(startDate, 6) };
+    }
+    if (this.viewMode === 'quarter') {
+      const quarterStartMonth = Math.floor(date.getMonth() / 3) * 3;
+      return {
+        startDate: new Date(date.getFullYear(), quarterStartMonth, 1),
+        endDate: new Date(date.getFullYear(), quarterStartMonth + 3, 0),
+      };
     }
     return {
       startDate: new Date(date.getFullYear(), date.getMonth(), 1),
@@ -98,8 +104,11 @@ export class HousingCleaningPage {
     const days = this._getDays();
     const { startDate, endDate } = this._getDateRange();
     const label = this.element.querySelector('[data-month-label]');
-    if (this.viewMode === 'day') label.textContent = `${DAY_NAMES[this.currentDate.getDay()]} ${this.currentDate.getDate()} ${MONTH_NAMES[this.currentDate.getMonth()]} ${this.currentDate.getFullYear()}`;
-    else if (this.viewMode === 'week') label.textContent = `${startDate.getDate()} — ${endDate.getDate()} ${MONTH_NAMES[endDate.getMonth()]} ${endDate.getFullYear()}`;
+    if (this.viewMode === 'week') label.textContent = `${startDate.getDate()} — ${endDate.getDate()} ${MONTH_NAMES[endDate.getMonth()]} ${endDate.getFullYear()}`;
+    else if (this.viewMode === 'quarter') {
+      const quarterStartMonth = Math.floor(this.currentDate.getMonth() / 3) * 3;
+      label.textContent = `${MONTH_NAMES[quarterStartMonth]} — ${MONTH_NAMES[quarterStartMonth + 2]} ${this.currentDate.getFullYear()}`;
+    }
     else label.textContent = `${MONTH_NAMES[this.currentDate.getMonth()]} ${this.currentDate.getFullYear()}`;
 
     const entries = this.entries.map(entry => this._cleaningForEntry(entry));
@@ -266,12 +275,16 @@ export class HousingCleaningPage {
     this.element = document.createElement('div');
     this.element.className = 'page-content housing-page';
     this.element.innerHTML = `
-      <div class="page-header"><div class="page-header-left"><h1>Planning des ménages</h1><p class="page-subtitle">Ménages attendus après les réservations</p></div><div class="page-header-right"><div class="btn-group" style="display:flex;"><button class="btn btn-secondary btn-sm" data-view="day">Jour</button><button class="btn btn-secondary btn-sm" data-view="week">Semaine</button><button class="btn btn-secondary btn-sm active" data-view="month">Mois</button></div></div></div>
+      <div class="page-header"><div class="page-header-left"><h1>Planning des ménages</h1><p class="page-subtitle">Ménages attendus après les réservations</p></div><div class="page-header-right"><div class="btn-group" style="display:flex;"><button class="btn btn-secondary btn-sm" data-view="week">Semaine</button><button class="btn btn-secondary btn-sm active" data-view="month">Mois</button><button class="btn btn-secondary btn-sm" data-view="quarter">Trimestre</button></div></div></div>
       <div class="calendar-nav" style="display:flex;align-items:center;gap:8px;margin-bottom:8px;"><button class="btn btn-secondary btn-sm" data-nav="prev">◀</button><h2 data-month-label style="margin:0;min-width:220px;text-align:center;font-size:var(--font-size-base);"></h2><button class="btn btn-secondary btn-sm" data-nav="next">▶</button><button class="btn btn-secondary btn-sm" data-nav="today">Aujourd’hui</button></div>
       <div style="display:flex;gap:14px;flex-wrap:wrap;margin-bottom:12px;font-size:12px;">${Object.entries(CLEANING_STATUSES).map(([key, value]) => `<span><i style="display:inline-block;width:10px;height:10px;border-radius:50%;background:${value.color};margin-right:4px;"></i>${value.label}</span>`).join('')}</div>
       <div data-cleaning-planning style="flex:1;min-height:0;"></div>
     `;
-    this.element.querySelectorAll('[data-view]').forEach(button => button.addEventListener('click', () => { this.viewMode = button.dataset.view; this.loadData(); }));
+    this.element.querySelectorAll('[data-view]').forEach(button => button.addEventListener('click', () => {
+      this.viewMode = button.dataset.view;
+      this.element.querySelectorAll('[data-view]').forEach(btn => btn.classList.toggle('active', btn.dataset.view === this.viewMode));
+      this.loadData();
+    }));
     this.element.querySelector('[data-nav="prev"]').addEventListener('click', () => { this._move(-1); this.loadData(); });
     this.element.querySelector('[data-nav="next"]').addEventListener('click', () => { this._move(1); this.loadData(); });
     this.element.querySelector('[data-nav="today"]').addEventListener('click', () => { this.currentDate = new Date(); this.loadData(); });
@@ -281,8 +294,8 @@ export class HousingCleaningPage {
   }
 
   _move(direction) {
-    if (this.viewMode === 'day') this.currentDate.setDate(this.currentDate.getDate() + direction);
-    else if (this.viewMode === 'week') this.currentDate.setDate(this.currentDate.getDate() + (direction * 7));
+    if (this.viewMode === 'week') this.currentDate.setDate(this.currentDate.getDate() + (direction * 7));
+    else if (this.viewMode === 'quarter') this.currentDate.setMonth(this.currentDate.getMonth() + (direction * 3));
     else this.currentDate.setMonth(this.currentDate.getMonth() + direction);
   }
 

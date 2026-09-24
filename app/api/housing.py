@@ -715,7 +715,7 @@ async def list_email_logs(
 async def get_planning(
     start_date: date,
     end_date: date,
-    view: str = "month",  # day, week, month
+    view: str = "month",  # week, month, quarter
     housing_ids: Optional[str] = None,  # JSON array
     status_filter: Optional[str] = None,
     include_completed: bool = False,

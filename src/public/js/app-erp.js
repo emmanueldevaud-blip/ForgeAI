@@ -1,6 +1,6 @@
 import { router, createAuthGuard, createNotFoundPage, createForbiddenPage } from './router/router.js';
 import { authStore } from './stores/auth.js';
-import { AppShell } from './components/AppShell.js?v=3';
+import { AppShell } from './components/AppShell.js?v=4';
 import { createModulePlaceholderPage } from './pages/ModulePlaceholder.js?v=3';
 import { createLoginPage } from './pages/LoginPage.js';
 import { createRegisterPage } from './pages/RegisterPage.js';
@@ -29,6 +29,7 @@ import { createAdministrativeProgramsPage } from './pages/AdministrativePrograms
 import { createSportDashboardPage } from './pages/SportDashboardPage.js?v=3';
 import { createSportActivitiesPage } from './pages/SportActivitiesPage.js?v=2';
 import { createSportGarminPage } from './pages/SportGarminPage.js?v=2';
+import { createAgendaPage } from './pages/AgendaPage.js?v=1';
 
 const moduleRoutes = [
   'dashboard',
@@ -76,6 +77,7 @@ let administrativeProgramsPage = null;
 let sportDashboardPage = null;
 let sportActivitiesPage = null;
 let sportGarminPage = null;
+let agendaPage = null;
 
 async function initializeApp() {
   const app = document.getElementById('app');
@@ -213,6 +215,9 @@ async function initializeApp() {
     .addRoute('/sport/garmin', async (route) => {
       await showSportGarminPage(route);
     }, { requiresAuth: true, permissions: ['sport.activities.write'] })
+    .addRoute('/agenda', async (route) => {
+      await showAgendaPage(route);
+    }, { requiresAuth: true, permissions: ['agenda.access'] })
     .addRoute('/volunteers', async (route) => {
       await showVolunteersPage(route);
     }, { requiresAuth: true, permissions: ['volunteers.view'] });
@@ -492,6 +497,26 @@ async function ensureSportGarminPage() {
     await sportGarminPage.initialize();
   }
   return sportGarminPage;
+}
+
+async function ensureAgendaPage() {
+  if (!agendaPage) {
+    agendaPage = createAgendaPage(router);
+    await agendaPage.initialize();
+  }
+  return agendaPage;
+}
+
+async function showAgendaPage(route) {
+  if (!appShell) return;
+  appShell.showLoading();
+  try {
+    const page = await ensureAgendaPage();
+    appShell.showContent(page.render());
+  } catch (error) {
+    console.error('Erreur affichage agenda:', error);
+    appShell.showError(error);
+  }
 }
 
 async function showSportGarminPage(route) {

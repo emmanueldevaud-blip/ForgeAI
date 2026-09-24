@@ -262,6 +262,7 @@ class RoomBase(BaseModel):
     name: str = Field(..., min_length=1, max_length=200)
     area: Optional[Decimal] = Field(None, ge=0)
     used_for_accommodation: bool = False
+    workstation_capacity: int = Field(0, ge=0)
     description: Optional[str] = None
     is_active: bool = True
 
@@ -276,6 +277,7 @@ class RoomUpdate(BaseModel):
     name: Optional[str] = Field(None, min_length=1, max_length=200)
     area: Optional[Decimal] = Field(None, ge=0)
     used_for_accommodation: Optional[bool] = None
+    workstation_capacity: Optional[int] = Field(None, ge=0)
     description: Optional[str] = None
     is_active: Optional[bool] = None
 
@@ -293,6 +295,7 @@ class RoomResponse(BaseModel):
     name: str
     area: Optional[Decimal] = None
     used_for_accommodation: bool
+    workstation_capacity: int = 0
     description: Optional[str] = None
     is_active: bool
     equipment_count: int = 0
@@ -307,6 +310,7 @@ class RoomSummaryResponse(BaseModel):
     id: int
     reference: str
     name: str
+    workstation_capacity: int = 0
     is_active: bool
 
 

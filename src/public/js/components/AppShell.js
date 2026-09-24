@@ -1,7 +1,7 @@
 import { Sidebar } from './Sidebar.js?v=2';
 import { Header } from './Header.js';
 import { MainContent } from './MainContent.js';
-import { MobileSidebar } from './MobileSidebar.js?v=2';
+import { MobileSidebar } from './MobileSidebar.js?v=3';
 import { authStore } from '../stores/auth.js';
 import { modulesApi } from '../services/api.js';
 
@@ -120,6 +120,7 @@ export class AppShell {
       buildings: 'Bâtiments',
       equipment: 'Équipements',
       housing: 'Hébergements',
+      agenda: 'Agenda',
       sport: 'Sport',
       maintenance: 'Maintenance',
       cleaning: 'Nettoyage',
@@ -152,6 +153,7 @@ export class AppShell {
         buildings: 'Bâtiments',
         equipment: 'Équipements',
         housing: 'Hébergements',
+        agenda: 'Agenda',
         sport: 'Sport',
         maintenance: 'Maintenance',
         cleaning: 'Nettoyage',

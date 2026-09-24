@@ -1,4 +1,5 @@
 from app.core.module_registry import BaseModule, ModuleInfo, ModuleStatus, module_registry
+from app.modules.agenda import AgendaModule
 from app.modules.sport import SportModule
 
 
@@ -739,6 +740,7 @@ def register_all_modules():
         EquipmentModule(),
         HousingModule(),
         MaintenanceModule(),
+        AgendaModule(),
         VolunteersModule(),
         AIModule(),
         CleaningModule(),

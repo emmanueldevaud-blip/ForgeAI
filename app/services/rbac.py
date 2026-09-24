@@ -485,6 +485,8 @@ async def seed_default_rbac(db: AsyncSession) -> None:
         ("administration.programs.manage", "Gérer les séances et affectations", "administration"),
         ("administration.programs.configure", "Configurer les programmes administratifs", "administration"),
         ("administration.programs.validate", "Valider les programmes administratifs", "administration"),
+        ("agenda.access", "Accéder au module Agenda", "agenda"),
+        ("agenda.manage", "Gérer les présences d'autres personnes", "agenda"),
     ]
     
     for code, name, module in default_permissions:

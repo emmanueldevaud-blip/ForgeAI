@@ -359,9 +359,17 @@ export class BuildingsPage {
       const usageOptions = this.usageTypes.map(ut =>
         `<option value="${ut.id}" ${v('usage_type_id') == ut.id ? 'selected' : ''}>${this._escapeHtml(ut.name)}</option>`
       ).join('');
+      const selectedUsage = this.usageTypes.find(ut => v('usage_type_id') == ut.id);
+      const isBureau = !!selectedUsage && (
+        ['BUREAUX', 'BUREAU'].includes(selectedUsage.code) || /bureau/i.test(selectedUsage.name || '')
+      );
       fields = `
         <div class="form-group"><label>Nom</label><input name="name" value="${this._escapeHtml(v('name'))}" required></div>
         <div class="form-group"><label>Type d'utilisation</label><select name="usage_type_id"><option value="">—</option>${usageOptions}</select></div>
+        <div class="form-group room-workstation-field" data-workstation-field ${isBureau ? '' : 'hidden'}>
+          <label>Capacité en postes de travail</label>
+          <input name="workstation_capacity" type="number" min="0" step="1" value="${v('workstation_capacity', 0)}">
+        </div>
         <div class="form-group"><label>Surface (m²)</label><input name="area" type="number" step="0.01" value="${v('area')}"></div>
         <div class="form-group"><label>Hébergement</label><select name="used_for_accommodation"><option value="false" ${!v('used_for_accommodation') ? 'selected' : ''}>Non</option><option value="true" ${v('used_for_accommodation') ? 'selected' : ''}>Oui</option></select></div>
         <div class="form-group"><label>Description</label><textarea name="description">${this._escapeHtml(v('description'))}</textarea></div>
@@ -403,6 +411,18 @@ export class BuildingsPage {
 
     overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
 
+    const usageSelect = content.querySelector('select[name="usage_type_id"]');
+    const workstationField = content.querySelector('[data-workstation-field]');
+    if (usageSelect && workstationField) {
+      const syncWorkstationVisibility = () => {
+        const ut = this.usageTypes.find(item => String(item.id) === usageSelect.value);
+        const bureau = !!ut && (['BUREAUX', 'BUREAU'].includes(ut.code) || /bureau/i.test(ut.name || ''));
+        workstationField.hidden = !bureau;
+      };
+      usageSelect.addEventListener('change', syncWorkstationVisibility);
+      syncWorkstationVisibility();
+    }
+
     content.querySelector('[data-action="save"]').addEventListener('click', async () => {
       const form = content.querySelector('#building-edit-form');
       const formData = new FormData(form);
@@ -413,6 +433,13 @@ export class BuildingsPage {
       }
       if (form.elements['floors_count']) {
         data.floors_count = data.floors_count ? parseInt(data.floors_count, 10) : null;
+      }
+      if (form.elements['workstation_capacity'] && !form.elements['workstation_capacity'].closest('[hidden]')) {
+        data.workstation_capacity = form.elements['workstation_capacity'].value
+          ? parseInt(form.elements['workstation_capacity'].value, 10)
+          : 0;
+      } else {
+        delete data.workstation_capacity;
       }
       if (data.site_id) data.site_id = parseInt(data.site_id, 10);
       if (data.building_id) data.building_id = parseInt(data.building_id, 10);

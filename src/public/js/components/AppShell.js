@@ -1,7 +1,7 @@
-import { Sidebar } from './Sidebar.js';
+import { Sidebar } from './Sidebar.js?v=2';
 import { Header } from './Header.js';
 import { MainContent } from './MainContent.js';
-import { MobileSidebar } from './MobileSidebar.js';
+import { MobileSidebar } from './MobileSidebar.js?v=2';
 import { authStore } from '../stores/auth.js';
 import { modulesApi } from '../services/api.js';
 

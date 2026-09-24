@@ -1,5 +1,5 @@
 import { modulesApi } from '../services/api.js';
-import { NavItem } from './NavItem.js';
+import { NavItem } from './NavItem.js?v=2';
 
 export class Sidebar {
   constructor(options = {}) {

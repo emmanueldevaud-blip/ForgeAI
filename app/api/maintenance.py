@@ -53,7 +53,19 @@ from app.schemas.maintenance import (
     WorkOrderUpdate,
 )
 from app.services.audit import get_audit_service
+from app.services.ai_gateway import AIGatewayError, ai_gateway
+from app.services.rbac import RBACService
 from app.services.maintenance import MaintenanceService
+
+MODULE_PERMISSION_MAP = {
+    "maintenance": "maintenance.view",
+    "agenda": "agenda.access",
+    "sport": "sport.access",
+    "buildings": "building.view",
+    "housing": "housing.view",
+    "equipment": "equipment.view",
+    "volunteers": "volunteers.view",
+}
 
 
 router = APIRouter(
@@ -671,6 +683,26 @@ async def update_plan(
 # AI CHAT
 # ============================================================
 
+AI_CHAT_HISTORY_LIMIT = 20
+AI_CHAT_MAX_TOKENS = 2000
+AI_CHAT_SYSTEM_PROMPT = (
+    "Tu es l'assistant IA de ForgeAI, une application de gestion de données "
+    "techniques de construction (chiffrage, métrés, maintenance, planning, "
+    "administratif). Réponds en français, de façon claire et concise."
+)
+
+
+MODULE_PERMISSION_MAP = {
+    "maintenance": "maintenance.view",
+    "agenda": "agenda.access",
+    "sport": "sport.access",
+    "buildings": "building.view",
+    "housing": "housing.view",
+    "equipment": "equipment.view",
+    "volunteers": "volunteers.view",
+}
+
+
 @router.post("/ai/chat", response_model=AIChatResponse)
 async def ai_chat(
     data: AIChatRequest,
@@ -679,6 +711,16 @@ async def ai_chat(
 ):
     from sqlalchemy import select
     from app.models.maintenance import AIConversation, AIMessage
+
+    if not data.message.strip():
+        raise HTTPException(status_code=422, detail="Message vide")
+
+    module_perm = MODULE_PERMISSION_MAP.get(data.module)
+    if module_perm and not await RBACService(db).user_has_permission(current_user, module_perm):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Permission '{module_perm}' requise pour le module {data.module}",
+        )
 
     if data.conversation_id:
         result = await db.execute(
@@ -690,38 +732,56 @@ async def ai_chat(
         conversation = result.scalar_one_or_none()
         if not conversation:
             raise HTTPException(status_code=404, detail="Conversation non trouvée")
+        result = await db.execute(
+            select(AIMessage)
+            .where(AIMessage.conversation_id == conversation.id)
+            .order_by(AIMessage.created_at.asc(), AIMessage.id.asc())
+        )
+        all_messages = result.scalars().all()
+        prior_messages = all_messages[-AI_CHAT_HISTORY_LIMIT:]
     else:
         conversation = AIConversation(
             user_id=current_user.id,
             module=data.module,
             entity_type=data.entity_type,
             entity_id=data.entity_id,
-            title=data.message[:100] if data.message else "Nouvelle conversation",
+            title=data.message[:100],
         )
         db.add(conversation)
         await db.flush()
+        prior_messages = []
 
-    user_msg = AIMessage(
+    history = [{"role": m.role, "content": m.content} for m in prior_messages]
+    history.append({"role": "user", "content": data.message})
+
+    try:
+        ai_response = await ai_gateway.generate(
+            history=history,
+            system_prompt=AI_CHAT_SYSTEM_PROMPT,
+            max_tokens=AI_CHAT_MAX_TOKENS,
+        )
+    except AIGatewayError as exc:
+        await db.rollback()
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+    db.add(AIMessage(
         conversation_id=conversation.id,
         role="user",
         content=data.message,
-    )
-    db.add(user_msg)
-
-    ai_response = f"Assistant IA - Module: {data.module}. Votre question: {data.message}"
-    ai_msg = AIMessage(
+    ))
+    db.add(AIMessage(
         conversation_id=conversation.id,
         role="assistant",
-        content=ai_response,
-        model="local",
-    )
-    db.add(ai_msg)
+        content=ai_response.text,
+        model=ai_response.model_used,
+        tokens_used=ai_response.tokens_output,
+    ))
     await db.commit()
 
     return AIChatResponse(
-        response=ai_response,
+        response=ai_response.text,
         conversation_id=conversation.id,
-        model="local",
+        model=ai_response.model_used,
     )
 
 

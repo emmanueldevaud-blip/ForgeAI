@@ -14,6 +14,30 @@ export async function testSmtpSettings(recipient) {
   return adminApi.post('/settings/smtp/test', { recipient });
 }
 
+export async function getAiSettings() {
+  return adminApi.get('/settings/ai');
+}
+
+export async function updateAiSettings(settings) {
+  return adminApi.put('/settings/ai', settings);
+}
+
+export async function sendAiChat(data) {
+  return adminApi.post('/settings/ai/chat', data);
+}
+
+export async function listAiConversations() {
+  return adminApi.get('/settings/ai/conversations');
+}
+
+export async function getAiConversation(conversationId) {
+  return adminApi.get(`/settings/ai/conversations/${conversationId}`);
+}
+
+export async function getAiStats() {
+  return adminApi.get('/settings/ai/stats');
+}
+
 export async function getUser(userId) {
   return adminApi.get(`/users/${userId}`);
 }

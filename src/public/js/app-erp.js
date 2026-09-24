@@ -4,7 +4,7 @@ import { AppShell } from './components/AppShell.js?v=4';
 import { createModulePlaceholderPage } from './pages/ModulePlaceholder.js?v=3';
 import { createLoginPage } from './pages/LoginPage.js';
 import { createRegisterPage } from './pages/RegisterPage.js';
-import { createAdministrationPage } from './pages/AdministrationPage.js';
+import { createAdministrationPage } from './pages/AdministrationPage.js?v=2';
 import { createBuildingsPage } from './pages/BuildingsPage.js';
 import { createBuildingRefsPage } from './pages/BuildingRefsPage.js';
 import { createEquipmentPage } from './pages/EquipmentPage.js';
@@ -17,9 +17,9 @@ import { createMaintenanceProvidersPage } from './pages/MaintenanceProvidersPage
 import { createMaintenanceContractsPage } from './pages/MaintenanceContractsPage.js';
 import { createMaintenanceRefsPage } from './pages/MaintenanceRefsPage.js';
 import { createMaintenanceCalendarPage } from './pages/MaintenanceCalendarPage.js';
-import { createAIAssistantPage } from './pages/AIAssistantPage.js';
+import { createAIAssistantPage } from './pages/AIAssistantPage.js?v=2';
 import { createHousingListPage } from './pages/HousingListPage.js';
-import { createHousingPlanningPage } from './pages/HousingPlanningPage.js?v=21';
+import { createHousingPlanningPage } from './pages/HousingPlanningPage.js?v=22';
 import { createHousingCleaningPage } from './pages/HousingCleaningPage.js?v=10';
 import { createHousingOccupantsPage } from './pages/HousingOccupantsPage.js';
 import { createHousingUnavailabilitiesPage } from './pages/HousingUnavailabilitiesPage.js';
@@ -29,7 +29,7 @@ import { createAdministrativeProgramsPage } from './pages/AdministrativePrograms
 import { createSportDashboardPage } from './pages/SportDashboardPage.js?v=3';
 import { createSportActivitiesPage } from './pages/SportActivitiesPage.js?v=2';
 import { createSportGarminPage } from './pages/SportGarminPage.js?v=2';
-import { createAgendaPage } from './pages/AgendaPage.js?v=1';
+import { createAgendaPage } from './pages/AgendaPage.js?v=17';
 
 const moduleRoutes = [
   'dashboard',
@@ -132,6 +132,9 @@ async function initializeApp() {
       await showAdministrationPage(route);
     }, { requiresAuth: true, permissions: ['ad_config'] })
     .addRoute('/administration/smtp', async (route) => {
+      await showAdministrationPage(route);
+    }, { requiresAuth: true, permissions: ['settings_view'] })
+    .addRoute('/administration/ai', async (route) => {
       await showAdministrationPage(route);
     }, { requiresAuth: true, permissions: ['settings_view'] })
     .addRoute('/administration/programs', async (route) => {

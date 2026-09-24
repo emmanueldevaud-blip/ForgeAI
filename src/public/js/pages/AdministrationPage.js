@@ -18,6 +18,7 @@ export class AdministrationPage {
       { id: 'audit', label: 'Audit', permission: 'audit_log_view', component: null },
       { id: 'active-directory', label: 'Active Directory', permission: 'ad_config', component: null },
       { id: 'smtp', label: 'E-mail / SMTP', permission: 'settings_view', component: null },
+      { id: 'ai', label: 'Assistant IA', permission: 'settings_view', component: null },
     ];
     this.usersPage = null;
     this.groupsPage = null;
@@ -26,6 +27,7 @@ export class AdministrationPage {
     this.auditPage = null;
     this.adPage = null;
     this.smtpPage = null;
+    this.aiPage = null;
     this._authUnsubscribe = null;
   }
 
@@ -70,6 +72,11 @@ export class AdministrationPage {
     this.smtpPage = createSmtpSettingsPage();
     if (authStore.hasPermission('settings_view')) await this.smtpPage.initialize();
     this.tabs[6].component = this.smtpPage;
+
+    const { createAiSettingsPage } = await import('./AiSettingsPage.js?v=1');
+    this.aiPage = createAiSettingsPage();
+    if (authStore.hasPermission('settings_view')) await this.aiPage.initialize();
+    this.tabs[7].component = this.aiPage;
 
     this.currentTab = this._getTabFromPath();
 
@@ -225,6 +232,12 @@ export class AdministrationPage {
       smtpPanel.appendChild(this.smtpPage.render());
     }
 
+    const aiPanel = this.element.querySelector('[data-tab-panel="ai"]');
+    if (aiPanel && this.aiPage) {
+      aiPanel.innerHTML = '';
+      aiPanel.appendChild(this.aiPage.render());
+    }
+
     return this.element;
   }
 
@@ -244,6 +257,7 @@ export class AdministrationPage {
     this.auditPage?.destroy?.();
     this.adPage?.destroy?.();
     this.smtpPage?.destroy?.();
+    this.aiPage?.destroy?.();
   }
 }
 

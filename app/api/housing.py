@@ -299,6 +299,26 @@ async def create_occupancy(
     return await service.create_occupancy(data.model_dump())
 
 
+@router.get("/bureau-rooms")
+async def list_bureau_rooms(
+    current_user: User = Depends(require_permission("housing.view")),
+    db: AsyncSession = Depends(get_db),
+):
+    from app.services.agenda import AgendaService
+
+    service = AgendaService(db, current_user)
+    rooms = await service.list_bureau_rooms()
+    return [
+        {
+            "id": r.id,
+            "name": r.name,
+            "building_name": r.building_name,
+            "reference": r.reference,
+        }
+        for r in rooms
+    ]
+
+
 @router.patch("/occupancies/{occupancy_id}", response_model=OccupancyResponse)
 async def update_occupancy(
     occupancy_id: int,

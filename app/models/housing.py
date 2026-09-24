@@ -124,6 +124,10 @@ class Occupancy(Base):
     observations: Mapped[str | None] = mapped_column(Text, nullable=True)
     nb_persons: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
     guest_type: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    agenda_room_id: Mapped[int | None] = mapped_column(
+        ForeignKey("rooms.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    needs_workstation: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     created_by: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)

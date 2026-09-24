@@ -21,7 +21,9 @@ router = APIRouter(prefix="/agenda", tags=["agenda"])
 
 class AgendaPresenceUpdate(BaseModel):
     needs_workstation: Optional[bool] = None
+    needs_meal: Optional[bool] = None
     is_present: Optional[bool] = None
+    period: Optional[str] = None
 
 
 async def get_agenda_service(
@@ -33,7 +35,7 @@ async def get_agenda_service(
 
 @router.get("/planning", response_model=AgendaPlanningResponse)
 async def get_planning(
-    view: str = Query("week", pattern="^(week|month|quarter)$"),
+    view: str = Query("week", pattern="^(week|month)$"),
     anchor: Optional[date] = Query(None, description="Date de référence (aujourd'hui par défaut)"),
     service: AgendaService = Depends(get_agenda_service),
 ):
@@ -52,6 +54,8 @@ async def upsert_own_presence(
         return await service.upsert_own_presence(payload)
     except LookupError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc))
 
 
 @router.post(
@@ -92,10 +96,14 @@ async def update_presence(
         return await service.update_presence(
             presence_id,
             needs_workstation=payload.needs_workstation,
+            needs_meal=payload.needs_meal,
             is_present=payload.is_present,
+            period=payload.period,
         )
     except LookupError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc))
 
 
 @router.delete("/presences/{presence_id}", status_code=status.HTTP_204_NO_CONTENT)

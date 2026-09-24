@@ -20,6 +20,7 @@ import {
   sendConfirmationEmail,
   sendCustomMessage,
   listEmailLogs,
+  listBureauRooms,
 } from '../services/housingApi.js';
 
 const DAY_NAMES_SHORT = ['Dim', 'Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam'];
@@ -735,6 +736,20 @@ export class HousingPlanningPage {
               </select>
             </div>
           </div>
+          <div class="reservation-fields-row" style="display:flex;gap:12px;margin-bottom:12px;align-items:flex-end;">
+            <div class="form-group" style="flex:1;margin-bottom:0;">
+              <label style="font-weight:600;font-size:11px;color:var(--color-text-tertiary);text-transform:uppercase;letter-spacing:0.5px;display:block;margin-bottom:4px;">Local (agenda)</label>
+              <select id="occ-agenda-room" class="form-control">
+                <option value="">— Aucun —</option>
+              </select>
+            </div>
+            <div class="form-group" style="flex:0 0 auto;margin-bottom:0;padding-bottom:8px;">
+              <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px;color:var(--color-text-primary);">
+                <input type="checkbox" id="occ-needs-workstation" style="width:16px;height:16px;">
+                Poste de travail
+              </label>
+            </div>
+          </div>
           <div class="form-group" style="margin-bottom:12px;">
             <label style="font-weight:600;font-size:11px;color:var(--color-text-tertiary);text-transform:uppercase;letter-spacing:0.5px;display:block;margin-bottom:4px;">Occupants principaux</label>
             <div id="occ-occupant-list" class="occupant-list-container">
@@ -1006,6 +1021,41 @@ export class HousingPlanningPage {
     const saveBtn = overlay.querySelector('#occ-save');
     const guestTypeSelect = overlay.querySelector('#occ-guest-type');
     const guestTypeButtons = overlay.querySelectorAll('.guest-type-btn');
+    const agendaRoomSelect = overlay.querySelector('#occ-agenda-room');
+    if (agendaRoomSelect) {
+      try {
+        const rooms = await listBureauRooms();
+        const list = Array.isArray(rooms) ? rooms : (rooms.items || []);
+        list.forEach(r => {
+          const opt = document.createElement('option');
+          opt.value = r.id;
+          opt.textContent = r.building_name
+            ? `${r.name} — ${r.building_name}`
+            : r.name;
+          agendaRoomSelect.appendChild(opt);
+        });
+        const riomBureau = list.find(r =>
+          /riom/i.test(r.building_name || '') && /bureau/i.test(r.name || '')
+        ) || list.find(r => /bureau/i.test(r.name || '')) || list[0];
+        if (riomBureau) {
+          agendaRoomSelect.value = String(riomBureau.id);
+          const ws = overlay.querySelector('#occ-needs-workstation');
+          if (ws && !ws.dataset.touched) ws.checked = true;
+        }
+      } catch (e) {
+        console.warn('Chargement locaux agenda impossible', e);
+      }
+      agendaRoomSelect.addEventListener('change', () => {
+        const ws = overlay.querySelector('#occ-needs-workstation');
+        if (ws) ws.dataset.touched = '1';
+      });
+    }
+    const wsCheckbox = overlay.querySelector('#occ-needs-workstation');
+    if (wsCheckbox) {
+      wsCheckbox.addEventListener('change', () => {
+        wsCheckbox.dataset.touched = '1';
+      });
+    }
     let bedConfig = [];
     try {
       const housing = this.housings.find(h => h.id === this._modalHousingId);
@@ -1151,6 +1201,8 @@ export class HousingPlanningPage {
         }
 
         const housingId = this._modalHousingId;
+        const agendaRoomId = overlay.querySelector('#occ-agenda-room')?.value;
+        const needsWorkstation = !!overlay.querySelector('#occ-needs-workstation')?.checked;
 
         try {
           const createdOccupancy = await createOccupancy({
@@ -1163,6 +1215,8 @@ export class HousingPlanningPage {
             occupant_ids: occupantIds,
             guest_type: guestType,
             observations: notes,
+            agenda_room_id: agendaRoomId ? parseInt(agendaRoomId, 10) : null,
+            needs_workstation: needsWorkstation,
           });
           this._closeModal();
           await this.loadData();

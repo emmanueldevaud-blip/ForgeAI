@@ -61,6 +61,33 @@ class Settings(BaseSettings):
     SPORT_AI_MODEL: str = "gemini-3.7-flash"
     SPORT_AI_TIMEOUT_SECONDS: float = 20.0
 
+    # AI Gateway (passerelle IA centralisée)
+    AI_GATEWAY_ENABLED: bool = True
+    AI_DEFAULT_PROVIDER: str = "auto"
+    AI_DEFAULT_MODEL: str = "auto"
+    AI_PROVIDER_ORDER: str = "groq,gemini,openrouter"
+    AI_TIMEOUT_SECONDS: float = 30.0
+    AI_MAX_RETRIES: int = 2
+    AI_RETRY_BACKOFF_SECONDS: float = 1.0
+
+    # Provider Groq
+    GROQ_ENABLED: bool = True
+    GROQ_API_KEY: str = ""
+    GROQ_BASE_URL: str = "https://api.groq.com/openai/v1"
+    GROQ_MODEL: str = ""
+
+    # Provider Google Gemini
+    GEMINI_ENABLED: bool = True
+    GEMINI_API_KEY: str = ""
+    GEMINI_BASE_URL: str = "https://generativelanguage.googleapis.com/v1beta/openai"
+    GEMINI_MODEL: str = ""
+
+    # Provider OpenRouter
+    OPENROUTER_ENABLED: bool = True
+    OPENROUTER_API_KEY: str = ""
+    OPENROUTER_BASE_URL: str = "https://openrouter.ai/api/v1"
+    OPENROUTER_MODEL: str = ""
+
     # Security
     RATE_LIMIT_ENABLED: bool = True
     RATE_LIMIT_REQUESTS: int = 10

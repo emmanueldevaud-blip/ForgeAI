@@ -205,6 +205,8 @@ class OccupancyBase(BaseModel):
     observations: Optional[str] = None
     nb_persons: int = Field(1, ge=1)
     guest_type: Optional[str] = Field(None, pattern="^(single|couple)$")
+    agenda_room_id: Optional[int] = None
+    needs_workstation: bool = False
 
 
 class OccupancyCreate(OccupancyBase):
@@ -222,6 +224,8 @@ class OccupancyUpdate(BaseModel):
     observations: Optional[str] = None
     nb_persons: Optional[int] = Field(None, ge=1)
     guest_type: Optional[str] = Field(None, pattern="^(single|couple)$")
+    agenda_room_id: Optional[int] = None
+    needs_workstation: Optional[bool] = None
 
 
 class OccupancyResponse(BaseModel):
@@ -242,6 +246,8 @@ class OccupancyResponse(BaseModel):
     observations: Optional[str] = None
     nb_persons: int
     guest_type: Optional[str] = None
+    agenda_room_id: Optional[int] = None
+    needs_workstation: bool = False
     created_at: datetime
     updated_at: datetime
 

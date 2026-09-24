@@ -28,9 +28,19 @@ CLEANING_ACTIVE_STATUSES = ("planned", "in_progress", "to_check", "checked", "co
 OCCUPANCY_PRESENT_STATUSES = ("confirmed", "in_progress")
 
 
+def _periods_overlap(left: str, right: str) -> bool:
+    left = left or "full"
+    right = right or "full"
+    if left == "full" or right == "full":
+        return True
+    return left == right
+
+
+
 def _week_bounds(anchor: date) -> tuple[date, date]:
+    # Planning ouvré: lundi → vendredi (5 jours)
     start = anchor - timedelta(days=anchor.weekday())
-    return start, start + timedelta(days=6)
+    return start, start + timedelta(days=4)
 
 
 def _month_bounds(anchor: date) -> tuple[date, date]:
@@ -39,16 +49,6 @@ def _month_bounds(anchor: date) -> tuple[date, date]:
         end = start.replace(year=start.year + 1, month=1, day=1) - timedelta(days=1)
     else:
         end = start.replace(month=start.month + 1, day=1) - timedelta(days=1)
-    return start, end
-
-
-def _quarter_bounds(anchor: date) -> tuple[date, date]:
-    quarter_start_month = 3 * ((anchor.month - 1) // 3) + 1
-    start = anchor.replace(month=quarter_start_month, day=1)
-    if start.month >= 10:
-        end = start.replace(year=start.year + 1, month=1, day=1) - timedelta(days=1)
-    else:
-        end = start.replace(month=start.month + 3, day=1) - timedelta(days=1)
     return start, end
 
 
@@ -117,8 +117,6 @@ class AgendaService:
             start, end = _week_bounds(anchor)
         elif view == "month":
             start, end = _month_bounds(anchor)
-        elif view == "quarter":
-            start, end = _quarter_bounds(anchor)
         else:
             raise ValueError(f"Vue inconnue: {view}")
 
@@ -191,9 +189,11 @@ class AgendaService:
                         person_name=name,
                         room_id=p.room_id,
                         needs_workstation=p.needs_workstation,
+                        needs_meal=p.needs_meal,
                         source=p.source,
                         is_mine=bool(p.user_id and p.user_id == self.current_user.id),
                         origin_ref=p.source_ref,
+                        period=p.period or "full",
                     )
                 )
 
@@ -202,8 +202,17 @@ class AgendaService:
                 integrated.append(item)
                 total_present += 1
             for item in occupant_people.get(day, []):
-                integrated.append(item)
-                total_present += 1
+                counter = room_counters.get(item.room_id) if item.room_id else None
+                if counter is not None:
+                    counter.present_count += 1
+                    total_present += 1
+                    if item.needs_workstation:
+                        counter.workstation_count += 1
+                        total_workstations += 1
+                    counter.presences.append(item)
+                else:
+                    integrated.append(item)
+                    total_present += 1
 
             days.append(
                 AgendaDayResponse(
@@ -275,6 +284,7 @@ class AgendaService:
                         source="cleaning",
                         is_mine=False,
                         origin_ref=f"cleaning:{cleaning.id}",
+                        period="full",
                     )
                 )
         return by_day
@@ -305,11 +315,12 @@ class AgendaService:
                             person_type="occupant",
                             person_id=occupant.id,
                             person_name=f"{occupant.first_name} {occupant.last_name}".strip(),
-                            room_id=None,
-                            needs_workstation=False,
+                            room_id=occupancy.agenda_room_id,
+                            needs_workstation=bool(occupancy.needs_workstation),
                             source="occupant",
                             is_mine=False,
                             origin_ref=f"occupancy:{occupancy.id}",
+                            period="full",
                         )
                     )
         return by_day
@@ -342,23 +353,27 @@ class AgendaService:
                 source="user",
                 is_present=False,
                 needs_workstation=payload.needs_workstation,
+                needs_meal=payload.needs_meal,
+                period=payload.period,
                 created_by=self.current_user.id,
                 created_at=datetime.utcnow(),
                 updated_at=datetime.utcnow(),
             )
 
         await self._ensure_room_exists(payload.room_id)
+        await self._assert_own_day_allowed(
+            payload.presence_date,
+            payload.room_id,
+            period=payload.period,
+            needs_meal=payload.needs_meal,
+        )
         existing = await self._find_own_presence(payload.presence_date, payload.room_id)
-        # A user can only be in one room per day: move if already present elsewhere
-        other = await self._find_own_presence(payload.presence_date, None)
-        if other and other.room_id != payload.room_id:
-            await self.db.delete(other)
-            await self.db.flush()
-            existing = None
 
         if existing:
             existing.needs_workstation = payload.needs_workstation
+            existing.needs_meal = payload.needs_meal
             existing.is_present = True
+            existing.period = payload.period
             presence = existing
         else:
             presence = AgendaPresence(
@@ -369,6 +384,8 @@ class AgendaService:
                 source="user",
                 is_present=True,
                 needs_workstation=payload.needs_workstation,
+                needs_meal=payload.needs_meal,
+                period=payload.period,
                 created_by=self.current_user.id,
             )
             self.db.add(presence)
@@ -389,6 +406,8 @@ class AgendaService:
             source="manual",
             is_present=True,
             needs_workstation=payload.needs_workstation,
+            needs_meal=payload.needs_meal,
+            period=payload.period,
             created_by=self.current_user.id,
         )
         self.db.add(presence)
@@ -407,18 +426,64 @@ class AgendaService:
         await self.db.commit()
 
     async def update_presence(
-        self, presence_id: int, *, needs_workstation: Optional[bool] = None, is_present: Optional[bool] = None
+        self,
+        presence_id: int,
+        *,
+        needs_workstation: Optional[bool] = None,
+        needs_meal: Optional[bool] = None,
+        is_present: Optional[bool] = None,
+        period: Optional[str] = None,
     ) -> AgendaPresenceResponse:
         presence = await self.get_presence(presence_id)
         if not presence:
             raise LookupError("Présence introuvable")
+        next_period = period if period is not None else presence.period
+        next_meal = needs_meal if needs_meal is not None else presence.needs_meal
+        if period is not None or needs_meal is not None:
+            await self._assert_own_day_allowed(
+                presence.presence_date,
+                presence.room_id,
+                period=next_period,
+                needs_meal=next_meal,
+                exclude_presence_id=presence.id,
+            )
         if needs_workstation is not None:
             presence.needs_workstation = needs_workstation
+        if needs_meal is not None:
+            presence.needs_meal = needs_meal
         if is_present is not None:
             presence.is_present = is_present
+        if period is not None:
+            presence.period = period
         await self.db.commit()
         await self.db.refresh(presence)
         return AgendaPresenceResponse.model_validate(presence)
+
+    async def _assert_own_day_allowed(
+        self,
+        day: date,
+        room_id: int,
+        *,
+        period: str,
+        needs_meal: bool,
+        exclude_presence_id: Optional[int] = None,
+    ) -> None:
+        stmt = select(AgendaPresence).where(
+            AgendaPresence.presence_date == day,
+            AgendaPresence.user_id == self.current_user.id,
+            AgendaPresence.room_id != room_id,
+            AgendaPresence.is_present.is_(True),
+        )
+        if exclude_presence_id is not None:
+            stmt = stmt.where(AgendaPresence.id != exclude_presence_id)
+        others = (await self.db.execute(stmt)).scalars().all()
+        for other in others:
+            if _periods_overlap(period, other.period or "full"):
+                raise ValueError(
+                    "Vous êtes déjà inscrit dans un autre local pour la même période"
+                )
+            if needs_meal and other.needs_meal:
+                raise ValueError("Repas déjà sélectionné dans un autre local")
 
     async def _find_own_presence(self, day: date, room_id: Optional[int]) -> Optional[AgendaPresence]:
         stmt = select(AgendaPresence).where(

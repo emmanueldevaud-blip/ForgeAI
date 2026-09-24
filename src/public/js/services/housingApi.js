@@ -78,6 +78,10 @@ export async function deleteOccupant(id) {
 // OCCUPANCIES
 // ============================================================
 
+export async function listBureauRooms() {
+  return housingApi.get('/bureau-rooms');
+}
+
 export async function createOccupancy(data) {
   return housingApi.post('/occupancies', data);
 }

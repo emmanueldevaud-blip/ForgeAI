@@ -14,6 +14,7 @@ from app.api import auth, audit, buildings, dashboard, equipment, housing, maint
 from app.core.config import get_settings
 from app.db.session import close_db, init_db
 from app.modules import register_all_modules
+from app.services.ai_gateway.config_store import apply_from_db as apply_ai_settings_from_db
 from app.services.dashboard import register_dashboard_widgets
 from app.services.rbac import seed_default_rbac
 
@@ -36,6 +37,7 @@ async def lifespan(app: FastAPI):
     async for db in get_db():
         await seed_default_rbac(db)
         await _sync_module_statuses(db)
+        await apply_ai_settings_from_db(db)
         break
     garmin_sync_task = asyncio.create_task(_garmin_sync_loop())
     yield

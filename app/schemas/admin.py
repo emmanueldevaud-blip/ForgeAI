@@ -136,6 +136,82 @@ class SmtpTestRequest(BaseModel):
     recipient: EmailStr
 
 
+class AiProviderSettings(BaseModel):
+    enabled: bool = True
+    api_key_configured: bool = False
+    base_url: str = ""
+    model: str = ""
+
+
+class AiSettingsResponse(BaseModel):
+    enabled: bool = True
+    default_provider: str = "auto"
+    default_model: str = "auto"
+    provider_order: str = "groq,gemini,openrouter"
+    timeout_seconds: float = 30.0
+    max_retries: int = 2
+    retry_backoff_seconds: float = 1.0
+    groq: AiProviderSettings = Field(default_factory=AiProviderSettings)
+    gemini: AiProviderSettings = Field(default_factory=AiProviderSettings)
+    openrouter: AiProviderSettings = Field(default_factory=AiProviderSettings)
+
+
+class AiProviderSettingsUpdate(BaseModel):
+    enabled: bool = True
+    api_key: Optional[str] = Field(None, max_length=500)
+    base_url: str = Field("", max_length=255)
+    model: str = Field("", max_length=100)
+
+
+class AiSettingsUpdate(BaseModel):
+    enabled: bool = True
+    default_provider: str = Field("auto", pattern="^(auto|groq|gemini|openrouter)$")
+    default_model: str = Field("auto", max_length=100)
+    provider_order: str = Field("groq,gemini,openrouter", max_length=100)
+    timeout_seconds: float = Field(30.0, gt=0, le=300)
+    max_retries: int = Field(2, ge=0, le=5)
+    retry_backoff_seconds: float = Field(1.0, ge=0, le=30)
+    groq: AiProviderSettingsUpdate = Field(default_factory=AiProviderSettingsUpdate)
+    gemini: AiProviderSettingsUpdate = Field(default_factory=AiProviderSettingsUpdate)
+    openrouter: AiProviderSettingsUpdate = Field(default_factory=AiProviderSettingsUpdate)
+
+
+class AiChatRequest(BaseModel):
+    message: str = Field(..., min_length=1, max_length=4000)
+    conversation_id: Optional[int] = Field(None, ge=1)
+    task_type: str = Field("general", pattern="^(general|fast|reasoning|coding)$")
+
+
+class AiChatResponse(BaseModel):
+    response: str
+    conversation_id: int
+    provider: str
+    model: str
+    latency: float
+    tokens_input: Optional[int] = None
+    tokens_output: Optional[int] = None
+
+
+class AiConversationSummary(BaseModel):
+    id: int
+    title: Optional[str] = None
+    module: str
+    created_at: Optional[datetime] = None
+
+
+class AiMessageItem(BaseModel):
+    role: str
+    content: str
+    created_at: Optional[datetime] = None
+
+
+class AiConversationDetail(BaseModel):
+    id: int
+    title: Optional[str] = None
+    module: str
+    messages: List[AiMessageItem] = []
+
+
 class PermissionResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

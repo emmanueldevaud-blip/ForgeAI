@@ -46,6 +46,7 @@ class OpenAICompatibleSportAIProvider:
 
         payload = {
             "temperature": 0.2,
+            "max_tokens": 250,
             "messages": [
                 {"role": "system", "content": self._system_prompt()},
                 {"role": "user", "content": f"Question: {question}\nContexte JSON:\n{json.dumps(context, ensure_ascii=True, default=str)}"},

@@ -9,6 +9,7 @@ from sqlalchemy import (
     Index,
     String,
     UniqueConstraint,
+    false,
     func,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -34,6 +35,13 @@ class AgendaPresence(Base):
     source_ref: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     is_present: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     needs_workstation: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    needs_meal: Mapped[bool] = mapped_column(
+        Boolean, default=False, nullable=False, server_default=false()
+    )
+    # full = journée entière | morning = matin | afternoon = après-midi
+    period: Mapped[str] = mapped_column(
+        String(10), default="full", nullable=False, server_default="full"
+    )
     created_by: Mapped[Optional[int]] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
@@ -48,8 +56,13 @@ class AgendaPresence(Base):
     user: Mapped[Optional["User"]] = relationship("User", foreign_keys=[user_id])
 
     __table_args__ = (
-        # One presence row per user and per day (external rows have user_id NULL).
-        UniqueConstraint("presence_date", "user_id", name="uq_agenda_presence_date_user"),
+        # One presence row per user, per day and per room.
+        UniqueConstraint(
+            "presence_date",
+            "user_id",
+            "room_id",
+            name="uq_agenda_presence_date_user_room",
+        ),
         Index("ix_agenda_presences_date_room", "presence_date", "room_id"),
     )
 

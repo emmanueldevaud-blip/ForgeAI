@@ -32,7 +32,7 @@ export class AIAssistantPage {
 
   async _loadConversations() {
     try {
-      const r = await listAIConversations();
+      const r = await listAIConversations({ module: 'maintenance' });
       this.conversations = r.items || [];
     } catch (e) { this.conversations = []; }
   }

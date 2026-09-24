@@ -3,6 +3,8 @@ from typing import List, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
 
+AgendaPeriod = Literal["full", "morning", "afternoon"]
+
 
 class AgendaRoomResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
@@ -22,9 +24,11 @@ class AgendaPresenceItem(BaseModel):
     person_name: str
     room_id: Optional[int] = None
     needs_workstation: bool = False
+    needs_meal: bool = False
     source: str
     is_mine: bool = False
     origin_ref: Optional[str] = None
+    period: AgendaPeriod = "full"
 
 
 class AgendaRoomDayCounters(BaseModel):
@@ -44,7 +48,7 @@ class AgendaDayResponse(BaseModel):
 
 
 class AgendaPlanningResponse(BaseModel):
-    view: Literal["week", "month", "quarter"]
+    view: Literal["week", "month"]
     start_date: date
     end_date: date
     rooms: List[AgendaRoomResponse] = []
@@ -56,6 +60,8 @@ class AgendaPresenceUpsert(BaseModel):
     room_id: int
     is_present: bool = True
     needs_workstation: bool = False
+    needs_meal: bool = False
+    period: AgendaPeriod = "full"
 
 
 class AgendaExternalPresenceCreate(BaseModel):
@@ -63,6 +69,8 @@ class AgendaExternalPresenceCreate(BaseModel):
     room_id: int
     external_name: str = Field(..., min_length=1, max_length=200)
     needs_workstation: bool = False
+    needs_meal: bool = False
+    period: AgendaPeriod = "full"
 
 
 class AgendaPresenceResponse(BaseModel):
@@ -77,6 +85,8 @@ class AgendaPresenceResponse(BaseModel):
     source_ref: Optional[str] = None
     is_present: bool
     needs_workstation: bool
+    needs_meal: bool = False
+    period: AgendaPeriod = "full"
     created_by: Optional[int] = None
     created_at: datetime
     updated_at: datetime

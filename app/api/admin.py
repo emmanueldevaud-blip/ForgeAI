@@ -14,6 +14,15 @@ from app.models.rbac import Group, PermissionModel
 from app.models.user import User, UserRole
 from app.schemas.admin import (
     AdminPasswordReset,
+    AiChatRequest,
+    AiChatResponse,
+    AiConversationDetail,
+    AiConversationSummary,
+    AiMessageItem,
+    AiProviderSettings,
+    AiProviderSettingsUpdate,
+    AiSettingsResponse,
+    AiSettingsUpdate,
     GroupCreate,
     GroupListParams,
     GroupListResponse,
@@ -49,6 +58,15 @@ from app.schemas.admin import (
 )
 from app.services.admin import AdminUserService
 from app.services.audit import get_audit_service
+from app.services.ai_gateway import AIGatewayError, ai_gateway
+from app.services.ai_gateway.config_store import (
+    AI_SETTINGS_FIELDS,
+    SECRET_FIELDS,
+    apply_from_db,
+    convert_value,
+    db_key,
+    load_overrides,
+)
 
 
 router = APIRouter(
@@ -168,6 +186,263 @@ async def test_smtp_settings(
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"Échec du test SMTP : {exc}") from exc
     return {"message": f"E-mail de test envoyé à {data.recipient}"}
+
+
+def _effective_ai_values(overrides: dict[str, str]) -> dict:
+    """Valeurs effectives des paramètres IA : overlay DB > environnement."""
+    from app.core.config import get_settings
+
+    settings = get_settings()
+    values = {field: getattr(settings, field) for field in AI_SETTINGS_FIELDS}
+    by_key = {db_key(field): field for field in AI_SETTINGS_FIELDS}
+    for key, raw in overrides.items():
+        field = by_key.get(key)
+        if field is not None and raw is not None:
+            try:
+                values[field] = convert_value(field, raw)
+            except (ValueError, TypeError):
+                continue
+    return values
+
+
+def _ai_provider_settings(values: dict, prefix: str) -> AiProviderSettings:
+    return AiProviderSettings(
+        enabled=values[f"{prefix}_ENABLED"],
+        api_key_configured=bool(values[f"{prefix}_API_KEY"]),
+        base_url=values[f"{prefix}_BASE_URL"],
+        model=values[f"{prefix}_MODEL"],
+    )
+
+
+@settings_router.get("/ai", response_model=AiSettingsResponse)
+async def get_ai_settings(
+    current_user: User = Depends(require_permission("settings_view")),
+    db: AsyncSession = Depends(get_db),
+):
+    values = _effective_ai_values(await load_overrides(db))
+    return AiSettingsResponse(
+        enabled=values["AI_GATEWAY_ENABLED"],
+        default_provider=values["AI_DEFAULT_PROVIDER"],
+        default_model=values["AI_DEFAULT_MODEL"],
+        provider_order=values["AI_PROVIDER_ORDER"],
+        timeout_seconds=values["AI_TIMEOUT_SECONDS"],
+        max_retries=values["AI_MAX_RETRIES"],
+        retry_backoff_seconds=values["AI_RETRY_BACKOFF_SECONDS"],
+        groq=_ai_provider_settings(values, "GROQ"),
+        gemini=_ai_provider_settings(values, "GEMINI"),
+        openrouter=_ai_provider_settings(values, "OPENROUTER"),
+    )
+
+
+@settings_router.put("/ai", response_model=AiSettingsResponse)
+async def update_ai_settings(
+    data: AiSettingsUpdate,
+    current_user: User = Depends(require_permission("settings_update")),
+    db: AsyncSession = Depends(get_db),
+):
+    module_result = await db.execute(select(Module).where(Module.code == "administration"))
+    module = module_result.scalar_one_or_none()
+    if not module:
+        raise HTTPException(status_code=500, detail="Module Administration non trouvé")
+
+    values: dict[str, str] = {
+        "ai_gateway_enabled": str(data.enabled).lower(),
+        "ai_default_provider": data.default_provider,
+        "ai_default_model": data.default_model,
+        "ai_provider_order": data.provider_order,
+        "ai_timeout_seconds": str(data.timeout_seconds),
+        "ai_max_retries": str(data.max_retries),
+        "ai_retry_backoff_seconds": str(data.retry_backoff_seconds),
+    }
+    providers: dict[str, AiProviderSettingsUpdate] = {
+        "groq": data.groq,
+        "gemini": data.gemini,
+        "openrouter": data.openrouter,
+    }
+    for prefix, provider in providers.items():
+        values[f"{prefix}_enabled"] = str(provider.enabled).lower()
+        values[f"{prefix}_base_url"] = provider.base_url
+        values[f"{prefix}_model"] = provider.model
+        if provider.api_key:
+            values[f"{prefix}_api_key"] = provider.api_key
+
+    configs = await _get_administration_configs(db)
+    for key, value in values.items():
+        config = configs.get(key)
+        if config:
+            config.value = value
+        else:
+            db.add(ModuleConfig(
+                module_id=module.id,
+                key=key,
+                value=value,
+                value_type="boolean" if key.endswith("_enabled") else "string",
+                is_secret=key in {db_key(field) for field in SECRET_FIELDS},
+            ))
+    await db.commit()
+    await apply_from_db(db)
+    return await get_ai_settings(current_user=current_user, db=db)
+
+
+# ============================================================
+# AI CHAT (Assistant IA via la passerelle centralisée)
+# ============================================================
+
+AI_CHAT_MODULE = "assistant"
+AI_CHAT_HISTORY_LIMIT = 20
+AI_CHAT_MAX_TOKENS = 2000
+AI_CHAT_SYSTEM_PROMPT = (
+    "Tu es l'assistant IA de ForgeAI, une application de gestion de données "
+    "techniques de construction (chiffrage, métrés, maintenance, planning, "
+    "administratif). Réponds en français, de façon claire et concise."
+)
+
+
+@settings_router.post("/ai/chat", response_model=AiChatResponse)
+async def settings_ai_chat(
+    data: AiChatRequest,
+    current_user: User = Depends(require_permission("settings_view")),
+    db: AsyncSession = Depends(get_db),
+):
+    from app.models.maintenance import AIConversation, AIMessage
+
+    if not data.message.strip():
+        raise HTTPException(status_code=422, detail="Message vide")
+
+    if data.conversation_id:
+        result = await db.execute(
+            select(AIConversation).where(
+                AIConversation.id == data.conversation_id,
+                AIConversation.user_id == current_user.id,
+                AIConversation.module == AI_CHAT_MODULE,
+            )
+        )
+        conversation = result.scalar_one_or_none()
+        if not conversation:
+            raise HTTPException(status_code=404, detail="Conversation non trouvée")
+        result = await db.execute(
+            select(AIMessage)
+            .where(AIMessage.conversation_id == conversation.id)
+            .order_by(AIMessage.created_at.asc(), AIMessage.id.asc())
+        )
+        all_messages = result.scalars().all()
+        prior_messages = all_messages[-AI_CHAT_HISTORY_LIMIT:]
+    else:
+        conversation = AIConversation(
+            user_id=current_user.id,
+            module=AI_CHAT_MODULE,
+            title=data.message[:100],
+        )
+        db.add(conversation)
+        await db.flush()
+        prior_messages = []
+
+    history = [{"role": m.role, "content": m.content} for m in prior_messages]
+    history.append({"role": "user", "content": data.message})
+
+    try:
+        ai_response = await ai_gateway.generate(
+            history=history,
+            system_prompt=AI_CHAT_SYSTEM_PROMPT,
+            task_type=data.task_type,
+            max_tokens=AI_CHAT_MAX_TOKENS,
+        )
+    except AIGatewayError as exc:
+        await db.rollback()
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+    db.add(AIMessage(
+        conversation_id=conversation.id,
+        role="user",
+        content=data.message,
+    ))
+    db.add(AIMessage(
+        conversation_id=conversation.id,
+        role="assistant",
+        content=ai_response.text,
+        model=ai_response.model_used,
+        tokens_used=ai_response.tokens_output,
+    ))
+    await db.commit()
+
+    return AiChatResponse(
+        response=ai_response.text,
+        conversation_id=conversation.id,
+        provider=ai_response.provider_used,
+        model=ai_response.model_used,
+        latency=ai_response.latency,
+        tokens_input=ai_response.tokens_input,
+        tokens_output=ai_response.tokens_output,
+    )
+
+
+@settings_router.get("/ai/conversations", response_model=list[AiConversationSummary])
+async def list_settings_ai_conversations(
+    current_user: User = Depends(require_permission("settings_view")),
+    db: AsyncSession = Depends(get_db),
+):
+    from app.models.maintenance import AIConversation
+
+    result = await db.execute(
+        select(AIConversation)
+        .where(
+            AIConversation.user_id == current_user.id,
+            AIConversation.module == AI_CHAT_MODULE,
+        )
+        .order_by(AIConversation.created_at.desc())
+        .limit(50)
+    )
+    return [
+        AiConversationSummary(
+            id=c.id,
+            title=c.title,
+            module=c.module,
+            created_at=c.created_at,
+        )
+        for c in result.scalars().all()
+    ]
+
+
+@settings_router.get("/ai/conversations/{conversation_id}", response_model=AiConversationDetail)
+async def get_settings_ai_conversation(
+    conversation_id: int,
+    current_user: User = Depends(require_permission("settings_view")),
+    db: AsyncSession = Depends(get_db),
+):
+    from app.models.maintenance import AIConversation, AIMessage
+
+    result = await db.execute(
+        select(AIConversation).where(
+            AIConversation.id == conversation_id,
+            AIConversation.user_id == current_user.id,
+            AIConversation.module == AI_CHAT_MODULE,
+        )
+    )
+    conversation = result.scalar_one_or_none()
+    if not conversation:
+        raise HTTPException(status_code=404, detail="Conversation non trouvée")
+
+    result = await db.execute(
+        select(AIMessage)
+        .where(AIMessage.conversation_id == conversation.id)
+        .order_by(AIMessage.created_at)
+    )
+    return AiConversationDetail(
+        id=conversation.id,
+        title=conversation.title,
+        module=conversation.module,
+        messages=[
+            AiMessageItem(role=m.role, content=m.content, created_at=m.created_at)
+            for m in result.scalars().all()
+        ],
+    )
+
+
+@settings_router.get("/ai/stats")
+async def get_settings_ai_stats(
+    current_user: User = Depends(require_permission("settings_view")),
+):
+    return ai_gateway.get_stats()
 
 
 async def get_admin_service(

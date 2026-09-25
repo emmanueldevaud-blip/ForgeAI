@@ -24,12 +24,12 @@ import { createHousingCleaningPage } from './pages/HousingCleaningPage.js?v=10';
 import { createHousingOccupantsPage } from './pages/HousingOccupantsPage.js';
 import { createHousingUnavailabilitiesPage } from './pages/HousingUnavailabilitiesPage.js';
 import { createHousingEmailTemplatesPage } from './pages/HousingEmailTemplatesPage.js?v=11';
-import { createCleaningVolunteersPage } from './pages/CleaningVolunteersPage.js?v=2';
+import { createCleaningVolunteersPage } from './pages/CleaningVolunteersPage.js?v=3';
 import { createAdministrativeProgramsPage } from './pages/AdministrativeProgramsPage.js';
 import { createSportDashboardPage } from './pages/SportDashboardPage.js?v=3';
 import { createSportActivitiesPage } from './pages/SportActivitiesPage.js?v=2';
 import { createSportGarminPage } from './pages/SportGarminPage.js?v=2';
-import { createAgendaPage } from './pages/AgendaPage.js?v=17';
+import { createAgendaPage } from './pages/AgendaPage.js?v=18';
 
 const moduleRoutes = [
   'dashboard',

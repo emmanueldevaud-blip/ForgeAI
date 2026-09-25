@@ -137,6 +137,7 @@ class OccupantBase(BaseModel):
     id_number: Optional[str] = Field(None, max_length=100)
     company: Optional[str] = Field(None, max_length=200)
     notes: Optional[str] = None
+    ad_dn: Optional[str] = Field(None, max_length=500)
     is_active: bool = True
 
 
@@ -153,6 +154,7 @@ class OccupantUpdate(BaseModel):
     id_number: Optional[str] = Field(None, max_length=100)
     company: Optional[str] = Field(None, max_length=200)
     notes: Optional[str] = None
+    ad_dn: Optional[str] = Field(None, max_length=500)
     is_active: Optional[bool] = None
 
 
@@ -168,6 +170,7 @@ class OccupantResponse(BaseModel):
     id_number: Optional[str] = None
     company: Optional[str] = None
     notes: Optional[str] = None
+    ad_dn: Optional[str] = None
     is_active: bool
     created_at: datetime
     updated_at: datetime

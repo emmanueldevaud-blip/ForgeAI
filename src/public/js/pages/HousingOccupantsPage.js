@@ -208,11 +208,11 @@ export class HousingOccupantsPage {
                   <select name="ad_user_select" class="form-control" id="adUserSelect" disabled>
                     <option value="">Chargement des utilisateurs AD...</option>
                   </select>
-                  <input type="hidden" name="ad_dn" id="ad_dn_input" value="" maxlength="500">
-                </div>
-                <div id="adUsersEmpty" style="display:none; margin-top: 8px; color: var(--color-text-tertiary);">
-                  Aucun utilisateur AD trouvé
-                </div>
+                  <input type="hidden" name="ad_dn" id="ad_dn_input" value="${isEdit ? (occupant.ad_dn || '') : ''}" maxlength="500">
+                </label>
+              </div>
+              <div id="adUsersEmpty" style="display:none; margin-top: 8px; color: var(--color-text-tertiary);">
+                Aucun utilisateur AD trouvé
               </div>
             </form>
           </div>
@@ -225,8 +225,12 @@ export class HousingOccupantsPage {
     `;
 
     document.body.appendChild(modal);
-    modal.querySelector('[data-action="close"]')?.addEventListener('click', () => modal.remove());
+    modal.querySelectorAll('[data-action="close"]').forEach((btn) => {
+      btn.addEventListener('click', () => modal.remove());
+    });
     modal.addEventListener('click', (e) => { if (e.target === modal) modal.remove(); });
+
+    this._loadAdUsers(modal, occupant);
 
     modal.querySelector('[data-action="save"]')?.addEventListener('click', async () => {
       const form = modal.querySelector('[data-form]');
@@ -236,6 +240,8 @@ export class HousingOccupantsPage {
         if (v === '') continue;
         data[k] = v;
       }
+      delete data.ad_user_select;
+      data.ad_dn = data.ad_dn || null;
       if (!data.first_name || !data.last_name || !data.email || !data.phone) {
         alert('Les champs Nom, Prenom, Telephone et Email sont obligatoires');
         return;
@@ -253,6 +259,62 @@ export class HousingOccupantsPage {
         alert(e.message || 'Erreur lors de la sauvegarde');
       }
     });
+  }
+
+  async _loadAdUsers(modal, occupant) {
+    const select = modal.querySelector('#adUserSelect');
+    const emptyDiv = modal.querySelector('#adUsersEmpty');
+    const adDnInput = modal.querySelector('#ad_dn_input');
+    if (!select || !emptyDiv || !adDnInput) return;
+
+    try {
+      const { listUsers } = await import('../services/adminApi.js');
+      const response = await listUsers({ source: 'ad', page_size: 100 });
+      const users = (response && response.users) || (Array.isArray(response) ? response : []);
+
+      if (users.length === 0) {
+        select.innerHTML = '<option value="">Aucun utilisateur AD trouvé</option>';
+        select.disabled = true;
+        emptyDiv.style.display = 'block';
+        return;
+      }
+
+      select.disabled = false;
+      emptyDiv.style.display = 'none';
+      select.innerHTML = '';
+      const placeholder = document.createElement('option');
+      placeholder.value = '';
+      placeholder.textContent = '-- Choisir un utilisateur AD --';
+      select.appendChild(placeholder);
+
+      users.forEach((user) => {
+        const option = document.createElement('option');
+        option.value = user.ad_dn || '';
+        option.dataset.userInfo = JSON.stringify({
+          id: user.id,
+          username: user.username,
+          first_name: user.first_name,
+          last_name: user.last_name,
+          email: user.email,
+          ad_dn: user.ad_dn || null,
+        });
+        option.textContent = `${user.first_name || user.username} ${user.last_name || ''} (AD)`;
+        select.appendChild(option);
+      });
+
+      if (occupant && occupant.ad_dn) {
+        select.value = occupant.ad_dn;
+      }
+
+      select.addEventListener('change', () => {
+        adDnInput.value = select.value || '';
+      });
+    } catch (e) {
+      console.error('Erreur chargement utilisateurs AD:', e);
+      emptyDiv.style.display = 'block';
+      select.innerHTML = '<option value="">Erreur chargement</option>';
+      select.disabled = true;
+    }
   }
 
   async _deleteOccupant(occupant) {
@@ -284,52 +346,3 @@ export class HousingOccupantsPage {
 export function createHousingOccupantsPage(router) {
   return new HousingOccupantsPage(router);
 }
-
-  // Chargement des utilisateurs AD
-  async function loadAdUsers() {
-    try {
-      const { listUsers } = await import("../services/adminApi.js");
-      const users = await listUsers({ source: "ad" });
-      const select = document.getElementById("adUserSelect");
-      const emptyDiv = document.getElementById("adUsersEmpty");
-      
-      if (!users || users.length === 0) {
-        select.innerHTML = "<option value="">Aucun utilisateur AD trouvé</option>";
-        select.disabled = true;
-        emptyDiv.style.display = "block";
-        return;
-      };
-      
-      select.disabled = false;
-      emptyDiv.style.display = "none";
-      select.innerHTML = users.map(user => '
-        <option value="${user.ad_dn || user.id}" data-user-info="\${JSON.stringify({
-          id: user.id,
-          username: user.username,
-          first_name: user.first_name,
-          last_name: user.last_name,
-          email: user.email
-        })}">
-          ${user.first_name || user.username} ${user.last_name || ""} (AD)
-        </option>
-      ').join("");
-      } catch (e) {
-        console.error("Erreur chargement utilisateurs AD:", e);
-        document.getElementById("adUsersEmpty").style.display = "block";
-        document.getElementById("adUserSelect").innerHTML = "<option value="">Erreur chargement</option>";
-      }
-    };
-    
-    // Mise jour du champ ad_dn lors de la sélection
-    const adUserSelect = document.getElementById("adUserSelect");
-    if (adUserSelect) {
-      adUserSelect.addEventListener("change", (e) => {
-        const selected = e.target.options[e.target.selectedIndex];
-        const userInfo = JSON.parse(e.target.options[e.selectedIndex].getAttribute("data-user-info"));
-        document.getElementById("ad_dn_input").value = userInfo.ad_dn || userInfo.id || "";
-      });
-    };
-    
-    // Chargement au show du modal
-    loadAdUsers();
-  ''')

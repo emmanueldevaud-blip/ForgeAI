@@ -82,6 +82,7 @@ class UserWithRolesResponse(BaseModel):
     is_active: bool
     role: str
     source: str
+    ad_dn: Optional[str] = None
     last_login: Optional[datetime] = None
     created_at: datetime
     updated_at: datetime

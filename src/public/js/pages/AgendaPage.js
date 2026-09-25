@@ -500,8 +500,7 @@ _halfCellHtml(day, room, half, dayByIso) {
           </thead>
           <tbody>${rows}</tbody>
         </table>
-      </div>
-      ${this._integratedStrip(days)}`;
+      </div>`;
   }
 
   _monthGrid(rooms, days) {
@@ -543,25 +542,6 @@ _halfCellHtml(day, room, half, dayByIso) {
           <thead><tr>${DAY_LABELS_SHORT.map(d => `<th scope="col">${d}</th>`).join('')}</tr></thead>
           <tbody>${weeks.join('')}</tbody>
         </table>
-      </div>`;
-  }
-
-  _integratedStrip(days) {
-    const withIntegrated = days.filter(day => (day.integrated || []).length);
-    if (!withIntegrated.length) return '';
-    return `
-      <div class="agenda-integrated">
-        <h3>Présences intégrées (ménage / occupants)</h3>
-        <div class="agenda-integrated-list">
-          ${withIntegrated.map(day => `
-            <div class="agenda-integrated-day">
-              <button class="agenda-integrated-day-btn" data-day="${day.date}">
-                <strong>${escapeHtml(formatDayLabel(day.date))}</strong>
-                <span>${day.integrated.length} personne${day.integrated.length > 1 ? 's' : ''}</span>
-              </button>
-            </div>
-          `).join('')}
-        </div>
       </div>`;
   }
 

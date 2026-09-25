@@ -325,9 +325,13 @@ class HousingService:
         if "phone" in data:
             data["phone"] = data["phone"].strip()
         for k, v in data.items():
-            if hasattr(occupant, k) and v is not None:
+            if k == "ad_dn":
+                setattr(occupant, "ad_dn", v)
+            elif hasattr(occupant, k) and v is not None:
                 setattr(occupant, k, v)
         await self.db.flush()
+        await self.db.commit()
+        await self.db.refresh(occupant)
         return OccupantResponse.model_validate(occupant, from_attributes=True).model_dump()
 
     async def delete_occupant(self, occupant_id: int) -> bool:

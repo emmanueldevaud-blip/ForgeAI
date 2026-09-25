@@ -61,6 +61,10 @@ def _daterange(start: date, end: date) -> List[date]:
     return days
 
 
+def _normalize_name(value: str) -> str:
+    return " ".join((value or "").split()).lower()
+
+
 class AgendaService:
     def __init__(self, db: AsyncSession, current_user: User):
         self.db = db
@@ -146,6 +150,68 @@ class AgendaService:
 
         # Occupants with confirmed/in_progress occupancy covering each date
         occupant_people = await self._occupant_people(start, end)
+
+        # Dedup: the same physical person present as user presence and as
+        # occupant/volunteer is kept once (matched via AD link, then name).
+        user_keys_by_day: Dict[date, set] = defaultdict(set)
+        for p in presences:
+            user = users.get(p.user_id) if p.user_id else None
+            if not user:
+                continue
+            keys = user_keys_by_day[p.presence_date]
+            if user.ad_dn:
+                keys.add(f"dn:{user.ad_dn.strip().lower()}")
+            keys.add(f"name:{_normalize_name(user.full_name)}")
+
+        def _matches_present_user(day: date, person_name: str, ad_dn: Optional[str]) -> bool:
+            keys = user_keys_by_day.get(day)
+            if not keys:
+                return False
+            if ad_dn and f"dn:{ad_dn.strip().lower()}" in keys:
+                return True
+            return f"name:{_normalize_name(person_name)}" in keys
+
+        occupant_ids = {
+            item.person_id
+            for items in occupant_people.values()
+            for item in items
+            if item.person_id
+        }
+        volunteer_ids = {
+            item.person_id
+            for items in cleaning_people.values()
+            for item in items
+            if item.person_id
+        }
+        occupant_dns: Dict[int, Optional[str]] = {}
+        volunteer_dns: Dict[int, Optional[str]] = {}
+        if occupant_ids:
+            rows = await self.db.execute(
+                select(Occupant.id, Occupant.ad_dn).where(Occupant.id.in_(occupant_ids))
+            )
+            occupant_dns = {row.id: row.ad_dn for row in rows.all()}
+        if volunteer_ids:
+            rows = await self.db.execute(
+                select(Volunteer.id, Volunteer.ad_dn).where(Volunteer.id.in_(volunteer_ids))
+            )
+            volunteer_dns = {row.id: row.ad_dn for row in rows.all()}
+
+        occupant_people = {
+            day: [
+                item
+                for item in items
+                if not _matches_present_user(day, item.person_name, occupant_dns.get(item.person_id))
+            ]
+            for day, items in occupant_people.items()
+        }
+        cleaning_people = {
+            day: [
+                item
+                for item in items
+                if not _matches_present_user(day, item.person_name, volunteer_dns.get(item.person_id))
+            ]
+            for day, items in cleaning_people.items()
+        }
 
         by_day: Dict[date, List[AgendaPresence]] = defaultdict(list)
         for p in presences:

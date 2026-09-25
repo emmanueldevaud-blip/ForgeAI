@@ -10,6 +10,7 @@ class VolunteerCreate(BaseModel):
     phone: Optional[str] = Field(None, max_length=50)
     usage_type: str = Field(default="cleaning", max_length=50)
     communication_preference: str = Field(default="both", pattern="^(email|sms|both)$")
+    ad_dn: Optional[str] = Field(None, max_length=500)
     is_active: bool = True
 
 
@@ -20,6 +21,7 @@ class VolunteerUpdate(BaseModel):
     phone: Optional[str] = Field(None, max_length=50)
     usage_type: Optional[str] = Field(None, max_length=50)
     communication_preference: Optional[str] = Field(None, pattern="^(email|sms|both)$")
+    ad_dn: Optional[str] = Field(None, max_length=500)
     is_active: Optional[bool] = None
 
 
@@ -31,6 +33,7 @@ class VolunteerResponse(BaseModel):
     phone: Optional[str]
     usage_type: str
     communication_preference: str
+    ad_dn: Optional[str] = None
     is_active: bool
     created_at: datetime
     updated_at: datetime

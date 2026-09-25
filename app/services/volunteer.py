@@ -44,6 +44,7 @@ class VolunteerService:
             phone=volunteer_in.phone,
             usage_type=volunteer_in.usage_type,
             communication_preference=volunteer_in.communication_preference,
+            ad_dn=volunteer_in.ad_dn,
             is_active=volunteer_in.is_active,
         )
         db.add(volunteer)

@@ -1,5 +1,5 @@
 import { authStore } from '../stores/auth.js';
-import { UserTable } from '../components/UserTable.js';
+import { UserTable } from '../components/UserTable.js?v=2';
 import { UserFilters } from '../components/UserFilters.js';
 import { UserModal } from '../components/UserModal.js';
 import { ConfirmDialog } from '../components/ConfirmDialog.js';

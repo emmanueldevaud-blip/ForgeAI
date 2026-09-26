@@ -111,6 +111,7 @@ class HousingModule(BaseModule):
         ))
 
     def get_navigation_items(self, user_permissions=None):
+        permissions = user_permissions or []
         children = [
             {
                 "code": "housing-planning",
@@ -133,21 +134,25 @@ class HousingModule(BaseModule):
                 "route": "/housing/occupants",
                 "order": 2,
             },
-            {
+        ]
+
+        if "*" in permissions or "housing.manage_email_templates" in permissions:
+            children.append({
                 "code": "housing-email-templates",
                 "name": "Modèles d’e-mails",
                 "icon": "file-text",
                 "route": "/housing/email-templates",
                 "order": 5,
-            },
-            {
+            })
+
+        if "*" in permissions or "housing.manage" in permissions:
+            children.append({
                 "code": "housing-list",
                 "name": "Paramètres",
                 "icon": "home",
                 "route": "/housing/housings",
                 "order": 6,
-            },
-        ]
+            })
 
         return [{
             "code": self.info.code,

@@ -113,3 +113,28 @@ async def test_ai_chat_rejects_blank_message(client, admin_headers, fake_gateway
     )
     assert response.status_code == 422
     assert fake_gateway.calls == []
+
+
+async def test_ai_chat_sport_question_uses_sport_context(client, admin_headers, fake_gateway, monkeypatch):
+    async def fake_context(db, user):
+        return {"weekly_summary": {"summary": {"activity_count": 3}}}
+
+    class FakeSportProvider:
+        async def answer(self, question, context):
+            assert context.get("weekly_summary")
+            return {"available": True, "provider": "ai-gateway", "answer": "Réponse du coach", "sources": ["weekly_summary"]}
+
+    monkeypatch.setattr("app.api.maintenance._build_sport_context", fake_context)
+    monkeypatch.setattr("app.api.maintenance.get_sport_ai_provider", lambda: FakeSportProvider())
+
+    response = await client.post(
+        "/maintenance/ai/chat",
+        json={"message": "Analyse mon activité sportive de la semaine", "module": "maintenance"},
+        headers=admin_headers,
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["response"] == "Réponse du coach"
+    assert data["model"] == "ai-gateway"
+    assert fake_gateway.calls == []

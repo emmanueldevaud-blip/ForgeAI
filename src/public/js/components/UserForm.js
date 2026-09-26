@@ -1,3 +1,60 @@
+const PERMISSION_MODULE_LABELS = {
+  ad: 'Active Directory',
+  admin: 'Administration',
+  administration: 'Administratif',
+  agenda: 'Agenda',
+  ai: 'Assistant IA',
+  audit: 'Journal d’audit',
+  building: 'Bâtiments',
+  buildings: 'Bâtiments',
+  dashboard: 'Tableau de bord',
+  documents: 'Documents',
+  equipment: 'Équipements',
+  groups: 'Groupes',
+  housing: 'Hébergements',
+  maintenance: 'Maintenance',
+  module: 'Modules',
+  modules: 'Modules',
+  rbac: 'Rôles & permissions',
+  roles: 'Rôles',
+  settings: 'Paramètres',
+  sport: 'Sport',
+  users: 'Utilisateurs',
+  volunteers: 'Volontaires',
+};
+
+function permissionModuleLabel(mod) {
+  return PERMISSION_MODULE_LABELS[mod] || mod;
+}
+
+const MODULE_ENTRY_PERMISSIONS = new Set([
+  'admin.access',
+  'administration.programs.view',
+  'agenda.access',
+  'ai.use',
+  'building.view',
+  'cleaning.view',
+  'dashboard.view',
+  'documents.view',
+  'equipment.view',
+  'housing.view',
+  'inventory.view',
+  'maintenance.view',
+  'people.view',
+  'purchasing.view',
+  'quoting.view',
+  'reports.view',
+  'sport.access',
+  'studies.view',
+  'suppliers.view',
+  'surveys.view',
+  'volunteers.view',
+]);
+
+function isModuleEntryPermission(code) {
+  return MODULE_ENTRY_PERMISSIONS.has(code);
+}
+
 export class UserForm {
   constructor(options = {}) {
     this.mode = options.mode || 'create';
@@ -337,6 +394,21 @@ export class UserForm {
 
         <div class="form-group">
 
+          <label for="phone">
+            Téléphone
+          </label>
+
+          <input
+            type="tel"
+            id="phone"
+            name="phone"
+            maxlength="50"
+            autocomplete="tel">
+
+        </div>
+
+        <div class="form-group">
+
           <label for="first_name">
             Prénom
           </label>
@@ -558,6 +630,18 @@ export class UserForm {
             name="last_name"
             value="${this._escapeHtml(this.user?.last_name || '')}"
             maxlength="100">
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label for="phone">Téléphone</label>
+          <input
+            type="tel"
+            id="phone"
+            name="phone"
+            value="${this._escapeHtml(this.user?.phone || '')}"
+            maxlength="50"
+            autocomplete="tel">
         </div>
       </div>
       ${this.user?.source !== 'ad' ? `
@@ -835,6 +919,15 @@ export class UserForm {
       </div>
 
       <div class="form-group">
+        <input
+          type="search"
+          class="multiselect-search-input"
+          placeholder="Rechercher une permission (nom ou code)…"
+          data-permission-search
+          autocomplete="off">
+      </div>
+
+      <div class="form-group">
         <div class="module-filters" data-module-filters>
           <button type="button" class="module-filter-btn active" data-module-filter="all">
             Tous
@@ -845,7 +938,7 @@ export class UserForm {
             const modAssigned = modPerms.filter(p => assignedIds.has(p.id)).length;
             return `
               <button type="button" class="module-filter-btn" data-module-filter="${this._escapeHtml(mod)}">
-                ${this._escapeHtml(mod)}
+                ${this._escapeHtml(permissionModuleLabel(mod))}
                 <span class="permission-count">(${modAssigned}/${modPerms.length})</span>
               </button>
             `;
@@ -853,11 +946,18 @@ export class UserForm {
         </div>
       </div>
 
+      <p class="text-muted" data-permission-empty hidden>Aucune permission ne correspond à votre recherche.</p>
+
       <div class="form-group" data-permissions-list>
     `;
 
     sortedModules.forEach(mod => {
-      const modPerms = modules[mod];
+      const modPerms = [...modules[mod]].sort((a, b) => {
+        const aEntry = isModuleEntryPermission(a.code) ? 0 : 1;
+        const bEntry = isModuleEntryPermission(b.code) ? 0 : 1;
+        if (aEntry !== bEntry) return aEntry - bEntry;
+        return String(a.name || a.code).localeCompare(String(b.name || b.code), 'fr');
+      });
       const modAssigned = modPerms.filter(p => assignedIds.has(p.id)).length;
       const allChecked = modAssigned === modPerms.length;
 
@@ -871,7 +971,7 @@ export class UserForm {
                 data-module="${this._escapeHtml(mod)}"
                 ${allChecked ? 'checked' : ''}>
               <span>
-                ${this._escapeHtml(mod)}
+                ${this._escapeHtml(permissionModuleLabel(mod))}
                 <span class="permission-count">(${modAssigned}/${modPerms.length})</span>
               </span>
             </label>
@@ -881,8 +981,9 @@ export class UserForm {
 
       modPerms.forEach(p => {
         const isChecked = assignedIds.has(p.id);
+        const isEntry = isModuleEntryPermission(p.code);
         html += `
-          <label class="checkbox-group permission-item">
+          <label class="checkbox-group permission-item${isEntry ? ' is-entry' : ''}">
             <input
               type="checkbox"
               name="permission"
@@ -893,6 +994,7 @@ export class UserForm {
             <span>
               <span class="permission-code">${this._escapeHtml(p.code)}</span>
               <span class="permission-name">${this._escapeHtml(p.name || '')}</span>
+              ${isEntry ? '<span class="permission-entry-badge">accès module</span>' : ''}
             </span>
           </label>
         `;
@@ -1085,7 +1187,19 @@ export class UserForm {
 
     if (firstInput) {
       setTimeout(
-        () => firstInput.focus(),
+        () => {
+          // iOS: eviter le scroll auto au focus et garder le haut de la modale visible.
+          const modalBody =
+            this.element.closest('.modal-body');
+          if (modalBody) {
+            modalBody.scrollTop = 0;
+          }
+          try {
+            firstInput.focus({ preventScroll: true });
+          } catch {
+            firstInput.focus();
+          }
+        },
         100
       );
     }
@@ -1176,6 +1290,10 @@ export class UserForm {
 
         data.email =
           formData.get('email');
+
+        data.phone =
+          formData.get('phone') ||
+          null;
 
         data.first_name =
           formData.get('first_name') ||
@@ -1325,6 +1443,10 @@ export class UserForm {
       } else {
         data.email =
           formData.get('email');
+
+        data.phone =
+          formData.get('phone') ||
+          null;
 
         data.first_name =
           formData.get('first_name') ||
@@ -1594,18 +1716,18 @@ export class UserForm {
       btn.addEventListener('click', () => {
         filterButtons.forEach(b => b.classList.remove('active'));
         btn.classList.add('active');
-
-        const filter = btn.dataset.moduleFilter;
-
-        this.element.querySelectorAll('.permission-module').forEach(mod => {
-          if (filter === 'all' || mod.dataset.module === filter) {
-            mod.style.display = '';
-          } else {
-            mod.style.display = 'none';
-          }
-        });
+        this._permModuleFilter = btn.dataset.moduleFilter;
+        this._applyPermissionView();
       });
     });
+
+    const searchInput = this.element.querySelector('[data-permission-search]');
+    if (searchInput) {
+      searchInput.addEventListener('input', () => {
+        this._permQuery = searchInput.value;
+        this._applyPermissionView();
+      });
+    }
 
     this.element
       .querySelectorAll(
@@ -1649,6 +1771,30 @@ export class UserForm {
           }
         );
       });
+  }
+
+  _applyPermissionView() {
+    const filter = this._permModuleFilter || 'all';
+    const query = String(this._permQuery || '').trim().toLowerCase();
+    let total = 0;
+
+    this.element.querySelectorAll('.permission-module').forEach(mod => {
+      const moduleMatch = filter === 'all' || mod.dataset.module === filter;
+      let visible = 0;
+
+      mod.querySelectorAll('.permission-item').forEach(item => {
+        const matches = moduleMatch
+          && (!query || item.textContent.toLowerCase().includes(query));
+        item.style.display = matches ? '' : 'none';
+        if (matches) visible += 1;
+      });
+
+      mod.style.display = visible > 0 ? '' : 'none';
+      total += visible;
+    });
+
+    const empty = this.element.querySelector('[data-permission-empty]');
+    if (empty) empty.hidden = total > 0;
   }
 
   _updateModuleCounts() {

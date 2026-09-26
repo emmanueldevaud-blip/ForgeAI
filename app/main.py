@@ -20,6 +20,7 @@ from app.services.rbac import seed_default_rbac
 
 settings = get_settings()
 garmin_sync_task = None
+ad_sync_task = None
 
 limiter = Limiter(
     key_func=get_remote_address,
@@ -29,7 +30,7 @@ limiter = Limiter(
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global garmin_sync_task
+    global garmin_sync_task, ad_sync_task
     await init_db()
     register_all_modules()
     register_dashboard_widgets()
@@ -40,7 +41,14 @@ async def lifespan(app: FastAPI):
         await apply_ai_settings_from_db(db)
         break
     garmin_sync_task = asyncio.create_task(_garmin_sync_loop())
+    ad_sync_task = asyncio.create_task(_ad_sync_loop())
     yield
+    if ad_sync_task:
+        ad_sync_task.cancel()
+        try:
+            await ad_sync_task
+        except asyncio.CancelledError:
+            pass
     if garmin_sync_task:
         garmin_sync_task.cancel()
         try:
@@ -65,6 +73,51 @@ async def _garmin_sync_loop() -> None:
             # Garmin outages must not affect application startup or other modules.
             pass
         await asyncio.sleep(900)
+
+
+async def _ad_sync_loop() -> None:
+    from datetime import datetime, timedelta
+    from zoneinfo import ZoneInfo
+
+    from sqlalchemy import select
+    from sqlalchemy.orm import selectinload
+
+    from app.db.session import get_db
+    from app.models.ad_integration import ADConfig
+    from app.services.ad import DatabaseADService
+
+    # Synchro automatique chaque nuit a 03:00 (Europe/Paris).
+    tz = ZoneInfo("Europe/Paris")
+    while True:
+        try:
+            now = datetime.now(tz)
+            next_run = now.replace(hour=3, minute=0, second=0, microsecond=0)
+            if next_run <= now:
+                next_run += timedelta(days=1)
+            await asyncio.sleep((next_run - now).total_seconds())
+
+            async for db in get_db():
+                configs = (
+                    await db.execute(
+                        select(ADConfig)
+                        .options(selectinload(ADConfig.group_mappings))
+                        .where(ADConfig.is_active.is_(True))
+                    )
+                ).scalars().all()
+                for config in configs:
+                    try:
+                        print(f"[AD-SYNC] Synchro automatique nocturne — config {config.id} ({config.name})")
+                        await DatabaseADService(db).sync_users(config)
+                    except asyncio.CancelledError:
+                        raise
+                    except Exception as exc:
+                        print(f"[AD-SYNC] Synchro automatique en echec (config {config.id}): {exc}")
+                break
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            # Une erreur de la boucle ne doit pas tuer l'application.
+            print(f"[AD-SYNC] Boucle de synchro automatique: {exc}")
 
 
 async def _sync_module_statuses(db):

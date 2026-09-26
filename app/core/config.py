@@ -54,13 +54,6 @@ class Settings(BaseSettings):
         }
     )
 
-    # Sport coach provider (Gemini API, OpenAI-compatible)
-    SPORT_AI_PROVIDER: str = "gemini"
-    SPORT_AI_BASE_URL: str = "https://generativelanguage.googleapis.com/v1beta/openai"
-    SPORT_AI_API_KEY: str = ""
-    SPORT_AI_MODEL: str = "gemini-3.7-flash"
-    SPORT_AI_TIMEOUT_SECONDS: float = 20.0
-
     # AI Gateway (passerelle IA centralisée)
     AI_GATEWAY_ENABLED: bool = True
     AI_DEFAULT_PROVIDER: str = "auto"

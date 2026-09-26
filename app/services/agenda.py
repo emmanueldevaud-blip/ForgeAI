@@ -3,7 +3,7 @@ from collections import defaultdict
 from datetime import date, datetime, timedelta
 from typing import Dict, List, Optional
 
-from sqlalchemy import or_, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -405,11 +405,15 @@ class AgendaService:
 
     async def upsert_own_presence(self, payload: AgendaPresenceUpsert) -> AgendaPresenceResponse:
         if not payload.is_present:
-            # "Absent" = remove own presence for that day/room
+            # "Absent" = hide own presence but keep the row as a manual decision
+            # (the auto-assign will never recreate a day that already has a row)
             existing = await self._find_own_presence(payload.presence_date, payload.room_id)
             if existing:
-                await self.db.delete(existing)
-                await self.db.commit()
+                if existing.is_present:
+                    existing.is_present = False
+                    await self.db.commit()
+                    await self.db.refresh(existing)
+                return AgendaPresenceResponse.model_validate(existing)
             return AgendaPresenceResponse(
                 id=0,
                 presence_date=payload.presence_date,
@@ -427,6 +431,8 @@ class AgendaService:
             )
 
         await self._ensure_room_exists(payload.room_id)
+        if payload.presence_date < date.today():
+            raise ValueError("Impossible de s'inscrire pour une date passée")
         await self._assert_own_day_allowed(
             payload.presence_date,
             payload.room_id,
@@ -459,6 +465,124 @@ class AgendaService:
         await self.db.commit()
         await self.db.refresh(presence)
         return AgendaPresenceResponse.model_validate(presence)
+
+    async def auto_assign_own_presences(self, start: date, end: date) -> Dict[str, int]:
+        day_start = max(start, date.today())
+        if day_start > end:
+            return {"created": 0, "skipped": 0}
+
+        dn = (self.current_user.ad_dn or "").strip().lower()
+        if not dn:
+            return {"created": 0, "skipped": 0}
+
+        # day -> (room_id, needs_workstation); occupants take precedence
+        plan: Dict[date, tuple[int, bool]] = {}
+
+        occupant_ids = list(
+            (
+                await self.db.execute(
+                    select(Occupant.id).where(
+                        Occupant.is_active.is_(True),
+                        Occupant.ad_dn.is_not(None),
+                        func.lower(func.trim(Occupant.ad_dn)) == dn,
+                    )
+                )
+            ).scalars()
+        )
+        if occupant_ids:
+            stmt = (
+                select(Occupancy)
+                .where(
+                    Occupancy.status.in_(OCCUPANCY_PRESENT_STATUSES),
+                    Occupancy.arrival_date
+                    <= datetime.combine(end, datetime.max.time()),
+                    Occupancy.departure_date
+                    >= datetime.combine(day_start, datetime.min.time()),
+                    Occupancy.agenda_room_id.is_not(None),
+                    Occupancy.occupants.any(Occupant.id.in_(occupant_ids)),
+                )
+            )
+            for occupancy in (await self.db.execute(stmt)).scalars().all():
+                first_day = max(occupancy.arrival_date.date(), day_start)
+                last_day = min(occupancy.departure_date.date(), end)
+                for day in _daterange(first_day, last_day):
+                    plan.setdefault(day, (occupancy.agenda_room_id, bool(occupancy.needs_workstation)))
+
+        volunteer_ids = set(
+            (
+                await self.db.execute(
+                    select(Volunteer.id).where(
+                        Volunteer.is_active.is_(True),
+                        Volunteer.ad_dn.is_not(None),
+                        func.lower(func.trim(Volunteer.ad_dn)) == dn,
+                    )
+                )
+            ).scalars()
+        )
+        if volunteer_ids:
+            cleanings = (
+                await self.db.execute(
+                    select(Cleaning)
+                    .where(
+                        Cleaning.scheduled_date.between(day_start, end),
+                        Cleaning.status.in_(CLEANING_ACTIVE_STATUSES),
+                    )
+                    .options(selectinload(Cleaning.occupancy))
+                )
+            ).scalars().all()
+            for cleaning in cleanings:
+                if not cleaning.selected_volunteer_ids_json:
+                    continue
+                try:
+                    selected = {int(v) for v in json.loads(cleaning.selected_volunteer_ids_json)}
+                except (TypeError, ValueError, json.JSONDecodeError):
+                    continue
+                if not selected & volunteer_ids:
+                    continue
+                occupancy = cleaning.occupancy
+                if not occupancy or not occupancy.agenda_room_id:
+                    continue
+                plan.setdefault(
+                    cleaning.scheduled_date, (occupancy.agenda_room_id, False)
+                )
+
+        created = 0
+        skipped = 0
+        for day in sorted(plan):
+            room_id, needs_workstation = plan[day]
+            room = await self.db.get(Room, room_id)
+            if not room or not room.is_active:
+                skipped += 1
+                continue
+            existing = (
+                await self.db.execute(
+                    select(AgendaPresence.id).where(
+                        AgendaPresence.presence_date == day,
+                        AgendaPresence.user_id == self.current_user.id,
+                    )
+                )
+            ).first()
+            if existing:
+                skipped += 1
+                continue
+            self.db.add(
+                AgendaPresence(
+                    presence_date=day,
+                    room_id=room_id,
+                    user_id=self.current_user.id,
+                    external_name=None,
+                    source="user",
+                    is_present=True,
+                    needs_workstation=needs_workstation,
+                    needs_meal=True,
+                    period="full",
+                    created_by=self.current_user.id,
+                )
+            )
+            created += 1
+        if created:
+            await self.db.commit()
+        return {"created": created, "skipped": skipped}
 
     async def create_external_presence(
         self, payload: AgendaExternalPresenceCreate

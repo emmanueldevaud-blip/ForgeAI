@@ -1,5 +1,6 @@
 import { authStore } from '../stores/auth.js';
 import {
+  autoAssignMyPresences,
   createExternalPresence,
   deletePresence,
   getAgendaPlanning,
@@ -95,6 +96,7 @@ export class AgendaPage {
     this.data = null;
     this.error = null;
     this.openDay = null;
+    this.openRoom = null;
     this._authUnsubscribe = null;
   }
 
@@ -109,8 +111,26 @@ export class AgendaPage {
     this.error = null;
     try {
       this.data = await getAgendaPlanning(this.view, toISODate(this.anchor));
+      await this._maybeAutoAssign();
     } catch (error) {
       this.error = error;
+    }
+  }
+
+  async _maybeAutoAssign() {
+    if (!this.data?.start_date || !this.data?.end_date) return;
+    const key = `agenda:auto-assign:2:${this.view}:${toISODate(this.anchor)}`;
+    if (sessionStorage.getItem(key)) return;
+    try {
+      const result = await autoAssignMyPresences(this.data.start_date, this.data.end_date);
+      if (result && (result.created > 0 || result.skipped > 0)) {
+        sessionStorage.setItem(key, '1');
+      }
+      if (result?.created > 0) {
+        this.data = await getAgendaPlanning(this.view, toISODate(this.anchor));
+      }
+    } catch {
+      // auto-assign best effort: sera retenté au prochain chargement
     }
   }
 
@@ -156,7 +176,7 @@ export class AgendaPage {
       <div class="page-header agenda-header">
         <div class="page-header-left">
           <h1>Agenda</h1>
-          <p class="page-subtitle">Vos présences, le planning par bureau et les inscriptions libres.</p>
+          <p class="page-subtitle">Vos présences, le planning par bureau${canManage ? ' et les inscriptions libres' : ''}.</p>
         </div>
         <div class="page-header-right agenda-toolbar">
           <div class="agenda-nav" role="group" aria-label="Navigation">
@@ -203,19 +223,18 @@ export class AgendaPage {
           </section>
         </section>
 
+        ${canManage ? `
         <section class="card agenda-section agenda-section--free" aria-labelledby="agenda-free-title">
           <header class="agenda-section-header">
             <div>
               <h2 id="agenda-free-title">Inscriptions libres</h2>
-              <p class="agenda-section-desc">${canManage
-                ? 'Ajoutez une personne sans compte utilisateur (visiteur, intervenant…).'
-                : 'Seules les personnes avec la permission « agenda.manage » peuvent ajouter des inscriptions libres.'}</p>
+              <p class="agenda-section-desc">Ajoutez une personne sans compte utilisateur (visiteur, intervenant…).</p>
             </div>
           </header>
           <div class="card-body agenda-section-body">
-            ${canManage ? this._freeFormHtml(rooms, freeDate) : ''}
+            ${this._freeFormHtml(rooms, freeDate)}
           </div>
-        </section>
+        </section>` : ''}
       `}
 
       ${this.openDay ? this._dayPanelHtml(rooms) : ''}
@@ -567,12 +586,19 @@ _halfCellHtml(day, room, half, dayByIso) {
             <div class="modal-body agenda-day-body">
               ${!hasPeople ? '<p class="agenda-none">Aucune présence ce jour-là.</p>' : `
                 <div class="agenda-day-rooms">
-                  ${day.rooms.filter(counter => counter.presences.length || counter.present_count).map(counter => {
+                  ${(() => {
+                    const counters = day.rooms.filter(counter => counter.presences.length || counter.present_count);
+                    if (this.openRoom != null) {
+                      counters.sort((a, b) =>
+                        (String(b.room_id) === String(this.openRoom) ? 1 : 0) -
+                        (String(a.room_id) === String(this.openRoom) ? 1 : 0));
+                    }
+                    return counters.map(counter => {
                     const room = rooms.find(r => r.id === counter.room_id);
                     return `
-                      <section class="agenda-room-block">
+                      <section class="agenda-room-block${this.openRoom != null && String(counter.room_id) === String(this.openRoom) ? ' is-selected' : ''}">
                         <header>
-                          <h3>${escapeHtml(room?.name || `Local #${counter.room_id}`)}</h3>
+                          <h3>${escapeHtml(room?.name || `Local #${counter.room_id}`)}${room?.building_name ? `<small class="agenda-room-building">${escapeHtml(room.building_name)}</small>` : ''}</h3>
                           <span class="agenda-room-stats">
                             ${counter.present_count} présent(s)
                             ${counter.capacity ? ` · ${counter.workstation_count}/${counter.capacity} postes` : (counter.workstation_count ? ` · ${counter.workstation_count} poste(s)` : '')}
@@ -583,7 +609,8 @@ _halfCellHtml(day, room, half, dayByIso) {
                             ${counter.presences.map(person => this._personLi(person)).join('')}
                           </ul>` : '<p class="agenda-none">Aucune présence</p>'}
                       </section>`;
-                  }).join('')}
+                    }).join('');
+                  })()}
                 </div>
 
                 ${(day.integrated || []).length ? `
@@ -621,7 +648,7 @@ _halfCellHtml(day, room, half, dayByIso) {
         ${person.needs_meal ? '<span class="agenda-badge agenda-badge--meal">repas</span>' : ''}
         ${periodBadge}
         ${badge ? `<span class="agenda-dot agenda-dot--${person.person_type}" title="${escapeHtml(badge)}" aria-label="${escapeHtml(badge)}"></span>` : ''}
-        ${canDelete ? `<button class="agenda-person-remove" data-remove-presence="${person.id}" aria-label="Retirer ${escapeHtml(person.person_name)}">×</button>` : ''}
+        ${canDelete ? `<button class="agenda-person-remove" data-remove-presence="${person.id}"${person.is_mine ? ' data-mine="1"' : ''} aria-label="Retirer ${escapeHtml(person.person_name)}">×</button>` : ''}
       </li>`;
   }
 
@@ -633,26 +660,38 @@ _halfCellHtml(day, room, half, dayByIso) {
     return null;
   }
 
-  _collectMyPresenceIds() {
-    const ids = [];
+  _collectMyPresences() {
+    const list = [];
     (this.data?.days || []).forEach(day => {
       for (const room of day.rooms || []) {
         const mine = (room.presences || []).find(p => p.is_mine && p.person_type === 'user');
-        if (mine?.id) ids.push(mine.id);
+        if (mine?.id) list.push({ presence_date: day.date, room_id: room.room_id });
       }
     });
-    return ids;
+    return list;
+  }
+
+  _findMyPresenceLocation(presenceId) {
+    for (const day of this.data?.days || []) {
+      for (const room of day.rooms || []) {
+        const mine = (room.presences || []).find(
+          p => p.id === presenceId && p.is_mine && p.person_type === 'user'
+        );
+        if (mine) return { presence_date: day.date, room_id: room.room_id };
+      }
+    }
+    return null;
   }
 
   async _clearMyPresence() {
-    const ids = this._collectMyPresenceIds();
-    if (!ids.length) {
+    const mine = this._collectMyPresences();
+    if (!mine.length) {
       this._toast('Aucune présence à annuler', 'info');
       return false;
     }
     try {
-      for (const id of ids) {
-        await deletePresence(id);
+      for (const presence of mine) {
+        await upsertMyPresence({ ...presence, is_present: false });
       }
       return true;
     } catch (error) {
@@ -707,8 +746,18 @@ _halfCellHtml(day, room, half, dayByIso) {
 
     try {
       if (!morning && !afternoon) {
-        if (mine?.id) await deletePresence(mine.id);
+        if (mine?.id) {
+          await upsertMyPresence({
+            presence_date: date,
+            room_id: Number(roomId),
+            is_present: false,
+          });
+        }
       } else {
+        if (date < toISODate(new Date())) {
+          this._toast('Impossible de vous inscrire pour une date passée', 'error');
+          return false;
+        }
         await upsertMyPresence({
           presence_date: date,
           room_id: Number(roomId),
@@ -728,7 +777,9 @@ _halfCellHtml(day, room, half, dayByIso) {
   }
 
   async _bulkMineHalf({ roomId, field }) {
+    const todayIso = toISODate(new Date());
     const dates = this._mineGridDates().filter((iso) => {
+      if (iso < todayIso) return false;
       const weekday = parseISODate(iso).getDay();
       return weekday >= 1 && weekday <= 5;
     });
@@ -902,6 +953,7 @@ _halfCellHtml(day, room, half, dayByIso) {
     this.element.querySelectorAll('[data-day]').forEach(btn => {
       btn.addEventListener('click', () => {
         this.openDay = btn.dataset.day;
+        this.openRoom = btn.dataset.room || null;
         this.renderState();
       });
     });
@@ -913,6 +965,7 @@ _halfCellHtml(day, room, half, dayByIso) {
       el.addEventListener('click', event => {
         if (event.target === el || el.classList.contains('modal-close') || el.matches('button[data-action="close-day"]')) {
           this.openDay = null;
+          this.openRoom = null;
           this.renderState();
         }
       });
@@ -921,7 +974,17 @@ _halfCellHtml(day, room, half, dayByIso) {
     this.element.querySelectorAll('[data-remove-presence]').forEach(btn => {
       btn.addEventListener('click', async () => {
         try {
-          await deletePresence(Number(btn.dataset.removePresence));
+          const presenceId = Number(btn.dataset.removePresence);
+          if (btn.dataset.mine === '1') {
+            const location = this._findMyPresenceLocation(presenceId);
+            if (location) {
+              await upsertMyPresence({ ...location, is_present: false });
+            } else {
+              await deletePresence(presenceId);
+            }
+          } else {
+            await deletePresence(presenceId);
+          }
         } catch (error) {
           this._toast(error.message || 'Erreur', 'error');
           return;

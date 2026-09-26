@@ -174,7 +174,7 @@ async def get_housing(
 @router.post("/housings", response_model=HousingResponse, status_code=201)
 async def create_housing(
     data: HousingCreate,
-    service: HousingService = Depends(get_housing_service),
+    service: HousingService = Depends(get_housing_manage_service),
 ):
     return await service.create_housing(data.model_dump())
 
@@ -183,7 +183,7 @@ async def create_housing(
 async def update_housing(
     housing_id: int,
     data: HousingUpdate,
-    service: HousingService = Depends(get_housing_service),
+    service: HousingService = Depends(get_housing_manage_service),
 ):
     item = await service.update_housing(housing_id, data.model_dump(exclude_unset=True))
     if not item:

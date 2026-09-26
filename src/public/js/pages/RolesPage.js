@@ -69,6 +69,25 @@ export class RolesPage {
           key: 'description',
           label: 'Description',
           sortable: false,
+          render: (role) => {
+            const d = role.description || '';
+            if (!d) return '<span class="text-muted">—</span>';
+            const short = d.length > 64 ? `${d.slice(0, 61)}…` : d;
+            return `<span title="${this._escapeHtml(d)}">${this._escapeHtml(short)}</span>`;
+          },
+        },
+        {
+          key: 'permissions',
+          label: 'Permissions',
+          sortable: false,
+          render: (role) => {
+            const perms = role.permissions || [];
+            if (perms.length === 0) {
+              return '<span class="text-muted">—</span>';
+            }
+            const codes = perms.map(p => p.code).join(', ');
+            return `<span class="status-badge active" title="${this._escapeHtml(codes)}">${perms.length}</span>`;
+          },
         },
         {
           key: 'groups',

@@ -270,16 +270,6 @@ export class CleaningVolunteersPage {
                 <input type="email" id="vol-email" class="form-control" value="${isEdit ? (item.email || '') : ''}">
               </div>
             </div>
-            <div class="form-group">
-              <label>Utilisateur AD</label>
-              <select id="vol-ad-select" class="form-control" disabled>
-                <option value="">Chargement des utilisateurs AD...</option>
-              </select>
-              <input type="hidden" id="vol-ad-dn" value="${isEdit ? (item.ad_dn || '') : ''}">
-              <div id="vol-ad-empty" style="display:none; margin-top: 8px; color: var(--color-text-tertiary);">
-                Aucun utilisateur AD trouvé
-              </div>
-            </div>
           </div>
         </div>
         <div class="modal-footer" style="display:flex;gap:8px;justify-content:flex-end;">
@@ -292,7 +282,6 @@ export class CleaningVolunteersPage {
     document.body.appendChild(modal);
     modal.querySelectorAll('[data-dismiss]').forEach(btn => btn.addEventListener('click', () => modal.remove()));
     modal.addEventListener('click', (e) => { if (e.target === modal) modal.remove(); });
-    this._loadAdUsers(modal, item);
     modal.querySelector('[data-action="save"]')?.addEventListener('click', async () => {
       const lastname = modal.querySelector('#vol-lastname').value.trim();
       const firstname = modal.querySelector('#vol-firstname').value.trim();
@@ -322,7 +311,6 @@ export class CleaningVolunteersPage {
           phone,
           email,
           communication_preference: communicationPreference,
-          ad_dn: modal.querySelector('#vol-ad-dn').value || null,
         };
         if (isEdit) {
           await updateVolunteer(item.id, data);
@@ -336,55 +324,6 @@ export class CleaningVolunteersPage {
       }
     });
   }
-
-  async _loadAdUsers(modal, item) {
-    const select = modal.querySelector('#vol-ad-select');
-    const emptyDiv = modal.querySelector('#vol-ad-empty');
-    const adDnInput = modal.querySelector('#vol-ad-dn');
-    if (!select || !emptyDiv || !adDnInput) return;
-
-    try {
-      const { listUsers } = await import('../services/adminApi.js');
-      const response = await listUsers({ source: 'ad', page_size: 100 });
-      const users = (response && response.users) || (Array.isArray(response) ? response : []);
-
-      if (users.length === 0) {
-        select.innerHTML = '<option value="">Aucun utilisateur AD trouvé</option>';
-        select.disabled = true;
-        emptyDiv.style.display = 'block';
-        return;
-      }
-
-      select.disabled = false;
-      emptyDiv.style.display = 'none';
-      select.innerHTML = '';
-      const placeholder = document.createElement('option');
-      placeholder.value = '';
-      placeholder.textContent = '-- Choisir un utilisateur AD --';
-      select.appendChild(placeholder);
-
-      users.forEach((user) => {
-        const option = document.createElement('option');
-        option.value = user.ad_dn || '';
-        option.textContent = `${user.first_name || user.username} ${user.last_name || ''} (AD)`;
-        select.appendChild(option);
-      });
-
-      if (item && item.ad_dn) {
-        select.value = item.ad_dn;
-      }
-
-      select.addEventListener('change', () => {
-        adDnInput.value = select.value || '';
-      });
-    } catch (e) {
-      console.error('Erreur chargement utilisateurs AD:', e);
-      emptyDiv.style.display = 'block';
-      select.innerHTML = '<option value="">Erreur chargement</option>';
-      select.disabled = true;
-    }
-  }
-
   destroy() {
     this._authUnsubscribe?.();
     if (this.element) this.element.remove();

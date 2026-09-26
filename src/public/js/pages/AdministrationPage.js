@@ -63,7 +63,7 @@ export class AdministrationPage {
     await this.auditPage.initialize();
     this.tabs[4].component = this.auditPage;
 
-    const { createActiveDirectoryPage } = await import('./ActiveDirectoryPage.js');
+    const { createActiveDirectoryPage } = await import('./ActiveDirectoryPage.js?v=1');
     this.adPage = createActiveDirectoryPage(this.router);
     await this.adPage.initialize();
     this.tabs[5].component = this.adPage;

@@ -88,6 +88,15 @@ class SportModule(BaseModule):
                 "order": 2,
             })
 
+        if has_activities:
+            children.append({
+                "code": "sport-health",
+                "name": "Santé",
+                "icon": "heart-handshake",
+                "route": "/sport/health",
+                "order": 3,
+            })
+
         return [{
             "code": self.info.code,
             "name": self.info.name,

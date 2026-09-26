@@ -1,10 +1,10 @@
-import asyncio
 import json
+import logging
 from typing import Any, Protocol
 
-import httpx
+from app.services.ai_gateway import AIGatewayError, ai_gateway
 
-from app.core.config import Settings, get_settings
+logger = logging.getLogger(__name__)
 
 
 class SportAIProvider(Protocol):
@@ -32,65 +32,45 @@ class LocalSportAIProvider:
         }
 
 
-class OpenAICompatibleSportAIProvider:
-    """Calls an OpenAI-compatible chat completion endpoint without DB access."""
+class GatewaySportAIProvider:
+    """IA sport via l'AI Gateway de l'application.
 
-    def __init__(self, settings: Settings | None = None, client: httpx.AsyncClient | None = None):
-        self.settings = settings or get_settings()
-        self._client = client
+    La cascade de fournisseurs (Groq, Gemini, OpenRouter) est gérée par
+    l'AI Gateway; ce provider se contente de lui soumettre la question.
+    """
 
     async def answer(self, question: str, context: dict[str, Any]) -> dict[str, Any]:
-        local_endpoint = self.settings.SPORT_AI_BASE_URL.startswith(("http://127.0.0.1", "http://localhost", "http://host.docker.internal"))
-        if not self.settings.SPORT_AI_API_KEY and not local_endpoint:
-            return await LocalSportAIProvider().answer(question, context)
-
-        payload = {
-            "temperature": 0.2,
-            "max_tokens": 250,
-            "messages": [
-                {"role": "system", "content": self._system_prompt()},
-                {"role": "user", "content": f"Question: {question}\nContexte JSON:\n{json.dumps(context, ensure_ascii=True, default=str)}"},
-            ],
-        }
-        headers = {"Authorization": f"Bearer {self.settings.SPORT_AI_API_KEY}"} if self.settings.SPORT_AI_API_KEY else {}
-        client = self._client or httpx.AsyncClient(timeout=self.settings.SPORT_AI_TIMEOUT_SECONDS)
-        close_client = self._client is None
+        user_content = (
+            f"Question: {question}\n"
+            f"Contexte JSON:\n{json.dumps(context, ensure_ascii=True, default=str)}"
+        )
         try:
-            models = [self.settings.SPORT_AI_MODEL]
-            if self.settings.SPORT_AI_PROVIDER.lower() == "gemini" and "gemini-3.5-flash" not in models:
-                models.append("gemini-3.5-flash")
-            for model in models:
-                payload["model"] = model
-                for attempt in range(3):
-                    response = await client.post(
-                        f"{self.settings.SPORT_AI_BASE_URL.rstrip('/')}/chat/completions",
-                        headers=headers,
-                        json=payload,
-                    )
-                    if response.status_code in {429, 503}:
-                        if attempt < 2:
-                            await asyncio.sleep(attempt + 1)
-                            continue
-                        break
-                    response.raise_for_status()
-                    body = response.json()
-                    answer = body.get("choices", [{}])[0].get("message", {}).get("content")
-                    if not answer:
-                        raise ValueError("Réponse LLM vide")
-                    return {"available": True, "provider": "openai-compatible", "answer": answer, "sources": self._sources(context)}
-            return await LocalSportAIProvider().answer(question, context)
-        except (httpx.HTTPError, ValueError, KeyError, IndexError, TypeError):
-            return await LocalSportAIProvider().answer(question, context)
-        finally:
-            if close_client:
-                await client.aclose()
+            response = await ai_gateway.generate(
+                prompt=user_content,
+                system_prompt=self._system_prompt(),
+                temperature=0.6,
+                max_tokens=900,
+            )
+            if response.text:
+                return {
+                    "available": True,
+                    "provider": "ai-gateway",
+                    "answer": response.text,
+                    "sources": self._sources(context),
+                }
+        except (AIGatewayError, TypeError, KeyError, IndexError) as exc:
+            logger.warning("[SPORT-AI] AI Gateway indisponible (%s) : %s", type(exc).__name__, exc)
+        return await LocalSportAIProvider().answer(question, context)
 
     @staticmethod
     def _system_prompt() -> str:
         return (
             "Tu es Coach Sport de ForgeAI. Réponds en français, uniquement à partir du contexte fourni. "
             "Ne fabrique aucune métrique manquante. Distingue donnée, calcul, observation et hypothèse. "
-            "Ne donne aucun diagnostic médical ni recommandation médicale. Si une information manque, dis-le clairement."
+            "Ne donne aucun diagnostic médical ni recommandation médicale. Si une information manque, dis-le clairement. "
+            "Ton style : une vraie conversation de coach, en « toi », naturelle et engageante — pas un rapport chiffré. "
+            "Utilise les chiffres seulement quand ils étayent un point : pas de tableaux, pas d'avalanche de pourcentages. "
+            "Une pointe d'humour léger (jamais sarcastique ni blessant), et termine toujours par un conseil concret et applicable."
         )
 
     @staticmethod
@@ -98,8 +78,6 @@ class OpenAICompatibleSportAIProvider:
         return [key for key in ("athlete", "current_activity", "recent_activities", "weekly_summary", "monthly_summary", "goals") if context.get(key)]
 
 
-def get_sport_ai_provider(settings: Settings | None = None) -> SportAIProvider:
-    resolved = settings or get_settings()
-    if resolved.SPORT_AI_PROVIDER.lower() in {"gemini", "openai", "openai-compatible"}:
-        return OpenAICompatibleSportAIProvider(resolved)
-    return LocalSportAIProvider()
+def get_sport_ai_provider() -> SportAIProvider:
+    """Le sport utilise exclusivement l'AI Gateway (cascade Groq/Gemini/OpenRouter)."""
+    return GatewaySportAIProvider()

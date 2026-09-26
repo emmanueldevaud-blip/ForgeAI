@@ -53,6 +53,14 @@ class BaseModule(ABC):
     def get_permissions(self):
         return self.info.required_permissions
 
+    def has_required_permissions(self, user_permissions: list[str] | None) -> bool:
+        if not self.info.required_permissions:
+            return True
+        permissions = user_permissions or []
+        if "*" in permissions:
+            return True
+        return all(p in permissions for p in self.info.required_permissions)
+
     def get_navigation_items(self, user_permissions: list[str]):
         if self.info.required_permissions:
             if "*" in user_permissions:
@@ -99,6 +107,8 @@ class ModuleRegistry:
     def get_navigation(self, user_permissions: list[str]) -> list[dict[str, Any]]:
         nav_items = []
         for module in self.get_ordered_active():
+            if not module.has_required_permissions(user_permissions):
+                continue
             items = module.get_navigation_items(user_permissions)
             nav_items.extend(items)
         return nav_items

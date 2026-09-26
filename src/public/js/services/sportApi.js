@@ -6,6 +6,10 @@ export async function getSportDashboard(period = 28) {
   return sportApi.get(`/dashboard?period=${encodeURIComponent(period)}`);
 }
 
+export async function getSportHealth(period = 28) {
+  return sportApi.get(`/health?period=${encodeURIComponent(period)}`);
+}
+
 export async function listSportActivities(params = {}) {
   const query = new URLSearchParams();
   if (params.page) query.append('page', params.page);

@@ -92,6 +92,15 @@ class SportDashboardResponse(BaseModel):
     goal_analysis: list[dict[str, Any]] = Field(default_factory=list)
 
 
+class SportHealthResponse(BaseModel):
+    period_days: int
+    period_start: date
+    period_end: date
+    days_available: int
+    summary: dict[str, Any] = Field(default_factory=dict)
+    series: dict[str, list[dict[str, Any]]] = Field(default_factory=dict)
+
+
 class SportCoachRequest(BaseModel):
     question: str = Field(..., min_length=1, max_length=1000)
     conversation_id: Optional[int] = Field(None, ge=1)

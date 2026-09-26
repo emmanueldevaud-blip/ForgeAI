@@ -8,6 +8,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import get_db, require_permission
 from app.models.user import User
 from app.schemas.agenda import (
+    AgendaAutoAssignRequest,
+    AgendaAutoAssignResponse,
     AgendaExternalPresenceCreate,
     AgendaPlanningResponse,
     AgendaPresenceResponse,
@@ -72,6 +74,14 @@ async def create_external_presence(
         return await service.create_external_presence(payload)
     except LookupError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
+
+
+@router.post("/presences/auto-assign", response_model=AgendaAutoAssignResponse)
+async def auto_assign_own_presences(
+    payload: AgendaAutoAssignRequest,
+    service: AgendaService = Depends(get_agenda_service),
+):
+    return await service.auto_assign_own_presences(payload.start_date, payload.end_date)
 
 
 @router.patch("/presences/{presence_id}", response_model=AgendaPresenceResponse)

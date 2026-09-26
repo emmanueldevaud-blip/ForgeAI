@@ -4,7 +4,7 @@ import os
 from collections import defaultdict
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 from uuid import uuid4
 
 from fastapi import UploadFile
@@ -14,7 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import load_only, selectinload
 
 from app.models.sport import (SportActivity, SportActivityAnalysis, SportAthlete, SportAthleteObservation,
-                               SportCoachConversation, SportCoachMessage, SportGoal, SportTrackPoint)
+                               SportCoachConversation, SportCoachMessage, SportGoal, SportHealthDaily, SportTrackPoint)
 from app.models.user import User
 from app.schemas.sport import (SportActivityCreate, SportGoalCreate, SportNormalizedActivity,
                                 SportHeartRateConfig, SportObservationCreate)
@@ -23,6 +23,58 @@ from app.services.sport_analysis import SportAnalysisEngine
 from app.services.sport_ai import get_sport_ai_provider
 
 logger = logging.getLogger(__name__)
+
+
+def _to_number(raw: Any) -> float | None:
+    if isinstance(raw, bool):
+        return None
+    if isinstance(raw, (int, float)):
+        return float(raw)
+    if isinstance(raw, str):
+        try:
+            return float(raw)
+        except ValueError:
+            return None
+    return None
+
+
+def _dig(value: Any, *paths: str) -> Any:
+    """Retourne la première valeur atteignable parmi des chemins de clés ('a.b.c')."""
+    if not isinstance(value, dict):
+        return None
+    for path in paths:
+        node: Any = value
+        for part in path.split("."):
+            if not isinstance(node, dict) or part not in node:
+                node = None
+                break
+            node = node[part]
+        if node is not None:
+            return node
+    return None
+
+
+def _num(value: Any, *paths: str) -> float | None:
+    return _to_number(_dig(value, *paths))
+
+
+def _scalar(value: Any) -> Any:
+    if isinstance(value, bool) or isinstance(value, (int, float, str)) or value is None:
+        return value
+    if isinstance(value, dict):
+        for key in ("value", "status", "text", "label", "overall"):
+            if key in value:
+                return _scalar(value[key])
+    return None
+
+
+def _avg(values: list[float | None]) -> float | None:
+    present = [value for value in values if value is not None]
+    return sum(present) / len(present) if present else None
+
+
+def _minutes(seconds: float | None) -> int | None:
+    return round(seconds / 60) if seconds else None
 
 class SportService:
     def __init__(self, db: AsyncSession, current_user: User):
@@ -136,7 +188,13 @@ class SportService:
                  "heart_rate": zones}, activities[:10], weekly, monthly, goals,
             )
             context["current_activity"] = deterministic
-            answer = await get_sport_ai_provider().answer("Analyse cette activité dans son contexte historique.", context)
+            answer = await get_sport_ai_provider().answer(
+                "Raconte-moi cette sortie comme si on la débriefait ensemble après : ce que ça raconte, "
+                "ce qui est passé bien, ce qui peut progresser, puis un conseil pour la prochaine fois. "
+                "Ton naturel de coach, en discutant — pas de tableau ni de liste de pourcentages. "
+                "Finis sur une note motivante avec une pointe d'humour.",
+                context,
+            )
             stored.ai_analysis_json = {"answer": answer.get("answer"), "provider": answer.get("provider"), "sources": answer.get("sources", [])}
             stored.ai_status = "available" if answer.get("available") else "unavailable"
             stored.ai_generated_at = datetime.now(timezone.utc)
@@ -262,6 +320,151 @@ class SportService:
             ),
         }
 
+    async def health(self, period_days: int = 28) -> dict:
+        """Séries de santé quotidiennes (Garmin) sur la période demandée."""
+        athlete = await self.get_or_create_athlete()
+        period_days = period_days if period_days in {7, 14, 28, 90} else 28
+        today = datetime.now(timezone.utc).date()
+        start = today - timedelta(days=period_days - 1)
+        result = await self.db.execute(
+            select(SportHealthDaily).where(
+                SportHealthDaily.athlete_id == athlete.id,
+                SportHealthDaily.day >= start,
+                SportHealthDaily.day <= today,
+            ).order_by(SportHealthDaily.day.asc())
+        )
+        rows = list(result.scalars().all())
+
+        series: dict[str, list[dict[str, Any]]] = {
+            "heart_rate": [], "sleep": [], "hrv": [], "stress": [], "body_battery": [],
+            "steps": [], "spo2": [], "respiration": [], "readiness": [],
+        }
+
+        def push(key: str, item: dict[str, Any]) -> None:
+            if any(value is not None for name, value in item.items() if name != "date"):
+                series[key].append(item)
+
+        for row in rows:
+            data = row.health_json or {}
+            day = row.day.isoformat()
+
+            heart_rates = data.get("heart_rates")
+            resting_hr = data.get("resting_hr")
+            resting = _num(resting_hr, "restingHR", "resting_hr", "rhr") or _num(heart_rates, "restingHR", "resting_hr")
+            if resting is None:
+                summaries = _dig(resting_hr, "metricSummaries")
+                if isinstance(summaries, list):
+                    for entry in summaries:
+                        candidate = _num(entry, "value")
+                        if candidate is not None:
+                            resting = candidate
+                            break
+            push("heart_rate", {
+                "date": day,
+                "resting": resting,
+                "avg": _num(heart_rates, "avgHR", "averageHR", "avgHeartRate"),
+                "max": _num(heart_rates, "maxHR", "max_hr", "maxHeartRate"),
+            })
+
+            sleep = data.get("sleep")
+            if sleep:
+                dto = _dig(sleep, "dailySleepDTO")
+                total = _num(sleep, "sleepTimeSeconds", "totalSleepSeconds") or _num(dto, "sleepTimeSeconds", "totalSleepSeconds")
+                score = (
+                    _num(sleep, "sleepScore", "overallScore", "score.value", "sleepScores.value", "sleepScores.overall.value")
+                    or _num(dto, "sleepScore", "score")
+                )
+                push("sleep", {
+                    "date": day,
+                    "total_minutes": round(total / 60) if total else None,
+                    "score": score,
+                    "deep_minutes": _minutes(_num(sleep, "deepSleepSeconds") or _num(dto, "deepSleepSeconds")),
+                    "light_minutes": _minutes(_num(sleep, "lightSleepSeconds") or _num(dto, "lightSleepSeconds")),
+                    "rem_minutes": _minutes(_num(sleep, "remSleepSeconds") or _num(dto, "remSleepSeconds")),
+                    "awake_minutes": _minutes(_num(sleep, "awakeTimeSeconds", "awakeSleepSeconds") or _num(dto, "awakeTimeSeconds")),
+                })
+
+            hrv = data.get("hrv")
+            if hrv:
+                push("hrv", {
+                    "date": day,
+                    "value": _num(hrv, "hrv", "hrvValue", "avgHrv", "avg", "averageHRV"),
+                    "status": _scalar(_dig(hrv, "status", "hrvStatus", "weeklyStatus")),
+                })
+
+            stress = data.get("stress")
+            if stress:
+                push("stress", {
+                    "date": day,
+                    "avg": _num(stress, "avgStressLevel", "averageStressLevel", "avgStress", "stressLevel"),
+                    "max": _num(stress, "maxStressLevel", "maximumStressLevel", "maxStress"),
+                })
+
+            body_battery = data.get("body_battery")
+            if body_battery:
+                source = body_battery
+                if isinstance(body_battery, list):
+                    source = body_battery[0] if body_battery else {}
+                values = source.get("bodyBatteryValuesArray") if isinstance(source, dict) else None
+                numbers = [_to_number(value) for value in values] if isinstance(values, list) else []
+                numbers = [value for value in numbers if value is not None]
+                push("body_battery", {
+                    "date": day,
+                    "min": min(numbers) if numbers else _num(source, "bodyBattery", "value", "score"),
+                    "max": max(numbers) if numbers else None,
+                    "last": numbers[-1] if numbers else _num(source, "bodyBattery", "value", "score"),
+                })
+
+            daily_steps = data.get("daily_steps")
+            if isinstance(daily_steps, list):
+                daily_steps = daily_steps[0] if daily_steps else None
+            daily_summary = data.get("daily_summary")
+            push("steps", {
+                "date": day,
+                "steps": _num(daily_steps, "steps", "stepValue") or _num(daily_summary, "steps", "stepValue"),
+                "calories": _num(daily_summary, "calories", "totalCalories"),
+                "moderate_minutes": _num(daily_summary, "moderateActivityMinutes"),
+                "vigorous_minutes": _num(daily_summary, "vigorousActivityMinutes"),
+            })
+
+            spo2 = data.get("spo2")
+            if spo2:
+                push("spo2", {"date": day, "value": _num(spo2, "averageSpO2", "avgSpO2", "spo2Average", "averageSpo2", "spo2", "value")})
+
+            respiration = data.get("respiration")
+            if respiration:
+                push("respiration", {"date": day, "value": _num(respiration, "avgWakingRespirationValue", "averageRespirationValue", "avgRespirationValue", "respirationValue", "avg", "value")})
+
+            readiness = data.get("readiness")
+            if readiness:
+                push("readiness", {
+                    "date": day,
+                    "score": _num(readiness, "score", "trainingReadinessScore", "readinessScore", "value"),
+                    "status": _scalar(_dig(readiness, "status", "trainingStatus")),
+                })
+
+        summary = {
+            "days_with_data": len(rows),
+            "resting_hr_avg": _avg([item.get("resting") for item in series["heart_rate"]]),
+            "sleep_total_avg_minutes": _avg([item.get("total_minutes") for item in series["sleep"]]),
+            "sleep_score_avg": _avg([item.get("score") for item in series["sleep"]]),
+            "hrv_avg": _avg([item.get("value") for item in series["hrv"]]),
+            "stress_avg": _avg([item.get("avg") for item in series["stress"]]),
+            "body_battery_last": series["body_battery"][-1].get("last") if series["body_battery"] else None,
+            "steps_avg": _avg([item.get("steps") for item in series["steps"]]),
+            "spo2_avg": _avg([item.get("value") for item in series["spo2"]]),
+            "respiration_avg": _avg([item.get("value") for item in series["respiration"]]),
+            "readiness_last": series["readiness"][-1].get("score") if series["readiness"] else None,
+        }
+        return {
+            "period_days": period_days,
+            "period_start": start,
+            "period_end": today,
+            "days_available": len(rows),
+            "summary": summary,
+            "series": series,
+        }
+
     async def analyze_period(self, period_days: int = 28) -> dict:
         athlete = await self.get_or_create_athlete()
         period_days = period_days if period_days in {7, 28, 90, 365} else 28
@@ -368,6 +571,29 @@ class SportService:
             (athlete.metadata_json or {}).get("heart_rate_zones"),
         )
 
+    async def build_coach_context(self, athlete) -> dict:
+        """Construit le contexte de données (activités, périsodes, objectifs) utilisé par le coach IA."""
+        today = datetime.now(timezone.utc).date()
+        start = today - timedelta(days=27)
+        result = await self.db.execute(
+            select(SportActivity).where(
+                SportActivity.athlete_id == athlete.id,
+                SportActivity.started_at >= datetime.combine(today - timedelta(days=120), datetime.min.time()),
+            ).order_by(SportActivity.started_at.desc())
+        )
+        activities = list(result.scalars().all())
+        zones = (athlete.metadata_json or {}).get("heart_rate_zones")
+        weekly = SportAnalysisEngine.analyze_period(activities, start, today, today - timedelta(days=55), zones)
+        monthly = SportAnalysisEngine.analyze_period(activities, today - timedelta(days=89), today, today - timedelta(days=179), zones)
+        goals_result = await self.db.execute(select(SportGoal).where(SportGoal.athlete_id == athlete.id))
+        goals = [{"name": goal.name, "goal_type": goal.goal_type, "target_value": goal.target_value, "unit": goal.unit, "target_date": goal.target_date} for goal in goals_result.scalars().all()]
+        profile = SportAnalysisEngine.athlete_profile(activities, goals)
+        profile["goal_analysis"] = SportAnalysisEngine.analyze_goals(goals, activities, today)
+        return SportAnalysisEngine.build_context(
+            {"display_name": athlete.display_name, "profile": profile, "heart_rate": (athlete.metadata_json or {}).get("heart_rate_zones")},
+            activities[:10], weekly, monthly, goals,
+        )
+
     async def coach(self, question: str, conversation_id: int | None = None) -> dict:
         athlete = await self.get_or_create_athlete()
         conversation = None
@@ -385,26 +611,7 @@ class SportService:
 
         self.db.add(SportCoachMessage(conversation_id=conversation.id, role="user", content=question, sources_json=[]))
         await self.db.flush()
-        today = datetime.now(timezone.utc).date()
-        start = today - timedelta(days=27)
-        result = await self.db.execute(
-            select(SportActivity).where(
-                SportActivity.athlete_id == athlete.id,
-                SportActivity.started_at >= datetime.combine(today - timedelta(days=120), datetime.min.time()),
-            ).order_by(SportActivity.started_at.desc())
-        )
-        activities = list(result.scalars().all())
-        zones = (athlete.metadata_json or {}).get("heart_rate_zones")
-        weekly = SportAnalysisEngine.analyze_period(activities, start, today, today - timedelta(days=55), zones)
-        monthly = SportAnalysisEngine.analyze_period(activities, today - timedelta(days=89), today, today - timedelta(days=179), zones)
-        goals_result = await self.db.execute(select(SportGoal).where(SportGoal.athlete_id == athlete.id))
-        goals = [{"name": goal.name, "goal_type": goal.goal_type, "target_value": goal.target_value, "unit": goal.unit, "target_date": goal.target_date} for goal in goals_result.scalars().all()]
-        profile = SportAnalysisEngine.athlete_profile(activities, goals)
-        profile["goal_analysis"] = SportAnalysisEngine.analyze_goals(goals, activities, today)
-        context = SportAnalysisEngine.build_context(
-            {"display_name": athlete.display_name, "profile": profile, "heart_rate": (athlete.metadata_json or {}).get("heart_rate_zones")},
-            activities[:10], weekly, monthly, goals,
-        )
+        context = await self.build_coach_context(athlete)
         result = await get_sport_ai_provider().answer(question, context)
         assistant_message = SportCoachMessage(
             conversation_id=conversation.id,

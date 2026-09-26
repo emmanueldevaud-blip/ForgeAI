@@ -64,6 +64,16 @@ class AgendaPresenceUpsert(BaseModel):
     period: AgendaPeriod = "full"
 
 
+class AgendaAutoAssignRequest(BaseModel):
+    start_date: date
+    end_date: date
+
+
+class AgendaAutoAssignResponse(BaseModel):
+    created: int = 0
+    skipped: int = 0
+
+
 class AgendaExternalPresenceCreate(BaseModel):
     presence_date: date
     room_id: int

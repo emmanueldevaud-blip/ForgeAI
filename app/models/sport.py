@@ -185,3 +185,20 @@ class SportGarminSyncLog(Base):
     status: Mapped[str] = mapped_column(String(30), nullable=False)
     imported_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+class SportHealthDaily(Base):
+    __tablename__ = "sport_health_daily"
+    __table_args__ = (
+        Index("uq_sport_health_daily", "athlete_id", "day", "source_type", unique=True),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    athlete_id: Mapped[int] = mapped_column(ForeignKey("sport_athletes.id", ondelete="CASCADE"), nullable=False, index=True)
+    day: Mapped[date] = mapped_column(Date, nullable=False, index=True)
+    source_type: Mapped[str] = mapped_column(String(30), nullable=False, default="garmin")
+    health_json: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
+    athlete: Mapped["SportAthlete"] = relationship("SportAthlete")

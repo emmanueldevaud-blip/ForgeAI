@@ -85,6 +85,7 @@ export class UserTable {
       { key: 'username', label: 'Utilisateur', sortable: true },
       { key: 'name', label: 'Nom', sortable: true },
       { key: 'email', label: 'Email', sortable: true },
+      { key: 'phone', label: 'Téléphone', sortable: false },
       { key: 'source', label: 'Source', sortable: true },
       { key: 'status', label: 'Statut', sortable: true },
       { key: 'last_login', label: 'Dernière connexion', sortable: true },
@@ -116,6 +117,7 @@ export class UserTable {
         </td>
         <td>${this._escapeHtml(fullName)}</td>
         <td>${this._escapeHtml(user.email)}</td>
+        <td>${this._escapeHtml(user.phone || '—')}</td>
         <td>${this._getSourceBadge(user.source)}</td>
         <td>${this._getStatusBadge(user.is_active)}</td>
         <td>${lastLogin}</td>

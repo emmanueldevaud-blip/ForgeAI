@@ -1,5 +1,8 @@
 from typing import Optional
 
+import logging
+import re
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -56,6 +59,10 @@ from app.services.audit import get_audit_service
 from app.services.ai_gateway import AIGatewayError, ai_gateway
 from app.services.rbac import RBACService
 from app.services.maintenance import MaintenanceService
+from app.services.sport import SportService
+from app.services.sport_ai import get_sport_ai_provider
+
+logger = logging.getLogger(__name__)
 
 MODULE_PERMISSION_MAP = {
     "maintenance": "maintenance.view",
@@ -693,6 +700,26 @@ AI_CHAT_SYSTEM_PROMPT = (
     "façon claire et concise."
 )
 
+# Lorsque la question évoque le sport, l'assistant répond via le coach IA du
+# module Sport, qui dispose réellement des données de l'athlète.
+_SPORT_QUESTION_RE = re.compile(
+    r"sport|activit|entraînement|entrainement|séance|seance|sorti|footing|running|"
+    r"course|vélo|velo|cardio|fréquence|frequence|musculation|natation|"
+    r"coach|objectif|dénivelé|denivele|\bkm\b",
+    re.IGNORECASE,
+)
+
+
+async def _build_sport_context(db: AsyncSession, user: User) -> dict | None:
+    """Contexte du coach sport pour l'utilisateur, ou None si indisponible."""
+    try:
+        service = SportService(db, user)
+        athlete = await service.get_or_create_athlete()
+        return await service.build_coach_context(athlete)
+    except Exception:
+        logger.warning("[AI-CHAT] Contexte sport indisponible", exc_info=True)
+        return None
+
 
 MODULE_PERMISSION_MAP = {
     "maintenance": "maintenance.view",
@@ -756,12 +783,25 @@ async def ai_chat(
     history = [{"role": m.role, "content": m.content} for m in prior_messages]
     history.append({"role": "user", "content": data.message})
 
+    sport_context = None
+    if _SPORT_QUESTION_RE.search(data.message) and await RBACService(db).user_has_permission(current_user, "sport.access"):
+        sport_context = await _build_sport_context(db, current_user)
+
     try:
-        ai_response = await ai_gateway.generate(
-            history=history,
-            system_prompt=AI_CHAT_SYSTEM_PROMPT,
-            max_tokens=AI_CHAT_MAX_TOKENS,
-        )
+        if sport_context is not None:
+            sport_result = await get_sport_ai_provider().answer(data.message, sport_context)
+            ai_text = sport_result.get("answer")
+            ai_model = sport_result.get("provider")
+            ai_tokens = None
+        else:
+            ai_response = await ai_gateway.generate(
+                history=history,
+                system_prompt=AI_CHAT_SYSTEM_PROMPT,
+                max_tokens=AI_CHAT_MAX_TOKENS,
+            )
+            ai_text = ai_response.text
+            ai_model = ai_response.model_used
+            ai_tokens = ai_response.tokens_output
     except AIGatewayError as exc:
         await db.rollback()
         raise HTTPException(status_code=502, detail=str(exc)) from exc
@@ -774,16 +814,16 @@ async def ai_chat(
     db.add(AIMessage(
         conversation_id=conversation.id,
         role="assistant",
-        content=ai_response.text,
-        model=ai_response.model_used,
-        tokens_used=ai_response.tokens_output,
+        content=ai_text,
+        model=ai_model,
+        tokens_used=ai_tokens,
     ))
     await db.commit()
 
     return AIChatResponse(
-        response=ai_response.text,
+        response=ai_text,
         conversation_id=conversation.id,
-        model=ai_response.model_used,
+        model=ai_model,
     )
 
 

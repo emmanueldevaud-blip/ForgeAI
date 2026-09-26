@@ -1,4 +1,4 @@
-import { analyzeSportActivity, listSportActivities } from '../services/sportApi.js?v=2';
+import { analyzeSportActivity, listSportActivities } from '../services/sportApi.js?v=4';
 
 export class SportActivitiesPage {
   constructor() { this.element = null; this.items = []; this.loading = true; this.error = null; }
@@ -27,22 +27,30 @@ export class SportActivitiesPage {
     const result = this.element.querySelector(`[data-result="${button.dataset.analyze}"]`);
     button.disabled = true;
     result.hidden = false;
-    result.querySelector('td').textContent = 'Analyse en cours...';
+    const cell = result.querySelector('td');
+    cell.textContent = 'Analyse en cours...';
     try {
-      const analysis = await analyzeSportActivity(button.dataset.analyze);
+      let analysis = await analyzeSportActivity(button.dataset.analyze);
+      let ai = analysis?.ai_analysis;
+      // L'IA se génère en tâche de fond: on attend que la réponse arrive.
+      for (let attempt = 0; attempt < 20 && ai?.status !== 'available' && (ai?.status === 'pending' || !ai?.status); attempt++) {
+        cell.textContent = 'Le coach IA analyse ton activité…';
+        await new Promise(resolve => setTimeout(resolve, 2000));
+        analysis = await analyzeSportActivity(button.dataset.analyze);
+        ai = analysis?.ai_analysis;
+      }
       const observations = analysis.observations?.length ? analysis.observations.join(' ') : 'Aucun point remarquable calculable.';
       const drift = analysis.cardiac_drift ? ` Dérive cardiaque calculée : ${analysis.cardiac_drift.percent}%.` : '';
-      const ai = analysis.ai_analysis;
       const aiText = ai?.status === 'available' && ai.result?.answer
         ? ` Analyse IA : ${ai.result.answer}`
-        : ai?.status === 'pending'
-          ? ' Analyse IA en cours, recharge cette analyse dans quelques instants.'
+        : ai?.status === 'pending' || !ai?.status
+          ? ' Analyse IA en cours de génération, réessaie dans un instant.'
           : ai?.status === 'unavailable'
             ? ' Analyse IA temporairement indisponible; les calculs déterministes restent disponibles.'
             : '';
-      result.querySelector('td').textContent = `${observations}${drift}${aiText}`;
+      cell.textContent = `${observations}${drift}${aiText}`;
     } catch (error) {
-      result.querySelector('td').textContent = 'Analyse indisponible pour cette activité.';
+      cell.textContent = 'Analyse indisponible pour cette activité.';
     } finally {
       button.disabled = false;
     }

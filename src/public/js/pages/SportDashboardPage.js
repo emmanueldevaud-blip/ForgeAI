@@ -1,4 +1,4 @@
-import { askSportCoach, getSportAthleteProfile, getSportCoachConversation, getSportDashboard, listSportCoachConversations, updateSportHeartRateConfig } from '../services/sportApi.js?v=3';
+import { askSportCoach, getSportAthleteProfile, getSportCoachConversation, getSportDashboard, listSportCoachConversations, updateSportHeartRateConfig } from '../services/sportApi.js?v=4';
 
 const PERIODS = [
   { value: 7, label: '7 jours' },

@@ -1,4 +1,4 @@
-import { connectGarmin, disconnectGarmin, getGarminConnection, syncGarmin } from '../services/sportApi.js?v=2';
+import { connectGarmin, disconnectGarmin, getGarminConnection, syncGarmin } from '../services/sportApi.js?v=4';
 
 export class SportGarminPage {
   constructor() { this.element = null; this.connection = null; }

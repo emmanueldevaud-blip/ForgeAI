@@ -12,6 +12,13 @@ export async function upsertMyPresence(payload) {
   return agendaApi.post('/presences', payload);
 }
 
+export async function autoAssignMyPresences(startDate, endDate) {
+  return agendaApi.post('/presences/auto-assign', {
+    start_date: startDate,
+    end_date: endDate,
+  });
+}
+
 export async function createExternalPresence(payload) {
   return agendaApi.post('/presences/external', payload);
 }

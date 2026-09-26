@@ -23,7 +23,7 @@ export class UserModal {
 
 
 
-    const { UserForm } = await import('./UserForm.js');
+    const { UserForm } = await import('./UserForm.js?v=3');
 
     this._createModal();
     this._renderForm(options, UserForm);

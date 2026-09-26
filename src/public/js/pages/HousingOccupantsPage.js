@@ -203,17 +203,6 @@ export class HousingOccupantsPage {
                 <label><span>Email *</span><input type="email" name="email" value="${isEdit ? (occupant.email || '') : ''}" required maxlength="200"></label>
                 <label><span>Telephone *</span><input name="phone" value="${isEdit ? (occupant.phone || '') : ''}" required maxlength="50"></label>
               </div>
-              <div class="form-row">
-                <label><span>Utilisateur AD</span>
-                  <select name="ad_user_select" class="form-control" id="adUserSelect" disabled>
-                    <option value="">Chargement des utilisateurs AD...</option>
-                  </select>
-                  <input type="hidden" name="ad_dn" id="ad_dn_input" value="${isEdit ? (occupant.ad_dn || '') : ''}" maxlength="500">
-                </label>
-              </div>
-              <div id="adUsersEmpty" style="display:none; margin-top: 8px; color: var(--color-text-tertiary);">
-                Aucun utilisateur AD trouvé
-              </div>
             </form>
           </div>
           <div class="modal-footer">
@@ -230,8 +219,6 @@ export class HousingOccupantsPage {
     });
     modal.addEventListener('click', (e) => { if (e.target === modal) modal.remove(); });
 
-    this._loadAdUsers(modal, occupant);
-
     modal.querySelector('[data-action="save"]')?.addEventListener('click', async () => {
       const form = modal.querySelector('[data-form]');
       const fd = new FormData(form);
@@ -240,8 +227,6 @@ export class HousingOccupantsPage {
         if (v === '') continue;
         data[k] = v;
       }
-      delete data.ad_user_select;
-      data.ad_dn = data.ad_dn || null;
       if (!data.first_name || !data.last_name || !data.email || !data.phone) {
         alert('Les champs Nom, Prenom, Telephone et Email sont obligatoires');
         return;
@@ -259,62 +244,6 @@ export class HousingOccupantsPage {
         alert(e.message || 'Erreur lors de la sauvegarde');
       }
     });
-  }
-
-  async _loadAdUsers(modal, occupant) {
-    const select = modal.querySelector('#adUserSelect');
-    const emptyDiv = modal.querySelector('#adUsersEmpty');
-    const adDnInput = modal.querySelector('#ad_dn_input');
-    if (!select || !emptyDiv || !adDnInput) return;
-
-    try {
-      const { listUsers } = await import('../services/adminApi.js');
-      const response = await listUsers({ source: 'ad', page_size: 100 });
-      const users = (response && response.users) || (Array.isArray(response) ? response : []);
-
-      if (users.length === 0) {
-        select.innerHTML = '<option value="">Aucun utilisateur AD trouvé</option>';
-        select.disabled = true;
-        emptyDiv.style.display = 'block';
-        return;
-      }
-
-      select.disabled = false;
-      emptyDiv.style.display = 'none';
-      select.innerHTML = '';
-      const placeholder = document.createElement('option');
-      placeholder.value = '';
-      placeholder.textContent = '-- Choisir un utilisateur AD --';
-      select.appendChild(placeholder);
-
-      users.forEach((user) => {
-        const option = document.createElement('option');
-        option.value = user.ad_dn || '';
-        option.dataset.userInfo = JSON.stringify({
-          id: user.id,
-          username: user.username,
-          first_name: user.first_name,
-          last_name: user.last_name,
-          email: user.email,
-          ad_dn: user.ad_dn || null,
-        });
-        option.textContent = `${user.first_name || user.username} ${user.last_name || ''} (AD)`;
-        select.appendChild(option);
-      });
-
-      if (occupant && occupant.ad_dn) {
-        select.value = occupant.ad_dn;
-      }
-
-      select.addEventListener('change', () => {
-        adDnInput.value = select.value || '';
-      });
-    } catch (e) {
-      console.error('Erreur chargement utilisateurs AD:', e);
-      emptyDiv.style.display = 'block';
-      select.innerHTML = '<option value="">Erreur chargement</option>';
-      select.disabled = true;
-    }
   }
 
   async _deleteOccupant(occupant) {

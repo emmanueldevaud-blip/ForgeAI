@@ -13,7 +13,13 @@ import {
   updateAdConfig,
   updateAdMapping,
 } from '../services/adApi.js';
-import { listRoles } from '../services/adminApi.js';
+import { listRoles, listUsers } from '../services/adminApi.js';
+import {
+  listOccupants,
+  listVolunteers,
+  updateOccupant,
+  updateVolunteer,
+} from '../services/housingApi.js';
 import { ConfirmDialog } from '../components/ConfirmDialog.js';
 
 const DEFAULT_CONFIG = {
@@ -38,10 +44,90 @@ export class ActiveDirectoryPage {
     this.modalKeydown = null;
     this.lastFocusedElement = null;
     this.notice = null;
+    this.linkOccupants = [];
+    this.linkVolunteers = [];
+    this.linkAdUsers = [];
+    this.linksLoading = false;
+    this.linksError = null;
   }
 
   async initialize() {
-    await this.refreshConfigs();
+    await Promise.all([this.refreshConfigs(), this.refreshLinks()]);
+  }
+
+  async refreshLinks() {
+    this.linksLoading = true;
+    this.linksError = null;
+    try {
+      const [occ, vol, usersResp] = await Promise.all([
+        listOccupants({ page: 1, page_size: 500, sort_by: 'last_name', sort_order: 'asc' }),
+        listVolunteers({ skip: 0, limit: 500 }),
+        listUsers({ source: 'ad', page_size: 500 }),
+      ]);
+      this.linkOccupants = occ?.items || [];
+      this.linkVolunteers = Array.isArray(vol) ? vol : (vol?.items || []);
+      const users = usersResp?.users || (Array.isArray(usersResp) ? usersResp : []);
+      this.linkAdUsers = users.filter(u => u.ad_dn);
+    } catch (error) {
+      this.linksError = `Impossible de charger les liaisons AD : ${this.safeMessage(error.message)}`;
+    } finally {
+      this.linksLoading = false;
+      this.render();
+    }
+  }
+
+  renderLinkOptions(selectedDn) {
+    const options = ['<option value="">— Non lié —</option>'];
+    const seen = new Set();
+    for (const user of this.linkAdUsers) {
+      if (!user.ad_dn) continue;
+      const name = [user.first_name, user.last_name].filter(Boolean).join(' ') || user.username;
+      options.push(`<option value="${this.escape(user.ad_dn)}"${user.ad_dn === selectedDn ? ' selected' : ''}>${this.escape(`${name} (${user.username})`)}</option>`);
+      seen.add(user.ad_dn);
+    }
+    if (selectedDn && !seen.has(selectedDn)) {
+      options.push(`<option value="${this.escape(selectedDn)}" selected>${this.escape(selectedDn)} — introuvable</option>`);
+    }
+    return options.join('');
+  }
+
+  renderLinkRow(type, id, name, adDn) {
+    return `
+      <div class="ad-link-row">
+        <span class="ad-link-row__name">${this.escape(name)}</span>
+        <select class="form-control ad-link-row__select" data-link-type="${type}" data-link-id="${id}">
+          ${this.renderLinkOptions(adDn)}
+        </select>
+      </div>`;
+  }
+
+  renderLinksSection() {
+    const body = this.linksLoading
+      ? '<div class="ad-empty-state ad-load-state" role="status">Chargement des liaisons…</div>'
+      : this.linksError
+        ? `<div class="ad-empty-state ad-load-error" role="alert">${this.escape(this.linksError)}</div>`
+        : `<div class="ad-links-columns">
+            <div class="ad-links-column">
+              <h3>Occupants (${this.linkOccupants.length})</h3>
+              ${this.linkOccupants.length
+                ? this.linkOccupants.map(o => this.renderLinkRow('occupant', o.id, `${o.first_name} ${o.last_name}`, o.ad_dn)).join('')
+                : '<p class="ad-links-empty">Aucun occupant</p>'}
+            </div>
+            <div class="ad-links-column">
+              <h3>Volontaires (${this.linkVolunteers.length})</h3>
+              ${this.linkVolunteers.length
+                ? this.linkVolunteers.map(v => this.renderLinkRow('volunteer', v.id, `${v.first_name} ${v.last_name}`, v.ad_dn)).join('')
+                : '<p class="ad-links-empty">Aucun volontaire</p>'}
+            </div>
+          </div>`;
+    return `
+      <section class="ad-links-section">
+        <header class="ad-links-header">
+          <h2>Liaison AD — Occupants &amp; Volontaires</h2>
+          <p>Associez chaque occupant et volontaire à son compte Active Directory (utilisé notamment pour les présences automatiques de l'agenda).</p>
+        </header>
+        ${body}
+      </section>`;
   }
 
   async refreshConfigs() {
@@ -104,6 +190,7 @@ export class ActiveDirectoryPage {
       </header>
       ${notice}
       <div class="ad-config-cards">${content}</div>
+      ${this.renderLinksSection()}
     `;
 
     this.bindPageEvents();
@@ -144,6 +231,26 @@ export class ActiveDirectoryPage {
 
   bindPageEvents() {
     this.element.querySelectorAll('[data-action="create-config"]').forEach(button => button.addEventListener('click', () => this.openConfigModal()));
+    this.element.querySelectorAll('[data-link-type]').forEach(select => {
+      select.addEventListener('change', async () => {
+        const type = select.dataset.linkType;
+        const id = Number(select.dataset.linkId);
+        const dn = select.value || null;
+        select.disabled = true;
+        try {
+          if (type === 'occupant') {
+            await updateOccupant(id, { ad_dn: dn });
+          } else {
+            await updateVolunteer(id, { ad_dn: dn });
+          }
+          this.setNotice('success', dn ? 'Liaison AD enregistrée' : 'Liaison AD supprimée');
+          await this.refreshLinks();
+        } catch (error) {
+          select.disabled = false;
+          this.setNotice('error', this.safeMessage(error.message));
+        }
+      });
+    });
     this.element.querySelectorAll('[data-config-id]').forEach(button => {
       const id = Number(button.dataset.configId);
       const action = button.dataset.action;

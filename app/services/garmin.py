@@ -2,6 +2,7 @@ import asyncio
 import base64
 import hashlib
 import json
+import logging
 import os
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
@@ -14,8 +15,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.core.config import get_settings
-from app.models.sport import SportActivity, SportAthlete, SportGarminConnection, SportGarminSyncLog, SportTrackPoint
+from app.models.sport import SportActivity, SportAthlete, SportGarminConnection, SportGarminSyncLog, SportHealthDaily, SportTrackPoint
 from app.services.sport_normalizer import SportNormalizer
+
+logger = logging.getLogger(__name__)
 
 
 class GarminMFARequired(Exception):
@@ -30,6 +33,26 @@ class SportGarminConnectService:
     """Garmin Connect integration owned exclusively by the Sport module."""
 
     _sync_lock = asyncio.Lock()
+
+    # Fenêtre maximale récupérée pour les données de santé quotidiennes.
+    _HEALTH_MAX_DAYS = 31
+    # Données journalières : une appelée par jour (méthodes Garmin prenant une date).
+    _HEALTH_DAILY_CALLS: tuple[tuple[str, str], ...] = (
+        ("heart_rates", "get_heart_rates"),
+        ("resting_hr", "get_rhr_day"),
+        ("sleep", "get_sleep_data"),
+        ("hrv", "get_hrv_data"),
+        ("stress", "get_stress_data"),
+        ("spo2", "get_spo2_data"),
+        ("respiration", "get_respiration_data"),
+        ("readiness", "get_training_readiness"),
+        ("daily_summary", "get_user_summary"),
+    )
+    # Données récupérées en un seul appel sur toute la fenêtre, puis réparties par jour.
+    _HEALTH_RANGE_CALLS: tuple[tuple[str, str], ...] = (
+        ("body_battery", "get_body_battery"),
+        ("daily_steps", "get_daily_steps"),
+    )
 
     def __init__(self, db: AsyncSession):
         self.db = db
@@ -153,6 +176,14 @@ class SportGarminConnectService:
             log.imported_count = imported
             log.finished_at = datetime.now(timezone.utc)
             await self.db.commit()
+            try:
+                # Les données de santé sont optionnelles : un échec ne remet jamais
+                # en cause la synchronisation des activités déjà enregistrées.
+                await self._sync_health(client, athlete, start_date)
+                await self.db.commit()
+            except Exception:
+                await self.db.rollback()
+                logger.warning("[GARMIN] Synchronisation santé échouée (activités conservées)", exc_info=True)
             return {"status": "success", "imported_count": imported, "last_sync_at": connection.last_sync_at}
         except Exception as exc:
             message = self._safe_sync_error(exc)
@@ -165,6 +196,106 @@ class SportGarminConnectService:
             log.finished_at = datetime.now(timezone.utc)
             await self.db.commit()
             raise GarminServiceError(message) from exc
+
+    async def _sync_health(self, client, athlete: SportAthlete, start_date: date) -> None:
+        """Récupère les données de santé quotidiennes dans sport_health_daily.
+
+        Chaque appel est isolé : une donnée Garmin indisponible ne bloque jamais.
+        Les jours déjà synchronisés ne sont pas rappelés, sauf aujourd'hui et
+        hier (données en cours de journée).
+        """
+        today = date.today()
+        earliest = max(start_date, today - timedelta(days=self._HEALTH_MAX_DAYS - 1))
+        if earliest > today:
+            return
+
+        existing_result = await self.db.execute(
+            select(SportHealthDaily.day).where(
+                SportHealthDaily.athlete_id == athlete.id,
+                SportHealthDaily.day >= earliest,
+                SportHealthDaily.day <= today,
+            )
+        )
+        existing_days = set(existing_result.scalars().all())
+        fresh_limit = today - timedelta(days=1)
+        total_days = (today - earliest).days + 1
+        days_to_sync = [
+            day for day in (earliest + timedelta(days=offset) for offset in range(total_days))
+            if day not in existing_days or day >= fresh_limit
+        ]
+        if not days_to_sync:
+            return
+
+        rows_result = await self.db.execute(
+            select(SportHealthDaily).where(
+                SportHealthDaily.athlete_id == athlete.id,
+                SportHealthDaily.day >= earliest,
+                SportHealthDaily.day <= today,
+            )
+        )
+        rows_by_day = {row.day: row for row in rows_result.scalars().all()}
+
+        range_by_day: dict[str, dict[date, list]] = {}
+        for key, method in self._HEALTH_RANGE_CALLS:
+            call = getattr(client, method, None)
+            if call is None:
+                continue
+            values = await self._safe_garmin_call(call, earliest.isoformat(), today.isoformat())
+            if not isinstance(values, list):
+                continue
+            bucket: dict[date, list] = {}
+            for item in values:
+                item_day = self._health_item_day(item)
+                if item_day is not None:
+                    bucket.setdefault(item_day, []).append(item)
+            if bucket:
+                range_by_day[key] = bucket
+
+        for day in days_to_sync:
+            day_iso = day.isoformat()
+            payload: dict[str, Any] = {}
+            for key, method in self._HEALTH_DAILY_CALLS:
+                call = getattr(client, method, None)
+                if call is None:
+                    continue
+                response = await self._safe_garmin_call(call, day_iso)
+                if response:
+                    payload[key] = response
+            for key, bucket in range_by_day.items():
+                items = bucket.get(day) or []
+                if items:
+                    payload[key] = items[0] if len(items) == 1 else items
+            if not payload:
+                continue
+            row = rows_by_day.get(day)
+            if row is None:
+                self.db.add(SportHealthDaily(
+                    athlete_id=athlete.id,
+                    day=day,
+                    source_type="garmin",
+                    health_json=payload,
+                ))
+            else:
+                # On ne remplace jamais une donnée existante par une valeur vide.
+                merged = dict(row.health_json or {})
+                for key, value in payload.items():
+                    if value:
+                        merged[key] = value
+                row.health_json = merged
+        await self.db.flush()
+
+    @staticmethod
+    def _health_item_day(item: Any) -> date | None:
+        if not isinstance(item, dict):
+            return None
+        for key in ("calendarDate", "date", "day", "dateTime"):
+            raw = item.get(key)
+            if isinstance(raw, str) and len(raw) >= 10:
+                try:
+                    return date.fromisoformat(raw[:10])
+                except ValueError:
+                    continue
+        return None
 
     async def _client_from_connection(self, connection: SportGarminConnection):
         Garmin = self._garmin_class()

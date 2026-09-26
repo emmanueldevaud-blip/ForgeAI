@@ -1,4 +1,5 @@
 import hashlib
+import re
 if "md4" not in hashlib.algorithms_available:
     try:
         import ctypes as _ct
@@ -60,6 +61,7 @@ if "md4" not in hashlib.algorithms_available:
     except Exception:
         pass
 
+from collections import defaultdict
 from datetime import UTC, datetime
 
 from ldap3 import ALL, NTLM, SIMPLE, SUBTREE, Connection, Server
@@ -71,7 +73,18 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.core.config import get_settings
-from app.models import ADConfig, ADSyncLog, ADSyncStatus, Group, GroupRole, Role, User, UserGroup
+from app.models import (
+    ADConfig,
+    ADSyncLog,
+    ADSyncStatus,
+    Group,
+    GroupRole,
+    Occupant,
+    Role,
+    User,
+    UserGroup,
+    Volunteer,
+)
 from app.services.audit import AuditService, get_audit_service
 
 settings = get_settings()
@@ -283,6 +296,26 @@ class DatabaseADService:
         first_part = group_dn.split(",", 1)[0]
         return first_part[3:] if first_part.casefold().startswith("cn=") else group_dn
 
+    def _group_matches_config(self, group_dn: str, config: ADConfig) -> bool:
+        """Limit AD groups to the configured search base and cn filter.
+
+        User memberOf entries may point to any AD group; only groups inside the
+        configured scope (and matching the cn filter when present) are imported.
+        """
+        dn = group_dn.casefold()
+        base = (config.group_search_base or "").strip().casefold()
+        if base and not (dn == base or dn.endswith("," + base)):
+            return False
+        filter_expr = (config.group_search_filter or "").strip()
+        match = re.search(r"\(cn=([^)]+)\)", filter_expr, flags=re.IGNORECASE)
+        if match:
+            pattern = match.group(1)
+            cn = self._group_cn(group_dn).casefold()
+            if pattern.endswith("*"):
+                return cn.startswith(pattern[:-1].casefold())
+            return cn == pattern.casefold()
+        return True
+
     def _matching_mappings(self, group_dn: str, config: ADConfig):
         group_cn = self._group_cn(group_dn).casefold()
         normalized_dn = group_dn.casefold()
@@ -307,6 +340,8 @@ class DatabaseADService:
         """Upsert only AD-owned groups; local groups are never repurposed."""
         groups: dict[str, Group] = {}
         for group_dn in dict.fromkeys(group_dns):
+            if not self._group_matches_config(group_dn, config):
+                continue
             result = await self.db.execute(select(Group).where(Group.ad_dn == group_dn))
             group = result.scalar_one_or_none()
             group_cn = self._group_cn(group_dn)
@@ -370,6 +405,9 @@ class DatabaseADService:
             )
 
     async def sync_users(self, config: ADConfig) -> ADSyncLog:
+        # Mappings must be loaded eagerly: _matching_mappings() is sync and an
+        # unloaded lazy attribute raises MissingGreenlet on async sessions.
+        await self.db.refresh(config, ["group_mappings"])
         sync_log = ADSyncLog(
             ad_config_id=config.id,
             status=ADSyncStatus.RUNNING,
@@ -461,41 +499,57 @@ class DatabaseADService:
             # ------------------------------------------------------------------
             # PHASE 2 : synchronisation des utilisateurs
             # ------------------------------------------------------------------
-            if group_phase and filtered_member_dns:
-                # Construire un filtre qui croise user_search_filter et la liste
-                # des membres.  LDAP impose de passer par un OU logique, on
-                # utilise le DN du membre comme recherche directe.
+            if group_phase and found_group_dns:
+                # Recherche des utilisateurs membres d'un des groupes trouves,
+                # directement ou par imbrication de groupes, via la regle
+                # in-chain AD (LDAP_MATCHING_RULE_IN_CHAIN).
                 user_search_base = config.user_dn or config.base_dn
                 user_base_filter = config.user_search_filter.format(username='*')
+                user_attributes = ["distinguishedName", "sAMAccountName", "mail", "telephoneNumber", "mobile", "givenName", "sn", "memberOf", "userAccountControl"]
                 users_processed = 0
                 users_created = 0
                 users_updated = 0
                 users_deactivated = 0
 
-                # Recherche par blocs pour éviter les filtres LDAP trop longs
-                member_list = list(filtered_member_dns)
-                chunk_size = 50
-                for i in range(0, len(member_list), chunk_size):
-                    chunk = member_list[i:i + chunk_size]
-                    dn_filters = "".join(f"(distinguishedName={dn})" for dn in chunk)
-                    search_filter = f"(&{user_base_filter}(|{dn_filters}))"
-
+                # Appartenance : user_dn -> groupes AD dont il est membre
+                # (directement ou transitivement).
+                group_dns_by_user: dict[str, set[str]] = {}
+                for group_dn in sorted(found_group_dns):
                     admin_conn.search(
                         search_base=user_search_base,
-                        search_filter=search_filter,
+                        search_filter=(
+                            f"(&{user_base_filter}"
+                            f"(memberOf:1.2.840.113556.1.4.1941:={escape_filter_chars(group_dn)}))"
+                        ),
                         search_scope=SUBTREE,
-                        attributes=["distinguishedName", "sAMAccountName", "mail", "givenName", "sn", "memberOf", "userAccountControl"],
+                        attributes=["distinguishedName"],
                         paged_size=config.page_size,
                     )
+                    for entry in admin_conn.entries:
+                        if entry.distinguishedName:
+                            group_dns_by_user.setdefault(str(entry.distinguishedName), set()).add(group_dn)
 
-                    chunk_result = await self._process_ad_entries(
-                        admin_conn, config, found_ad_dns
-                    )
-                    users_processed += chunk_result["processed"]
-                    users_created += chunk_result["created"]
-                    users_updated += chunk_result["updated"]
+                # Traitement unique de chaque utilisateur trouve.
+                chain_filters = "".join(
+                    f"(memberOf:1.2.840.113556.1.4.1941:={escape_filter_chars(group_dn)})"
+                    for group_dn in sorted(found_group_dns)
+                )
+                admin_conn.search(
+                    search_base=user_search_base,
+                    search_filter=f"(&{user_base_filter}(|{chain_filters}))",
+                    search_scope=SUBTREE,
+                    attributes=user_attributes,
+                    paged_size=config.page_size,
+                )
 
-                print(f"[AD-SYNC] Phase utilisateurs (par groupe) : {users_processed} traités, "
+                chunk_result = await self._process_ad_entries(
+                    admin_conn, config, found_ad_dns, group_dns_by_user
+                )
+                users_processed += chunk_result["processed"]
+                users_created += chunk_result["created"]
+                users_updated += chunk_result["updated"]
+
+                print(f"[AD-SYNC] Phase utilisateurs (groupes imbriques) : {users_processed} traités, "
                       f"{users_created} créés, {users_updated} mis à jour")
             else:
                 # Pas de filtre groupe → comportement historique : tous les users
@@ -507,7 +561,7 @@ class DatabaseADService:
                         f"{config.user_search_filter.format(username='*')})"
                     ),
                     search_scope=SUBTREE,
-                    attributes=["distinguishedName", "sAMAccountName", "mail", "givenName", "sn", "memberOf", "userAccountControl"],
+                    attributes=["distinguishedName", "sAMAccountName", "mail", "telephoneNumber", "mobile", "givenName", "sn", "memberOf", "userAccountControl"],
                     paged_size=config.page_size,
                 )
 
@@ -539,6 +593,8 @@ class DatabaseADService:
                     print(f"[AD-SYNC] {users_deactivated} utilisateurs AD supprimés (absents de l'AD)")
 
             admin_conn.unbind()
+
+            links_created = await self._auto_link_people()
 
             sync_log.status = ADSyncStatus.SUCCESS
             sync_log.completed_at = datetime.now(UTC)
@@ -573,6 +629,7 @@ class DatabaseADService:
                         "groups_created": groups_created,
                         "groups_updated": groups_updated,
                         "groups_deleted": groups_deleted,
+                        "links_created": links_created,
                     },
                     status="success",
                 )
@@ -602,7 +659,65 @@ class DatabaseADService:
 
             return sync_log
 
-    async def _process_ad_entries(self, admin_conn, config, found_ad_dns):
+    async def _auto_link_people(self) -> int:
+        """Lie automatiquement occupants et volontaires aux comptes AD.
+
+        Critère : prénom et nom strictement identiques, insensible à la casse.
+        Ne jamais écraser un lien existant. En cas d'homonymie AD (plusieurs
+        comptes pour le même nom+prénom), aucun lien n'est créé.
+        """
+        def norm(value: str | None) -> str:
+            return " ".join(str(value).split()).casefold() if value else ""
+
+        ad_users = (
+            await self.db.execute(
+                select(User).where(User.source == "ad", User.ad_dn.is_not(None))
+            )
+        ).scalars().all()
+
+        by_name: dict[tuple[str, str], list[User]] = defaultdict(list)
+        for user in ad_users:
+            first_name, last_name = norm(user.first_name), norm(user.last_name)
+            if first_name and last_name:
+                by_name[(first_name, last_name)].append(user)
+
+        def unique_match(first_name: str | None, last_name: str | None) -> User | None:
+            candidates = by_name.get((norm(first_name), norm(last_name)), [])
+            return candidates[0] if len(candidates) == 1 else None
+
+        links_created = 0
+
+        occupants = (
+            await self.db.execute(
+                select(Occupant).where(
+                    Occupant.is_active.is_(True), Occupant.ad_dn.is_(None)
+                )
+            )
+        ).scalars().all()
+        for occupant in occupants:
+            user = unique_match(occupant.first_name, occupant.last_name)
+            if user:
+                occupant.ad_dn = user.ad_dn
+                links_created += 1
+
+        volunteers = (
+            await self.db.execute(
+                select(Volunteer).where(
+                    Volunteer.is_active.is_(True), Volunteer.ad_dn.is_(None)
+                )
+            )
+        ).scalars().all()
+        for volunteer in volunteers:
+            user = unique_match(volunteer.first_name, volunteer.last_name)
+            if user:
+                volunteer.ad_dn = user.ad_dn
+                links_created += 1
+
+        if links_created:
+            print(f"[AD-SYNC] Liaisons automatiques créées : {links_created}")
+        return links_created
+
+    async def _process_ad_entries(self, admin_conn, config, found_ad_dns, group_dns_by_user=None):
         """Traite les entrées AD retournées par une recherche utilisateur."""
         users_processed = 0
         users_created = 0
@@ -620,9 +735,20 @@ class DatabaseADService:
             groups = []
             if entry.memberOf:
                 groups = [str(g) for g in entry.memberOf]
+            if group_dns_by_user:
+                for group_dn in sorted(group_dns_by_user.get(user_dn, ())):
+                    if group_dn not in groups:
+                        groups.append(group_dn)
 
             sam_account = str(entry.sAMAccountName) if entry.sAMAccountName else f"ad_user_{users_processed}"
             email = str(entry.mail) if entry.mail else f"{sam_account}@ad.local"
+
+            # Telephone AD (prioritaire sur la valeur saisie manuellement).
+            phone_value = None
+            if "telephoneNumber" in entry and entry.telephoneNumber:
+                phone_value = str(entry.telephoneNumber)
+            elif "mobile" in entry and entry.mobile:
+                phone_value = str(entry.mobile)
 
             user = None
             if user_dn:
@@ -659,6 +785,8 @@ class DatabaseADService:
                     user.first_name = str(entry.givenName)
                 if entry.sn:
                     user.last_name = str(entry.sn)
+                if phone_value:
+                    user.phone = phone_value
                 if entry.sAMAccountName:
                     result = await self.db.execute(select(User).where(User.username == sam_account))
                     username_owner = result.scalar_one_or_none()
@@ -679,6 +807,7 @@ class DatabaseADService:
                             email=email,
                             first_name=str(entry.givenName) if entry.givenName else None,
                             last_name=str(entry.sn) if entry.sn else None,
+                            phone=phone_value,
                             password_hash=None,
                             is_active=True,
                             source="ad",

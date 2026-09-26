@@ -16,6 +16,7 @@ from app.schemas.sport import (
     SportDashboardResponse,
     SportGoalCreate,
     SportGoalResponse,
+    SportHealthResponse,
     GarminConnectRequest,
     GarminConnectionResponse,
     GarminSyncResponse,
@@ -81,17 +82,28 @@ async def get_sport_athlete(service: SportService = Depends(get_sport_service)):
     return await service.get_or_create_athlete()
 
 
+# Une seule generation IA a la fois par activite: evite les rafales de
+# relances quand l'utilisateur (ou le polling) reclique pendant la generation.
+_AI_ANALYSIS_RUNNING: set[int] = set()
+
+
 async def _run_activity_ai_analysis(activity_id: int, user_id: int) -> None:
-    for attempt in range(2):
-        try:
-            async with get_db_context() as db:
-                user = await db.get(User, user_id)
-                if user and await SportService(db, user).generate_activity_ai_analysis(activity_id):
-                    return
-        except Exception:
-            logger.exception("Unable to run background Sport AI analysis for activity %s", activity_id)
-        if attempt == 0:
-            await asyncio.sleep(0.5)
+    if activity_id in _AI_ANALYSIS_RUNNING:
+        return
+    _AI_ANALYSIS_RUNNING.add(activity_id)
+    try:
+        for attempt in range(2):
+            try:
+                async with get_db_context() as db:
+                    user = await db.get(User, user_id)
+                    if user and await SportService(db, user).generate_activity_ai_analysis(activity_id):
+                        return
+            except Exception:
+                logger.exception("Unable to run background Sport AI analysis for activity %s", activity_id)
+            if attempt == 0:
+                await asyncio.sleep(0.5)
+    finally:
+        _AI_ANALYSIS_RUNNING.discard(activity_id)
 
 
 @router.get("/dashboard", response_model=SportDashboardResponse)
@@ -100,6 +112,14 @@ async def sport_dashboard(
     service: SportService = Depends(get_sport_service),
 ):
     return await service.dashboard(period)
+
+
+@router.get("/health", response_model=SportHealthResponse)
+async def sport_health(
+    period: int = Query(28, description="Période en jours: 7, 14, 28 ou 90"),
+    service: SportService = Depends(get_sport_service),
+):
+    return await service.health(period)
 
 
 @router.get("/activities", response_model=SportActivityListResponse)
@@ -161,11 +181,16 @@ async def update_sport_heart_rate(
 @router.get("/analysis/activities/{activity_id}")
 async def sport_activity_analysis(
     activity_id: int,
+    background_tasks: BackgroundTasks,
     service: SportService = Depends(get_sport_analysis_service),
 ):
     analysis = await service.analyze_activity(activity_id)
     if not analysis:
         raise HTTPException(status_code=404, detail="Activité non trouvée")
+    ai = analysis.get("ai_analysis") or {}
+    if ai.get("status") != "available":
+        # Le clic sur "Analyser" déclenche réellement la génération IA.
+        background_tasks.add_task(_run_activity_ai_analysis, activity_id, service.current_user.id)
     return analysis
 
 

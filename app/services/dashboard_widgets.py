@@ -55,7 +55,7 @@ def _get_equipment_stats():
 def _get_housing_stats():
     async def loader(db):
         from sqlalchemy import select, func
-        from app.models.housing import Housing, Occupancy
+        from app.models.housing import Housing, Occupancy, Cleaning
         from datetime import date, datetime
 
         today = date.today()
@@ -87,7 +87,9 @@ def _get_housing_stats():
             )
         )).scalar_one()
 
-        to_clean = 0
+        to_clean = (await db.execute(
+            select(func.count(Cleaning.id)).where(Cleaning.status == "planned")
+        )).scalar_one()
 
         return {
             "total": total,
@@ -146,6 +148,84 @@ def _get_maintenance_stats():
             "overdue": overdue,
             "preventive_due": preventive_due,
         }
+    return loader
+
+
+def _get_agenda_stats():
+    async def loader(db):
+        from sqlalchemy import select, func
+        from app.models.agenda import AgendaPresence
+        from datetime import date
+
+        today = date.today()
+
+        today_count = (await db.execute(
+            select(func.count(AgendaPresence.id)).where(
+                AgendaPresence.presence_date == today
+            )
+        )).scalar_one()
+
+        meals_today = (await db.execute(
+            select(func.count(AgendaPresence.id)).where(
+                AgendaPresence.presence_date == today,
+                AgendaPresence.needs_meal == True,
+            )
+        )).scalar_one()
+
+        return {
+            "today_count": today_count,
+            "meals_today": meals_today,
+        }
+    return loader
+
+
+def _get_volunteers_stats():
+    async def loader(db):
+        from sqlalchemy import select, func
+        from app.models.volunteer import Volunteer
+
+        active = (await db.execute(
+            select(func.count(Volunteer.id)).where(Volunteer.is_active == True)
+        )).scalar_one()
+
+        return {"active": active}
+    return loader
+
+
+def _get_sport_stats():
+    async def loader(db):
+        from sqlalchemy import select, func
+        from app.models.sport import SportActivity
+        from datetime import datetime, timedelta
+
+        since = datetime.utcnow() - timedelta(days=7)
+
+        week_activities = (await db.execute(
+            select(func.count(SportActivity.id)).where(
+                SportActivity.started_at >= since
+            )
+        )).scalar_one()
+
+        return {"week_activities": week_activities}
+    return loader
+
+
+def _get_administrative_stats():
+    async def loader(db):
+        from sqlalchemy import select, func
+        from app.models.administrative import AdministrativeMonthlySession
+        from datetime import date
+
+        today = date.today()
+
+        month_sessions = (await db.execute(
+            select(func.count(AdministrativeMonthlySession.id)).where(
+                AdministrativeMonthlySession.year == today.year,
+                AdministrativeMonthlySession.month == today.month,
+            )
+        )).scalar_one()
+
+        return {"month_sessions": month_sessions}
     return loader
 
 
@@ -230,7 +310,7 @@ MODULE_WIDGETS = [
         width="sm",
         order=0,
         data_loader=_get_housing_stats(),
-        link="/housing/housings",
+        link="/housing/planning",
         icon="home",
     ),
     WidgetDefinition(
@@ -243,7 +323,7 @@ MODULE_WIDGETS = [
         width="sm",
         order=1,
         data_loader=_get_housing_stats(),
-        link="/housing/housings",
+        link="/housing/planning",
         icon="home",
     ),
     WidgetDefinition(
@@ -295,7 +375,7 @@ MODULE_WIDGETS = [
         width="sm",
         order=5,
         data_loader=_get_housing_stats(),
-        link="/housing/housings",
+        link="/housing/planning",
         icon="home",
     ),
 
@@ -351,6 +431,79 @@ MODULE_WIDGETS = [
         data_loader=_get_maintenance_stats(),
         link="/maintenance/preventive",
         icon="wrench",
+    ),
+
+    # ---- Agenda ----
+    WidgetDefinition(
+        id="agenda.today",
+        module="agenda",
+        title="Présences aujourd’hui",
+        description="Personnes inscrites aujourd’hui",
+        permission="agenda.access",
+        widget_type="counter",
+        width="sm",
+        order=0,
+        data_loader=_get_agenda_stats(),
+        link="/agenda",
+        icon="calendar-days",
+    ),
+    WidgetDefinition(
+        id="agenda.meals",
+        module="agenda",
+        title="Repas à prévoir",
+        description="Repas à organiser aujourd’hui",
+        permission="agenda.access",
+        widget_type="alert",
+        width="sm",
+        order=1,
+        data_loader=_get_agenda_stats(),
+        link="/agenda",
+        icon="calendar-days",
+    ),
+
+    # ---- Volontaires ----
+    WidgetDefinition(
+        id="volunteers.active",
+        module="volunteers",
+        title="Volontaires actifs",
+        description="Volontaires disponibles actuellement",
+        permission="volunteers.view",
+        widget_type="counter",
+        width="sm",
+        order=0,
+        data_loader=_get_volunteers_stats(),
+        link="/volunteers",
+        icon="users",
+    ),
+
+    # ---- Sport ----
+    WidgetDefinition(
+        id="sport.week",
+        module="sport",
+        title="Activités (7 jours)",
+        description="Entraînements et sorties sur 7 jours",
+        permission="sport.access",
+        widget_type="counter",
+        width="sm",
+        order=0,
+        data_loader=_get_sport_stats(),
+        link="/sport",
+        icon="run",
+    ),
+
+    # ---- Administratif ----
+    WidgetDefinition(
+        id="administrative.sessions",
+        module="administratif",
+        title="Sessions du mois",
+        description="Sessions programmées ce mois-ci",
+        permission="administration.programs.view",
+        widget_type="counter",
+        width="sm",
+        order=0,
+        data_loader=_get_administrative_stats(),
+        link="/administratif",
+        icon="clipboard",
     ),
 ]
 

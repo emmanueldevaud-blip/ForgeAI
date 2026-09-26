@@ -4,12 +4,12 @@ import { AppShell } from './components/AppShell.js?v=4';
 import { createModulePlaceholderPage } from './pages/ModulePlaceholder.js?v=3';
 import { createLoginPage } from './pages/LoginPage.js';
 import { createRegisterPage } from './pages/RegisterPage.js';
-import { createAdministrationPage } from './pages/AdministrationPage.js?v=2';
+import { createAdministrationPage } from './pages/AdministrationPage.js?v=4';
 import { createBuildingsPage } from './pages/BuildingsPage.js';
 import { createBuildingRefsPage } from './pages/BuildingRefsPage.js';
 import { createEquipmentPage } from './pages/EquipmentPage.js';
 import { createEquipmentRefsPage } from './pages/EquipmentRefsPage.js';
-import { createDashboardPage } from './pages/DashboardPage.js';
+import { createDashboardPage } from './pages/DashboardPage.js?v=2';
 import { createMaintenanceRequestsPage } from './pages/MaintenanceRequestsPage.js';
 import { createMaintenanceWorkOrdersPage } from './pages/MaintenanceWorkOrdersPage.js';
 import { createMaintenancePreventivePage } from './pages/MaintenancePreventivePage.js';
@@ -21,15 +21,16 @@ import { createAIAssistantPage } from './pages/AIAssistantPage.js?v=2';
 import { createHousingListPage } from './pages/HousingListPage.js';
 import { createHousingPlanningPage } from './pages/HousingPlanningPage.js?v=22';
 import { createHousingCleaningPage } from './pages/HousingCleaningPage.js?v=10';
-import { createHousingOccupantsPage } from './pages/HousingOccupantsPage.js';
+import { createHousingOccupantsPage } from './pages/HousingOccupantsPage.js?v=1';
 import { createHousingUnavailabilitiesPage } from './pages/HousingUnavailabilitiesPage.js';
 import { createHousingEmailTemplatesPage } from './pages/HousingEmailTemplatesPage.js?v=11';
-import { createCleaningVolunteersPage } from './pages/CleaningVolunteersPage.js?v=3';
+import { createCleaningVolunteersPage } from './pages/CleaningVolunteersPage.js?v=4';
 import { createAdministrativeProgramsPage } from './pages/AdministrativeProgramsPage.js';
-import { createSportDashboardPage } from './pages/SportDashboardPage.js?v=3';
-import { createSportActivitiesPage } from './pages/SportActivitiesPage.js?v=2';
-import { createSportGarminPage } from './pages/SportGarminPage.js?v=2';
-import { createAgendaPage } from './pages/AgendaPage.js?v=18';
+import { createSportDashboardPage } from './pages/SportDashboardPage.js?v=4';
+import { createSportActivitiesPage } from './pages/SportActivitiesPage.js?v=4';
+import { createSportGarminPage } from './pages/SportGarminPage.js?v=3';
+import { createSportHealthPage } from './pages/SportHealthPage.js?v=1';
+import { createAgendaPage } from './pages/AgendaPage.js?v=24';
 
 const moduleRoutes = [
   'dashboard',
@@ -77,6 +78,7 @@ let administrativeProgramsPage = null;
 let sportDashboardPage = null;
 let sportActivitiesPage = null;
 let sportGarminPage = null;
+let sportHealthPage = null;
 let agendaPage = null;
 
 async function initializeApp() {
@@ -172,13 +174,13 @@ async function initializeApp() {
     }, { requiresAuth: true, permissions: ['maintenance.view'] })
     .addRoute('/maintenance/providers', async (route) => {
       await showMaintenanceProvidersPage(route);
-    }, { requiresAuth: true, permissions: ['maintenance.view'] })
+    }, { requiresAuth: true, permissions: ['maintenance.manage_providers'] })
     .addRoute('/maintenance/contracts', async (route) => {
       await showMaintenanceContractsPage(route);
-    }, { requiresAuth: true, permissions: ['maintenance.view'] })
+    }, { requiresAuth: true, permissions: ['maintenance.manage_contracts'] })
     .addRoute('/maintenance/refs', async (route) => {
       await showMaintenanceRefsPage(route);
-    }, { requiresAuth: true, permissions: ['maintenance.view'] })
+    }, { requiresAuth: true, permissions: ['maintenance.manage_referentials'] })
     .addRoute('/maintenance/calendar', async (route) => {
       await showMaintenanceCalendarPage(route);
     }, { requiresAuth: true, permissions: ['maintenance.view'] })
@@ -186,11 +188,15 @@ async function initializeApp() {
       await showAIAssistantPage(route);
     }, { requiresAuth: true, permissions: ['ai.use'] })
     .addRoute('/housing', async (route) => {
+      if (!authStore.hasPermission('housing.manage')) {
+        router.navigate('/housing/planning', { replace: true });
+        return;
+      }
       await showHousingListPage(route);
     }, { requiresAuth: true, permissions: ['housing.view'] })
     .addRoute('/housing/housings', async (route) => {
       await showHousingListPage(route);
-    }, { requiresAuth: true, permissions: ['housing.view'] })
+    }, { requiresAuth: true, permissions: ['housing.manage'] })
     .addRoute('/housing/planning', async (route) => {
       await showHousingPlanningPage(route);
     }, { requiresAuth: true, permissions: ['housing.view'] })
@@ -205,7 +211,7 @@ async function initializeApp() {
     }, { requiresAuth: true, permissions: ['housing.view'] })
     .addRoute('/housing/email-templates', async (route) => {
       await showHousingEmailTemplatesPage(route);
-    }, { requiresAuth: true, permissions: ['housing.view'] })
+    }, { requiresAuth: true, permissions: ['housing.manage_email_templates'] })
     .addRoute('/sport', async (route) => {
       await showSportDashboardPage(route);
     }, { requiresAuth: true, permissions: ['sport.access'] })
@@ -218,6 +224,9 @@ async function initializeApp() {
     .addRoute('/sport/garmin', async (route) => {
       await showSportGarminPage(route);
     }, { requiresAuth: true, permissions: ['sport.activities.write'] })
+    .addRoute('/sport/health', async (route) => {
+      await showSportHealthPage(route);
+    }, { requiresAuth: true, permissions: ['sport.access'] })
     .addRoute('/agenda', async (route) => {
       await showAgendaPage(route);
     }, { requiresAuth: true, permissions: ['agenda.access'] })
@@ -225,11 +234,26 @@ async function initializeApp() {
       await showVolunteersPage(route);
     }, { requiresAuth: true, permissions: ['volunteers.view'] });
 
+  const moduleRoutePermissions = {
+    cleaning: ['cleaning.view'],
+    people: ['people.view'],
+    studies: ['studies.view'],
+    surveys: ['surveys.view'],
+    quoting: ['quoting.view'],
+    inventory: ['inventory.view'],
+    purchasing: ['purchasing.view'],
+    suppliers: ['suppliers.view'],
+    documents: ['documents.view'],
+    reports: ['reports.view'],
+  };
+
   moduleRoutes.forEach(module => {
-    if (module === 'dashboard' || module === 'administration' || module === 'administratif' || module === 'buildings' || module === 'equipment' || module === 'sport') return;
+    if (module === 'dashboard' || module === 'administration' || module === 'administratif'
+      || module === 'buildings' || module === 'equipment' || module === 'sport'
+      || module === 'housing' || module === 'maintenance') return;
     router.addRoute(`/${module}`, async (route) => {
       await showModulePage(route);
-    }, { requiresAuth: true });
+    }, { requiresAuth: true, permissions: moduleRoutePermissions[module] || [] });
   });
 
   router
@@ -502,6 +526,14 @@ async function ensureSportGarminPage() {
   return sportGarminPage;
 }
 
+async function ensureSportHealthPage() {
+  if (!sportHealthPage) {
+    sportHealthPage = createSportHealthPage(router);
+    await sportHealthPage.initialize();
+  }
+  return sportHealthPage;
+}
+
 async function ensureAgendaPage() {
   if (!agendaPage) {
     agendaPage = createAgendaPage(router);
@@ -530,6 +562,18 @@ async function showSportGarminPage(route) {
     appShell.showContent(page.render());
   } catch (error) {
     console.error('Erreur affichage Garmin Sport:', error);
+    appShell.showError(error);
+  }
+}
+
+async function showSportHealthPage(route) {
+  if (!appShell) return;
+  appShell.showLoading();
+  try {
+    const page = await ensureSportHealthPage();
+    appShell.showContent(page.render());
+  } catch (error) {
+    console.error('Erreur affichage Santé Sport:', error);
     appShell.showError(error);
   }
 }

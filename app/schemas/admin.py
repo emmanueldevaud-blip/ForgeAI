@@ -20,6 +20,7 @@ class UserBaseAdmin(BaseModel):
     email: EmailStr
     first_name: Optional[str] = Field(None, max_length=100)
     last_name: Optional[str] = Field(None, max_length=100)
+    phone: Optional[str] = Field(None, max_length=50)
 
 
 class UserCreateAdmin(UserBaseAdmin):
@@ -33,6 +34,7 @@ class UserUpdateAdmin(BaseModel):
     email: Optional[EmailStr] = None
     first_name: Optional[str] = Field(None, max_length=100)
     last_name: Optional[str] = Field(None, max_length=100)
+    phone: Optional[str] = Field(None, max_length=50)
     is_active: Optional[bool] = None
     role: Optional[str] = Field(None, max_length=50)
     group_ids: Optional[List[int]] = None
@@ -79,6 +81,7 @@ class UserWithRolesResponse(BaseModel):
     email: str
     first_name: Optional[str] = None
     last_name: Optional[str] = None
+    phone: Optional[str] = None
     is_active: bool
     role: str
     source: str

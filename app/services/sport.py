@@ -331,9 +331,9 @@ class SportService:
                 SportHealthDaily.athlete_id == athlete.id,
                 SportHealthDaily.day >= start,
                 SportHealthDaily.day <= today,
-            ).order_by(SportHealthDaily.day.asc())
+            )
         )
-        rows = list(result.scalars().all())
+        rows = sorted(result.scalars().all(), key=lambda row: row.day)
 
         series: dict[str, list[dict[str, Any]]] = {
             "heart_rate": [], "sleep": [], "hrv": [], "stress": [], "body_battery": [],
@@ -350,7 +350,7 @@ class SportService:
 
             heart_rates = data.get("heart_rates")
             resting_hr = data.get("resting_hr")
-            resting = _num(resting_hr, "restingHR", "resting_hr", "rhr") or _num(heart_rates, "restingHR", "resting_hr")
+            resting = _num(resting_hr, "restingHR", "resting_hr", "rhr") or _num(heart_rates, "restingHeartRate", "restingHR", "resting_hr")
             if resting is None:
                 summaries = _dig(resting_hr, "metricSummaries")
                 if isinstance(summaries, list):
@@ -372,7 +372,7 @@ class SportService:
                 total = _num(sleep, "sleepTimeSeconds", "totalSleepSeconds") or _num(dto, "sleepTimeSeconds", "totalSleepSeconds")
                 score = (
                     _num(sleep, "sleepScore", "overallScore", "score.value", "sleepScores.value", "sleepScores.overall.value")
-                    or _num(dto, "sleepScore", "score")
+                    or _num(dto, "sleepScore", "score", "sleepScores.overall.value")
                 )
                 push("sleep", {
                     "date": day,
@@ -381,15 +381,15 @@ class SportService:
                     "deep_minutes": _minutes(_num(sleep, "deepSleepSeconds") or _num(dto, "deepSleepSeconds")),
                     "light_minutes": _minutes(_num(sleep, "lightSleepSeconds") or _num(dto, "lightSleepSeconds")),
                     "rem_minutes": _minutes(_num(sleep, "remSleepSeconds") or _num(dto, "remSleepSeconds")),
-                    "awake_minutes": _minutes(_num(sleep, "awakeTimeSeconds", "awakeSleepSeconds") or _num(dto, "awakeTimeSeconds")),
+                    "awake_minutes": _minutes(_num(sleep, "awakeTimeSeconds", "awakeSleepSeconds") or _num(dto, "awakeTimeSeconds", "awakeSleepSeconds")),
                 })
 
             hrv = data.get("hrv")
             if hrv:
                 push("hrv", {
                     "date": day,
-                    "value": _num(hrv, "hrv", "hrvValue", "avgHrv", "avg", "averageHRV"),
-                    "status": _scalar(_dig(hrv, "status", "hrvStatus", "weeklyStatus")),
+                    "value": _num(hrv, "hrv", "hrvValue", "avgHrv", "avg", "averageHRV", "hrvSummary.lastNightAvg", "hrvSummary.weeklyAvg"),
+                    "status": _scalar(_dig(hrv, "status", "hrvStatus", "weeklyStatus", "hrvSummary.status")),
                 })
 
             stress = data.get("stress")
@@ -406,8 +406,12 @@ class SportService:
                 if isinstance(body_battery, list):
                     source = body_battery[0] if body_battery else {}
                 values = source.get("bodyBatteryValuesArray") if isinstance(source, dict) else None
-                numbers = [_to_number(value) for value in values] if isinstance(values, list) else []
-                numbers = [value for value in numbers if value is not None]
+                numbers = []
+                for entry in values if isinstance(values, list) else []:
+                    raw = entry[1] if isinstance(entry, (list, tuple)) and len(entry) > 1 else entry
+                    number = _to_number(raw)
+                    if number is not None:
+                        numbers.append(number)
                 push("body_battery", {
                     "date": day,
                     "min": min(numbers) if numbers else _num(source, "bodyBattery", "value", "score"),
@@ -421,8 +425,8 @@ class SportService:
             daily_summary = data.get("daily_summary")
             push("steps", {
                 "date": day,
-                "steps": _num(daily_steps, "steps", "stepValue") or _num(daily_summary, "steps", "stepValue"),
-                "calories": _num(daily_summary, "calories", "totalCalories"),
+                "steps": _num(daily_steps, "steps", "stepValue", "totalSteps") or _num(daily_summary, "steps", "stepValue", "totalSteps"),
+                "calories": _num(daily_summary, "calories", "totalCalories", "activeKilocalories"),
                 "moderate_minutes": _num(daily_summary, "moderateActivityMinutes"),
                 "vigorous_minutes": _num(daily_summary, "vigorousActivityMinutes"),
             })
@@ -436,11 +440,15 @@ class SportService:
                 push("respiration", {"date": day, "value": _num(respiration, "avgWakingRespirationValue", "averageRespirationValue", "avgRespirationValue", "respirationValue", "avg", "value")})
 
             readiness = data.get("readiness")
+            if isinstance(readiness, list):
+                entries = [item for item in readiness if isinstance(item, dict)]
+                matching = [item for item in entries if str(item.get("calendarDate") or "")[:10] == day]
+                readiness = (matching or entries)[-1] if (matching or entries) else None
             if readiness:
                 push("readiness", {
                     "date": day,
                     "score": _num(readiness, "score", "trainingReadinessScore", "readinessScore", "value"),
-                    "status": _scalar(_dig(readiness, "status", "trainingStatus")),
+                    "status": _scalar(_dig(readiness, "status", "trainingStatus", "level")),
                 })
 
         summary = {

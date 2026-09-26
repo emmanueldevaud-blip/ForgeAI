@@ -179,7 +179,7 @@ class SportGarminConnectService:
             try:
                 # Les données de santé sont optionnelles : un échec ne remet jamais
                 # en cause la synchronisation des activités déjà enregistrées.
-                await self._sync_health(client, athlete, start_date)
+                await self._sync_health(client, athlete)
                 await self.db.commit()
             except Exception:
                 await self.db.rollback()
@@ -197,15 +197,17 @@ class SportGarminConnectService:
             await self.db.commit()
             raise GarminServiceError(message) from exc
 
-    async def _sync_health(self, client, athlete: SportAthlete, start_date: date) -> None:
+    async def _sync_health(self, client, athlete: SportAthlete) -> None:
         """Récupère les données de santé quotidiennes dans sport_health_daily.
 
-        Chaque appel est isolé : une donnée Garmin indisponible ne bloque jamais.
+        La fenêtre couvre toujours les 31 derniers jours : les jours déjà en
+        base sont ignorés, seuls les jours manquants sont appelés. Chaque appel
+        est isolé : une donnée Garmin indisponible ne bloque jamais.
         Les jours déjà synchronisés ne sont pas rappelés, sauf aujourd'hui et
         hier (données en cours de journée).
         """
         today = date.today()
-        earliest = max(start_date, today - timedelta(days=self._HEALTH_MAX_DAYS - 1))
+        earliest = today - timedelta(days=self._HEALTH_MAX_DAYS - 1)
         if earliest > today:
             return
 

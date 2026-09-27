@@ -1,11 +1,43 @@
-/* Service worker ForgeAI : notifications Web Push (telephone). */
+/* Service worker ForgeAI : notifications Web Push (telephone) + cache statique. */
+
+/* Cache strictement limite aux ressources statiques (CSS/JS/icônes).
+   Jamais l'API ni les pages HTML : aucune donnee utilisateur en cache. */
+const STATIC_CACHE = 'forgeai-static-v1';
+const STATIC_PREFIXES = ['/css/', '/js/', '/icons/'];
 
 self.addEventListener('install', event => {
   self.skipWaiting();
 });
 
 self.addEventListener('activate', event => {
-  event.waitUntil(self.clients.claim());
+  event.waitUntil(
+    caches.keys()
+      .then(keys => Promise.all(
+        keys.filter(key => key !== STATIC_CACHE).map(key => caches.delete(key))
+      ))
+      .then(() => self.clients.claim())
+  );
+});
+
+self.addEventListener('fetch', event => {
+  const request = event.request;
+  if (request.method !== 'GET') return;
+  const url = new URL(request.url);
+  if (url.origin !== self.location.origin) return;
+  if (!STATIC_PREFIXES.some(prefix => url.pathname.startsWith(prefix))) return;
+
+  event.respondWith(
+    caches.open(STATIC_CACHE).then(async cache => {
+      const cached = await cache.match(request);
+      /* Stale-while-revalidate : reponse cachee immediatee, reactualisation
+         en arriere-plan (prise en compte du prochain deploiement). */
+      fetch(request).then(response => {
+        if (response && response.ok) cache.put(request, response.clone());
+      }).catch(() => {});
+      if (cached) return cached;
+      return fetch(request);
+    })
+  );
 });
 
 self.addEventListener('push', event => {

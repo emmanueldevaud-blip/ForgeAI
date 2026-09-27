@@ -253,6 +253,9 @@ if os.path.exists(frontend_path):
     SPA_INDEX = os.path.join(frontend_path, "index.html")
     app.mount("/css", StaticFiles(directory=os.path.join(frontend_path, "css")), name="css")
     app.mount("/js", StaticFiles(directory=os.path.join(frontend_path, "js")), name="js")
+    icons_dir = os.path.join(frontend_path, "icons")
+    if os.path.isdir(icons_dir):
+        app.mount("/icons", StaticFiles(directory=icons_dir), name="icons")
 
     @app.get("/")
     async def serve_index():
@@ -260,6 +263,14 @@ if os.path.exists(frontend_path):
         if os.path.exists(index_path):
             return FileResponse(index_path)
         return {"message": "Frontend not built"}
+
+    @app.get("/manifest.webmanifest")
+    async def serve_web_manifest():
+        # Manifest PWA : MIME explicite (le catchall SPA renverrait index.html).
+        manifest_path = os.path.join(frontend_path, "manifest.webmanifest")
+        if os.path.exists(manifest_path):
+            return FileResponse(manifest_path, media_type="application/manifest+json")
+        return JSONResponse(status_code=404, content={"detail": "Not Found"})
 
     @app.get("/sw.js")
     async def serve_service_worker():

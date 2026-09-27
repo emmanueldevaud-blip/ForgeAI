@@ -89,6 +89,13 @@ async function initializeApp() {
   const app = document.getElementById('app');
   if (!app) return;
 
+  /* Enregistrement des le demarrage (idempotent) : permet la mise a jour du
+     cache statique apres un deploiement et prepare le push. Silencieux si
+     non supporte (http hors localhost). */
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('/sw.js').catch(() => {});
+  }
+
   appShell = new AppShell(router);
   await appShell.initialize();
 

@@ -218,6 +218,15 @@ class NotificationService:
             return "sent"
         if response.status_code in (404, 410):
             return "expired"
+        if response.status_code in (401, 403):
+            # Signature VAPID refusee : cle privee regeneree depuis
+            # l'abonnement -> cet abonnement n'est plus joignable.
+            logger.warning(
+                "[NOTIFICATION] Push refuse (auth) statut=%s subscription=%s",
+                response.status_code,
+                subscription.id,
+            )
+            return "expired"
         logger.warning(
             "[NOTIFICATION] Push refuse statut=%s subscription=%s",
             response.status_code,

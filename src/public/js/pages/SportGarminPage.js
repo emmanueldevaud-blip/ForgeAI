@@ -18,6 +18,12 @@ export class SportGarminPage {
   render() {
     const connection = this.connection || {};
     const notifications = this.notifications || {};
+    const browserSupport = [
+      `serviceWorker ${'serviceWorker' in navigator ? '✓' : '✗'}`,
+      `PushManager ${'PushManager' in window ? '✓' : '✗'}`,
+      `Notification ${'Notification' in window ? '✓' : '✗'}`,
+      `HTTPS ${window.isSecureContext ? '✓' : '✗'}`,
+    ].join(' · ');
     const notificationStatus = notifications.configured
       ? 'Clés VAPID configurées. Après toute génération ou modification, réabonnez les notifications depuis votre téléphone.'
       : 'Aucune clé configurée : les notifications push sont désactivées sur le serveur.';
@@ -47,7 +53,7 @@ export class SportGarminPage {
           <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px;">
             <button class="btn btn-primary" data-action="enable-push" ${this.pushSupported ? '' : 'disabled'}>Activer sur ce téléphone</button>
             <button class="btn btn-secondary" data-action="test-push" ${notifications.configured ? '' : 'disabled'}>Envoyer une notification test</button>
-            ${this.pushSupported ? '' : '<span class="text-muted" style="align-self:center;">Notifications web non prises en charge par ce navigateur — essayez Chrome ou Firefox ; sur iPhone, ajoutez le site à l’écran d’accueil (iOS 16.4+).</span>'}
+            ${this.pushSupported ? '' : `<span class="text-muted" style="align-self:center;">Notifications web non supportées par ce navigateur (${browserSupport}). Essayez Chrome/Firefox ; sur iPhone, ajoutez le site à l’écran d’accueil (iOS 16.4+).</span>`}
           </div>
           <p data-notification-message class="text-muted">${this._escape(this.pushMessage || notificationStatus)}</p>
           <form data-vapid-form>

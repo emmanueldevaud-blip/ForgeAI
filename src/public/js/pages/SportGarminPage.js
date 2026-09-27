@@ -24,6 +24,14 @@ export class SportGarminPage {
       `Notification ${'Notification' in window ? '✓' : '✗'}`,
       `HTTPS ${window.isSecureContext ? '✓' : '✗'}`,
     ].join(' · ');
+    const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent)
+      || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+    const standalone = window.matchMedia?.('(display-mode: standalone)').matches || navigator.standalone === true;
+    const pushHelp = (!this.pushSupported && isIOS && !standalone)
+      ? 'Sur iPhone : ajoutez le site via Safari (Partager → « Sur l’écran d’accueil ») puis ouvrez-le depuis cette NOUVELLE icône — un raccourci Edge/Chrome ne suffit pas.'
+      : (!this.pushSupported
+        ? `Notifications web non supportées par ce navigateur (${browserSupport}). Essayez Chrome ou Firefox.`
+        : '');
     const notificationStatus = notifications.configured
       ? 'Clés VAPID configurées. Après toute génération ou modification, réabonnez les notifications depuis votre téléphone.'
       : 'Aucune clé configurée : les notifications push sont désactivées sur le serveur.';
@@ -53,7 +61,7 @@ export class SportGarminPage {
           <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px;">
             <button class="btn btn-primary" data-action="enable-push" ${this.pushSupported ? '' : 'disabled'}>Activer sur ce téléphone</button>
             <button class="btn btn-secondary" data-action="test-push" ${notifications.configured ? '' : 'disabled'}>Envoyer une notification test</button>
-            ${this.pushSupported ? '' : `<span class="text-muted" style="align-self:center;">Notifications web non supportées par ce navigateur (${browserSupport}). Essayez Chrome/Firefox ; sur iPhone, ajoutez le site à l’écran d’accueil (iOS 16.4+).</span>`}
+            ${pushHelp ? `<span class="text-muted" style="align-self:center;">${pushHelp}</span>` : ''}
           </div>
           <p data-notification-message class="text-muted">${this._escape(this.pushMessage || notificationStatus)}</p>
           <form data-vapid-form>

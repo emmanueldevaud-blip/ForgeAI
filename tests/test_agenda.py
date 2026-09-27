@@ -1,6 +1,13 @@
-from datetime import date
+from datetime import date, timedelta
 
 import pytest
+
+
+def _next_weekday(day: date) -> date:
+    """Prochain jour ouvre (lun-ven), aujourd'hui s'il en est deja un."""
+    while day.weekday() >= 5:
+        day += timedelta(days=1)
+    return day
 
 
 async def _setup_bureau_rooms(client, admin_headers, names=("Bureau 1",)):
@@ -66,7 +73,9 @@ async def test_agenda_planning_and_presence_flow(client, admin_headers):
     created = await client.post(
         "/agenda/presences",
         json={
-            "presence_date": today if date.today().weekday() < 5 else "2026-09-24",
+            # Le planning semaine n'affiche que lun-ven : toujours tester
+            # sur un jour ouvre meme lorsque les tests tournent le week-end.
+            "presence_date": _next_weekday(date.today()).isoformat(),
             "room_id": room_id,
             "is_present": True,
             "needs_workstation": True,
@@ -129,7 +138,8 @@ async def test_agenda_split_presence_two_rooms(client, admin_headers):
         client, admin_headers, names=("Bureau A", "Bureau B")
     )
 
-    presence_date = date.today().isoformat()
+    # Jour ouvre : le planning semaine ignore samedi/dimanche.
+    presence_date = _next_weekday(date.today()).isoformat()
     morning = await client.post(
         "/agenda/presences",
         json={

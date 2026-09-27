@@ -36,7 +36,7 @@ async def _create_admin_with_rbac(db, username, email):
 
 @pytest.mark.asyncio
 async def test_navigation_includes_administration():
-    """Test that /modules/navigation includes Administration for admin user."""
+    """Test that /modules/navigation includes the administration module for admin user."""
     engine = create_async_engine(
         'sqlite+aiosqlite:///:memory:',
         poolclass=StaticPool,
@@ -74,7 +74,8 @@ async def test_navigation_includes_administration():
         codes = [item["code"] for item in nav]
 
         assert "dashboard" in codes, f"Dashboard should be in navigation, got: {codes}"
-        assert "administration" in codes, f"Administration should be in navigation, got: {codes}"
+        # Le module Administration a ete renomme "parametres_generaux".
+        assert "parametres_generaux" in codes, f"Administration should be in navigation, got: {codes}"
 
     await engine.dispose()
 

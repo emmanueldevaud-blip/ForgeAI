@@ -51,7 +51,7 @@ class FakeSession:
     async def begin_nested(self):
         yield
 
-    async def refresh(self, instance):
+    async def refresh(self, instance, attribute_names=None):
         if getattr(instance, "id", None) is None:
             instance.id = 1
 
@@ -64,14 +64,14 @@ class FakeSession:
 
             # select(Group).where(Group.ad_dn == group_dn)
             if "groups.ad_dn" in clause_str and "groups.source" not in clause_str and "groups.ad_config_id" not in clause_str:
-                for g in self.existing_groups:
+                for g in self.existing_groups + self.groups:
                     if g.ad_dn in params.values():
                         return FakeResult(g)
                 return FakeResult()
 
             # select(Group.id).where(Group.ad_dn == group_dn)
             if "groups.id" in clause_str and "groups.ad_dn" in clause_str and "groups.source" not in clause_str:
-                for g in self.existing_groups:
+                for g in self.existing_groups + self.groups:
                     if g.ad_dn in params.values():
                         return FakeResult(g)
                 return FakeResult()
@@ -135,10 +135,14 @@ class FakeLDAPConnection:
 
     def search(self, *, search_filter, **kwargs):
         self.search_filter = search_filter
-        if "userAccountControl" in search_filter or "(objectCategory=person)" in search_filter:
-            self.entries = self.user_entries
-        else:
+        # La recherche de groupes utilise le filtre configure
+        # (objectCategory=group) ; toutes les autres recherches portent
+        # sur des utilisateurs (sAMAccountName / memberOf in-chain).
+        lowered = search_filter.lower()
+        if "objectcategory=group" in lowered or "objectclass=group" in lowered:
             self.entries = self.group_entries
+        else:
+            self.entries = self.user_entries
         return True
 
     def unbind(self):
@@ -176,8 +180,15 @@ def _make_config(**overrides):
     return SimpleNamespace(**defaults)
 
 
+class FakeEntry(SimpleNamespace):
+    """Entree LDAP simulée : expose l'API `in` de ldap3 (test d'attribut)."""
+
+    def __contains__(self, name):
+        return hasattr(self, name)
+
+
 def _user_entry(cn="Alice", sam="alice", mail="alice@example.test", dn=None):
-    return SimpleNamespace(
+    return FakeEntry(
         distinguishedName=dn or f"CN={cn},OU=Users,DC=example,DC=test",
         sAMAccountName=sam,
         mail=mail,
@@ -188,7 +199,7 @@ def _user_entry(cn="Alice", sam="alice", mail="alice@example.test", dn=None):
 
 
 def _group_entry(cn, dn=None):
-    return SimpleNamespace(
+    return FakeEntry(
         cn=cn,
         distinguishedName=dn or f"CN={cn},OU=Groups,DC=example,DC=test",
     )

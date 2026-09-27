@@ -64,6 +64,7 @@ export class SportGarminPage {
             ${pushHelp ? `<span class="text-muted" style="align-self:center;">${pushHelp}</span>` : ''}
           </div>
           <p data-notification-message class="text-muted">${this._escape(this.pushMessage || notificationStatus)}</p>
+          <small data-push-diagnostic class="text-muted">État : support ${this.pushSupported ? '✓' : '✗'} · ${browserSupport} · mode app ${standalone ? '✓' : '✗'} · clés ${notifications.configured ? '✓' : '✗'} · bouton activer ${this.pushSupported ? 'actif' : 'désactivé'}</small>
           <form data-vapid-form>
             <label><span>Contact de l'émetteur (sujet VAPID)</span>
               <input name="subject" type="text" value="${this._escape(notifications.subject || '')}" placeholder="mailto:votre.email@exemple.com">

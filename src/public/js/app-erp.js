@@ -28,7 +28,7 @@ import { createCleaningVolunteersPage } from './pages/CleaningVolunteersPage.js?
 import { createAdministrativeProgramsPage } from './pages/AdministrativeProgramsPage.js';
 import { createSportDashboardPage } from './pages/SportDashboardPage.js?v=5';
 import { createSportActivitiesPage } from './pages/SportActivitiesPage.js?v=4';
-import { createSportGarminPage } from './pages/SportGarminPage.js?v=4';
+import { createSportGarminPage } from './pages/SportGarminPage.js?v=5';
 import { createSportHealthPage } from './pages/SportHealthPage.js?v=1';
 import { createSportAnalysesPage } from './pages/SportAnalysesPage.js?v=1';
 import { createSportGoalsPage } from './pages/SportGoalsPage.js?v=1';

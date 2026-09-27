@@ -18,6 +18,8 @@ from app.schemas.sport import (
     SportAnalysisListResponse,
     SportAnalysisResponse,
     SportDashboardResponse,
+    SportNotificationConfigResponse,
+    SportNotificationConfigUpdate,
     SportGoalCreate,
     SportGoalResponse,
     SportHealthResponse,
@@ -33,6 +35,7 @@ from app.schemas.sport import (
     SportHeartRateConfig,
 )
 from app.services.garmin import GarminServiceError, SportGarminConnectService
+from app.services.notifications.config_store import generate_and_save, save_vapid, vapid_status
 from app.services.sport import SportService
 
 logger = logging.getLogger(__name__)
@@ -379,3 +382,43 @@ async def disconnect_garmin(
     athlete = await service.get_or_create_athlete()
     deleted = await SportGarminConnectService(service.db).disconnect(athlete)
     return {"message": "Garmin déconnecté" if deleted else "Aucune connexion Garmin"}
+
+
+# --------------------------------------------------------------------------- #
+# Notifications telephone (Web Push / VAPID) — configuration depuis Sport
+# --------------------------------------------------------------------------- #
+
+
+@router.get("/notifications/config", response_model=SportNotificationConfigResponse)
+async def get_sport_notification_config(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_permission("sport.activities.write")),
+):
+    """État des clés VAPID (clé publique + sujet ; jamais la clé privée)."""
+    return await vapid_status(db)
+
+
+@router.post("/notifications/config/generate", response_model=SportNotificationConfigResponse)
+async def generate_sport_vapid_keys(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_permission("sport.activities.write")),
+):
+    """Génère une paire de clés VAPID, la stocke en base et l'applique à chaud.
+
+    Le sujet (contact de l'émetteur) est pré-rempli avec l'email de l'utilisateur
+    s'il n'est pas déjà défini.
+    """
+    return await generate_and_save(db, default_subject=f"mailto:{current_user.email}")
+
+
+@router.put("/notifications/config", response_model=SportNotificationConfigResponse)
+async def update_sport_notification_config(
+    data: SportNotificationConfigUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_permission("sport.activities.write")),
+):
+    """Configure une clé privée existante et/ou le sujet VAPID."""
+    try:
+        return await save_vapid(db, private_key=data.private_key, subject=data.subject)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc

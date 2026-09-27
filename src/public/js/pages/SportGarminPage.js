@@ -1,12 +1,26 @@
-import { connectGarmin, disconnectGarmin, getGarminConnection, syncGarmin } from '../services/sportApi.js?v=5';
+import { connectGarmin, disconnectGarmin, generateVapidKeys, getGarminConnection, getSportNotificationConfig, syncGarmin, updateSportNotificationConfig } from '../services/sportApi.js?v=6';
+import { enablePhoneNotifications, isPushSupported, sendTestNotification } from '../services/notificationsApi.js?v=2';
 
 export class SportGarminPage {
-  constructor() { this.element = null; this.connection = null; }
+  constructor() { this.element = null; this.connection = null; this.notifications = null; this.pushSupported = false; this.pushMessage = null; }
 
-  async initialize() { this.connection = await getGarminConnection(); }
+  async initialize() {
+    const [connection, notifications, pushSupported] = await Promise.all([
+      getGarminConnection(),
+      getSportNotificationConfig(),
+      isPushSupported(),
+    ]);
+    this.connection = connection;
+    this.notifications = notifications;
+    this.pushSupported = pushSupported;
+  }
 
   render() {
     const connection = this.connection || {};
+    const notifications = this.notifications || {};
+    const notificationStatus = notifications.configured
+      ? 'Clés VAPID configurées. Après toute génération ou modification, réabonnez les notifications depuis votre téléphone.'
+      : 'Aucune clé configurée : les notifications push sont désactivées sur le serveur.';
     this.element = document.createElement('div');
     this.element.className = 'page-content';
     this.element.innerHTML = `
@@ -25,6 +39,28 @@ export class SportGarminPage {
               <button class="btn btn-primary" type="submit">Connecter Garmin</button>
             </form>
           `}
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-header"><h2>Notifications téléphone</h2></div>
+        <div class="card-body">
+          <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px;">
+            <button class="btn btn-primary" data-action="enable-push" ${this.pushSupported ? '' : 'disabled'}>Activer sur ce téléphone</button>
+            <button class="btn btn-secondary" data-action="test-push" ${notifications.configured ? '' : 'disabled'}>Envoyer une notification test</button>
+          </div>
+          <p data-notification-message class="text-muted">${this._escape(this.pushMessage || notificationStatus)}</p>
+          <form data-vapid-form>
+            <label><span>Contact de l'émetteur (sujet VAPID)</span>
+              <input name="subject" type="text" value="${this._escape(notifications.subject || '')}" placeholder="mailto:votre.email@exemple.com">
+              <small class="text-muted">Adresse email ou URL identifiant ForgeAI auprès des services de notification (obligatoire, pré-rempli automatiquement à la génération).</small>
+            </label>
+            <label><span>Clé privée existante (facultatif)</span><textarea name="private_key" rows="3" placeholder="Coller une clé privée existante, ou laisser vide"></textarea></label>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;">
+              <button class="btn btn-primary" type="submit">Enregistrer</button>
+              <button class="btn btn-secondary" type="button" data-action="generate-keys">Générer les clés</button>
+            </div>
+          </form>
+          ${notifications.configured && notifications.public_key ? `<p class="text-muted" style="margin-top:8px;">Clé publique : <code>${this._escape(notifications.public_key)}</code></p>` : ''}
         </div>
       </div>`;
     this._bindEvents();
@@ -55,10 +91,50 @@ export class SportGarminPage {
       try { await disconnectGarmin(); this.connection = { connected: false }; this._rerender(); }
       catch (error) { this._message(error.data?.detail || error.message || 'Déconnexion impossible'); }
     });
+    this.element.querySelector('[data-vapid-form]')?.addEventListener('submit', async event => {
+      event.preventDefault();
+      const data = Object.fromEntries(new FormData(event.currentTarget).entries());
+      try {
+        this.notifications = await updateSportNotificationConfig({ private_key: data.private_key || null, subject: data.subject });
+        this._rerender();
+        this._notificationMessage('Configuration enregistrée.');
+      }
+      catch (error) { this._notificationMessage(error.data?.detail || error.message || 'Enregistrement impossible'); }
+    });
+    this.element.querySelector('[data-action="generate-keys"]')?.addEventListener('click', async () => {
+      this._notificationMessage('Génération des clés en cours...');
+      try {
+        this.notifications = await generateVapidKeys();
+        this.pushMessage = null;
+        this._rerender();
+        this._notificationMessage('Clés générées et appliquées. Réabonnez les notifications depuis votre téléphone.');
+      }
+      catch (error) { this._notificationMessage(error.data?.detail || error.message || 'Génération impossible'); }
+    });
+    this.element.querySelector('[data-action="enable-push"]')?.addEventListener('click', async () => {
+      this._notificationMessage('Activation en cours…');
+      const result = await enablePhoneNotifications();
+      this.pushMessage = result.enabled
+        ? 'Notifications activées : les analyses Sport arriveront sur ce téléphone (et sur votre montre Garmin via l’application Connect).'
+        : (result.reason || 'Activation impossible.');
+      this._notificationMessage(this.pushMessage);
+    });
+    this.element.querySelector('[data-action="test-push"]')?.addEventListener('click', async () => {
+      this._notificationMessage('Envoi du test en cours…');
+      try {
+        const result = await sendTestNotification();
+        this.pushMessage = result.push_sent
+          ? 'Notification de test envoyée sur ce téléphone.'
+          : 'Test créé mais non délivré : aucun abonnement actif sur ce téléphone (ou clés VAPID non configurées).';
+      }
+      catch (error) { this.pushMessage = error.data?.detail || error.message || 'Envoi du test impossible.'; }
+      this._notificationMessage(this.pushMessage);
+    });
   }
 
   _rerender() { const oldElement = this.element; const parent = oldElement?.parentElement; if (parent) { const rendered = this.render(); parent.replaceChild(rendered, oldElement); } }
   _message(message) { const node = this.element.querySelector('[data-message]'); if (node) node.textContent = message; }
+  _notificationMessage(message) { const node = this.element.querySelector('[data-notification-message]'); if (node) node.textContent = message; }
   _escape(value) { const node = document.createElement('div'); node.textContent = value || ''; return node.innerHTML; }
 }
 

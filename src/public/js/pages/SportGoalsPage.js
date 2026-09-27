@@ -1,4 +1,4 @@
-import { createSportGoal, getSportGoalsAnalysis, listSportGoals } from '../services/sportApi.js?v=5';
+import { createSportGoal, getSportGoalsAnalysis, listSportGoals } from '../services/sportApi.js?v=6';
 
 const GOAL_TYPES = [
   { value: 'distance', label: 'Distance', unit: 'km' },

@@ -40,6 +40,10 @@ export async function unsubscribePushSubscription(endpoint) {
   return notificationsApi.post('/push/unsubscribe', { endpoint });
 }
 
+export async function sendTestNotification() {
+  return notificationsApi.post('/push/test', {});
+}
+
 function _urlBase64ToUint8Array(base64String) {
   const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
   const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');

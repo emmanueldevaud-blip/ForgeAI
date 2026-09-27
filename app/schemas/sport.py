@@ -171,6 +171,19 @@ class SportAnalysisListResponse(BaseModel):
     total: int = 0
 
 
+class SportNotificationConfigResponse(BaseModel):
+    """État des clés VAPID (la clé privée n'est jamais renvoyée)."""
+
+    configured: bool = False
+    subject: str = ""
+    public_key: str = ""
+
+
+class SportNotificationConfigUpdate(BaseModel):
+    private_key: Optional[str] = Field(None, max_length=2000)
+    subject: Optional[str] = Field(None, max_length=200)
+
+
 class SportHeartRateConfig(BaseModel):
     rest_hr: Optional[float] = Field(None, ge=20, le=250)
     max_hr: Optional[float] = Field(None, ge=80, le=250)

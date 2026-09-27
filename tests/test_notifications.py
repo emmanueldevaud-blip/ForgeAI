@@ -1,7 +1,9 @@
 """Tests des notifications : chiffrement Web Push (RFC 8291) et API."""
 
 from cryptography.hazmat.primitives.asymmetric import ec
+from sqlalchemy import select
 
+from app.models.notification import Notification
 from app.services.notification import _b64url_decode, _b64url_encode, encrypt_push_payload
 
 # Vecteur de l'Appendix A / Section 5 du RFC 8291.
@@ -145,3 +147,19 @@ async def test_vapid_public_key_endpoint(client):
     response = await client.get("/notifications/push/vapid-public-key")
     assert response.status_code == 200
     assert "publicKey" in response.json()
+
+
+async def test_push_test_sends_to_own_subscriptions_only(client, auth_headers, db_session, auth_user):
+    """Le test cree la notification pour l'utilisateur connecte (push best-effort)."""
+    response = await client.post("/notifications/push/test", headers=auth_headers)
+    assert response.status_code == 200
+    # Sans abonnement actif : rien n'est delivré.
+    assert response.json()["push_sent"] is False
+
+    result = await db_session.execute(
+        select(Notification).where(Notification.user_id == auth_user.id)
+    )
+    notification = result.scalars().first()
+    assert notification is not None
+    assert notification.title == "Test ForgeAI"
+    assert notification.category == "system"

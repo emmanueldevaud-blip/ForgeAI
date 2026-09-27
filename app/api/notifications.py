@@ -119,3 +119,21 @@ async def push_unsubscribe(
     removed = await NotificationService(db).unsubscribe(current_user.id, data.endpoint)
     await db.commit()
     return {"removed": removed}
+
+
+@router.post("/push/test")
+async def push_test(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    """Envoie une notification de test a l'utilisateur connecte (push best-effort)."""
+    service = NotificationService(db)
+    notification = await service.send(
+        user_id=current_user.id,
+        title="Test ForgeAI",
+        message="Notifications configurees : tout fonctionne.",
+        category="system",
+        data={"url": "/sport/analyses"},
+    )
+    await db.commit()
+    return {"push_sent": notification.push_sent}

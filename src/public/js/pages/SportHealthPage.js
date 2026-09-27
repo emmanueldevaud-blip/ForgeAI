@@ -1,4 +1,4 @@
-import { getSportHealth } from '../services/sportApi.js?v=5';
+import { getSportHealth } from '../services/sportApi.js?v=6';
 
 const PERIODS = [
   { value: 7, label: '7 jours' },

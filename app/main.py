@@ -16,6 +16,7 @@ from app.db.session import close_db, init_db
 from app.modules import register_all_modules
 from app.services.ai_gateway.config_store import apply_from_db as apply_ai_settings_from_db
 from app.services.dashboard import register_dashboard_widgets
+from app.services.notifications.config_store import apply_vapid_from_db
 from app.services.rbac import seed_default_rbac
 
 settings = get_settings()
@@ -40,6 +41,7 @@ async def lifespan(app: FastAPI):
         await seed_default_rbac(db)
         await _sync_module_statuses(db)
         await apply_ai_settings_from_db(db)
+        await apply_vapid_from_db(db)
         break
     garmin_sync_task = asyncio.create_task(_garmin_sync_loop())
     ad_sync_task = asyncio.create_task(_ad_sync_loop())

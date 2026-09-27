@@ -59,20 +59,28 @@ def convert_value(field: str, raw: str):
     return str(raw)
 
 
-async def load_overrides(db: AsyncSession) -> dict[str, str]:
-    """Valeurs IA stockées en DB (clé = db_key, valeur brute chaîne)."""
-    keys = [db_key(field) for field in AI_SETTINGS_FIELDS]
+async def load_overrides(
+    db: AsyncSession,
+    fields: tuple[str, ...] = AI_SETTINGS_FIELDS,
+    module_code: str = "administration",
+) -> dict[str, str]:
+    """Valeurs stockées en DB (clé = db_key, valeur brute chaîne)."""
+    keys = [db_key(field) for field in fields]
     result = await db.execute(
         select(ModuleConfig)
         .join(Module)
-        .where(Module.code == "administration", ModuleConfig.key.in_(keys))
+        .where(Module.code == module_code, ModuleConfig.key.in_(keys))
     )
     return {config.key: config.value for config in result.scalars().all() if config.value is not None}
 
 
-def apply_overrides(settings: Settings, overrides: dict[str, str]) -> None:
+def apply_overrides(
+    settings: Settings,
+    overrides: dict[str, str],
+    fields: tuple[str, ...] = AI_SETTINGS_FIELDS,
+) -> None:
     """Applique les valeurs DB sur l'instance Settings (overlay à chaud)."""
-    by_key = {db_key(field): field for field in AI_SETTINGS_FIELDS}
+    by_key = {db_key(field): field for field in fields}
     for key, raw in overrides.items():
         field = by_key.get(key)
         if field is None or raw is None:
@@ -83,7 +91,11 @@ def apply_overrides(settings: Settings, overrides: dict[str, str]) -> None:
             continue
 
 
-async def apply_from_db(db: AsyncSession) -> None:
+async def apply_from_db(
+    db: AsyncSession,
+    fields: tuple[str, ...] = AI_SETTINGS_FIELDS,
+    module_code: str = "administration",
+) -> None:
     """Recharge l'overlay DB sur l'instance Settings partagée (runtime)."""
-    overrides = await load_overrides(db)
-    apply_overrides(get_settings(), overrides)
+    overrides = await load_overrides(db, fields=fields, module_code=module_code)
+    apply_overrides(get_settings(), overrides, fields=fields)

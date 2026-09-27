@@ -1,4 +1,4 @@
-import { analyzeSportActivity, listSportActivities } from '../services/sportApi.js?v=5';
+import { analyzeSportActivity, listSportActivities } from '../services/sportApi.js?v=6';
 
 export class SportActivitiesPage {
   constructor() { this.element = null; this.items = []; this.loading = true; this.error = null; }

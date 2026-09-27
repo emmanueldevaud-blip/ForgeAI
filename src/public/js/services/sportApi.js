@@ -82,3 +82,15 @@ export async function syncGarmin(fullHistory = false) {
 export async function disconnectGarmin() {
   return sportApi.delete('/garmin');
 }
+
+export async function getSportNotificationConfig() {
+  return sportApi.get('/notifications/config');
+}
+
+export async function generateVapidKeys() {
+  return sportApi.post('/notifications/config/generate', {});
+}
+
+export async function updateSportNotificationConfig(data) {
+  return sportApi.put('/notifications/config', data);
+}

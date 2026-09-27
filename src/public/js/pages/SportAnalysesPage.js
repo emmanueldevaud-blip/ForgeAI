@@ -1,5 +1,4 @@
-import { listSportAnalyses } from '../services/sportApi.js?v=5';
-import { enablePhoneNotifications, isPushSupported } from '../services/notificationsApi.js?v=1';
+import { listSportAnalyses } from '../services/sportApi.js?v=6';
 
 const TYPE_LABELS = {
   morning: { emoji: '🌅', label: 'Matin' },
@@ -14,15 +13,12 @@ export class SportAnalysesPage {
     this.data = null;
     this.loading = false;
     this.error = false;
-    this.notificationState = null;
-    this.pushSupported = false;
   }
 
   async initialize() {
     this.loading = true;
     this.error = false;
     try {
-      this.pushSupported = await isPushSupported();
       this.data = await listSportAnalyses(30);
     } catch (error) {
       this.error = true;
@@ -52,10 +48,8 @@ export class SportAnalysesPage {
         </div>
         <div style="display:flex;gap:8px;flex-wrap:wrap;">
           <button class="btn btn-secondary btn-sm" data-action="refresh">Actualiser</button>
-          <button class="btn btn-primary btn-sm" data-action="notifications" ${this.pushSupported ? '' : 'disabled'}>Notifications téléphone</button>
         </div>
       </div>
-      ${this.notificationState ? `<div class="card" role="status"><div class="card-body ${this.notificationState.enabled ? '' : 'text-muted'}">${this._escape(this.notificationState.message)}</div></div>` : ''}
       ${this.error ? '<div class="card" role="alert"><div class="card-body">Impossible de charger les analyses.</div></div>' : ''}
       ${!this.error && this.loading && !this.data ? '<div class="card"><div class="card-body">Chargement…</div></div>' : ''}
       ${!this.error && !this.loading && !items.length ? `
@@ -89,18 +83,6 @@ export class SportAnalysesPage {
   _bindEvents() {
     this.element.querySelector('[data-action="refresh"]')?.addEventListener('click', async () => {
       await this.initialize();
-      this._renderContent();
-    });
-    this.element.querySelector('[data-action="notifications"]')?.addEventListener('click', async () => {
-      this.notificationState = { enabled: false, message: 'Activation en cours…' };
-      this._renderContent();
-      const result = await enablePhoneNotifications();
-      this.notificationState = {
-        enabled: result.enabled,
-        message: result.enabled
-          ? 'Notifications activées : les analyses Sport arriveront sur ce téléphone (et sur votre montre Garmin via l’application Connect).'
-          : result.reason,
-      };
       this._renderContent();
     });
   }

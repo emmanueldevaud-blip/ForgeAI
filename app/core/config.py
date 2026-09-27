@@ -86,6 +86,21 @@ class Settings(BaseSettings):
     RATE_LIMIT_REQUESTS: int = 10
     RATE_LIMIT_WINDOW_SECONDS: int = 60
 
+    # Sport - analyses automatiques (matin / soir / apres activite)
+    SPORT_ANALYSIS_ENABLED: bool = True
+    SPORT_MORNING_ANALYSIS_ENABLED: bool = True
+    SPORT_MORNING_ANALYSIS_TIME: str = "07:00"
+    SPORT_EVENING_ANALYSIS_ENABLED: bool = True
+    SPORT_EVENING_ANALYSIS_TIME: str = "20:30"
+    SPORT_ACTIVITY_ANALYSIS_ENABLED: bool = True
+    SPORT_ACTIVITY_ANALYSIS_DELAY_MINUTES: int = 15
+    SPORT_ANALYSIS_TIMEZONE: str = "Europe/Paris"
+
+    # Notifications (Web Push vers le telephone -> repliquee sur la montre Garmin)
+    NOTIFICATION_VAPID_PUBLIC_KEY: str = ""
+    NOTIFICATION_VAPID_PRIVATE_KEY: str = ""
+    NOTIFICATION_VAPID_SUBJECT: str = ""
+
     @property
     def ad_url(self) -> str:
         protocol = "ldaps" if self.AD_USE_SSL else "ldap"

@@ -2,6 +2,10 @@ import { ApiClient } from './api.js?v=2';
 
 const sportApi = new ApiClient('/sport');
 
+export async function listSportAnalyses(limit = 30) {
+  return sportApi.get(`/analyses?limit=${encodeURIComponent(limit)}`);
+}
+
 export async function getSportDashboard(period = 28) {
   return sportApi.get(`/dashboard?period=${encodeURIComponent(period)}`);
 }
@@ -53,6 +57,14 @@ export async function importSportActivity(file) {
 
 export async function listSportGoals() {
   return sportApi.get('/goals');
+}
+
+export async function createSportGoal(data) {
+  return sportApi.post('/goals', data);
+}
+
+export async function getSportGoalsAnalysis() {
+  return sportApi.get('/analysis/goals');
 }
 
 export async function getGarminConnection() {

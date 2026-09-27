@@ -150,6 +150,45 @@ class SportService:
         except Exception:
             await self.db.rollback()
 
+    async def build_activity_ai_context(self, activity_id: int, deterministic: dict | None = None) -> dict | None:
+        """Contexte IA complet d'une activité (débrief ponctuel + analyse automatique).
+
+        Regroupe analyse déterministe, historique, objectifs, récupération,
+        détail Garmin minute par minute et santé récente.
+        """
+        if deterministic is None:
+            deterministic = await self._calculate_activity_analysis(activity_id)
+        if deterministic is None:
+            return None
+        athlete = await self.get_or_create_athlete()
+        activity = await self.db.scalar(select(SportActivity).where(
+            SportActivity.id == activity_id, SportActivity.athlete_id == athlete.id,
+        ))
+        if activity is None:
+            return None
+        reference_day = activity.started_at.date()
+        result = await self.db.execute(select(SportActivity).where(
+            SportActivity.athlete_id == athlete.id,
+            SportActivity.started_at >= datetime.combine(reference_day - timedelta(days=179), datetime.min.time()),
+            SportActivity.started_at <= datetime.combine(reference_day, datetime.max.time()),
+        ).order_by(SportActivity.started_at.desc()))
+        activities = list(result.scalars().all())
+        zones = (athlete.metadata_json or {}).get("heart_rate_zones")
+        weekly = SportAnalysisEngine.analyze_period(activities, reference_day - timedelta(days=27), reference_day, reference_day - timedelta(days=55), zones)
+        goals_result = await self.db.execute(select(SportGoal).where(SportGoal.athlete_id == athlete.id))
+        goals = list(goals_result.scalars().all())
+        context = SportAnalysisEngine.build_context(
+            {"display_name": athlete.display_name, "profile": SportAnalysisEngine.athlete_profile(activities, goals),
+             "heart_rate": zones}, activities[:3], weekly, None, goals,
+            recovery=await self.recovery_context(reference_day),
+        )
+        context["current_activity"] = deterministic
+        detail = SportAnalysisEngine.activity_detail(activity, curve_points=20)
+        if detail:
+            context["current_activity"]["detail"] = detail
+        context["health"] = await self.health_context(7, reference=reference_day)
+        return context
+
     async def generate_activity_ai_analysis(self, activity_id: int) -> bool:
         """Generate the optional AI summary without affecting activity persistence."""
         try:
@@ -165,32 +204,14 @@ class SportService:
             stored.ai_error = None
             await self.db.commit()
 
-            athlete = await self.get_or_create_athlete()
-            activity = await self.db.scalar(select(SportActivity).where(
-                SportActivity.id == activity_id, SportActivity.athlete_id == athlete.id,
-            ))
-            if activity is None:
+            context = await self.build_activity_ai_context(activity_id, deterministic)
+            if context is None:
                 return False
-            reference_day = activity.started_at.date()
-            result = await self.db.execute(select(SportActivity).where(
-                SportActivity.athlete_id == athlete.id,
-                SportActivity.started_at >= datetime.combine(reference_day - timedelta(days=179), datetime.min.time()),
-                SportActivity.started_at <= datetime.combine(reference_day, datetime.max.time()),
-            ).order_by(SportActivity.started_at.desc()))
-            activities = list(result.scalars().all())
-            zones = (athlete.metadata_json or {}).get("heart_rate_zones")
-            weekly = SportAnalysisEngine.analyze_period(activities, reference_day - timedelta(days=27), reference_day, reference_day - timedelta(days=55), zones)
-            monthly = SportAnalysisEngine.analyze_period(activities, reference_day - timedelta(days=89), reference_day, reference_day - timedelta(days=179), zones)
-            goals_result = await self.db.execute(select(SportGoal).where(SportGoal.athlete_id == athlete.id))
-            goals = list(goals_result.scalars().all())
-            context = SportAnalysisEngine.build_context(
-                {"display_name": athlete.display_name, "profile": SportAnalysisEngine.athlete_profile(activities, goals),
-                 "heart_rate": zones}, activities[:10], weekly, monthly, goals,
-            )
-            context["current_activity"] = deterministic
             answer = await get_sport_ai_provider().answer(
                 "Raconte-moi cette sortie comme si on la débriefait ensemble après : ce que ça raconte, "
                 "ce qui est passé bien, ce qui peut progresser, puis un conseil pour la prochaine fois. "
+                "Appuie-toi sur toutes les données détaillées à disposition quand elles éclairent le propos : "
+                "courbe minute par minute, segments kilométriques, cadence, puissance, dénivelé. "
                 "Ton naturel de coach, en discutant — pas de tableau ni de liste de pourcentages. "
                 "Finis sur une note motivante avec une pointe d'humour.",
                 context,
@@ -320,11 +341,11 @@ class SportService:
             ),
         }
 
-    async def health(self, period_days: int = 28) -> dict:
+    async def health(self, period_days: int = 28, *, reference: date | None = None) -> dict:
         """Séries de santé quotidiennes (Garmin) sur la période demandée."""
         athlete = await self.get_or_create_athlete()
         period_days = period_days if period_days in {7, 14, 28, 90} else 28
-        today = datetime.now(timezone.utc).date()
+        today = reference or datetime.now(timezone.utc).date()
         start = today - timedelta(days=period_days - 1)
         result = await self.db.execute(
             select(SportHealthDaily).where(
@@ -473,6 +494,111 @@ class SportService:
             "series": series,
         }
 
+    async def recovery_context(self, reference: date | None = None) -> dict:
+        """Données de récupération (readiness, sommeil, HRV, stress) pour l'IA."""
+        data = await self.health(7, reference=reference)
+        if not data["days_available"]:
+            return {"available": False, "reason": "Aucune donnée de récupération disponible"}
+        series = data["series"]
+        summary = data["summary"]
+
+        def latest(key: str, field: str) -> Any:
+            items = series.get(key) or []
+            return items[-1].get(field) if items else None
+
+        return {
+            "available": True,
+            "days_with_data": data["days_available"],
+            "reference_day": data["period_end"].isoformat(),
+            "latest": {
+                "readiness_score": latest("readiness", "score"),
+                "readiness_status": latest("readiness", "status"),
+                "sleep_score": latest("sleep", "score"),
+                "sleep_total_minutes": latest("sleep", "total_minutes"),
+                "hrv_ms": latest("hrv", "value"),
+                "hrv_status": latest("hrv", "status"),
+                "resting_hr": latest("heart_rate", "resting"),
+                "stress_avg": latest("stress", "avg"),
+                "body_battery": latest("body_battery", "last"),
+                "spo2": latest("spo2", "value"),
+            },
+            "period_averages": {
+                "sleep_score": summary.get("sleep_score_avg"),
+                "sleep_total_minutes": summary.get("sleep_total_avg_minutes"),
+                "hrv": summary.get("hrv_avg"),
+                "resting_hr": summary.get("resting_hr_avg"),
+                "stress": summary.get("stress_avg"),
+                "steps": summary.get("steps_avg"),
+            },
+        }
+
+    _HEALTH_CONTEXT_FIELDS: tuple[tuple[str, str, str, str], ...] = (
+        ("heart_rate", "rhr", "resting", "fc_repos"),
+        ("heart_rate", "avg", "avg", "fc_moy"),
+        ("heart_rate", "hmax", "max", "fc_max"),
+        ("sleep", "tmin", "total_minutes", "sommeil_min"),
+        ("sleep", "ssc", "score", "score_sommeil"),
+        ("sleep", "deep", "deep_minutes", "sommeil_profond_min"),
+        ("sleep", "lt", "light_minutes", "sommeil_leger_min"),
+        ("sleep", "rem", "rem_minutes", "rem_min"),
+        ("sleep", "awk", "awake_minutes", "eveil_min"),
+        ("hrv", "hrv", "value", "hrv_ms"),
+        ("hrv", "hst", "status", "hrv_statut"),
+        ("stress", "sta", "avg", "stress_moy"),
+        ("stress", "stm", "max", "stress_max"),
+        ("body_battery", "bbn", "min", "body_battery_min"),
+        ("body_battery", "bbx", "max", "body_battery_max"),
+        ("body_battery", "bbl", "last", "body_battery_fin"),
+        ("steps", "stp", "steps", "pas"),
+        ("steps", "kcal", "calories", "kcal"),
+        ("steps", "mod", "moderate_minutes", "moderate_min"),
+        ("steps", "vig", "vigorous_minutes", "vigoureux_min"),
+        ("spo2", "o2", "value", "spo2"),
+        ("respiration", "rsp", "value", "respiration"),
+        ("readiness", "rds", "score", "readiness"),
+        ("readiness", "rst", "status", "readiness_statut"),
+    )
+
+    async def health_context(self, period_days: int = 90, *, reference: date | None = None) -> dict:
+        """Santé quotidienne en format tabulaire compact destiné au prompt IA.
+
+        L'AI Gateway (tier gratuit) refuse les entrées au-delà d'une limite de
+        tokens : le format brut de health() fait ~5 000 tokens, cette version
+        compacte (~2 500 tokens) conserve toutes les séries et tous les jours.
+        Les colonnes sans aucune valeur sont retirées.
+        """
+        data = await self.health(period_days, reference=reference)
+        by_day: dict[str, dict[str, Any]] = {}
+        for key, code, field, _ in self._HEALTH_CONTEXT_FIELDS:
+            for item in data["series"].get(key) or []:
+                value = item.get(field)
+                if value is None:
+                    continue
+                if isinstance(value, float) and value.is_integer():
+                    value = int(value)
+                by_day.setdefault(item["date"], {})[code] = value
+        used = [
+            code for code in dict.fromkeys(code for _, code, _, _ in self._HEALTH_CONTEXT_FIELDS)
+            if any(code in entry for entry in by_day.values())
+        ]
+        labels = {code: label for _, code, _, label in self._HEALTH_CONTEXT_FIELDS if code in used}
+        summary = {
+            key: (round(value, 1) if isinstance(value, float) else value)
+            for key, value in data["summary"].items()
+        }
+        return {
+            "period_days": data["period_days"],
+            "period_end": data["period_end"].isoformat(),
+            "days_with_data": data["days_available"],
+            "columns": ["day", *used],
+            "legend": "day=jour(MM-DD); " + "; ".join(f"{code}={label}" for code, label in labels.items()),
+            "rows": [
+                [day[5:]] + [by_day[day].get(code) for code in used]
+                for day in sorted(by_day)
+            ],
+            "summary": summary,
+        }
+
     async def analyze_period(self, period_days: int = 28) -> dict:
         athlete = await self.get_or_create_athlete()
         period_days = period_days if period_days in {7, 28, 90, 365} else 28
@@ -597,10 +723,13 @@ class SportService:
         goals = [{"name": goal.name, "goal_type": goal.goal_type, "target_value": goal.target_value, "unit": goal.unit, "target_date": goal.target_date} for goal in goals_result.scalars().all()]
         profile = SportAnalysisEngine.athlete_profile(activities, goals)
         profile["goal_analysis"] = SportAnalysisEngine.analyze_goals(goals, activities, today)
-        return SportAnalysisEngine.build_context(
+        context = SportAnalysisEngine.build_context(
             {"display_name": athlete.display_name, "profile": profile, "heart_rate": (athlete.metadata_json or {}).get("heart_rate_zones")},
-            activities[:10], weekly, monthly, goals,
+            activities[:5], weekly, monthly, goals,
+            recovery=await self.recovery_context(),
         )
+        context["health"] = await self.health_context(90)
+        return context
 
     async def coach(self, question: str, conversation_id: int | None = None) -> dict:
         athlete = await self.get_or_create_athlete()

@@ -10,7 +10,7 @@ from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
 
-from app.api import auth, audit, buildings, dashboard, equipment, housing, maintenance, modules, admin, volunteer, sport, administrative, agenda
+from app.api import auth, audit, buildings, dashboard, equipment, housing, maintenance, modules, admin, volunteer, sport, administrative, agenda, notifications
 from app.core.config import get_settings
 from app.db.session import close_db, init_db
 from app.modules import register_all_modules
@@ -21,6 +21,7 @@ from app.services.rbac import seed_default_rbac
 settings = get_settings()
 garmin_sync_task = None
 ad_sync_task = None
+sport_analysis_task = None
 
 limiter = Limiter(
     key_func=get_remote_address,
@@ -42,7 +43,14 @@ async def lifespan(app: FastAPI):
         break
     garmin_sync_task = asyncio.create_task(_garmin_sync_loop())
     ad_sync_task = asyncio.create_task(_ad_sync_loop())
+    sport_analysis_task = asyncio.create_task(_sport_analysis_loop())
     yield
+    if sport_analysis_task:
+        sport_analysis_task.cancel()
+        try:
+            await sport_analysis_task
+        except asyncio.CancelledError:
+            pass
     if ad_sync_task:
         ad_sync_task.cancel()
         try:
@@ -120,6 +128,25 @@ async def _ad_sync_loop() -> None:
             print(f"[AD-SYNC] Boucle de synchro automatique: {exc}")
 
 
+async def _sport_analysis_loop() -> None:
+    from app.db.session import get_db
+    from app.services.sport_analysis_service import run_sport_analysis_cycle
+
+    # Analyses sportives automatiques (matin / soir / activité).
+    # L'idempotence en base permet de relancer le cycle fréquemment.
+    while True:
+        try:
+            async for db in get_db():
+                await run_sport_analysis_cycle(db)
+                break
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            # Une analyse en echec ne doit jamais tuer l'application.
+            print(f"[SPORT-ANALYSIS] Cycle en echec: {exc}")
+        await asyncio.sleep(60)
+
+
 async def _sync_module_statuses(db):
     from sqlalchemy import select
     from app.models.module import Module as ModuleModel
@@ -176,7 +203,7 @@ app.add_middleware(
 async def health_check():
     return {"status": "ok", "version": settings.APP_VERSION}
 
-SPA_PREFIXES = ("api/", "auth/", "admin/", "docs", "redoc", "openapi", "health", "css/", "js/", "modules/", "dashboard/")
+SPA_PREFIXES = ("api/", "auth/", "admin/", "docs", "redoc", "openapi", "health", "css/", "js/", "modules/", "dashboard/", "notifications/")
 
 
 def _is_spa_navigation(request: Request) -> bool:
@@ -214,6 +241,7 @@ app.include_router(housing.router)
 app.include_router(maintenance.router)
 app.include_router(volunteer.router)
 app.include_router(sport.router)
+app.include_router(notifications.router)
 app.include_router(administrative.router)
 app.include_router(agenda.router)
 
@@ -230,6 +258,15 @@ if os.path.exists(frontend_path):
         if os.path.exists(index_path):
             return FileResponse(index_path)
         return {"message": "Frontend not built"}
+
+    @app.get("/sw.js")
+    async def serve_service_worker():
+        # Service worker des notifications telephone : doit etre servi avec
+        # un type MIME JavaScript (le catchall SPA renverrait index.html).
+        sw_path = os.path.join(frontend_path, "sw.js")
+        if os.path.exists(sw_path):
+            return FileResponse(sw_path, media_type="application/javascript")
+        return JSONResponse(status_code=404, content={"detail": "Not Found"})
 
 
 @app.get("/{full_path:path}")

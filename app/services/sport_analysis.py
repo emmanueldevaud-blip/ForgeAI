@@ -18,6 +18,8 @@ class SportAnalysisEngine:
         elevations = cls._values(items, "elevation_gain_m")
         paces = cls._values(items, "avg_pace_sec_km")
         heart_rates = cls._values(items, "avg_heart_rate")
+        cadences = cls._values(items, "avg_cadence")
+        powers = cls._values(items, "avg_power_w")
         days = {item.started_at.date() for item in items if getattr(item, "started_at", None)}
         sports: dict[str, int] = defaultdict(int)
         for item in items:
@@ -29,6 +31,8 @@ class SportAnalysisEngine:
             "elevation_gain_m": sum(elevations) if elevations else None,
             "avg_pace_sec_km": mean(paces) if paces else None,
             "avg_heart_rate": mean(heart_rates) if heart_rates else None,
+            "avg_cadence": round(mean(cadences), 1) if cadences else None,
+            "avg_power_w": round(mean(powers), 1) if powers else None,
             "max_heart_rate": max(cls._values(items, "max_heart_rate"), default=None),
             "days_trained": len(days),
             "long_activity_count": sum(1 for item in items if (getattr(item, "duration_seconds", 0) or 0) >= 90 * 60),
@@ -179,6 +183,134 @@ class SportAnalysisEngine:
         return {"activity": summary, "comparison": {"similar_activity_count": similar["activity_count"], "similar": similar}, "heart_rate_zones": cls.heart_rate_zones(activity, zones), "cardiac_drift": drift, "training_load": cls.training_load(activity, zones), "observations": observations, "findings": findings}
 
     @classmethod
+    def activity_detail(cls, activity: Any, curve_points: int = 40) -> dict[str, Any]:
+        """Segments par km, courbe échantillonnée et splits depuis les détails Garmin.
+
+        Exploite ``metadata_json.garmin_details`` (activityDetailMetrics indexé
+        par metricDescriptors) et ``garmin_splits`` : cadence, puissance, vitesse
+        et altitude point par point, agrégées en segments lisibles pour l'IA.
+        """
+        metadata = getattr(activity, "metadata_json", None) or {}
+        details = metadata.get("garmin_details") or {}
+        metrics = details.get("activityDetailMetrics")
+        descriptors = details.get("metricDescriptors")
+        if not isinstance(metrics, list) or not isinstance(descriptors, list) or not metrics:
+            return {}
+        index_by_key: dict[str, int] = {}
+        for desc in descriptors:
+            if isinstance(desc, dict) and desc.get("key") and isinstance(desc.get("metricsIndex"), int):
+                index_by_key[desc["key"]] = desc["metricsIndex"]
+        ts_index = index_by_key.get("directTimestamp")
+        if ts_index is None:
+            return {}
+
+        def value(values: list, key: str) -> float | None:
+            index = index_by_key.get(key)
+            if index is None or index >= len(values):
+                return None
+            raw = values[index]
+            if isinstance(raw, bool) or not isinstance(raw, (int, float)):
+                return None
+            return float(raw)
+
+        points: list[dict[str, Any]] = []
+        for entry in metrics:
+            values = entry.get("metrics") if isinstance(entry, dict) else None
+            if not isinstance(values, list) or ts_index >= len(values):
+                continue
+            ts = value(values, "directTimestamp")
+            if ts is None:
+                continue
+            distance = value(values, "sumDistance")
+            points.append({
+                "ts": ts,
+                "km": (distance or 0.0) / 1000.0,
+                "v": value(values, "directSpeed"),
+                "hr": value(values, "directHeartRate"),
+                "cad": value(values, "directDoubleCadence"),
+                "pw": value(values, "directPower"),
+                "alt": value(values, "directElevation"),
+            })
+        if not points:
+            return {}
+
+        segments: list[list[Any]] = []
+        bucket: dict[str, Any] = {}
+        for point in points:
+            km = int(point["km"])
+            if not bucket or bucket["km"] != km:
+                if bucket:
+                    segments.append(cls._segment_row(bucket))
+                bucket = {"km": km, "ts0": point["ts"], "v": [], "hr": [], "cad": [], "pw": [], "alt": [], "dpos": 0.0}
+            bucket["ts1"] = point["ts"]
+            for key in ("v", "hr", "cad", "pw", "alt"):
+                bucket[key].append(point[key])
+            if point["alt"] is not None and bucket["alt"] and bucket["alt"][-1] is not None:
+                delta = point["alt"] - bucket["alt"][-1]
+                if delta > 0:
+                    bucket["dpos"] += delta
+        if bucket:
+            segments.append(cls._segment_row(bucket))
+
+        step = max(1, len(points) // curve_points)
+        sampled = points[::step][:curve_points]
+        curve = [
+            [
+                round((point["ts"] - points[0]["ts"]) / 60000.0),
+                round(point["km"], 2),
+                round(point["v"] * 3.6, 1) if point["v"] is not None else None,
+                round(point["hr"]) if point["hr"] is not None else None,
+                round(point["cad"]) if point["cad"] is not None else None,
+                round(point["pw"]) if point["pw"] is not None else None,
+                round(point["alt"]) if point["alt"] is not None else None,
+            ]
+            for point in sampled
+        ]
+
+        splits = []
+        for split in ((metadata.get("garmin_splits") or {}).get("splitSummaries") or []):
+            if not isinstance(split, dict):
+                continue
+            splits.append({
+                "type": split.get("splitType"),
+                "distance_m": split.get("distance"),
+                "duration_s": split.get("duration"),
+                "avg_speed_m_s": split.get("averageSpeed"),
+                "avg_hr": split.get("averageHR"),
+                "avg_power_w": split.get("averagePower"),
+                "elevation_gain_m": split.get("elevationGain"),
+            })
+        return {
+            "curve_legend": "min, km, km/h, fc, cadence(pas/min), puissance(W), altitude(m)",
+            "curve": curve,
+            "segments_legend": "km, durée(s), vitesse_moy(km/h), vitesse_max(km/h), fc_moy, fc_max, cadence_moy, puissance_moy, d+, altitude_fin(m)",
+            "segments": segments,
+            "splits": splits,
+        }
+
+    @staticmethod
+    def _segment_row(bucket: dict[str, Any]) -> list[Any]:
+        def mean_of(values: list[float | None]) -> float | None:
+            present = [item for item in values if item is not None]
+            return round(sum(present) / len(present), 1) if present else None
+
+        speeds = [item for item in bucket["v"] if item is not None]
+        heart_rates = [item for item in bucket["hr"] if item is not None]
+        last_alt = next((item for item in reversed(bucket["alt"]) if item is not None), None)
+        return [
+            bucket["km"],
+            round((bucket.get("ts1", bucket["ts0"]) - bucket["ts0"]) / 1000.0),
+            round(mean_of(bucket["v"]) * 3.6, 1) if mean_of(bucket["v"]) is not None else None,
+            round(max(speeds) * 3.6, 1) if speeds else None,
+            round(mean_of(bucket["hr"])) if mean_of(bucket["hr"]) is not None else None,
+            round(max(heart_rates)) if heart_rates else None,
+            round(mean_of(bucket["cad"])) if mean_of(bucket["cad"]) is not None else None,
+            mean_of(bucket["pw"]),
+            round(bucket["dpos"]),
+            round(last_alt) if last_alt is not None else None,
+        ]
+
+    @classmethod
     def analyze_goals(cls, goals: Iterable[Any], activities: Iterable[Any], today: date | None = None) -> list[dict[str, Any]]:
         """Describe recent compatible training against configured targets without predicting outcomes."""
         target_day = today or date.today()
@@ -258,7 +390,7 @@ class SportAnalysisEngine:
         }
 
     @classmethod
-    def build_context(cls, athlete: dict[str, Any], recent: Iterable[Any], weekly: dict[str, Any], monthly: dict[str, Any], goals: list[Any]) -> dict[str, Any]:
+    def build_context(cls, athlete: dict[str, Any], recent: Iterable[Any], weekly: dict[str, Any], monthly: dict[str, Any], goals: list[Any], recovery: dict[str, Any] | None = None) -> dict[str, Any]:
         return {
             "athlete": athlete,
             "current_activity": None,
@@ -269,5 +401,5 @@ class SportAnalysisEngine:
             "goals": goals,
             "heart_rate": {"available": weekly.get("summary", {}).get("avg_heart_rate") is not None},
             "training_load": weekly.get("training_load", {"available": False, "reason": "Aucune charge calculée"}),
-            "recovery": {"available": False, "reason": "Aucune donnée de récupération disponible"},
+            "recovery": recovery or {"available": False, "reason": "Aucune donnée de récupération disponible"},
         }

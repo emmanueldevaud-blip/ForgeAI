@@ -3,16 +3,20 @@ import logging
 from datetime import date
 
 from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, Query, UploadFile
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from xml.etree.ElementTree import ParseError
 
 from app.api.deps import get_db, require_permission
 from app.db.session import get_db_context
+from app.models.sport import SportAnalysis
 from app.models.user import User
 from app.schemas.sport import (
     SportActivityCreate,
     SportActivityListResponse,
     SportActivityResponse,
+    SportAnalysisListResponse,
+    SportAnalysisResponse,
     SportDashboardResponse,
     SportGoalCreate,
     SportGoalResponse,
@@ -160,6 +164,46 @@ async def sport_goals_analysis(service: SportService = Depends(get_sport_analysi
 @router.get("/analysis/month")
 async def sport_month_analysis(service: SportService = Depends(get_sport_analysis_service)):
     return await service.analyze_month()
+
+
+@router.get("/analyses", response_model=SportAnalysisListResponse)
+async def list_sport_analyses(
+    limit: int = Query(20, ge=1, le=100),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_permission("sport.analysis.read")),
+):
+    """Analyses automatiques (matin / soir / sortie) de l'utilisateur."""
+    athlete = await SportService(db, current_user).get_or_create_athlete()
+    result = await db.execute(
+        select(SportAnalysis)
+        .where(SportAnalysis.athlete_id == athlete.id)
+        .order_by(SportAnalysis.generated_at.desc())
+        .limit(limit)
+    )
+    items = list(result.scalars().all())
+    total = (
+        await db.execute(
+            select(func.count(SportAnalysis.id)).where(SportAnalysis.athlete_id == athlete.id)
+        )
+    ).scalar() or 0
+    return SportAnalysisListResponse(items=items, total=total)
+
+
+@router.get("/analyses/{analysis_id}", response_model=SportAnalysisResponse)
+async def get_sport_analysis(
+    analysis_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_permission("sport.analysis.read")),
+):
+    athlete = await SportService(db, current_user).get_or_create_athlete()
+    analysis = await db.scalar(
+        select(SportAnalysis).where(
+            SportAnalysis.id == analysis_id, SportAnalysis.athlete_id == athlete.id
+        )
+    )
+    if analysis is None:
+        raise HTTPException(status_code=404, detail="Analyse non trouvée")
+    return analysis
 
 
 @router.get("/athlete/profile", response_model=SportAthleteProfileResponse)

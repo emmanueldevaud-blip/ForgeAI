@@ -26,10 +26,12 @@ import { createHousingUnavailabilitiesPage } from './pages/HousingUnavailabiliti
 import { createHousingEmailTemplatesPage } from './pages/HousingEmailTemplatesPage.js?v=11';
 import { createCleaningVolunteersPage } from './pages/CleaningVolunteersPage.js?v=4';
 import { createAdministrativeProgramsPage } from './pages/AdministrativeProgramsPage.js';
-import { createSportDashboardPage } from './pages/SportDashboardPage.js?v=4';
+import { createSportDashboardPage } from './pages/SportDashboardPage.js?v=5';
 import { createSportActivitiesPage } from './pages/SportActivitiesPage.js?v=4';
 import { createSportGarminPage } from './pages/SportGarminPage.js?v=3';
 import { createSportHealthPage } from './pages/SportHealthPage.js?v=1';
+import { createSportAnalysesPage } from './pages/SportAnalysesPage.js?v=1';
+import { createSportGoalsPage } from './pages/SportGoalsPage.js?v=1';
 import { createAgendaPage } from './pages/AgendaPage.js?v=24';
 
 const moduleRoutes = [
@@ -79,6 +81,8 @@ let sportDashboardPage = null;
 let sportActivitiesPage = null;
 let sportGarminPage = null;
 let sportHealthPage = null;
+let sportAnalysesPage = null;
+let sportGoalsPage = null;
 let agendaPage = null;
 
 async function initializeApp() {
@@ -219,7 +223,7 @@ async function initializeApp() {
       await showSportActivitiesPage(route);
     }, { requiresAuth: true, permissions: ['sport.activities.read'] })
     .addRoute('/sport/goals', async (route) => {
-      await showSportDashboardPage(route);
+      await showSportGoalsPage(route);
     }, { requiresAuth: true, permissions: ['sport.goals.read'] })
     .addRoute('/sport/garmin', async (route) => {
       await showSportGarminPage(route);
@@ -227,6 +231,9 @@ async function initializeApp() {
     .addRoute('/sport/health', async (route) => {
       await showSportHealthPage(route);
     }, { requiresAuth: true, permissions: ['sport.access'] })
+    .addRoute('/sport/analyses', async (route) => {
+      await showSportAnalysesPage(route);
+    }, { requiresAuth: true, permissions: ['sport.analysis.read'] })
     .addRoute('/agenda', async (route) => {
       await showAgendaPage(route);
     }, { requiresAuth: true, permissions: ['agenda.access'] })
@@ -534,6 +541,22 @@ async function ensureSportHealthPage() {
   return sportHealthPage;
 }
 
+async function ensureSportAnalysesPage() {
+  if (!sportAnalysesPage) {
+    sportAnalysesPage = createSportAnalysesPage(router);
+  }
+  await sportAnalysesPage.initialize();
+  return sportAnalysesPage;
+}
+
+async function ensureSportGoalsPage() {
+  if (!sportGoalsPage) {
+    sportGoalsPage = createSportGoalsPage(router);
+  }
+  await sportGoalsPage.initialize();
+  return sportGoalsPage;
+}
+
 async function ensureAgendaPage() {
   if (!agendaPage) {
     agendaPage = createAgendaPage(router);
@@ -574,6 +597,30 @@ async function showSportHealthPage(route) {
     appShell.showContent(page.render());
   } catch (error) {
     console.error('Erreur affichage Santé Sport:', error);
+    appShell.showError(error);
+  }
+}
+
+async function showSportAnalysesPage(route) {
+  if (!appShell) return;
+  appShell.showLoading();
+  try {
+    const page = await ensureSportAnalysesPage();
+    appShell.showContent(page.render());
+  } catch (error) {
+    console.error('Erreur affichage Analyses Sport:', error);
+    appShell.showError(error);
+  }
+}
+
+async function showSportGoalsPage(route) {
+  if (!appShell) return;
+  appShell.showLoading();
+  try {
+    const page = await ensureSportGoalsPage();
+    appShell.showContent(page.render());
+  } catch (error) {
+    console.error('Erreur affichage Objectifs Sport:', error);
     appShell.showError(error);
   }
 }

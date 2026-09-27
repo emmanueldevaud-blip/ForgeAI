@@ -1,4 +1,4 @@
-import { askSportCoach, getSportAthleteProfile, getSportCoachConversation, getSportDashboard, listSportCoachConversations, updateSportHeartRateConfig } from '../services/sportApi.js?v=4';
+import { askSportCoach, getSportAthleteProfile, getSportCoachConversation, getSportDashboard, listSportCoachConversations, updateSportHeartRateConfig } from '../services/sportApi.js?v=5';
 
 const PERIODS = [
   { value: 7, label: '7 jours' },
@@ -66,6 +66,7 @@ export class SportDashboardPage {
           ${PERIODS.map(item => `<button class="btn btn-sm ${item.value === this.period ? 'btn-primary' : 'btn-secondary'}" data-period="${item.value}" aria-pressed="${item.value === this.period}">${item.label}</button>`).join('')}
         </div>
       </div>
+       <section class="card sport-ai-card"><div class="sport-ai-icon">✦</div><div class="sport-ai-content"><span class="sport-eyebrow">COACH SPORT</span><h2>Une question sur ton entraînement ?</h2><p>Les réponses utilisent uniquement les statistiques disponibles dans ton historique.</p><div class="sport-coach-toolbar"><select class="form-control" data-coach-conversation aria-label="Conversation Coach Sport"><option value="">Nouvelle conversation</option>${this._conversationOptions()}</select><button class="btn btn-secondary" type="button" data-new-conversation>Nouvelle</button></div><div class="sport-coach-history" aria-live="polite">${this._coachHistory()}</div><form class="sport-coach-form"><input class="form-control" name="question" maxlength="1000" placeholder="Comment s’est passée ma semaine ?" required><button class="btn btn-primary" type="submit">Analyser</button></form><div class="sport-coach-answer" aria-live="polite"></div></div><span class="sport-ai-badge">IA ForgeAI</span></section>
       <section class="sport-summary-grid" aria-label="Résumé de la période">
         ${this._summaryCard('Distance', this._distance(summary.distance_m), this._trendFor(data, 'distance_m'), 'route')}
         ${this._summaryCard('Dénivelé positif', this._elevationValue(summary.elevation_gain_m), this._trendFor(data, 'elevation_gain_m'), 'mountain')}
@@ -96,7 +97,6 @@ export class SportDashboardPage {
         ${this._elevation(data.elevation || {})}
          ${this._goal(data.goals || [], data.goal_analysis || [])}
       </section>
-       <section class="card sport-ai-card"><div class="sport-ai-icon">✦</div><div class="sport-ai-content"><span class="sport-eyebrow">COACH SPORT</span><h2>Une question sur ton entraînement ?</h2><p>Les réponses utilisent uniquement les statistiques disponibles dans ton historique.</p><div class="sport-coach-toolbar"><select class="form-control" data-coach-conversation aria-label="Conversation Coach Sport"><option value="">Nouvelle conversation</option>${this._conversationOptions()}</select><button class="btn btn-secondary" type="button" data-new-conversation>Nouvelle</button></div><div class="sport-coach-history" aria-live="polite">${this._coachHistory()}</div><form class="sport-coach-form"><input class="form-control" name="question" maxlength="1000" placeholder="Comment s’est passée ma semaine ?" required><button class="btn btn-primary" type="submit">Analyser</button></form><div class="sport-coach-answer" aria-live="polite"></div></div><span class="sport-ai-badge">IA ForgeAI</span></section>
     `;
     this._bindEvents();
   }

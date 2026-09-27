@@ -42,7 +42,7 @@ class GatewaySportAIProvider:
     async def answer(self, question: str, context: dict[str, Any]) -> dict[str, Any]:
         user_content = (
             f"Question: {question}\n"
-            f"Contexte JSON:\n{json.dumps(context, ensure_ascii=True, default=str)}"
+            f"Contexte JSON:\n{json.dumps(context, ensure_ascii=False, default=str)}"
         )
         try:
             response = await ai_gateway.generate(
@@ -75,7 +75,7 @@ class GatewaySportAIProvider:
 
     @staticmethod
     def _sources(context: dict[str, Any]) -> list[str]:
-        return [key for key in ("athlete", "current_activity", "recent_activities", "weekly_summary", "monthly_summary", "goals") if context.get(key)]
+        return [key for key in ("athlete", "current_activity", "recent_activities", "weekly_summary", "monthly_summary", "goals", "recovery", "health") if context.get(key)]
 
 
 def get_sport_ai_provider() -> SportAIProvider:

@@ -149,6 +149,28 @@ class SportObservationResponse(BaseModel):
     confirmed_at: Optional[datetime] = None
 
 
+class SportAnalysisResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    activity_id: Optional[int] = None
+    analysis_type: str
+    analysis_day: date
+    title: str
+    summary: str
+    content: str
+    provider: Optional[str] = None
+    model: Optional[str] = None
+    duration_ms: Optional[int] = None
+    notification_sent: bool = False
+    generated_at: datetime
+
+
+class SportAnalysisListResponse(BaseModel):
+    items: list[SportAnalysisResponse] = Field(default_factory=list)
+    total: int = 0
+
+
 class SportHeartRateConfig(BaseModel):
     rest_hr: Optional[float] = Field(None, ge=20, le=250)
     max_hr: Optional[float] = Field(None, ge=80, le=250)

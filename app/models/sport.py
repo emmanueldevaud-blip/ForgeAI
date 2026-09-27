@@ -202,3 +202,37 @@ class SportHealthDaily(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
 
     athlete: Mapped["SportAthlete"] = relationship("SportAthlete")
+
+
+class SportAnalysis(Base):
+    """Analyse automatique generee par l'IA (matin, soir ou apres activite).
+
+    ``dedupe_key`` rend la generation idempotente : une seule analyse par
+    athlete et par cible (``morning:2026-09-27``, ``evening:2026-09-27``,
+    ``activity:123``).
+    """
+
+    __tablename__ = "sport_analyses"
+    __table_args__ = (
+        Index("uq_sport_analysis_dedupe", "athlete_id", "dedupe_key", unique=True),
+        Index("ix_sport_analyses_athlete_generated", "athlete_id", "generated_at"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    athlete_id: Mapped[int] = mapped_column(ForeignKey("sport_athletes.id", ondelete="CASCADE"), nullable=False, index=True)
+    activity_id: Mapped[int | None] = mapped_column(ForeignKey("sport_activities.id", ondelete="CASCADE"), nullable=True, index=True)
+    analysis_type: Mapped[str] = mapped_column(String(20), nullable=False, index=True)
+    analysis_day: Mapped[date] = mapped_column(Date, nullable=False, index=True)
+    dedupe_key: Mapped[str] = mapped_column(String(80), nullable=False)
+    title: Mapped[str] = mapped_column(String(200), nullable=False)
+    summary: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    content: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    provider: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    model: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    duration_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    fallback_used: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    notification_sent: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    generated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    athlete: Mapped["SportAthlete"] = relationship("SportAthlete")
+    activity: Mapped["SportActivity | None"] = relationship("SportActivity")

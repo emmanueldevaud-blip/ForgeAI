@@ -52,6 +52,10 @@ class SportModule(BaseModule):
             user_permissions and
             ("*" in user_permissions or "sport.activities.write" in user_permissions)
         )
+        has_analyses = (
+            user_permissions and
+            ("*" in user_permissions or "sport.analysis.read" in user_permissions)
+        )
 
         children = [{
             "code": "sport-home",
@@ -70,13 +74,22 @@ class SportModule(BaseModule):
                 "order": 0,
             })
 
+        if has_activities:
+            children.append({
+                "code": "sport-health",
+                "name": "Santé",
+                "icon": "heart-handshake",
+                "route": "/sport/health",
+                "order": 1,
+            })
+
         if has_goals:
             children.append({
                 "code": "sport-goals",
                 "name": "Objectifs",
                 "icon": "target",
                 "route": "/sport/goals",
-                "order": 1,
+                "order": 2,
             })
 
         if has_garmin:
@@ -85,16 +98,16 @@ class SportModule(BaseModule):
                 "name": "Garmin Connect",
                 "icon": "watch",
                 "route": "/sport/garmin",
-                "order": 2,
+                "order": 3,
             })
 
-        if has_activities:
+        if has_analyses:
             children.append({
-                "code": "sport-health",
-                "name": "Santé",
-                "icon": "heart-handshake",
-                "route": "/sport/health",
-                "order": 3,
+                "code": "sport-analyses",
+                "name": "Analyses IA",
+                "icon": "sparkles",
+                "route": "/sport/analyses",
+                "order": 4,
             })
 
         return [{

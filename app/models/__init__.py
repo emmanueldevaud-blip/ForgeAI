@@ -40,6 +40,16 @@ from app.models.sport import (SportActivity, SportActivityAnalysis, SportAnalysi
                                SportCoachConversation, SportCoachMessage, SportGarminConnection,
                                SportGarminSyncLog, SportGoal, SportHealthDaily, SportTrackPoint)
 from app.models.administrative import AdministrativeAssignment, AdministrativeCapability, AdministrativeMonthlySession, AdministrativeProgramType, AdministrativeRoleType, VolunteerCapability, VolunteerUnavailability
+from app.models.domotique import (
+    DomotiqueCycle,
+    DomotiqueDevice,
+    DomotiqueEvent,
+    DomotiqueOutput,
+    DomotiquePhase,
+    DomotiqueProfile,
+    DomotiqueSensor,
+    DomotiqueSensorReading,
+)
 
 __all__ = [
     "ADConfig",
@@ -116,4 +126,12 @@ __all__ = [
     "AdministrativeRoleType",
     "VolunteerCapability",
     "VolunteerUnavailability",
+    "DomotiqueDevice",
+    "DomotiqueSensor",
+    "DomotiqueSensorReading",
+    "DomotiqueOutput",
+    "DomotiqueProfile",
+    "DomotiquePhase",
+    "DomotiqueCycle",
+    "DomotiqueEvent",
 ]

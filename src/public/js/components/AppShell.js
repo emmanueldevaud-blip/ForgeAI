@@ -122,6 +122,7 @@ export class AppShell {
       housing: 'Hébergements',
       agenda: 'Agenda',
       sport: 'Sport',
+      domotique: 'Domotique',
       maintenance: 'Maintenance',
       cleaning: 'Nettoyage',
       people: 'Personnes',
@@ -155,6 +156,7 @@ export class AppShell {
         housing: 'Hébergements',
         agenda: 'Agenda',
         sport: 'Sport',
+        domotique: 'Domotique',
         maintenance: 'Maintenance',
         cleaning: 'Nettoyage',
         people: 'Personnes',
@@ -184,7 +186,7 @@ export class AppShell {
   }
 
   _handleProfileClick() {
-    console.log('Profil cliqué');
+    router.navigate('/profile', { replace: true });
   }
 
   _handleResize() {

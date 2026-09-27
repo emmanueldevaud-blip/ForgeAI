@@ -1,18 +1,20 @@
-import { connectGarmin, disconnectGarmin, generateVapidKeys, getGarminConnection, getSportNotificationConfig, syncGarmin, updateSportNotificationConfig } from '../services/sportApi.js?v=6';
+import { connectGarmin, disconnectGarmin, generateVapidKeys, getGarminConnection, getSportAthleteProfile, getSportNotificationConfig, syncGarmin, updateSportNotificationConfig } from '../services/sportApi.js?v=6';
 import { enablePhoneNotifications, isPushSupported, sendTestNotification } from '../services/notificationsApi.js?v=2';
 
 export class SportGarminPage {
-  constructor() { this.element = null; this.connection = null; this.notifications = null; this.pushSupported = false; this.pushMessage = null; }
+  constructor() { this.element = null; this.connection = null; this.notifications = null; this.pushSupported = false; this.pushMessage = null; this.profile = null; }
 
   async initialize() {
-    const [connection, notifications, pushSupported] = await Promise.all([
+    const [connection, notifications, pushSupported, profile] = await Promise.all([
       getGarminConnection(),
       getSportNotificationConfig(),
       isPushSupported(),
+      getSportAthleteProfile(),
     ]);
     this.connection = connection;
     this.notifications = notifications;
     this.pushSupported = pushSupported;
+    this.profile = profile;
   }
 
   render() {
@@ -77,6 +79,7 @@ export class SportGarminPage {
             </div>
           </form>
           ${notifications.configured && notifications.public_key ? `<p class="text-muted" style="margin-top:8px;">Clé publique : <code>${this._escape(notifications.public_key)}</code></p>` : ''}
+      ${this.profile && this.profile.heart_rate ? this._heartRateForm() : ''}
         </div>
       </div>`;
     this._bindEvents();
@@ -152,6 +155,12 @@ export class SportGarminPage {
   _message(message) { const node = this.element.querySelector('[data-message]'); if (node) node.textContent = message; }
   _notificationMessage(message) { const node = this.element.querySelector('[data-notification-message]'); if (node) node.textContent = message; }
   _escape(value) { const node = document.createElement('div'); node.textContent = value || ''; return node.innerHTML; }
+  _heartRateForm() {
+    const config = this.profile?.heart_rate || {};
+    const zones = config.custom_zones || [];
+    const zoneInputs = [0, 1, 2, 3, 4].map(index => `<label>Z${index + 1} max<input class="form-control" name="zone" type="number" min="40" max="250" value="${zones[index] ?? ''}" placeholder="limite bpm"></label>`).join('');
+    return `<div class="card sport-card"><div class="card-header"><div><span class="sport-eyebrow">RÉCUPÉRATION</span><h2>Fréquence cardiaque</h2></div></div><div class="card-body sport-health-card">${this.connection && this.connection.connected ? `<div><span>FC moyenne</span><strong>${Math.round(this.connection.avg_bpm || 0)} <small>bpm</small></strong></div>${this.connection.max_bpm != null ? `<div><span>FC max</span><strong>${Math.round(this.connection.max_bpm)} <small>bpm</small></strong></div>` : ''}` : '<p class="text-muted">Aucune fréquence cardiaque disponible.</p>'}<form class="sport-heart-rate-form"><label>FC repos<input class="form-control" name="rest_hr" type="number" min="20" max="250" value="${config.rest_hr ?? ''}" placeholder="ex. 50"></label><label>FC max<input class="form-control" name="max_hr" type="number" min="80" max="250" value="${config.max_hr ?? ''}" placeholder="ex. 190"></label><div class="sport-zones-config"><span>Limites personnalisées (optionnel)</span>${zoneInputs}</div><button class="btn btn-secondary" type="submit">Enregistrer</button><small data-heart-rate-status class="text-muted">Les zones personnalisées doivent être croissantes.</small></form></div></div>`;
+  }
 }
 
 export function createSportGarminPage() { return new SportGarminPage(); }

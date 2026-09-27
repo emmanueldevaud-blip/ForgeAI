@@ -123,6 +123,10 @@ async function initializeApp() {
     .addRoute('/dashboard', async (route) => {
       await showDashboardPage(route);
     }, { requiresAuth: true })
+    .addRoute('/profile', async () => {
+      const profilePage = createProfilePage(router);
+      appShell.showContent(profilePage.render());
+    }, { requiresAuth: true })
     .addRoute('/administration', async (route) => {
       await showAdministrationPage(route);
     }, { requiresAuth: true, permissions: ['admin.access'] })

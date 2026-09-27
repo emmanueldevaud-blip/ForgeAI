@@ -93,8 +93,7 @@ export class SportDashboardPage {
         <div class="card sport-card"><div class="card-header"><div><span class="sport-eyebrow">HISTORIQUE</span><h2>Activités récentes</h2></div><button class="btn btn-sm btn-secondary" data-action="activities">Tout voir</button></div><div class="card-body sport-recent-list">${this._recent(data.recent_activities || [])}</div></div>
       </section>
       <section class="sport-dashboard-grid sport-dashboard-grid--three">
-         ${this._heartRate(data.heart_rate, this.profile)}
-        ${this._elevation(data.elevation || {})}
+         ${this._elevation(data.elevation || {})}
          ${this._goal(data.goals || [], data.goal_analysis || [])}
       </section>
     `;

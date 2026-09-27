@@ -1,5 +1,6 @@
 from app.core.module_registry import BaseModule, ModuleInfo, ModuleStatus, module_registry
 from app.modules.agenda import AgendaModule
+from app.modules.domotique import DomotiqueModule
 from app.modules.sport import SportModule
 
 
@@ -757,6 +758,7 @@ def register_all_modules():
         InventoryModule(),
         PurchasingModule(),
         SportModule(),
+        DomotiqueModule(),
         SuppliersModule(),
         DocumentsModule(),
         ReportsModule(),

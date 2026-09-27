@@ -57,7 +57,6 @@ export class LoginPage {
         </form>
         
         <div class="login-footer">
-          <a href="#" id="show-register-link" class="register-link">Créer un compte</a>
         </div>
       </div>
     `;
@@ -70,16 +69,10 @@ export class LoginPage {
   _bindEvents() {
     const form = this.element.querySelector('#login-form');
     const submitBtn = this.element.querySelector('#login-submit');
-    const registerLink = this.element.querySelector('#show-register-link');
 
     form.addEventListener('submit', async (e) => {
       e.preventDefault();
       await this._handleLogin();
-    });
-
-    registerLink.addEventListener('click', (e) => {
-      e.preventDefault();
-      this.router.navigate('/register', { replace: true });
     });
 
     const usernameInput = this.element.querySelector('#login-username');

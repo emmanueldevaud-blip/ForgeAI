@@ -31,7 +31,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
-from app.models.sport import SportActivity, SportAnalysis, SportAthlete, SportGarminConnection
+from app.models.sport import SportActivity, SportAnalysis, SportAthlete, SportGarminConnection, SportHealthDaily
 from app.models.user import User
 from app.services.ai_gateway import AIGatewayError, ai_gateway
 from app.services.notification import NotificationService
@@ -143,6 +143,22 @@ class SportAnalysisService:
     async def analyze_morning(self) -> tuple[bool, SportAnalysis | None]:
         """(nouvelle_analyse, analyse) — idempotente par jour et par athlète."""
         return await self._analyze_daily("morning", _MORNING_INSTRUCTION, self._morning_context)
+
+    async def morning_sleep_available(self) -> bool:
+        """Vrai si la nuit dernière figure déjà dans les données du jour.
+
+        Garmin date le sommeil par le jour de réveil : la nuit écoulée est
+        rangée sous aujourd'hui une fois synchronisée. Tant qu'elle manque,
+        l'analyse du matin patiente (sinon elle décrirait la nuit d'avant).
+        """
+        athlete = await self.sport.get_or_create_athlete()
+        health_json = await self.db.scalar(
+            select(SportHealthDaily.health_json).where(
+                SportHealthDaily.athlete_id == athlete.id,
+                SportHealthDaily.day == self._local_today(),
+            )
+        )
+        return bool(health_json and health_json.get("sleep"))
 
     async def analyze_evening(self) -> tuple[bool, SportAnalysis | None]:
         return await self._analyze_daily("evening", _EVENING_INSTRUCTION, self._evening_context)
@@ -452,6 +468,7 @@ async def run_sport_analysis_cycle(db: AsyncSession, now: datetime | None = None
 
     morning_time = _parse_time(settings.SPORT_MORNING_ANALYSIS_TIME)
     evening_time = _parse_time(settings.SPORT_EVENING_ANALYSIS_TIME)
+    morning_deadline = _parse_time(settings.SPORT_MORNING_ANALYSIS_DEADLINE)
     valid_window = morning_time is not None and evening_time is not None
     morning_due = bool(
         settings.SPORT_MORNING_ANALYSIS_ENABLED
@@ -480,7 +497,7 @@ async def run_sport_analysis_cycle(db: AsyncSession, now: datetime | None = None
         if user is None or not user.is_active:
             continue
         service = SportAnalysisService(db, user)
-        if morning_due:
+        if morning_due and await _morning_ready(service, morning_deadline, local_time):
             stats["errors"] += await _run_quietly(stats, "morning", service.analyze_morning)
         if evening_due:
             stats["errors"] += await _run_quietly(stats, "evening", service.analyze_evening)
@@ -491,6 +508,19 @@ async def run_sport_analysis_cycle(db: AsyncSession, now: datetime | None = None
                 stats["errors"] += 1
                 logger.exception("[SPORT-ANALYSIS] Échec analyse d'activités (user %s)", user.id)
     return stats
+
+
+async def _morning_ready(
+    service: SportAnalysisService, deadline: datetime_time | None, local_time: datetime_time
+) -> bool:
+    """L'analyse du matin attend la nuit synchronisée, au plus tard à la deadline.
+
+    Sans deadline valide, comportement historique : génération dès l'ouverture
+    de la fenêtre du matin.
+    """
+    if deadline is None or local_time >= deadline:
+        return True
+    return await service.morning_sleep_available()
 
 
 async def _run_quietly(stats: dict[str, Any], key: str, coroutine_factory) -> int:

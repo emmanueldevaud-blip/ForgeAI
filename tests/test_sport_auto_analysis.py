@@ -5,7 +5,7 @@ from datetime import datetime, timedelta, timezone
 from sqlalchemy import select
 
 from app.models.notification import Notification
-from app.models.sport import SportActivity, SportAnalysis, SportGarminConnection
+from app.models.sport import SportActivity, SportAnalysis, SportGarminConnection, SportHealthDaily
 from app.services.ai_gateway import AIGatewayError, ai_gateway
 from app.services.sport_analysis_service import SportAnalysisService, run_sport_analysis_cycle
 
@@ -231,6 +231,46 @@ async def test_run_sport_analysis_cycle_ignores_athletes_without_garmin(db_sessi
     )
     assert stats["morning"] == 0
     assert stats["errors"] == 0
+
+
+async def test_morning_cycle_waits_for_last_night_sleep(db_session, auth_user, monkeypatch):
+    monkeypatch.setattr(ai_gateway, "generate", _fake_generate)
+    service = SportAnalysisService(db_session, auth_user)
+    athlete = await service.sport.get_or_create_athlete()
+    db_session.add(
+        SportGarminConnection(
+            athlete_id=athlete.id,
+            garmin_email="athlete@example.com",
+            encrypted_tokens="encrypted",
+            status="connected",
+        )
+    )
+    await db_session.commit()
+
+    # 05:30 UTC = 07:30 Europe/Paris : fenêtre du matin ouverte, deadline
+    # (10:00) non atteinte et dernière nuit non synchronisée => on attend.
+    morning_now = datetime(2026, 9, 28, 5, 30, tzinfo=timezone.utc)
+    stats = await run_sport_analysis_cycle(db_session, morning_now)
+    assert stats["status"] == "ok"
+    assert stats["morning"] == 0
+    assert stats["errors"] == 0
+
+    # La nuit (datée du jour de réveil) arrive en base : l'analyse est produite.
+    db_session.add(
+        SportHealthDaily(
+            athlete_id=athlete.id,
+            day=SportAnalysisService._local_today(),
+            source_type="garmin",
+            health_json={"sleep": {"sleepTimeSeconds": 32278}},
+        )
+    )
+    await db_session.commit()
+
+    stats = await run_sport_analysis_cycle(db_session, morning_now)
+    assert stats["morning"] == 1
+
+    rows = (await db_session.execute(select(SportAnalysis))).scalars().all()
+    assert [row.analysis_type for row in rows] == ["morning"]
 
 
 async def test_sport_analyses_endpoint_requires_permission(client, auth_headers):

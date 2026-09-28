@@ -90,6 +90,9 @@ class Settings(BaseSettings):
     SPORT_ANALYSIS_ENABLED: bool = True
     SPORT_MORNING_ANALYSIS_ENABLED: bool = True
     SPORT_MORNING_ANALYSIS_TIME: str = "07:00"
+    # L'analyse du matin attend la nuit synchronisee jusqu'a cette heure
+    # (au plus tard) ; au dela elle est produite avec les donnees disponibles.
+    SPORT_MORNING_ANALYSIS_DEADLINE: str = "10:00"
     SPORT_EVENING_ANALYSIS_ENABLED: bool = True
     SPORT_EVENING_ANALYSIS_TIME: str = "20:30"
     SPORT_ACTIVITY_ANALYSIS_ENABLED: bool = True

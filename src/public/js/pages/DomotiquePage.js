@@ -14,11 +14,11 @@ import {
 } from '../services/domotiqueApi.js?v=2';
 import { DomotiqueConfigPage } from './DomotiqueConfigPage.js?v=8';
 
-const VIEWS = [
-  { key: 'details', label: 'Détails' },
-  { key: 'history', label: 'Historique' },
-  { key: 'cycle', label: 'Cycle' },
-  { key: 'equipment', label: 'Équipements' },
+const TABS = [
+  { key: 'details', label: 'Détails', permission: 'domotique.view' },
+  { key: 'history', label: 'Historique', permission: 'domotique.view' },
+  { key: 'equipment', label: 'Équipements', permission: 'domotique.view' },
+  { key: 'config', label: 'Paramètres', permission: 'domotique.configure' },
 ];
 
 const CYCLE_STATUS_LABELS = {
@@ -75,7 +75,7 @@ export class DomotiquePage {
     this.router = router;
     this.element = null;
     this.view = 'details';
-    this.period = '24h';
+    this.period = '1h';
     this.status = null;
     this.history = null;
     this.events = [];
@@ -194,19 +194,22 @@ export class DomotiquePage {
       return;
     }
     const status = this.status || {};
-    const views = this.canConfigure ? [...VIEWS, { key: 'config', label: 'Configuration' }] : VIEWS;
+    const allowedTabs = TABS.filter(t => authStore.hasPermission(t.permission));
+    const isConfigView = this.view === 'config';
     this.element.innerHTML = `
       <div class="page-header domo-header">
         <div class="page-header-left">
           <span class="domo-kicker">DOMOTIQUE</span>
           <h1>La Cave</h1>
         </div>
-        <div class="domo-views" role="tablist" aria-label="Vues de la cave">
-          ${views.map((view) => `
-            <button class="btn btn-sm ${this.view === view.key ? 'btn-primary' : 'btn-secondary'}" type="button" data-view="${view.key}" role="tab" aria-selected="${this.view === view.key}">${view.label}</button>
-          `).join('')}
-        </div>
       </div>
+
+      <div class="buildings-tabs" role="tablist" aria-label="Navigation domotique">
+        ${allowedTabs.map((tab) => `
+          <button role="tab" class="tab-button ${this.view === tab.key ? 'tab-button--active' : ''}" data-tab="${tab.key}" aria-selected="${this.view === tab.key}" aria-controls="panel-${tab.key}">${tab.label}</button>
+        `).join('')}
+      </div>
+
       <div class="domo-status-strip" role="status">
         ${this._statusStrip(status)}
       </div>
@@ -222,8 +225,6 @@ export class DomotiquePage {
     switch (this.view) {
       case 'history':
         return this._historyView();
-      case 'cycle':
-        return this._cycleView(status);
       case 'equipment':
         return this._equipmentView(status);
       case 'config':
@@ -265,7 +266,12 @@ export class DomotiquePage {
   _lastDataTime(status) {
     const times = (status.sensors || [])
       .filter((sensor) => sensor.enabled && sensor.current_at)
-      .map((sensor) => new Date(sensor.current_at).getTime())
+      .map((sensor) => {
+        const ts = sensor.current_at;
+        // Ensure UTC parsing: append 'Z' if no timezone info
+        const utcTs = ts.endsWith('Z') || ts.includes('+') || ts.includes('-', 10) ? ts : ts + 'Z';
+        return new Date(utcTs).getTime();
+      })
       .filter((value) => !Number.isNaN(value));
     if (!times.length) return '—';
     return this._relativeTime(Math.max(...times));
@@ -279,115 +285,219 @@ export class DomotiquePage {
     const sensors = status.sensors || [];
     const temp = sensors.find((sensor) => sensor.key === 'temperature');
     const hum = sensors.find((sensor) => sensor.key === 'humidity');
+    const weight = sensors.find((sensor) => sensor.key === 'weight');
     const cycle = status.cycle;
-    const outputs = status.outputs || [];
-    const stale = status.stale;
-    const deviceStatus = status.status;
-    const alerts = this._getAlerts(status);
-
-    const tempValue = temp ? (temp.corrected_value ?? temp.current_value) : null;
-    const humValue = hum ? (hum.corrected_value ?? hum.current_value) : null;
-    const tempTarget = cycle && cycle.current_phase_name ? this._phaseTarget(status, 'temperature') : null;
-    const humTarget = cycle && cycle.current_phase_name ? this._phaseTarget(status, 'humidity') : null;
-
-    const cycleStatusLabels = {
-      preparing: 'Préparation',
-      running: 'En cours',
-      paused: 'Pause',
-      completed: 'Terminé',
-      stopped: 'Arrêté',
-      error: 'Erreur',
-    };
-
-    const cycleStatus = cycle ? (cycleStatusLabels[cycle.status] || cycle.status) : 'Aucun cycle en cours';
-    const cycleName = cycle ? (cycle.profile_name || cycle.name || 'Cycle') : '';
-    const cyclePhase = cycle ? (cycle.current_phase_name || '—') : '—';
-    const cycleDay = cycle && cycle.started_at ? this._cycleDay(cycle.started_at) : null;
-    const cycleTotalDays = cycle && cycle.phases_total ? this._estimateCycleDays(cycle) : null;
-
-    const equipItems = outputs.map((output) => ({
-      name: output.name,
-      role: output.role,
-      state: output.state,
-    }));
-
-    const connStatus = this._getConnectionStatus(stale, deviceStatus);
-
+    const cards = [
+      this._metricCard('Température', 'domo-temp', temp, '°C',
+        cycle && cycle.current_phase_name ? this._phaseTarget(status, 'temperature') : null),
+      this._metricCard('Humidité', 'domo-hum', hum, '% HR',
+        cycle && cycle.current_phase_name ? this._phaseTarget(status, 'humidity') : null),
+    ];
+    if (weight && weight.current_value != null) {
+      cards.push(this._weightCard(cycle, weight));
+    }
     return `
-      <div class="cave-scene" data-cave-scene>
-        <img class="cave-scene__image" src="/images/cave-background.svg" alt="Cave voûtée en pierre avec saucissons suspendus" loading="eager" />
-        <div class="cave-scene__overlay">
-          <h1 class="cave-scene__title">LA CAVE</h1>
-          <div class="cave-scene__grid">
-            <div class="cave-panel cave-panel--temp" data-panel="temp">
-              <div class="cave-panel__icon">🌡</div>
-              <div class="cave-panel__value">${tempValue != null ? this._num(tempValue) : '—'}<small>°C</small></div>
-              <div class="cave-panel__label">Température</div>
-              ${tempTarget != null ? `<div class="cave-panel__target">Cible ${this._num(tempTarget)} °C</div>` : ''}
-            </div>
-            <div class="cave-panel cave-panel--hum" data-panel="hum">
-              <div class="cave-panel__icon">💧</div>
-              <div class="cave-panel__value">${humValue != null ? this._num(humValue) : '—'}<small>% HR</small></div>
-              <div class="cave-panel__label">Humidité</div>
-              ${humTarget != null ? `<div class="cave-panel__target">Cible ${this._num(humTarget)} % HR</div>` : ''}
-            </div>
-            <div class="cave-panel cave-panel--cycle" data-panel="cycle">
-              <div class="cave-panel__cycle-name">${this._escape(cycleName)}</div>
-              <div class="cave-panel__cycle-meta">
-                <div class="cave-panel__cycle-meta-item">
-                  <span class="cave-panel__cycle-meta-label">Statut</span>
-                  <span class="cave-panel__cycle-meta-value">${this._escape(cycleStatus)}</span>
-                </div>
-                ${cyclePhase ? `
-                <div class="cave-panel__cycle-meta-item">
-                  <span class="cave-panel__cycle-meta-label">Phase</span>
-                  <span class="cave-panel__cycle-meta-value">${this._escape(cyclePhase)}</span>
-                </div>` : ''}
-                ${cycleDay != null && cycleTotalDays != null ? `
-                <div class="cave-panel__cycle-meta-item">
-                  <span class="cave-panel__cycle-meta-label">Avancement</span>
-                  <span class="cave-panel__cycle-meta-value">Jour ${cycleDay} / ${cycleTotalDays}</span>
-                </div>` : ''}
-                ${cycle && cycle.target_temperature != null ? `
-                <div class="cave-panel__cycle-meta-item">
-                  <span class="cave-panel__cycle-meta-label">Consigne T°</span>
-                  <span class="cave-panel__cycle-meta-value">${this._num(cycle.target_temperature)} °C</span>
-                </div>` : ''}
-                ${cycle && cycle.target_humidity != null ? `
-                <div class="cave-panel__cycle-meta-item">
-                  <span class="cave-panel__cycle-meta-label">Consigne HR</span>
-                  <span class="cave-panel__cycle-meta-value">${this._num(cycle.target_humidity)} %</span>
-                </div>` : ''}
-              </div>
-            </div>
-            <div class="cave-panel cave-panel--equip" data-panel="equip">
-              <div class="cave-panel__equip-list">
-                ${equipItems.map((item) => `
-                  <div class="cave-panel__equip-item" data-equip="${this._escape(item.name)}">
-                    <span class="cave-panel__equip-name">
-                      <span class="cave-panel__equip-dot ${item.state ? 'cave-panel__equip-dot--on' : 'cave-panel__equip-dot--off'}" data-equip-dot="${this._escape(item.name)}"></span>
-                      ${this._escape(item.name)} <small>(${this._escape(this._outputRoleLabel(item.role))})</small>
-                    </span>
-                    <span class="cave-panel__equip-state ${item.state ? 'cave-panel__equip-state--on' : 'cave-panel__equip-state--off'}" data-equip-state="${this._escape(item.name)}">
-                      ${item.state ? 'ACTIVE' : 'ARRÊTÉ'}
-                    </span>
-                  </div>
-                `).join('') || '<div class="text-muted" style="color:rgba(255,255,255,0.6);">Aucun équipement</div>'}
-              </div>
-            </div>
-            <div class="cave-panel cave-panel--conn" data-panel="conn">
-              <span class="cave-panel__conn-dot ${connStatus.class}" data-conn-dot></span>
-              <span data-conn-text>${this._escape(connStatus.text)}</span>
-            </div>
+      <div class="domo-cards">${cards.join('')}</div>
+      <div class="domo-charts">
+        ${this._chartCard('Température — historique', this._lineChart(this.history?.series?.temperature, this.history?.target_temperature, 'domo-line--temp'))}
+        ${this._chartCard('Humidité — historique', this._lineChart(this.history?.series?.humidity, this.history?.target_humidity, 'domo-line--hum'))}
+      </div>
+      ${this._periodSelector('details')}`;
+  }
+
+  _phaseTarget(status, kind) {
+    // Les cibles de phase sont exposees via l'historique (consigne superposee).
+    if (!this.history) return null;
+    if (kind === 'temperature') return this.history.target_temperature;
+    return this.history.target_humidity;
+  }
+
+  _metricCard(title, cssClass, sensor, unit, target) {
+    const corrected = sensor && sensor.corrected_value != null ? sensor.corrected_value : null;
+    const raw = sensor && sensor.current_value != null ? sensor.current_value : null;
+    const shown = corrected ?? raw;
+    const value = shown != null ? this._num(shown) : '—';
+    const min = this.history?.min?.[sensor?.key];
+    const max = this.history?.max?.[sensor?.key];
+    const trend = this.history?.trend?.[sensor?.key];
+    const targetLabel = target != null ? `Cible ${this._num(target)} ${unit}` : 'Aucune consigne active';
+    const trendLabel = trend == null || Math.abs(trend) < 0.05
+      ? 'stable'
+      : trend > 0 ? `↗ +${this._num(trend)}` : `↘ ${this._num(trend)}`;
+    return `
+      <section class="card domo-card ${cssClass}">
+        <div class="card-header"><div><span class="domo-eyebrow">MESURE</span><h2>${title}</h2></div></div>
+        <div class="card-body">
+          <div class="domo-big">${value}<small>${unit}</small></div>
+          <div class="domo-target">${this._escape(targetLabel)}</div>
+          <div class="domo-range">
+            <span>Min <strong>${min != null ? this._num(min) : '—'}</strong></span>
+            <span>Max <strong>${max != null ? this._num(max) : '—'}</strong></span>
+            <span>Tendance <strong>${trendLabel}</strong></span>
           </div>
-          <div class="cave-scene__alerts" data-cave-alerts>
-            ${alerts.map((alert) => `
-              <div class="cave-alert cave-alert--${alert.type}">
-                ${alert.icon} ${this._escape(alert.message)}
-              </div>
-            `).join('')}
-          </div>
+          ${this._metricMeta(sensor)}
         </div>
+      </section>`;
+  }
+
+  _metricMeta(sensor) {
+    if (!sensor || !sensor.current_at) return '<small class="text-muted">Aucune donnée</small>';
+    let text = `Relevé ${this._relativeTime(this._parseUTC(sensor.current_at))}`;
+    const corrected = sensor.corrected_value != null ? sensor.corrected_value : null;
+    const raw = sensor.current_value != null ? sensor.current_value : null;
+    if (corrected != null && raw != null && Math.abs(corrected - raw) >= 0.05) {
+      text += ` · Mesure brute ${this._num(raw)} ${sensor.unit}`;
+    }
+    return `<small class="text-muted" data-live-meta>${text}</small>`;
+  }
+
+  _weightCard(cycle, weight) {
+    const initial = cycle?.initial_weight ?? null;
+    const current = weight.current_value;
+    const loss = cycle?.weight_loss_pct;
+    const target = cycle?.target_weight_loss_pct;
+    let progress = '';
+    if (loss != null && target) {
+      const ratio = Math.max(0, Math.min(100, (loss / target) * 100));
+      progress = `
+        <div class="domo-progress" role="progressbar" aria-valuenow="${Math.round(ratio)}" aria-valuemin="0" aria-valuemax="100">
+          <i style="width:${ratio.toFixed(1)}%"></i>
+        </div>
+        <div class="domo-progress-label">Objectif ${this._num(target)} % — ${ratio >= 100 ? 'atteint' : `${Math.round(ratio)} %`}</div>`;
+    }
+    const lossLine = loss != null
+      ? `<div class="domo-big domo-loss">−${this._num(loss)}<small>%</small></div>`
+      : '<div class="domo-big">—<small>%</small></div>';
+    return `
+      <section class="card domo-card domo-weight">
+        <div class="card-header"><div><span class="domo-eyebrow">BALANCE</span><h2>Poids</h2></div></div>
+        <div class="card-body">
+          ${lossLine}
+          <div class="domo-weight-detail">
+            <span>Initial <strong>${initial != null ? `${this._num(initial)} g` : '—'}</strong></span>
+            <span>Actuel <strong>${current != null ? `${this._num(current)} g` : '—'}</strong></span>
+            <span>Perte <strong>${loss != null && initial != null ? `${this._num(initial - current)} g` : '—'}</strong></span>
+          </div>
+          ${progress}
+          ${weight.current_at ? `<small class="text-muted">Relevé ${this._relativeTime(this._parseUTC(weight.current_at))}</small>` : ''}
+        </div>
+      </section>`;
+  }
+
+  _chartCard(title, body) {
+    return `
+      <section class="card domo-card domo-chart-card">
+        <div class="card-header"><div><span class="domo-eyebrow">COURBES</span><h2>${title}</h2></div></div>
+        <div class="card-body">${body}</div>
+      </section>`;
+  }
+
+  _periodSelector(view) {
+    let periods;
+    if (view === 'details') {
+      periods = [
+        { value: '1h', label: '1 h' },
+        { value: '3h', label: '3 h' },
+        { value: '10h', label: '10 h' },
+      ];
+    } else {
+      periods = [
+        { value: '24h', label: '24 h' },
+        { value: '3d', label: '3 jours' },
+        { value: '7d', label: '7 jours' },
+        { value: 'cycle', label: 'Cycle complet' },
+      ];
+    }
+    return `<div class="domo-periods" role="group" aria-label="Période des courbes">
+      ${periods.map((item) => `<button class="btn btn-sm ${this.period === item.value ? 'btn-primary' : 'btn-secondary'}" type="button" data-period="${item.value}">${item.label}</button>`).join('')}
+    </div>`;
+  }
+
+  _lineChart(points, target, cssClass) {
+    if (!points || points.length < 2) {
+      return '<p class="text-muted">Pas encore de mesures pour cette période.</p>';
+    }
+    const width = 720;
+    const height = 220;
+    const padX = 8;
+    const padTop = 12;
+    const padBottom = 24;
+    const values = points.map((point) => point.v);
+    let min = Math.min(...values);
+    let max = Math.max(...values);
+    if (target != null) {
+      min = Math.min(min, target);
+      max = Math.max(max, target);
+    }
+    if (min === max) {
+      min -= 1;
+      max += 1;
+    }
+    const span = max - min;
+    const times = points.map((point) => this._parseUTC(point.t));
+    const t0 = times[0];
+    const t1 = times[times.length - 1] || t0 + 1;
+    const tSpan = Math.max(1, t1 - t0);
+    const x = (t) => padX + ((t - t0) / tSpan) * (width - padX * 2);
+    const y = (v) => padTop + (1 - (v - min) / span) * (height - padTop - padBottom);
+    const path = points.map((point, index) => `${index ? 'L' : 'M'}${x(times[index]).toFixed(1)},${y(point.v).toFixed(1)}`).join(' ');
+    const targetLine = target != null
+      ? `<line x1="${padX}" y1="${y(target).toFixed(1)}" x2="${width - padX}" y2="${y(target).toFixed(1)}" class="domo-line-target" />
+         <text x="${width - padX - 4}" y="${(y(target) - 4).toFixed(1)}" class="domo-line-target-label" text-anchor="end">cible ${this._num(target)}</text>`
+      : '';
+    const firstLabel = new Date(t0).toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+    const lastLabel = new Date(t1).toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+    return `
+      <div class="domo-chart-wrap">
+        <svg class="domo-chart ${cssClass}" viewBox="0 0 ${width} ${height}" role="img" aria-label="Courbe">
+          ${targetLine}
+          <path d="${path}" class="domo-line" fill="none" />
+        </svg>
+        <div class="domo-chart-labels"><span>${firstLabel}</span><span>${this._num(min)} — ${this._num(max)}</span><span>${lastLabel}</span></div>
+      </div>`;
+  }
+
+  _outputsChart(seriesList) {
+    const usable = (seriesList || []).filter((item) => item.points && item.points.length);
+    if (!usable.length) {
+      return '<p class="text-muted">Aucun historique de sorties pour cette période.</p>';
+    }
+    const width = 720;
+    const labelW = 150;
+    const laneH = 34;
+    const padTop = 10;
+    const padBottom = 20;
+    const height = padTop + usable.length * laneH + padBottom;
+    const t0 = this.history?.start ? this._parseUTC(this.history.start) : Date.now() - 86400000;
+    const t1 = Math.max(this.history?.end ? this._parseUTC(this.history.end) : Date.now(), t0 + 1000);
+    const x = (t) => labelW + ((t - t0) / Math.max(1, t1 - t0)) * (width - labelW - 8);
+    const colors = ['#2e7d32', '#c62828', '#1565c0', '#6a1b9a', '#ef6c00', '#00838f', '#5d4037', '#455a64'];
+    const lanes = usable.map((item, laneIndex) => {
+      const top = padTop + laneIndex * laneH + 4;
+      const bottom = top + laneH - 14;
+      let path = '';
+      let prevY = null;
+      item.points.forEach((point, i) => {
+        const px = Math.min(width - 8, Math.max(labelW, x(this._parseUTC(point.t))));
+        const py = point.v ? top : bottom;
+        if (i === 0) path += `M${px.toFixed(1)},${py.toFixed(1)}`;
+        else path += ` L${px.toFixed(1)},${prevY.toFixed(1)} L${px.toFixed(1)},${py.toFixed(1)}`;
+        prevY = py;
+      });
+      path += ` L${(width - 8).toFixed(1)},${prevY.toFixed(1)}`;
+      const color = colors[item.index % colors.length];
+      const middle = (top + bottom) / 2 + 4;
+      return `
+        <text x="0" y="${middle.toFixed(1)}" class="domo-lane-label">${this._escape(item.name)}</text>
+        <line x1="${labelW}" y1="${bottom.toFixed(1)}" x2="${width - 8}" y2="${bottom.toFixed(1)}" class="domo-lane-base" />
+        <path d="${path}" fill="none" stroke="${color}" stroke-width="2" />`;
+    });
+    const firstLabel = new Date(t0).toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+    const lastLabel = new Date(t1).toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+    return `
+      <div class="domo-chart-wrap">
+        <svg class="domo-chart domo-chart--outputs" viewBox="0 0 ${width} ${height}" role="img" aria-label="État des sorties">${lanes.join('')}</svg>
+        <div class="domo-chart-labels"><span>${firstLabel}</span><span>haut = ON · bas = OFF</span><span>${lastLabel}</span></div>
       </div>`;
   }
 
@@ -494,7 +604,7 @@ export class DomotiquePage {
 
   _metricMeta(sensor) {
     if (!sensor || !sensor.current_at) return '<small class="text-muted">Aucune donnée</small>';
-    let text = `Relevé ${this._relativeTime(new Date(sensor.current_at).getTime())}`;
+    let text = `Relevé ${this._relativeTime(this._parseUTC(sensor.current_at))}`;
     const corrected = sensor.corrected_value != null ? sensor.corrected_value : null;
     const raw = sensor.current_value != null ? sensor.current_value : null;
     if (corrected != null && raw != null && Math.abs(corrected - raw) >= 0.05) {
@@ -531,7 +641,7 @@ export class DomotiquePage {
             <span>Perte <strong>${loss != null && initial != null ? `${this._num(initial - current)} g` : '—'}</strong></span>
           </div>
           ${progress}
-          ${weight.current_at ? `<small class="text-muted">Relevé ${this._relativeTime(new Date(weight.current_at).getTime())}</small>` : ''}
+          ${weight.current_at ? `<small class="text-muted">Relevé ${this._relativeTime(this._parseUTC(weight.current_at))}</small>` : ''}
         </div>
       </section>`;
   }
@@ -544,13 +654,22 @@ export class DomotiquePage {
       </section>`;
   }
 
-  _periodSelector() {
-    const periods = [
-      { value: '24h', label: '24 h' },
-      { value: '3d', label: '3 jours' },
-      { value: '7d', label: '7 jours' },
-      { value: 'cycle', label: 'Cycle complet' },
-    ];
+  _periodSelector(view) {
+    let periods;
+    if (view === 'details') {
+      periods = [
+        { value: '1h', label: '1 h' },
+        { value: '3h', label: '3 h' },
+        { value: '10h', label: '10 h' },
+      ];
+    } else {
+      periods = [
+        { value: '24h', label: '24 h' },
+        { value: '3d', label: '3 jours' },
+        { value: '7d', label: '7 jours' },
+        { value: 'cycle', label: 'Cycle complet' },
+      ];
+    }
     return `<div class="domo-periods" role="group" aria-label="Période des courbes">
       ${periods.map((item) => `<button class="btn btn-sm ${this.period === item.value ? 'btn-primary' : 'btn-secondary'}" type="button" data-period="${item.value}">${item.label}</button>`).join('')}
     </div>`;
@@ -577,7 +696,7 @@ export class DomotiquePage {
       max += 1;
     }
     const span = max - min;
-    const times = points.map((point) => new Date(point.t).getTime());
+    const times = points.map((point) => this._parseUTC(point.t));
     const t0 = times[0];
     const t1 = times[times.length - 1] || t0 + 1;
     const tSpan = Math.max(1, t1 - t0);
@@ -615,8 +734,8 @@ export class DomotiquePage {
     const padTop = 10;
     const padBottom = 20;
     const height = padTop + usable.length * laneH + padBottom;
-    const t0 = this.history?.start ? new Date(this.history.start).getTime() : Date.now() - 86400000;
-    const t1 = Math.max(this.history?.end ? new Date(this.history.end).getTime() : Date.now(), t0 + 1000);
+    const t0 = this.history?.start ? this._parseUTC(this.history.start) : Date.now() - 86400000;
+    const t1 = Math.max(this.history?.end ? this._parseUTC(this.history.end) : Date.now(), t0 + 1000);
     const x = (t) => labelW + ((t - t0) / Math.max(1, t1 - t0)) * (width - labelW - 8);
     const colors = ['#2e7d32', '#c62828', '#1565c0', '#6a1b9a', '#ef6c00', '#00838f', '#5d4037', '#455a64'];
     const lanes = usable.map((item, laneIndex) => {
@@ -625,7 +744,7 @@ export class DomotiquePage {
       let path = '';
       let prevY = null;
       item.points.forEach((point, i) => {
-        const px = Math.min(width - 8, Math.max(labelW, x(new Date(point.t).getTime())));
+        const px = Math.min(width - 8, Math.max(labelW, x(this._parseUTC(point.t))));
         const py = point.v ? top : bottom;
         if (i === 0) path += `M${px.toFixed(1)},${py.toFixed(1)}`;
         else path += ` L${px.toFixed(1)},${prevY.toFixed(1)} L${px.toFixed(1)},${py.toFixed(1)}`;
@@ -665,7 +784,7 @@ export class DomotiquePage {
         ${this._chartCard('Poids — historique', this._lineChart(this.history?.series?.weight, null, 'domo-line--weight'))}
         ${this._chartCard('Sorties — historique', this._outputsChart(this.history?.outputs))}
       </div>
-      ${this._periodSelector()}
+      ${this._periodSelector('history')}
       <section class="card domo-card">
         <div class="card-header"><div><span class="domo-eyebrow">JOURNAL</span><h2>Historique de la cave</h2></div></div>
         <div class="card-body"><ul class="domo-events">${rows}</ul></div>
@@ -693,7 +812,7 @@ export class DomotiquePage {
       }
     }
     const started = cycle.started_at
-      ? new Date(cycle.started_at).toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
+      ? this._parseUTCToLocale(cycle.started_at)('fr-FR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
       : '—';
     const weightBlock = cycle.initial_weight != null ? `
       <div class="domo-weight-detail">
@@ -829,6 +948,9 @@ export class DomotiquePage {
   // ------------------------------------------------------------------ //
 
   _equipmentView(status) {
+    const cycle = status.cycle;
+    const active = cycle && (cycle.status === 'running' || cycle.status === 'paused');
+
     const outputs = status.outputs || [];
     const rows = outputs.map((output) => {
       const manual = output.mode === 'manual';
@@ -848,7 +970,92 @@ export class DomotiquePage {
             </div>` : ''}
         </div>`;
     }).join('');
+
+    let cycleHtml = '';
+    if (cycle) {
+      const phases = [];
+      if (cycle.phases_total && cycle.current_phase_order) {
+        for (let order = 1; order <= cycle.phases_total; order += 1) {
+          const state = order < cycle.current_phase_order ? 'done' : order === cycle.current_phase_order ? 'current' : 'todo';
+          phases.push(`<span class="domo-phase domo-phase--${state}">${order}</span>`);
+        }
+      }
+      const started = cycle.started_at
+        ? this._parseUTCToLocale(cycle.started_at)('fr-FR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
+        : '—';
+      const weightBlock = cycle.initial_weight != null ? `
+        <div class="domo-weight-detail">
+          <span>Initial <strong>${this._num(cycle.initial_weight)} g</strong></span>
+          <span>Actuel <strong>${cycle.current_weight != null ? `${this._num(cycle.current_weight)} g` : '—'}</strong></span>
+          <span>Perte <strong>${cycle.weight_loss_pct != null ? `${this._num(cycle.weight_loss_pct)} %` : '—'}</strong></span>
+          <span>Objectif <strong>${cycle.target_weight_loss_pct != null ? `${this._num(cycle.target_weight_loss_pct)} %` : '—'}</strong></span>
+        </div>` : '';
+      cycleHtml = `
+        <section class="card domo-card">
+          <div class="card-header">
+            <div><span class="domo-eyebrow">CYCLE ${active ? 'EN COURS' : ''}</span><h2>${this._escape(cycle.name || 'Cycle')}</h2></div>
+            <span class="domo-badge domo-badge--${cycle.status}">${this._escape(cycle.status_label || CYCLE_STATUS_LABELS[cycle.status] || cycle.status)}</span>
+          </div>
+          <div class="card-body">
+            <div class="domo-cycle-grid">
+              <div><span>Profil</span><strong>${this._escape(cycle.profile_name || '—')}</strong></div>
+              <div><span>Produit</span><strong>${this._escape(cycle.product || '—')}</strong></div>
+              <div><span>Boyau</span><strong>${this._escape(cycle.casing_size || '—')}</strong></div>
+              <div><span>Démarré le</span><strong>${started}</strong></div>
+              <div><span>Phase</span><strong>${this._escape(cycle.current_phase_name || '—')}</strong></div>
+              <div><span>En phase depuis</span><strong>${cycle.phase_started_at ? this._duration(cycle.phase_started_at) : '—'}</strong></div>
+            </div>
+            ${phases.length ? `<div class="domo-phase-track">${phases.join('')}</div>` : ''}
+            ${weightBlock}
+            ${this.canControl ? `
+              <div class="domo-actions">
+                ${cycle.status === 'preparing' ? '<button class="btn btn-primary" type="button" data-cycle-action="start">Démarrer</button>' : ''}
+                ${cycle.status === 'running' ? '<button class="btn btn-secondary" type="button" data-cycle-action="pause">Pause</button>' : ''}
+                ${cycle.status === 'paused' ? '<button class="btn btn-primary" type="button" data-cycle-action="start">Reprendre</button>' : ''}
+                ${active ? '<button class="btn btn-secondary" type="button" data-cycle-action="advance">Phase suivante</button>' : ''}
+                ${active ? '<button class="btn btn-danger" type="button" data-cycle-action="stop">Arrêter</button>' : ''}
+              </div>` : ''}
+          </div>
+        </section>`;
+    } else if (this.canControl) {
+      // Formulaire pour créer un nouveau cycle
+      const options = (this.profiles || []).map((profile) => `
+        <option value="${profile.id}">${this._escape(profile.name)}</option>`).join('');
+      const selected = (this.profiles || [])[0];
+      const now = new Date(Date.now() - new Date().getTimezoneOffset() * 60000);
+      const startValue = now.toISOString().slice(0, 16);
+      cycleHtml = `
+        <section class="card domo-card">
+          <div class="card-header"><div><span class="domo-eyebrow">NOUVEAU</span><h2>Démarrer un cycle</h2></div></div>
+          <div class="card-body">
+            <form class="domo-form" data-new-cycle-form>
+              <label>Profil
+                <select class="form-control" name="profile_id" required>${options}</select>
+              </label>
+              <div class="domo-profile-preview" data-profile-preview>${this._profilePreview(selected)}</div>
+              <label>Produit
+                <input class="form-control" name="product" type="text" value="Saucisson" maxlength="100">
+              </label>
+              <label>Poids initial (g)
+                <input class="form-control" name="initial_weight" type="number" min="0" step="1" placeholder="ex. 1200">
+              </label>
+              <label>Diamètre / boyau
+                <input class="form-control" name="casing_size" type="text" value="40 mm" maxlength="50">
+              </label>
+              <label>Date de début
+                <input class="form-control" name="started_at" type="datetime-local" value="${startValue}">
+              </label>
+              <div class="domo-actions">
+                <button class="btn btn-primary" type="submit">Démarrer</button>
+              </div>
+              <small class="text-muted">Les phases du profil sélectionné sont affichées ci-dessus ; modifiables depuis Domotique → Configuration.</small>
+            </form>
+          </div>
+        </section>`;
+    }
+
     return `
+      ${cycleHtml}
       <section class="card domo-card">
         <div class="card-header"><div><span class="domo-eyebrow">SORTIES RASPBERRY</span><h2>Équipements</h2></div></div>
         <div class="card-body">
@@ -866,81 +1073,24 @@ export class DomotiquePage {
     const status = this.status || {};
     const strip = this.element.querySelector('.domo-status-strip');
     if (strip) strip.innerHTML = this._statusStrip(status);
-
-    const caveScene = this.element.querySelector('[data-cave-scene]');
-    if (!caveScene) return;
-
-    const sensors = status.sensors || [];
-    const temp = sensors.find((sensor) => sensor.key === 'temperature');
-    const hum = sensors.find((sensor) => sensor.key === 'humidity');
-    const outputs = status.outputs || [];
-    const stale = status.stale;
-    const deviceStatus = status.status;
-
-    const tempValue = temp ? (temp.corrected_value ?? temp.current_value) : null;
-    const humValue = hum ? (hum.corrected_value ?? hum.current_value) : null;
-    const tempTarget = this._phaseTarget(status, 'temperature');
-    const humTarget = this._phaseTarget(status, 'humidity');
-
-    const tempValueEl = caveScene.querySelector('[data-panel="temp"] .cave-panel__value');
-    if (tempValueEl && tempValue != null) {
-      tempValueEl.innerHTML = `${this._num(tempValue)}<small>°C</small>`;
+    const temp = (status.sensors || []).find((sensor) => sensor.key === 'temperature');
+    const hum = (status.sensors || []).find((sensor) => sensor.key === 'humidity');
+    const tempCard = this.element.querySelector('.domo-temp .domo-big');
+    const humCard = this.element.querySelector('.domo-hum .domo-big');
+    if (tempCard && temp && temp.current_value != null) {
+      tempCard.innerHTML = `${this._num(temp.current_value)}<small>°C</small>`;
     }
-    const tempTargetEl = caveScene.querySelector('[data-panel="temp"] .cave-panel__target');
-    if (tempTargetEl && tempTarget != null) {
-      tempTargetEl.textContent = `Cible ${this._num(tempTarget)} °C`;
-    }
-
-    const humValueEl = caveScene.querySelector('[data-panel="hum"] .cave-panel__value');
-    if (humValueEl && humValue != null) {
-      humValueEl.innerHTML = `${this._num(humValue)}<small>% HR</small>`;
-    }
-    const humTargetEl = caveScene.querySelector('[data-panel="hum"] .cave-panel__target');
-    if (humTargetEl && humTarget != null) {
-      humTargetEl.textContent = `Cible ${this._num(humTarget)} % HR`;
-    }
-
-    const cycle = status.cycle;
-    if (cycle) {
-      const cycleDay = this._cycleDay(cycle.started_at);
-      const cycleTotalDays = this._estimateCycleDays(cycle);
-      const dayEl = caveScene.querySelector('[data-panel="cycle"] .cave-panel__cycle-meta-value:last-child');
-      if (dayEl && cycleDay != null && cycleTotalDays != null) {
-        dayEl.textContent = `Jour ${cycleDay} / ${cycleTotalDays}`;
+    if (humCard && hum) {
+      const shown = hum.corrected_value != null ? hum.corrected_value : hum.current_value;
+      if (shown != null) {
+        humCard.innerHTML = `${this._num(shown)}<small>% HR</small>`;
       }
     }
-
-    outputs.forEach((output) => {
-      const dotEl = caveScene.querySelector(`[data-equip-dot="${this._escape(output.name)}"]`);
-      const stateEl = caveScene.querySelector(`[data-equip-state="${this._escape(output.name)}"]`);
-      if (dotEl) {
-        dotEl.className = `cave-panel__equip-dot ${output.state ? 'cave-panel__equip-dot--on' : 'cave-panel__equip-dot--off'}`;
-      }
-      if (stateEl) {
-        stateEl.className = `cave-panel__equip-state ${output.state ? 'cave-panel__equip-state--on' : 'cave-panel__equip-state--off'}`;
-        stateEl.textContent = output.state ? 'ACTIVE' : 'ARRÊTÉ';
-      }
-    });
-
-    const connStatus = this._getConnectionStatus(stale, deviceStatus);
-    const connDotEl = caveScene.querySelector('[data-conn-dot]');
-    const connTextEl = caveScene.querySelector('[data-conn-text]');
-    if (connDotEl) {
-      connDotEl.className = `cave-panel__conn-dot ${connStatus.class}`;
-    }
-    if (connTextEl) {
-      connTextEl.textContent = connStatus.text;
-    }
-
-    const alerts = this._getAlerts(status);
-    const alertsContainer = caveScene.querySelector('[data-cave-alerts]');
-    if (alertsContainer) {
-      alertsContainer.innerHTML = alerts.map((alert) => `
-        <div class="cave-alert cave-alert--${alert.type}">
-          ${alert.icon} ${this._escape(alert.message)}
-        </div>
-      `).join('');
-    }
+    this.element.querySelectorAll('.domo-temp [data-live-meta], .domo-hum [data-live-meta]')
+      .forEach((node) => {
+        const sensor = node.closest('.domo-hum') ? hum : temp;
+        if (sensor) node.outerHTML = this._metricMeta(sensor);
+      });
   }
 
   // ------------------------------------------------------------------ #
@@ -950,17 +1100,17 @@ export class DomotiquePage {
   _bindEvents() {
     if (!this.element) return;
 
-    this.element.querySelectorAll('[data-view]').forEach((button) => {
+    this.element.querySelectorAll('[data-tab]').forEach((button) => {
       button.addEventListener('click', async () => {
-        const view = button.dataset.view;
-        if (view === 'config' && this.canConfigure) {
+        const tab = button.dataset.tab;
+        if (tab === 'config' && this.canConfigure) {
           if (!this.configPage) this.configPage = new DomotiqueConfigPage(this.router);
           if (!this.configInitialized) {
             await this.configPage.initialize();
             this.configInitialized = true;
           }
         }
-        this.view = view;
+        this.view = tab;
         this.actionMessage = '';
         if (this.view === 'history' || this.view === 'details') await this._loadHistory();
         this.render();
@@ -1092,7 +1242,7 @@ export class DomotiquePage {
   }
 
   _duration(iso) {
-    const start = new Date(iso).getTime();
+    const start = this._parseUTC(iso);
     if (Number.isNaN(start)) return '—';
     let seconds = Math.max(0, Math.floor((Date.now() - start) / 1000));
     const days = Math.floor(seconds / 86400);
@@ -1105,6 +1255,19 @@ export class DomotiquePage {
     return `${minutes} min`;
   }
 
+  _parseUTC(iso) {
+    if (!iso) return NaN;
+    // Ensure UTC parsing: append 'Z' if no timezone info
+    const utcTs = iso.endsWith('Z') || iso.includes('+') || iso.includes('-', 10) ? iso : iso + 'Z';
+    return new Date(utcTs).getTime();
+  }
+
+  _parseUTCToLocale(iso, options = { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) {
+    if (!iso) return '—';
+    const utcTs = iso.endsWith('Z') || iso.includes('+') || iso.includes('-', 10) ? iso : iso + 'Z';
+    return new Date(utcTs).toLocaleString('fr-FR', options);
+  }
+
   _relativeTime(timestamp) {
     const delta = Math.max(0, Math.floor((Date.now() - timestamp) / 1000));
     if (delta < 60) return 'à l’instant';
@@ -1114,8 +1277,9 @@ export class DomotiquePage {
   }
 
   _eventDate(iso) {
-    const date = new Date(iso);
-    if (Number.isNaN(date.getTime())) return '—';
+    const timestamp = this._parseUTC(iso);
+    if (Number.isNaN(timestamp)) return '—';
+    const date = new Date(timestamp);
     return date.toLocaleString('fr-FR', {
       day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit',
     });

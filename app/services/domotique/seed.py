@@ -38,6 +38,8 @@ DEFAULT_DEVICE_CONFIG: dict = {
     "alarm_temp_delta": 1.0,
     "alarm_hum_delta": 2.0,
     "comm_timeout_s": 90,
+    "default_tolerance_temperature": 2.0,
+    "default_tolerance_humidity": 10.0,
 }
 
 _SENSORS = [

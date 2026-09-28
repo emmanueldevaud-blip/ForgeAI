@@ -242,6 +242,8 @@ class DomotiqueConfigUpdate(BaseModel):
     alarm_temp_delta: Optional[float] = Field(default=None, ge=0.1, le=50)
     alarm_hum_delta: Optional[float] = Field(default=None, ge=0.1, le=100)
     comm_timeout_s: Optional[int] = Field(default=None, ge=10, le=3600)
+    default_tolerance_temperature: Optional[float] = Field(default=None, ge=0.1, le=50)
+    default_tolerance_humidity: Optional[float] = Field(default=None, ge=0.1, le=100)
 
 
 class DomotiqueConfigTestRequest(BaseModel):

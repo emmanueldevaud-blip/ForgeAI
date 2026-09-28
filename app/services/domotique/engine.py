@@ -72,6 +72,8 @@ def _device_config(device: DomotiqueDevice) -> dict[str, Any]:
         ("alarm_temp_delta", 1.0),
         ("alarm_hum_delta", 2.0),
         ("comm_timeout_s", 90),
+        ("default_tolerance_temperature", 2.0),
+        ("default_tolerance_humidity", 10.0),
     ):
         config.setdefault(key, default)
     return config
@@ -294,6 +296,7 @@ def _desired_states(
     temperature: float | None,
     humidity: float | None,
     outputs: list[DomotiqueOutput],
+    device_config: dict[str, Any] | None = None,
 ) -> dict[int, bool]:
     """Calcule l'etat desire (auto) pour chaque sortie en mode automatique.
 
@@ -306,8 +309,10 @@ def _desired_states(
     qu'un ecart de temperature fausse la lecture.
     """
     desired: dict[int, bool] = {}
-    tol_t = phase.tolerance_temperature if phase.tolerance_temperature is not None else 1.0
-    tol_h = phase.tolerance_humidity if phase.tolerance_humidity is not None else 2.0
+    default_tol_t = device_config.get("default_tolerance_temperature", 2.0) if device_config else 2.0
+    default_tol_h = device_config.get("default_tolerance_humidity", 10.0) if device_config else 10.0
+    tol_t = phase.tolerance_temperature if phase.tolerance_temperature is not None else default_tol_t
+    tol_h = phase.tolerance_humidity if phase.tolerance_humidity is not None else default_tol_h
     target_t = phase.target_temperature
     target_h = phase.target_humidity
     humidity_ref = _corrected_humidity(temperature, humidity, target_t)
@@ -762,6 +767,7 @@ async def poll_device(db: AsyncSession, device: DomotiqueDevice) -> None:
                 and cycle.status == CycleStatus.RUNNING
                 and not cycle.manual_outputs
             ):
+                config = _device_config(device)
                 desired = _desired_states(
                     current_phase,
                     state.get("temperature"),
@@ -776,6 +782,7 @@ async def poll_device(db: AsyncSession, device: DomotiqueDevice) -> None:
                             )
                         ).scalars().all()
                     ],
+                    config,
                 )
                 await _apply_desired_states(db, device, desired, cycle)
 

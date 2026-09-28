@@ -53,6 +53,9 @@ router = APIRouter(prefix="/domotique", tags=["domotique"])
 _DEFAULT_DEVICE_CODE = "sechoir-saucisson"
 
 _PERIODS = {
+    "1h": timedelta(hours=1),
+    "3h": timedelta(hours=3),
+    "10h": timedelta(hours=10),
     "24h": timedelta(days=1),
     "3d": timedelta(days=3),
     "7d": timedelta(days=7),
@@ -221,7 +224,7 @@ async def get_history(
     elif period in _PERIODS:
         start = now - _PERIODS[period]
     else:
-        raise HTTPException(status_code=422, detail="Période invalide (24h, 3d, 7d, cycle)")
+        raise HTTPException(status_code=422, detail="Période invalide (1h, 3h, 10h, 24h, 3d, 7d, cycle)")
 
     sensors = (
         await db.execute(
@@ -855,7 +858,7 @@ async def update_config(
     if payload.poll_interval_s is not None:
         device.poll_interval_s = payload.poll_interval_s
     config = dict(device.config_json or {})
-    for field in ("temp_min", "temp_max", "hum_min", "hum_max", "alert_cooldown_min", "retention_days", "obsolete_after_s", "cooler_min_off_s", "cooler_min_on_s", "alarm_temp_delta", "alarm_hum_delta", "comm_timeout_s"):
+    for field in ("temp_min", "temp_max", "hum_min", "hum_max", "alert_cooldown_min", "retention_days", "obsolete_after_s", "cooler_min_off_s", "cooler_min_on_s", "alarm_temp_delta", "alarm_hum_delta", "comm_timeout_s", "default_tolerance_temperature", "default_tolerance_humidity"):
         value = getattr(payload, field)
         if value is not None:
             config[field] = value

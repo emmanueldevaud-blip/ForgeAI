@@ -2,7 +2,6 @@ import { authStore } from '../stores/auth.js';
 import { createHousingPlanningPage } from './HousingPlanningPage.js?v=22';
 import { createHousingCleaningPage } from './HousingCleaningPage.js?v=10';
 import { createHousingOccupantsPage } from './HousingOccupantsPage.js?v=1';
-import { createHousingUnavailabilitiesPage } from './HousingUnavailabilitiesPage.js';
 import { createHousingEmailTemplatesPage } from './HousingEmailTemplatesPage.js?v=11';
 import { createHousingListPage } from './HousingListPage.js';
 
@@ -15,7 +14,6 @@ export class HousingPage {
       { id: 'planning', label: 'Planning', permission: 'housing.view', component: null, mounted: false },
       { id: 'cleaning', label: 'Ménage', permission: 'housing.view', component: null, mounted: false },
       { id: 'occupants', label: 'Occupants', permission: 'housing.view', component: null, mounted: false },
-      { id: 'unavailabilities', label: 'Indisponibilités', permission: 'housing.view', component: null, mounted: false },
       { id: 'email-templates', label: 'Modèles d’e-mails', permission: 'housing.manage_email_templates', component: null, mounted: false },
       { id: 'housings', label: 'Paramètres', permission: 'housing.manage', component: null, mounted: false },
     ];
@@ -24,6 +22,10 @@ export class HousingPage {
 
   _getTabFromPath() {
     const path = this.router.getPath?.() || '/housing';
+    // Check hash first (client-side tabs)
+    const hash = window.location.hash.slice(1);
+    if (hash && this.tabs.some(t => t.id === hash)) return hash;
+    // Fallback to path for backward compatibility
     if (path === '/housing' || path === '/housing/') return 'planning';
     if (path.startsWith('/housing/')) {
       const tab = path.split('/housing/')[1].split('/')[0];
@@ -45,20 +47,16 @@ export class HousingPage {
     await occupants.initialize();
     this.tabs[2].component = occupants;
 
-    const unavailabilities = createHousingUnavailabilitiesPage(this.router);
-    await unavailabilities.initialize();
-    this.tabs[3].component = unavailabilities;
-
     if (authStore.hasPermission('housing.manage_email_templates')) {
       const emailTemplates = createHousingEmailTemplatesPage();
       await emailTemplates.initialize();
-      this.tabs[4].component = emailTemplates;
+      this.tabs[3].component = emailTemplates;
     }
 
     if (authStore.hasPermission('housing.manage')) {
       const list = createHousingListPage(this.router);
       await list.initialize();
-      this.tabs[5].component = list;
+      this.tabs[4].component = list;
     }
 
     this.currentTab = this._getTabFromPath();
@@ -114,7 +112,9 @@ export class HousingPage {
     const tab = this.tabs.find(t => t.id === tabId);
     if (!tab) return;
     if (!authStore.hasPermission(tab.permission)) return;
-    this.router.navigate(`/housing/${tabId}`);
+    this._switchTab(tabId);
+    // Update URL hash for bookmarking without triggering route change
+    window.history.replaceState(null, '', `/housing#${tabId}`);
   }
 
   render() {

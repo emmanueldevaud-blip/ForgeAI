@@ -556,13 +556,15 @@ export class BuildingsPage {
 
     const canCreate = authStore.hasPermission('building.create');
     const breadcrumbs = this._getBreadcrumbs();
+    const isParamsView = this.currentView === 'params';
+    const canManageRefs = authStore.hasPermission('building.manage_refs');
 
     this.element.innerHTML = `
       <div class="users-header">
         <div class="users-title-area">
           ${breadcrumbs.length > 0 ? `
             <div class="breadcrumb">
-              <a href="#" data-action="breadcrumb-root" class="breadcrumb-link">Sites</a>
+              <a href="#" data-action="breadcrumb-root" class="breadcrumb-link">Bâtiments</a>
               ${breadcrumbs.map((b, i) => `<span class="breadcrumb-separator">›</span>${i < breadcrumbs.length - 1 ? `<a href="#" data-action="breadcrumb" data-index="${i}" class="breadcrumb-link">${this._escapeHtml(b.label)}</a>` : `<span>${this._escapeHtml(b.label)}</span>`}`).join('')}
             </div>
           ` : ''}
@@ -571,11 +573,18 @@ export class BuildingsPage {
         </div>
         <div class="users-header-actions">
            ${breadcrumbs.length > 0 ? `<button type="button" class="btn btn-secondary" data-action="back" aria-label="Retour au niveau précédent">← Retour</button>` : ''}
-           ${canCreate ? `<button type="button" class="btn btn-primary" data-action="create">+ Nouveau</button>` : ''}
+           ${!isParamsView && canCreate ? `<button type="button" class="btn btn-primary" data-action="create">+ Nouveau</button>` : ''}
+           ${isParamsView && canManageRefs ? `<button type="button" class="btn btn-primary" data-action="create">+ Nouveau</button>` : ''}
         </div>
       </div>
+
+      <div class="buildings-tabs" role="tablist" aria-label="Navigation bâtiments">
+        <button role="tab" class="tab-button ${!isParamsView ? 'tab-button--active' : ''}" data-tab="sites" aria-selected="${!isParamsView}" aria-controls="panel-sites">Bâtiments</button>
+        ${canManageRefs ? `<button role="tab" class="tab-button ${isParamsView ? 'tab-button--active' : ''}" data-tab="params" aria-selected="${isParamsView}" aria-controls="panel-params">Paramètres</button>` : ''}
+      </div>
+
       <div class="users-toolbar">
-         <label class="sr-only" for="buildings-search">Rechercher dans les bâtiments</label>
+         <label class="sr-only" for="buildings-search">Rechercher dans les ${isParamsView ? 'références' : 'bâtiments'}</label>
          <input id="buildings-search" type="search" class="form-input" placeholder="Rechercher..." value="${this._escapeHtml(this.search)}" data-action="search">
       </div>
       <div data-table-container></div>
@@ -625,19 +634,19 @@ export class BuildingsPage {
           this.currentView = 'params';
           this.currentBuildingId = null;
           this.currentSite = null;
+          this.currentSiteId = null;
+          this.currentBuilding = null;
         } else {
           this.currentView = 'sites';
           this.currentBuildingId = null;
           this.currentSite = null;
+          this.currentSiteId = null;
+          this.currentBuilding = null;
         }
+        this._resetPaging();
         this._refresh();
-        // Mise à jour visuelle
-        const active = this.element.querySelector('.tab-button--active');
-        if (active) active.classList.remove('tab-button--active');
-        btn.classList.add('tab-button--active');
         e.preventDefault();
         e.stopPropagation();
-        btn.focus();
       });
     });
 
@@ -697,7 +706,8 @@ export class BuildingsPage {
   _getTitle() {
     if (this.currentView === 'buildings' && this.currentSite) return `Bâtiments — ${this.currentSite.name}`;
     if (this.currentView === 'rooms' && this.currentBuilding) return `Locaux — ${this.currentBuilding.name}`;
-    return 'Sites';
+    if (this.currentView === 'params') return 'Paramètres — Types d\'usage';
+    return 'Bâtiments';
   }
 
   _getCountText() {
@@ -705,8 +715,10 @@ export class BuildingsPage {
       sites: 'site',
       buildings: 'bâtiment',
       rooms: 'local',
+      params: 'type d\'usage',
     };
-    return `${this.total} ${labels[this.currentView]}${this.total > 1 ? 's' : ''}`;
+    const label = labels[this.currentView] ?? 'élément';
+    return `${this.total} ${label}${this.total > 1 ? 's' : ''}`;
   }
 
   _getBreadcrumbs() {

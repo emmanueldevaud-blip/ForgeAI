@@ -30,12 +30,12 @@ class DashboardModule(BaseModule):
         return True
 
 
-class BuildingsModule(BaseModule):
+class GestionBureauxModule(BaseModule):
     def __init__(self):
         super().__init__(ModuleInfo(
-            code="buildings",
-            name="Bâtiments",
-            description="Gestion des bâtiments et immeubles",
+            code="gestion_bureaux",
+            name="Intendance",
+            description="Gestion des bâtiments, hébergements et équipements",
             icon="building",
             order=30,
             status=ModuleStatus.ACTIVE,
@@ -56,24 +56,50 @@ class BuildingsModule(BaseModule):
         children = [
             {
                 "code": "buildings-sites",
-                "name": "Sites",
+                "name": "Bâtiments",
                 "icon": "building",
                 "route": "/buildings",
                 "order": 0,
             },
         ]
 
-        has_manage_refs = (
+        has_equipment = (
             "*" in user_permissions
-            or "building.manage_refs" in user_permissions
+            or "equipment.view" in user_permissions
         )
-        if has_manage_refs:
+        if has_equipment:
             children.append({
-                "code": "buildings-refs",
-                "name": "Paramètres",
-                "icon": "file-text",
-                "route": "/buildings/refs",
+                "code": "equipment-list",
+                "name": "Équipements",
+                "icon": "tool",
+                "route": "/equipment",
                 "order": 1,
+            })
+
+        has_housing = (
+            "*" in user_permissions
+            or "housing.view" in user_permissions
+        )
+        if has_housing:
+            children.append({
+                "code": "housing-list",
+                "name": "Hébergements",
+                "icon": "home",
+                "route": "/housing",
+                "order": 2,
+            })
+
+        has_volunteers = (
+            "*" in user_permissions
+            or "volunteers.view" in user_permissions
+        )
+        if has_volunteers:
+            children.append({
+                "code": "volunteers-list",
+                "name": "Volontaires",
+                "icon": "heart-handshake",
+                "route": "/volunteers",
+                "order": 3,
             })
 
         return [{
@@ -84,6 +110,35 @@ class BuildingsModule(BaseModule):
             "order": self.info.order,
             "children": children,
         }]
+
+    async def install(self, db):
+        return True
+
+    async def uninstall(self, db):
+        return True
+
+    async def upgrade(self, db, from_version: str):
+        return True
+
+
+class BuildingsModule(BaseModule):
+    def __init__(self):
+        super().__init__(ModuleInfo(
+            code="buildings",
+            name="Bâtiments",
+            description="Gestion des bâtiments et immeubles",
+            icon="building",
+            order=30,
+            status=ModuleStatus.ACTIVE,
+            version="1.0.0",
+            route_path="/buildings",
+            component_path="Buildings",
+            required_permissions=["building.view"],
+            is_core=False,
+        ))
+
+    def get_navigation_items(self, user_permissions: list[str]):
+        return []
 
     async def install(self, db):
         return True
@@ -112,57 +167,7 @@ class HousingModule(BaseModule):
         ))
 
     def get_navigation_items(self, user_permissions=None):
-        permissions = user_permissions or []
-        children = [
-            {
-                "code": "housing-planning",
-                "name": "Planning",
-                "icon": "calendar-days",
-                "route": "/housing/planning",
-                "order": 0,
-            },
-            {
-                "code": "housing-cleaning",
-                "name": "Ménage",
-                "icon": "sparkles",
-                "route": "/housing/cleaning",
-                "order": 1,
-            },
-            {
-                "code": "housing-occupants",
-                "name": "Occupants",
-                "icon": "users",
-                "route": "/housing/occupants",
-                "order": 2,
-            },
-        ]
-
-        if "*" in permissions or "housing.manage_email_templates" in permissions:
-            children.append({
-                "code": "housing-email-templates",
-                "name": "Modèles d’e-mails",
-                "icon": "file-text",
-                "route": "/housing/email-templates",
-                "order": 5,
-            })
-
-        if "*" in permissions or "housing.manage" in permissions:
-            children.append({
-                "code": "housing-list",
-                "name": "Paramètres",
-                "icon": "home",
-                "route": "/housing/housings",
-                "order": 6,
-            })
-
-        return [{
-            "code": self.info.code,
-            "name": self.info.name,
-            "icon": self.info.icon,
-            "route": self.info.route_path,
-            "order": self.info.order,
-            "children": children,
-        }]
+        return []
 
     async def install(self, db):
         return True
@@ -652,43 +657,7 @@ class EquipmentModule(BaseModule):
         ))
 
     def get_navigation_items(self, user_permissions: list[str]):
-        if self.info.required_permissions:
-            if "*" in user_permissions:
-                pass
-            elif not all(p in user_permissions for p in self.info.required_permissions):
-                return []
-
-        children = [
-            {
-                "code": "equipment-list",
-                "name": "Équipements",
-                "icon": "tool",
-                "route": "/equipment",
-                "order": 0,
-            },
-        ]
-
-        has_manage_refs = (
-            "*" in user_permissions
-            or "equipment.manage_referentials" in user_permissions
-        )
-        if has_manage_refs:
-            children.append({
-                "code": "equipment-refs",
-                "name": "Référentiels",
-                "icon": "file-text",
-                "route": "/equipment/refs",
-                "order": 1,
-            })
-
-        return [{
-            "code": self.info.code,
-            "name": self.info.name,
-            "icon": self.info.icon,
-            "route": self.info.route_path,
-            "order": self.info.order,
-            "children": children,
-        }]
+        return []
 
     async def install(self, db):
         return True
@@ -743,6 +712,7 @@ class AIModule(BaseModule):
 def register_all_modules():
     modules = [
         DashboardModule(),
+        GestionBureauxModule(),
         BuildingsModule(),
         EquipmentModule(),
         HousingModule(),
@@ -783,6 +753,9 @@ class VolunteersModule(BaseModule):
             required_permissions=["volunteers.view"],
             is_core=False,
         ))
+
+    def get_navigation_items(self, user_permissions=None):
+        return []
 
     async def install(self, db):
         return True

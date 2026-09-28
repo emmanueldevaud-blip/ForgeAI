@@ -7,7 +7,7 @@ import { createRegisterPage } from './pages/RegisterPage.js';
 import { createAdministrationPage } from './pages/AdministrationPage.js?v=4';
 import { createBuildingsPage } from './pages/BuildingsPage.js?v=4';
 import { createBuildingRefsPage } from './pages/BuildingRefsPage.js';
-import { createEquipmentPage } from './pages/EquipmentPage.js';
+import { createEquipmentPage } from './pages/EquipmentPage.js?v=2';
 import { createEquipmentRefsPage } from './pages/EquipmentRefsPage.js';
 import { createDashboardPage } from './pages/DashboardPage.js?v=2';
 import { createMaintenanceRequestsPage } from './pages/MaintenanceRequestsPage.js';
@@ -18,12 +18,7 @@ import { createMaintenanceContractsPage } from './pages/MaintenanceContractsPage
 import { createMaintenanceRefsPage } from './pages/MaintenanceRefsPage.js';
 import { createMaintenanceCalendarPage } from './pages/MaintenanceCalendarPage.js';
 import { createAIAssistantPage } from './pages/AIAssistantPage.js?v=2';
-import { createHousingListPage } from './pages/HousingListPage.js';
-import { createHousingPlanningPage } from './pages/HousingPlanningPage.js?v=22';
-import { createHousingCleaningPage } from './pages/HousingCleaningPage.js?v=10';
-import { createHousingOccupantsPage } from './pages/HousingOccupantsPage.js?v=1';
-import { createHousingUnavailabilitiesPage } from './pages/HousingUnavailabilitiesPage.js';
-import { createHousingEmailTemplatesPage } from './pages/HousingEmailTemplatesPage.js?v=11';
+import { createHousingPage } from './pages/HousingPage.js';
 import { createCleaningVolunteersPage } from './pages/CleaningVolunteersPage.js?v=4';
 import { createAdministrativeProgramsPage } from './pages/AdministrativeProgramsPage.js';
 import { createSportDashboardPage } from './pages/SportDashboardPage.js?v=5';
@@ -71,12 +66,7 @@ let maintenanceContractsPage = null;
 let maintenanceRefsPage = null;
 let maintenanceCalendarPage = null;
 let aiAssistantPage = null;
-let housingListPage = null;
-let housingPlanningPage = null;
-let housingCleaningPage = null;
-let housingOccupantsPage = null;
-let housingUnavailabilitiesPage = null;
-let housingEmailTemplatesPage = null;
+let housingPage = null;
 let volunteersPage = null;
 let administrativeProgramsPage = null;
 let sportDashboardPage = null;
@@ -207,30 +197,8 @@ async function initializeApp() {
       await showAIAssistantPage(route);
     }, { requiresAuth: true, permissions: ['ai.use'] })
     .addRoute('/housing', async (route) => {
-      if (!authStore.hasPermission('housing.manage')) {
-        router.navigate('/housing/planning', { replace: true });
-        return;
-      }
-      await showHousingListPage(route);
+      await showHousingPage(route);
     }, { requiresAuth: true, permissions: ['housing.view'] })
-    .addRoute('/housing/housings', async (route) => {
-      await showHousingListPage(route);
-    }, { requiresAuth: true, permissions: ['housing.manage'] })
-    .addRoute('/housing/planning', async (route) => {
-      await showHousingPlanningPage(route);
-    }, { requiresAuth: true, permissions: ['housing.view'] })
-    .addRoute('/housing/cleaning', async (route) => {
-      await showHousingCleaningPage(route);
-    }, { requiresAuth: true, permissions: ['housing.view'] })
-    .addRoute('/housing/occupants', async (route) => {
-      await showHousingOccupantsPage(route);
-    }, { requiresAuth: true, permissions: ['housing.view'] })
-    .addRoute('/housing/unavailabilities', async (route) => {
-      await showHousingUnavailabilitiesPage(route);
-    }, { requiresAuth: true, permissions: ['housing.view'] })
-    .addRoute('/housing/email-templates', async (route) => {
-      await showHousingEmailTemplatesPage(route);
-    }, { requiresAuth: true, permissions: ['housing.manage_email_templates'] })
     .addRoute('/sport', async (route) => {
       await showSportDashboardPage(route);
     }, { requiresAuth: true, permissions: ['sport.access'] })
@@ -443,64 +411,12 @@ async function ensureAIAssistantPage() {
   return aiAssistantPage;
 }
 
-async function ensureHousingListPage() {
-  if (!housingListPage) {
-    housingListPage = createHousingListPage(router);
-    await housingListPage.initialize();
+async function ensureHousingPage() {
+  if (!housingPage) {
+    housingPage = createHousingPage(router);
+    await housingPage.initialize();
   }
-  return housingListPage;
-}
-
-async function ensureHousingPlanningPage() {
-  if (!housingPlanningPage) {
-    housingPlanningPage = createHousingPlanningPage(router);
-    await housingPlanningPage.initialize();
-  }
-  return housingPlanningPage;
-}
-
-async function ensureHousingCleaningPage() {
-  if (!housingCleaningPage) {
-    housingCleaningPage = createHousingCleaningPage(router);
-    await housingCleaningPage.initialize();
-  }
-  return housingCleaningPage;
-}
-
-async function ensureHousingOccupantsPage() {
-  if (!housingOccupantsPage) {
-    housingOccupantsPage = createHousingOccupantsPage(router);
-    await housingOccupantsPage.initialize();
-  }
-  return housingOccupantsPage;
-}
-
-async function ensureHousingUnavailabilitiesPage() {
-  if (!housingUnavailabilitiesPage) {
-    housingUnavailabilitiesPage = createHousingUnavailabilitiesPage(router);
-    await housingUnavailabilitiesPage.initialize();
-  }
-  return housingUnavailabilitiesPage;
-}
-
-async function ensureHousingEmailTemplatesPage() {
-  if (!housingEmailTemplatesPage) {
-    housingEmailTemplatesPage = createHousingEmailTemplatesPage(router);
-    await housingEmailTemplatesPage.initialize();
-  }
-  return housingEmailTemplatesPage;
-}
-
-async function showHousingEmailTemplatesPage(route) {
-  if (!appShell) return;
-  appShell.showLoading();
-  try {
-    const page = await ensureHousingEmailTemplatesPage();
-    appShell.showContent(page.render());
-  } catch (error) {
-    console.error('Erreur affichage modèles d’e-mails:', error);
-    appShell.showError(error);
-  }
+  return housingPage;
 }
 
 async function ensureVolunteersPage() {
@@ -935,77 +851,16 @@ async function showAIAssistantPage(route) {
   }
 }
 
-async function showHousingListPage(route) {
+async function showHousingPage(route) {
   if (!appShell) return;
   appShell.showLoading();
 
   try {
-    const page = await ensureHousingListPage();
+    const page = await ensureHousingPage();
     const content = page.render();
     appShell.showContent(content);
-    page.loadData();
   } catch (error) {
     console.error('Erreur affichage hébergements:', error);
-    appShell.showError(error);
-  }
-}
-
-async function showHousingPlanningPage(route) {
-  if (!appShell) return;
-  appShell.showLoading();
-
-  try {
-    const page = await ensureHousingPlanningPage();
-    const content = page.render();
-    appShell.showContent(content);
-    page.loadData();
-  } catch (error) {
-    console.error('Erreur affichage planning:', error);
-    appShell.showError(error);
-  }
-}
-
-async function showHousingCleaningPage(route) {
-  if (!appShell) return;
-  appShell.showLoading();
-
-  try {
-    const page = await ensureHousingCleaningPage();
-    const content = page.render();
-    appShell.showContent(content);
-    page.loadData();
-  } catch (error) {
-    console.error('Erreur affichage ménage:', error);
-    appShell.showError(error);
-  }
-}
-
-async function showHousingOccupantsPage(route) {
-  if (!appShell) return;
-  appShell.showLoading();
-
-  try {
-    const page = await ensureHousingOccupantsPage();
-    const content = page.render();
-    appShell.showContent(content);
-    page.loadData();
-  } catch (error) {
-    console.error('Erreur affichage occupants:', error);
-    appShell.showError(error);
-  }
-}
-
-async function showHousingUnavailabilitiesPage(route) {
-  if (!appShell) return;
-  appShell.showLoading();
-
-  try {
-    const page = await ensureHousingUnavailabilitiesPage();
-    const content = page.render();
-    appShell.showContent(content);
-    page.loadData();
-  } catch (error) {
-    console.error('Erreur affichage indisponibilités:', error);
     appShell.showError(error);
   }
 }

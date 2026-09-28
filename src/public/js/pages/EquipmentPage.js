@@ -14,7 +14,12 @@ import {
   listBuildings,
   listRooms,
 } from '../services/buildingsApi.js';
-import { listEquipmentTypes } from '../services/equipmentApi.js';
+import {
+  listEquipmentTypes,
+  createEquipmentType,
+  updateEquipmentType,
+  deleteEquipmentType,
+} from '../services/equipmentApi.js';
 
 const EQUIPMENT_STATUSES = [
   { value: 'en_service', label: 'En service' },
@@ -41,7 +46,9 @@ export class EquipmentPage {
   constructor(router) {
     this.router = router;
     this.element = null;
+    this.currentView = 'equipments';
     this.equipments = [];
+    this.equipmentTypes = [];
     this.total = 0;
     this.page = 1;
     this.pageSize = 20;
@@ -54,9 +61,12 @@ export class EquipmentPage {
       status: '',
       is_active: '',
     };
-    this.equipmentTypes = [];
     this.equipmentTable = null;
+    this.typeTable = null;
+    this.confirmDialog = null;
     this._authUnsubscribe = null;
+    this.pendingAction = null;
+    this._searchTimeout = null;
   }
 
   async initialize() {
@@ -90,85 +100,168 @@ export class EquipmentPage {
           key: 'edit',
           label: 'Modifier',
           icon: 'edit',
-          disabled: (item) => !authStore.hasPermission('equipment.update'),
+          permission: 'equipment.update',
         },
         {
           key: 'deactivate',
           label: 'Désactiver',
           icon: 'power',
-          disabled: (item) => !item.is_active || !authStore.hasPermission('equipment.update'),
+          disabled: (item) => !item.is_active,
+          permission: 'equipment.update',
         },
         {
           key: 'delete',
           label: 'Supprimer',
           icon: 'trash',
-          disabled: (item) => !authStore.hasPermission('equipment.delete'),
+          permission: 'equipment.delete',
         },
       ],
       onAction: (action, item) => this._handleAction(action, item),
       emptyMessage: 'Aucun équipement trouvé',
     });
 
-    this._authUnsubscribe = authStore.subscribe(() => {
-      if (this.element) this.renderTableState();
+    this.typeTable = new Table({
+      columns: [
+        { key: 'code', label: 'Code', sortable: true },
+        { key: 'name', label: 'Nom', sortable: true },
+        { key: 'sort_order', label: 'Ordre', sortable: true },
+      ],
+      actions: [
+        {
+          key: 'edit',
+          label: 'Modifier',
+          icon: 'edit',
+          permission: 'equipment.manage_referentials',
+        },
+        {
+          key: 'delete',
+          label: 'Supprimer',
+          icon: 'trash',
+          permission: 'equipment.manage_referentials',
+        },
+      ],
+      onAction: (action, item) => this._handleTypeAction(action, item),
+      emptyMessage: 'Aucun type d\'équipement trouvé',
     });
 
-    await this._loadEquipmentTypes();
+    this.confirmDialog = new ConfirmDialog({
+      onConfirm: () => this._executeConfirmedAction(),
+      onCancel: () => { this.pendingAction = null; },
+    });
+
+    this._authUnsubscribe = authStore.subscribe(() => this._updateButtonVisibility());
   }
 
-  async _loadEquipmentTypes() {
-    try {
-      const response = await listEquipmentTypes({ page_size: 1000, is_active: true });
-      this.equipmentTypes = response.items || [];
-    } catch (e) {
-      console.error('Erreur chargement types:', e);
+  _getColumns() {
+    return this.currentView === 'params' ? this.typeTable.columns : this.equipmentTable.columns;
+  }
+
+  _getActions() {
+    return this.currentView === 'params' ? this.typeTable.actions : this.equipmentTable.actions;
+  }
+
+  _handleAction(action, item) {
+    switch (action) {
+      case 'edit':
+        this._showEquipmentModal(item);
+        break;
+      case 'deactivate':
+        this._deactivate(item);
+        break;
+      case 'delete':
+        this.pendingAction = { type: 'delete', item, view: 'equipments' };
+        this.confirmDialog.open({
+          title: 'Supprimer',
+          message: `Voulez-vous vraiment supprimer l'équipement "${item.reference}" ?`,
+          confirmText: 'Supprimer',
+          variant: 'danger',
+        });
+        break;
+    }
+  }
+
+  _handleTypeAction(action, item) {
+    if (action === 'edit') {
+      this._showTypeModal(item);
+    } else if (action === 'delete') {
+      this.pendingAction = { type: 'delete', item, view: 'params' };
+      this.confirmDialog.open({
+        title: 'Supprimer',
+        message: `Voulez-vous vraiment supprimer "${item.name}" ?`,
+        confirmText: 'Supprimer',
+        variant: 'danger',
+      });
     }
   }
 
   async loadData() {
-    try {
-      const params = {
-        page: this.page,
-        page_size: this.pageSize,
-        sort_by: this.sortBy,
-        sort_order: this.sortOrder,
-      };
-      if (this.search) params.search = this.search;
-      if (this.filters.equipment_type_id) params.equipment_type_id = this.filters.equipment_type_id;
-      if (this.filters.status) params.status = this.filters.status;
-      if (this.filters.is_active !== '') params.is_active = this.filters.is_active;
+    this.page = 1;
+    await this._loadDataForView();
+  }
 
-      const response = await listEquipments(params);
-      this.equipments = response.items || [];
-      this.total = response.total || 0;
-      this.totalPages = response.total_pages || 1;
-      this.renderTableState();
+  async _loadDataForView() {
+    try {
+      if (this.currentView === 'equipments') {
+        const params = {
+          page: this.page,
+          page_size: this.pageSize,
+          sort_by: this.sortBy,
+          sort_order: this.sortOrder,
+        };
+        if (this.search) params.search = this.search;
+        if (this.filters.equipment_type_id) params.equipment_type_id = this.filters.equipment_type_id;
+        if (this.filters.status) params.status = this.filters.status;
+        if (this.filters.is_active !== '') params.is_active = this.filters.is_active;
+
+        const response = await listEquipments(params);
+        this.equipments = response.items || [];
+        this.total = response.total || 0;
+        this.totalPages = response.total_pages || 1;
+        this.equipmentTable.setData({
+          items: this.equipments,
+          total: this.total,
+          page: this.page,
+          pageSize: this.pageSize,
+          totalPages: this.totalPages,
+          sortBy: this.sortBy,
+          sortOrder: this.sortOrder,
+        });
+      } else if (this.currentView === 'params') {
+        const params = {
+          page: this.page,
+          page_size: this.pageSize,
+          sort_by: this.sortBy,
+          sort_order: this.sortOrder,
+        };
+        if (this.search) params.search = this.search;
+
+        const response = await listEquipmentTypes(params);
+        this.equipmentTypes = response.items || [];
+        this.total = response.total || 0;
+        this.totalPages = response.total_pages || 1;
+        this.typeTable.setData({
+          items: this.equipmentTypes,
+          total: this.total,
+          page: this.page,
+          pageSize: this.pageSize,
+          totalPages: this.totalPages,
+          sortBy: this.sortBy,
+          sortOrder: this.sortOrder,
+        });
+      }
+      this._updatePagination();
     } catch (error) {
-      console.error('Erreur chargement équipements:', error);
+      console.error('Erreur chargement:', error);
     }
   }
 
-  renderTableState() {
+  _updatePagination() {
     if (!this.element) return;
 
-    const countEl = this.element.querySelector('[data-equipment-count]');
+    const countEl = this.element.querySelector('[data-count]');
     if (countEl) {
-      countEl.textContent = `${this.total} équipement${this.total > 1 ? 's' : ''}`;
-    }
-
-    const tableContainer = this.element.querySelector('[data-equipment-table]');
-    if (tableContainer) {
-      this.equipmentTable.setData({
-        items: this.equipments,
-        total: this.total,
-        page: this.page,
-        pageSize: this.pageSize,
-        totalPages: this.totalPages,
-        sortBy: this.sortBy,
-        sortOrder: this.sortOrder,
-      });
-      tableContainer.innerHTML = '';
-      tableContainer.appendChild(this.equipmentTable.render());
+      const label = this.currentView === 'params' ? 'type' : 'équipement';
+      countEl.textContent = `${this.total} ${label}${this.total > 1 ? 's' : ''}`;
     }
 
     const pageInfo = this.element.querySelector('[data-page-info]');
@@ -183,24 +276,33 @@ export class EquipmentPage {
   }
 
   render() {
-    this.element = document.createElement('div');
-    this.element.className = 'page-content equipment-page';
-    this.element.innerHTML = `
+    const isParamsView = this.currentView === 'params';
+    const canCreateEquip = authStore.hasPermission('equipment.create');
+    const canManageRefs = authStore.hasPermission('equipment.manage_referentials');
+
+    const html = `
       <div class="page-header">
         <div class="page-header-left">
-          <h1>Équipements</h1>
-          <p class="page-subtitle">Gestion du patrimoine des équipements</p>
+          <h1>${isParamsView ? 'Paramètres — Types d\'équipements' : 'Équipements'}</h1>
+          <p class="page-subtitle">${isParamsView ? 'Référentiel des types d\'équipements' : 'Gestion du patrimoine des équipements'}</p>
         </div>
         <div class="page-header-right">
-          ${authStore.hasPermission('equipment.create') ? '<button class="btn btn-primary" data-action="create">+ Nouvel équipement</button>' : ''}
+          ${!isParamsView && canCreateEquip ? '<button class="btn btn-primary" data-action="create">+ Nouvel équipement</button>' : ''}
+          ${isParamsView && canManageRefs ? '<button class="btn btn-primary" data-action="create-type">+ Nouveau type</button>' : ''}
         </div>
+      </div>
+
+      <div class="buildings-tabs" role="tablist" aria-label="Navigation équipements">
+        <button role="tab" class="tab-button ${!isParamsView ? 'tab-button--active' : ''}" data-tab="equipments" aria-selected="${!isParamsView}" aria-controls="panel-equipments">Équipements</button>
+        ${canManageRefs ? `<button role="tab" class="tab-button ${isParamsView ? 'tab-button--active' : ''}" data-tab="params" aria-selected="${isParamsView}" aria-controls="panel-params">Paramètres</button>` : ''}
       </div>
 
       <div class="page-filters">
         <div class="filter-group">
-           <label class="sr-only" for="equipment-search">Rechercher un équipement</label>
+           <label class="sr-only" for="equipment-search">Rechercher dans les ${isParamsView ? 'types' : 'équipements'}</label>
            <input id="equipment-search" type="text" class="form-input" placeholder="Rechercher..." data-filter="search" value="${this.search}">
         </div>
+        ${!isParamsView ? `
         <div class="filter-group">
            <label class="sr-only" for="equipment-type-filter">Filtrer par type</label>
            <select id="equipment-type-filter" class="form-select" data-filter="equipment_type_id">
@@ -223,13 +325,14 @@ export class EquipmentPage {
             <option value="false" ${this.filters.is_active === 'false' ? 'selected' : ''}>Inactif</option>
           </select>
         </div>
+        ` : ''}
       </div>
 
       <div class="page-info">
-        <span data-equipment-count>${this.total} équipement${this.total > 1 ? 's' : ''}</span>
+        <span data-count>${this.total} ${isParamsView ? 'type' : 'équipement'}${this.total > 1 ? 's' : ''}</span>
       </div>
 
-      <div data-equipment-table></div>
+      <div data-table-container></div>
 
       <div class="pagination">
         <button class="btn btn-secondary" data-page="prev" ${this.page <= 1 ? 'disabled' : ''}>Précédent</button>
@@ -238,78 +341,66 @@ export class EquipmentPage {
       </div>
     `;
 
+    if (!this.element) {
+      this.element = document.createElement('div');
+      this.element.className = 'page-content equipment-page';
+    }
+    this.element.innerHTML = html;
+
     this._setupEventListeners();
-    this.renderTableState();
     return this.element;
   }
 
   _setupEventListeners() {
     const searchInput = this.element.querySelector('[data-filter="search"]');
-    let searchTimeout;
     if (searchInput) {
       searchInput.addEventListener('input', (e) => {
-        clearTimeout(searchTimeout);
-        searchTimeout = setTimeout(() => {
+        clearTimeout(this._searchTimeout);
+        this._searchTimeout = setTimeout(() => {
           this.search = e.target.value;
           this.page = 1;
-          this.loadData();
+          this._loadDataForView();
         }, 300);
       });
     }
 
-    this.element.querySelectorAll('.form-select[data-filter]').forEach(select => {
-      select.addEventListener('change', (e) => {
-        const filter = select.dataset.filter;
-        if (filter === 'is_active') {
+    if (this.currentView === 'equipments') {
+      this.element.querySelectorAll('.form-select[data-filter]').forEach(select => {
+        select.addEventListener('change', (e) => {
+          const filter = select.dataset.filter;
           this.filters[filter] = e.target.value;
-        } else {
-          this.filters[filter] = e.target.value;
-        }
-        this.page = 1;
-        this.loadData();
+          this.page = 1;
+          this._loadDataForView();
+        });
       });
-    });
-
-    const createBtn = this.element.querySelector('[data-action="create"]');
-    if (createBtn) {
-      createBtn.addEventListener('click', () => this._showCreateModal());
     }
+
+    this.element.querySelector('[data-action="create"]')?.addEventListener('click', () => this._showEquipmentModal(null));
+    this.element.querySelector('[data-action="create-type"]')?.addEventListener('click', () => this._showTypeModal(null));
 
     this.element.querySelector('[data-page="prev"]')?.addEventListener('click', () => {
-      if (this.page > 1) {
-        this.page--;
-        this.loadData();
-      }
+      if (this.page > 1) { this.page--; this._loadDataForView(); }
     });
-
     this.element.querySelector('[data-page="next"]')?.addEventListener('click', () => {
-      if (this.page < this.totalPages) {
-        this.page++;
-        this.loadData();
-      }
+      if (this.page < this.totalPages) { this.page++; this._loadDataForView(); }
+    });
+
+    this.element.querySelectorAll('.tab-button')?.forEach((btn) => {
+      btn.addEventListener('click', (e) => {
+        const tab = btn.dataset.tab;
+        this.currentView = tab;
+        this.page = 1;
+        this.search = '';
+        this._refresh();
+        e.preventDefault();
+        e.stopPropagation();
+      });
     });
   }
 
-  async _handleAction(action, item) {
-    switch (action) {
-      case 'edit':
-        await this._showEditModal(item);
-        break;
-      case 'deactivate':
-        await this._deactivate(item);
-        break;
-      case 'delete':
-        await this._delete(item);
-        break;
-    }
-  }
-
-  async _showCreateModal() {
-    await this._showEquipmentModal(null);
-  }
-
-  async _showEditModal(item) {
-    await this._showEquipmentModal(item);
+  _refresh() {
+    this.render();
+    this._loadDataForView();
   }
 
   async _showEquipmentModal(equipment) {
@@ -477,7 +568,7 @@ export class EquipmentPage {
           await createEquipment(data);
         }
         modal.remove();
-        this.loadData();
+        this._loadDataForView();
         this._showToast(isEdit ? 'Équipement modifié' : 'Équipement créé');
       } catch (error) {
         alert(error.message || 'Erreur lors de la sauvegarde');
@@ -494,40 +585,155 @@ export class EquipmentPage {
     }
   }
 
+  async _showTypeModal(item) {
+    const isEdit = !!item;
+    const title = isEdit ? `Modifier: ${item.name}` : 'Nouveau type d\'équipement';
+
+    const modal = document.createElement('div');
+    modal.className = 'modal-overlay';
+    modal.innerHTML = `
+      <div class="modal">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h2>${title}</h2>
+            <button class="modal-close" data-action="close-modal" aria-label="Fermer">&times;</button>
+          </div>
+          <div class="modal-body">
+            <form data-type-form>
+            ${isEdit ? `
+            <label><span>Code</span><input name="code" value="${item.code}" readonly></label>
+            ` : `
+            <input type="hidden" name="code" data-code-input value="">
+            `}
+            <label><span>Nom *</span><input name="name" value="${isEdit ? item.name : ''}" required maxlength="100" data-name-input></label>
+            <label><span>Description</span><textarea name="description" rows="3">${isEdit ? (item.description || '') : ''}</textarea></label>
+            <label><span>Ordre d'affichage</span><input type="number" name="sort_order" min="0" value="${isEdit ? item.sort_order : 0}"></label>
+            ${isEdit ? `
+            <label class="checkbox-label">
+              <input type="checkbox" name="is_active" ${item.is_active ? 'checked' : ''}>
+              Actif
+            </label>
+            ` : ''}
+          </form>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-secondary" data-action="close-modal">Annuler</button>
+          <button class="btn btn-primary" data-action="save-type">${isEdit ? 'Enregistrer' : 'Créer'}</button>
+        </div>
+        </div>
+      </div>
+    `;
+
+    document.body.appendChild(modal);
+
+    modal.querySelector('[data-action="close-modal"]').addEventListener('click', () => modal.remove());
+    modal.addEventListener('click', (e) => { if (e.target === modal) modal.remove(); });
+
+    if (!isEdit) {
+      const nameInput = modal.querySelector('[data-name-input]');
+      const codeInput = modal.querySelector('[data-code-input]');
+      if (nameInput && codeInput) {
+        nameInput.addEventListener('input', () => {
+          const code = nameInput.value
+            .trim()
+            .toUpperCase()
+            .replace(/[^A-Z0-9\s]/g, '')
+            .replace(/\s+/g, '_')
+            .substring(0, 50);
+          codeInput.value = code;
+        });
+      }
+    }
+
+    modal.querySelector('[data-action="save-type"]').addEventListener('click', async () => {
+      const formData = new FormData(modal.querySelector('[data-type-form]'));
+      const data = {
+        name: formData.get('name'),
+        description: formData.get('description') || null,
+        sort_order: parseInt(formData.get('sort_order') || '0', 10),
+      };
+
+      if (!data.name) {
+        alert('Le champ Nom est obligatoire');
+        return;
+      }
+
+      if (isEdit) {
+        data.is_active = modal.querySelector('[name="is_active"]')?.checked ?? true;
+      }
+
+      try {
+        if (isEdit) {
+          await updateEquipmentType(item.id, data);
+        } else {
+          data.code = formData.get('code')?.trim().toUpperCase();
+          await createEquipmentType(data);
+        }
+        modal.remove();
+        this._loadDataForView();
+        this._showToast(isEdit ? 'Type modifié' : 'Type créé');
+      } catch (error) {
+        alert(error.message || 'Erreur lors de la sauvegarde');
+      }
+    });
+  }
+
   async _deactivate(item) {
     if (!confirm(`Désactiver l'équipement "${item.reference}" ?`)) return;
     try {
       await deactivateEquipment(item.id);
-      this.loadData();
+      this._loadDataForView();
       this._showToast('Équipement désactivé');
     } catch (error) {
       alert(error.message || 'Erreur lors de la désactivation');
     }
   }
 
-  async _delete(item) {
-    if (!confirm(`Supprimer définitivement l'équipement "${item.reference}" ?`)) return;
+  async _executeConfirmedAction() {
+    if (!this.pendingAction) return;
+    const { type, item, view } = this.pendingAction;
+    this.pendingAction = null;
+
     try {
-      await deleteEquipment(item.id);
-      this.loadData();
-      this._showToast('Équipement supprimé');
+      if (type === 'delete') {
+        if (view === 'equipments') {
+          await deleteEquipment(item.id);
+        } else if (view === 'params') {
+          await deleteEquipmentType(item.id);
+        }
+        await this._loadDataForView();
+        this._showToast('Supprimé');
+      }
     } catch (error) {
-      alert(error.message || 'Erreur lors de la suppression');
+      this._showToast(error.message || 'Erreur lors de l\'opération', 'error');
     }
   }
 
-  _showToast(message) {
+  _showToast(message, type = 'success') {
     const toast = document.createElement('div');
-    toast.className = 'toast toast-success';
+    toast.className = `toast toast-${type}`;
     toast.textContent = message;
     document.body.appendChild(toast);
     setTimeout(() => toast.remove(), 3000);
+  }
+
+  _updateButtonVisibility() {
+    if (!this.element) return;
+    const canCreateEquip = authStore.hasPermission('equipment.create');
+    const canManageRefs = authStore.hasPermission('equipment.manage_referentials');
+    const isParamsView = this.currentView === 'params';
+    const createBtn = this.element.querySelector('[data-action="create"]');
+    const createTypeBtn = this.element.querySelector('[data-action="create-type"]');
+
+    if (createBtn) createBtn.style.display = !isParamsView && canCreateEquip ? '' : 'none';
+    if (createTypeBtn) createTypeBtn.style.display = isParamsView && canManageRefs ? '' : 'none';
   }
 
   mount(container) {
     if (!this.element) this.render();
     container.innerHTML = '';
     container.appendChild(this.element);
+    this._loadDataForView();
     return this;
   }
 

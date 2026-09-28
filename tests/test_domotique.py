@@ -454,3 +454,79 @@ async def test_history_includes_output_states(client, admin_headers, domo_seed, 
     values = [p["v"] for p in series[1]["points"]]
     assert values[0] == 1.0 and values[1] == 0.0, "transitions ON puis OFF"
     assert history["outputs"][0]["name"]
+
+
+@pytest.mark.asyncio
+async def test_alarm_notifications_on_drift_and_disconnect(domo_seed, db_session, admin_user):
+    from datetime import timedelta
+
+    from sqlalchemy import func, select
+
+    from app.models.domotique import (
+        DomotiqueDevice,
+        DomotiqueProfile,
+        DomotiqueSensor,
+    )
+    from app.models.notification import Notification
+    from app.schemas.domotique import DomotiqueCycleCreate
+
+    db = domo_seed
+    device = (await db.execute(select(DomotiqueDevice))).scalars().first()
+    device.base_url = "http://fake-raspberry.local"
+    profile = (await db.execute(select(DomotiqueProfile).order_by(DomotiqueProfile.id))).scalars().first()
+
+    sensors = {
+        s.key: s
+        for s in (await db.execute(select(DomotiqueSensor))).scalars().all()
+    }
+    sensors["temperature"].current_value = 25.0  # phase Étuvage : 23 °C ± 1
+    sensors["humidity"].current_value = 50.0  # 92 % HR ± 3
+    await db.commit()
+
+    cycle = await cycles_service.create_cycle(
+        db, device, DomotiqueCycleCreate(profile_id=profile.id, start_now=True)
+    )
+    phase = next(p for p in profile.phases if p.id == cycle.current_phase_id)
+    assert phase is not None
+
+    async def notif_count() -> int:
+        return (await db.execute(select(func.count(Notification.id)))).scalar_one()
+
+    async def notif_titles() -> list[str]:
+        rows = (await db.execute(select(Notification.title))).scalars().all()
+        return list(rows)
+
+    # 1) Alarme de decalage +/- consigne (temperature et humidite)
+    before = await notif_count()
+    await domotique_engine._check_phase_ranges(db, device, cycle, phase, sensors)
+    await db.commit()
+    assert await notif_count() > before, "le decalage hors consigne doit notifier"
+    titles = await notif_titles()
+    assert any("hors plage" in title for title in titles), titles
+
+    # 2) Anti-spam : une deuxieme alarme du meme type reste dans le cooldown
+    before = await notif_count()
+    recent = await domotique_engine._add_event(
+        db, device, "out_of_range_temperature", "alarme repetee", cycle=cycle
+    )
+    await domotique_engine._maybe_notify(
+        db,
+        device,
+        ["out_of_range_temperature"],
+        "La Cave — Température hors plage",
+        "alarme repetee",
+        exclude_event_id=recent.id,
+    )
+    await db.commit()
+    assert await notif_count() == before, "le cooldown anti-spam doit s'appliquer"
+
+    # 3) Alarme de deconnexion
+    device.status = "online"
+    device.last_seen = domotique_engine._now() - timedelta(minutes=5)
+    await db.commit()
+    before = await notif_count()
+    await domotique_engine._check_communication(db, device, ok=False, error="timeout")
+    await db.commit()
+    assert await notif_count() > before, "la deconnexion doit notifier"
+    titles = await notif_titles()
+    assert any("injoignable" in title for title in titles), titles

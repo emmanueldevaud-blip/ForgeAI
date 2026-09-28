@@ -78,7 +78,13 @@ export class DomotiqueConfigPage {
       return;
     }
     this.draftProfile = JSON.parse(JSON.stringify(profile));
-    this.draftProfile.phases = (profile.phases || []).map((phase) => ({ ...phase }));
+    this.draftProfile.phases = (profile.phases || []).map((phase) => {
+      const copy = { ...phase };
+      // L'éditeur travaille en jours, la base reste en heures.
+      if (copy.min_duration_hours != null) copy.min_duration_hours = copy.min_duration_hours / 24;
+      if (copy.max_duration_hours != null) copy.max_duration_hours = copy.max_duration_hours / 24;
+      return copy;
+    });
   }
 
   render(options = {}) {
@@ -303,8 +309,8 @@ export class DomotiqueConfigPage {
         <td><input class="form-control" data-phase-field="target_humidity" data-phase-index="${index}" type="number" step="0.1" value="${phase.target_humidity ?? ''}"></td>
         <td><input class="form-control" data-phase-field="tolerance_temperature" data-phase-index="${index}" type="number" step="0.1" value="${phase.tolerance_temperature ?? ''}"></td>
         <td><input class="form-control" data-phase-field="tolerance_humidity" data-phase-index="${index}" type="number" step="0.1" value="${phase.tolerance_humidity ?? ''}"></td>
-        <td><input class="form-control" data-phase-field="min_duration_hours" data-phase-index="${index}" type="number" step="1" value="${phase.min_duration_hours ?? ''}"></td>
-        <td><input class="form-control" data-phase-field="max_duration_hours" data-phase-index="${index}" type="number" step="1" value="${phase.max_duration_hours ?? ''}"></td>
+        <td><input class="form-control" data-phase-field="min_duration_hours" data-phase-index="${index}" type="number" step="0.5" min="0" value="${phase.min_duration_hours ?? ''}"></td>
+        <td><input class="form-control" data-phase-field="max_duration_hours" data-phase-index="${index}" type="number" step="0.5" min="0" value="${phase.max_duration_hours ?? ''}"></td>
         <td><input class="form-control" data-phase-field="weight_loss_target_pct" data-phase-index="${index}" type="number" step="0.1" value="${phase.weight_loss_target_pct ?? ''}"></td>
         <td>
           <select class="form-control" data-phase-field="exit_condition" data-phase-index="${index}">
@@ -328,7 +334,7 @@ export class DomotiqueConfigPage {
             <thead>
               <tr>
                 <th>#</th><th>Nom</th><th>Target °C</th><th>Target %HR</th><th>Tol °C</th><th>Tol %HR</th>
-                <th>Min h</th><th>Max h</th><th>Perte cible %</th><th>Transition</th><th></th>
+                <th>Min (j)</th><th>Max (j)</th><th>Perte cible %</th><th>Transition</th><th></th>
               </tr>
             </thead>
             <tbody>${phases}</tbody>
@@ -535,8 +541,12 @@ export class DomotiqueConfigPage {
             target_humidity: phase.target_humidity,
             tolerance_temperature: phase.tolerance_temperature,
             tolerance_humidity: phase.tolerance_humidity,
-            min_duration_hours: phase.min_duration_hours,
-            max_duration_hours: phase.max_duration_hours,
+            min_duration_hours: phase.min_duration_hours != null
+              ? Number(phase.min_duration_hours) * 24
+              : null,
+            max_duration_hours: phase.max_duration_hours != null
+              ? Number(phase.max_duration_hours) * 24
+              : null,
             weight_loss_target_pct: phase.weight_loss_target_pct,
             exit_condition: phase.exit_condition,
           })),

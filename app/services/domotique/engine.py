@@ -75,15 +75,21 @@ def _device_config(device: DomotiqueDevice) -> dict[str, Any]:
 
 
 async def _last_event_of_type(
-    db: AsyncSession, device_id: int, event_types: list[str]
+    db: AsyncSession,
+    device_id: int,
+    event_types: list[str],
+    exclude_id: int | None = None,
 ) -> DomotiqueEvent | None:
+    conditions = [
+        DomotiqueEvent.device_id == device_id,
+        DomotiqueEvent.type.in_(event_types),
+    ]
+    if exclude_id is not None:
+        conditions.append(DomotiqueEvent.id != exclude_id)
     return (
         await db.execute(
             select(DomotiqueEvent)
-            .where(
-                DomotiqueEvent.device_id == device_id,
-                DomotiqueEvent.type.in_(event_types),
-            )
+            .where(*conditions)
             .order_by(DomotiqueEvent.created_at.desc())
             .limit(1)
         )
@@ -166,11 +172,19 @@ async def _maybe_notify(
     title: str,
     message: str,
     data: dict[str, Any] | None = None,
+    exclude_event_id: int | None = None,
 ) -> None:
-    """Notification avec cooldown (anti-spam) fonde sur le dernier event du type."""
+    """Notification avec cooldown (anti-spam) fonde sur le dernier event du type.
+
+    `exclude_event_id` doit pointer vers l'event cree pour CETTE alarme :
+    sans lui, le cooldown se mesure sur l'event qui vient d'etre insere et
+    la notification n'est jamais envoyee.
+    """
     config = _device_config(device)
     cooldown = timedelta(minutes=int(config["alert_cooldown_min"]))
-    last = await _last_event_of_type(db, device.id, event_types)
+    last = await _last_event_of_type(
+        db, device.id, event_types, exclude_id=exclude_event_id
+    )
     if last is not None:
         last_at = _as_utc(last.created_at)
         if last_at and _now() - last_at < cooldown:
@@ -531,7 +545,7 @@ async def _check_safety(
             continue
         bounds = f"{minimum:g} et {maximum:g}"
         message = f"{sensor.name} hors limites de sécurité : {value:g} {unit} (plage {bounds})."
-        await _add_event(
+        alarm_event = await _add_event(
             db,
             device,
             event_type,
@@ -546,6 +560,7 @@ async def _check_safety(
             f"Alerte séchoir — {sensor.name}",
             message,
             data={"cycle_id": cycle.id if cycle else None},
+            exclude_event_id=alarm_event.id,
         )
 
 
@@ -575,7 +590,7 @@ async def _check_phase_ranges(
                 f"{sensor.name} hors plage de consigne : {value:g} {unit} "
                 f"(cible {target:g} ± {tol:g})."
             )
-            await _add_event(
+            alarm_event = await _add_event(
                 db,
                 device,
                 event_type,
@@ -590,6 +605,7 @@ async def _check_phase_ranges(
                 f"La Cave — {sensor.name} hors plage",
                 message,
                 data={"cycle_id": cycle.id},
+                exclude_event_id=alarm_event.id,
             )
         elif not out and already_out:
             await _add_event(
@@ -617,7 +633,7 @@ async def _check_sensor_staleness(
         if current_at is None or (now - current_at) <= max_age:
             continue
         age_s = int((now - current_at).total_seconds())
-        await _add_event(
+        stale_event = await _add_event(
             db,
             device,
             "sensor_stale",
@@ -630,6 +646,7 @@ async def _check_sensor_staleness(
             ["sensor_stale"],
             "La Cave — capteur silencieux",
             f"Le capteur {sensor.name} ne fournit plus de données depuis {age_s} s.",
+            exclude_event_id=stale_event.id,
         )
 
 
@@ -662,7 +679,7 @@ async def _check_communication(
     if last_seen is None or (_now() - last_seen) > stale_after:
         device.status = "offline"
         if previous != "offline":
-            await _add_event(
+            disconnect_event = await _add_event(
                 db, device, "comm_disconnect",
                 f"Raspberry hors ligne : {device.last_error}",
             )
@@ -673,6 +690,7 @@ async def _check_communication(
                 "La Cave — Raspberry injoignable",
                 f"Le Raspberry de la cave ne répond plus depuis "
                 f"{int((_now() - (last_seen or _now())).total_seconds())} s.",
+                exclude_event_id=disconnect_event.id,
             )
     else:
         device.status = "error"

@@ -12,7 +12,7 @@ import {
   startDomotiqueCycle,
   stopDomotiqueCycle,
 } from '../services/domotiqueApi.js?v=2';
-import { DomotiqueConfigPage } from './DomotiqueConfigPage.js?v=5';
+import { DomotiqueConfigPage } from './DomotiqueConfigPage.js?v=6';
 
 const VIEWS = [
   { key: 'details', label: 'Détails' },

@@ -22,6 +22,7 @@ from app.models.domotique import (
 )
 from app.schemas.domotique import (
     DomotiqueConfigResponse,
+    DomotiqueConfigTestRequest,
     DomotiqueConfigUpdate,
     DomotiqueCurrentCycleResponse,
     DomotiqueCycleCreate,
@@ -32,6 +33,7 @@ from app.schemas.domotique import (
     DomotiqueEventResponse,
     DomotiqueHistoryPoint,
     DomotiqueHistoryResponse,
+    DomotiqueOutputSeriesResponse,
     DomotiqueManualRequest,
     DomotiqueManualResponse,
     DomotiqueOutputResponse,
@@ -133,7 +135,11 @@ async def get_status(
     if cycle:
         profile = await db.get(DomotiqueProfile, cycle.profile_id)
 
-    from app.services.domotique.engine import _as_utc, _now  # volontairement local
+    from app.services.domotique.engine import (  # volontairement local
+        _as_utc,
+        _corrected_humidity,
+        _now,
+    )
 
     stale = False
     last_seen = _as_utc(device.last_seen)
@@ -143,6 +149,29 @@ async def get_status(
         stale = (_now() - last_seen).total_seconds() > max(
             int(device.poll_interval_s) * 3, 90
         )
+
+    sensor_payloads = []
+    phase = None
+    if cycle and profile:
+        phase = next(
+            (p for p in profile.phases if p.id == cycle.current_phase_id), None
+        )
+    corrected_humidity = None
+    if phase is not None and phase.target_temperature is not None:
+        temp_value = next(
+            (s.current_value for s in sensors if s.key == "temperature"), None
+        )
+        hum_value = next(
+            (s.current_value for s in sensors if s.key == "humidity"), None
+        )
+        corrected_humidity = _corrected_humidity(
+            temp_value, hum_value, phase.target_temperature
+        )
+    for sensor in sensors:
+        payload = DomotiqueSensorResponse.model_validate(sensor)
+        if sensor.key == "humidity":
+            payload.corrected_value = corrected_humidity
+        sensor_payloads.append(payload)
 
     return DomotiqueDeviceStatusResponse(
         code=device.code,
@@ -154,7 +183,7 @@ async def get_status(
         base_url=device.base_url,
         poll_interval_s=device.poll_interval_s,
         stale=stale,
-        sensors=[DomotiqueSensorResponse.model_validate(s) for s in sensors],
+        sensors=sensor_payloads,
         outputs=[DomotiqueOutputResponse.model_validate(o) for o in outputs],
         cycle=_cycle_payload(cycle, profile),
         config=device.config_json or {},
@@ -209,6 +238,29 @@ async def get_history(
             target_temperature = target_temperature or phase.target_temperature
             target_humidity = target_humidity or phase.target_humidity
 
+    # Serie de temperature utilisee pour corriger l'humidite de la
+    # temperature du capteur (les releves T/HR partagent recorded_at).
+    from app.services.domotique.engine import _corrected_humidity  # volontairement local
+
+    humidity_temp_by_at: dict[datetime, float] = {}
+    if target_temperature is not None:
+        temp_sensor = next(
+            (s for s in sensors if s.key == "temperature" and s.enabled), None
+        )
+        if temp_sensor is not None:
+            temp_rows = (
+                await db.execute(
+                    select(
+                        DomotiqueSensorReading.recorded_at,
+                        DomotiqueSensorReading.value,
+                    ).where(
+                        DomotiqueSensorReading.sensor_id == temp_sensor.id,
+                        DomotiqueSensorReading.recorded_at >= start,
+                    )
+                )
+            ).all()
+            humidity_temp_by_at = {row[0]: row[1] for row in temp_rows}
+
     series: dict[str, list[DomotiqueHistoryPoint]] = {}
     stats: dict[str, dict[str, float]] = {}
     for sensor in sensors:
@@ -227,6 +279,14 @@ async def get_history(
         if not rows:
             continue
         points = [DomotiqueHistoryPoint(t=row[1], v=row[0]) for row in rows]
+        if sensor.key == "humidity" and humidity_temp_by_at:
+            for point in points:
+                temp_value = humidity_temp_by_at.get(point.t)
+                if temp_value is None:
+                    continue
+                corrected = _corrected_humidity(temp_value, point.v, target_temperature)
+                if corrected is not None:
+                    point.v = round(corrected, 2)
         values = [p.v for p in points]
         trend = None
         if len(values) >= 2:
@@ -237,12 +297,79 @@ async def get_history(
         series[sensor.key] = points
         stats[sensor.key] = {"min": min(values), "max": max(values), "trend": trend}
 
+    # Etats de sortie : reconstruits depuis les events de commande
+    # (automatique et manuelle), avec l'etat a l'entree de la periode et
+    # prolongation jusqu'a l'etat courant.
+    from app.services.domotique.engine import _as_utc  # volontairement local
+
+    start_aware = (
+        start if start.tzinfo is not None else start.replace(tzinfo=timezone.utc)
+    )
+    output_rows = (
+        await db.execute(
+            select(DomotiqueOutput)
+            .where(DomotiqueOutput.device_id == device.id)
+            .order_by(DomotiqueOutput.index)
+        )
+    ).scalars().all()
+    command_events = (
+        await db.execute(
+            select(DomotiqueEvent)
+            .where(
+                DomotiqueEvent.device_id == device.id,
+                DomotiqueEvent.type.in_(["command", "manual_command"]),
+                DomotiqueEvent.created_at < now,
+            )
+            .order_by(DomotiqueEvent.created_at)
+        )
+    ).scalars().all()
+
+    output_series: list[DomotiqueOutputSeriesResponse] = []
+    for output in output_rows:
+        points: list[DomotiqueHistoryPoint] = []
+        initial_value: float | None = None
+        last_value: float | None = None
+        for event in command_events:
+            meta = event.metadata_json or {}
+            if meta.get("index") != output.index or "state" not in meta:
+                continue
+            event_at = _as_utc(event.created_at)
+            if event_at is None:
+                continue
+            value = 1.0 if meta["state"] else 0.0
+            if event_at < start_aware:
+                initial_value = value
+                last_value = value
+                continue
+            points.append(DomotiqueHistoryPoint(t=event_at, v=value))
+            last_value = value
+        if initial_value is not None:
+            points.insert(0, DomotiqueHistoryPoint(t=start_aware, v=initial_value))
+        if output.state is not None:
+            current_value = 1.0 if output.state else 0.0
+            if last_value is None:
+                if initial_value is None:
+                    continue
+            elif last_value != current_value:
+                points.append(DomotiqueHistoryPoint(t=now, v=current_value))
+        if not points:
+            continue
+        output_series.append(
+            DomotiqueOutputSeriesResponse(
+                index=output.index,
+                name=output.name,
+                role=output.role,
+                points=points,
+            )
+        )
+
     return DomotiqueHistoryResponse(
         period=period,
         start=start,
         end=now,
         min_sample_s=int(device.poll_interval_s),
         series=series,
+        outputs=output_series,
         target_temperature=target_temperature,
         target_humidity=target_humidity,
         min={k: v["min"] for k, v in stats.items()},
@@ -620,7 +747,9 @@ async def update_profile(
             select(DomotiqueCycle.id)
             .where(
                 DomotiqueCycle.profile_id == profile.id,
-                DomotiqueCycle.status.in_(list(CycleStatus)),
+                DomotiqueCycle.status.in_(
+                    [CycleStatus.PREPARING, CycleStatus.RUNNING, CycleStatus.PAUSED]
+                ),
             )
             .limit(1)
         )
@@ -628,7 +757,7 @@ async def update_profile(
     if in_use:
         raise HTTPException(
             status_code=409,
-            detail="Profil utilisé par un cycle existant : modification refusée",
+            detail="Profil utilisé par un cycle actif : modification refusée",
         )
     _apply_profile_payload(profile, payload)
     for existing in list(profile.phases):
@@ -688,11 +817,21 @@ async def get_config(
             .order_by(DomotiqueSensor.id)
         )
     ).scalars().all()
+    raw_config = dict(device.config_json or {})
+    api_user = raw_config.get("api_user")
+    has_password = bool(raw_config.get("api_password"))
+    safe_config = {
+        key: value
+        for key, value in raw_config.items()
+        if key not in ("api_user", "api_password")
+    }
     return DomotiqueConfigResponse(
         code=device.code,
         base_url=device.base_url,
         poll_interval_s=device.poll_interval_s,
-        config=device.config_json or {},
+        api_user=api_user,
+        has_api_password=has_password,
+        config=safe_config,
         outputs=outputs,
         sensors=sensors,
     )
@@ -716,10 +855,24 @@ async def update_config(
     if payload.poll_interval_s is not None:
         device.poll_interval_s = payload.poll_interval_s
     config = dict(device.config_json or {})
-    for field in ("temp_min", "temp_max", "hum_min", "hum_max", "alert_cooldown_min", "retention_days", "obsolete_after_s"):
+    for field in ("temp_min", "temp_max", "hum_min", "hum_max", "alert_cooldown_min", "retention_days", "obsolete_after_s", "cooler_min_off_s", "cooler_min_on_s"):
         value = getattr(payload, field)
         if value is not None:
             config[field] = value
+    if payload.api_user is not None:
+        user = payload.api_user.strip()
+        if not user:
+            config.pop("api_user", None)
+            config.pop("api_password", None)
+        else:
+            config["api_user"] = user
+            if payload.api_password is not None:
+                if payload.api_password:
+                    config["api_password"] = payload.api_password
+                else:
+                    config.pop("api_password", None)
+    elif payload.api_password:
+        config["api_password"] = payload.api_password
     device.config_json = config
     await db.commit()
     await db.refresh(device)
@@ -728,17 +881,36 @@ async def update_config(
 
 @router.post("/config/test", response_model=DomotiqueTestConnectionResponse)
 async def test_connection(
+    payload: DomotiqueConfigTestRequest | None = None,
     code: str = Query(default=_DEFAULT_DEVICE_CODE),
     current_user=Depends(require_permission("domotique.configure")),
     db: AsyncSession = Depends(get_db),
 ):
     device = await _get_device(db, code)
-    if not device.base_url:
+    saved = dict(device.config_json or {})
+    base_url = device.base_url
+    auth = raspberry.credentials_from_config(saved)
+    if payload is not None:
+        if payload.base_url is not None and payload.base_url.strip():
+            base_url = payload.base_url.strip()
+            if not base_url.startswith(("http://", "https://")):
+                return DomotiqueTestConnectionResponse(
+                    ok=False, message="L'adresse doit commencer par http:// ou https://"
+                )
+        if payload.api_user is not None or payload.api_password is not None:
+            user = payload.api_user if payload.api_user is not None else (saved.get("api_user") or "")
+            password = (
+                payload.api_password
+                if payload.api_password is not None
+                else (saved.get("api_password") or "")
+            )
+            auth = (user, password) if user and password else None
+    if not base_url:
         return DomotiqueTestConnectionResponse(
             ok=False, message="Adresse du Raspberry non configurée"
         )
     try:
-        result = await raspberry.test_connection(device.base_url)
+        result = await raspberry.test_connection(base_url, auth=auth)
     except raspberry.RaspberryError as exc:
         return DomotiqueTestConnectionResponse(
             ok=False, message=f"Échec de la connexion : {exc}"

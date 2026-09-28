@@ -6,7 +6,7 @@ class DomotiqueModule(BaseModule):
         super().__init__(ModuleInfo(
             code="domotique",
             name="Domotique",
-            description="Supervision des installations domotiques (séchoir à saucisson)",
+            description="Supervision des installations domotiques (la cave)",
             icon="thermometer",
             order=75,
             status=ModuleStatus.ACTIVE,
@@ -35,18 +35,10 @@ class DomotiqueModule(BaseModule):
         if "*" in permissions or "domotique.view" in permissions:
             children.append({
                 "code": "domotique-sechoir",
-                "name": "Séchoir à saucisson",
+                "name": "La Cave",
                 "icon": "thermometer",
                 "route": "/domotique",
                 "order": 0,
-            })
-        if "*" in permissions or "domotique.configure" in permissions:
-            children.append({
-                "code": "domotique-config",
-                "name": "Configuration",
-                "icon": "settings",
-                "route": "/domotique/config",
-                "order": 1,
             })
 
         return [{

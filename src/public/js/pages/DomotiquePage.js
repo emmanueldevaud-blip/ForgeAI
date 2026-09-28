@@ -11,7 +11,8 @@ import {
   setDomotiqueOutputMode,
   startDomotiqueCycle,
   stopDomotiqueCycle,
-} from '../services/domotiqueApi.js?v=1';
+} from '../services/domotiqueApi.js?v=2';
+import { DomotiqueConfigPage } from './DomotiqueConfigPage.js?v=5';
 
 const VIEWS = [
   { key: 'details', label: 'Détails' },
@@ -36,6 +37,12 @@ const OUTPUT_ROLES = {
   humidifier: 'Humidificateur',
   dehumidifier: 'Déshumidificateur',
   other: 'Autre',
+};
+
+const EXIT_CONDITION_LABELS = {
+  time: 'Durée',
+  weight: 'Perte de poids',
+  manual: 'Manuelle',
 };
 
 const EVENT_ICONS = {
@@ -76,10 +83,16 @@ export class DomotiquePage {
     this.error = null;
     this.actionMessage = '';
     this.timer = null;
+    this.configPage = null;
+    this.configInitialized = false;
   }
 
   get canControl() {
     return authStore.hasPermission('domotique.control');
+  }
+
+  get canConfigure() {
+    return authStore.hasPermission('domotique.configure');
   }
 
   async initialize() {
@@ -105,9 +118,7 @@ export class DomotiquePage {
     } catch (error) {
       this.profiles = [];
     }
-    if (this.view === 'history' || this.view === 'details') {
-      await this._loadHistory();
-    }
+    await this._loadHistory();
   }
 
   async _loadHistory() {
@@ -129,11 +140,12 @@ export class DomotiquePage {
       } catch (error) {
         return;
       }
+      if (this.view === 'config') return;
       const phaseChanged =
         previousPhase !== this.status?.cycle?.current_phase_id ||
         previousStatus !== this.status?.cycle?.status;
       if (phaseChanged || this.view === 'history' || this.view === 'cycle') {
-        if (this.view === 'history') await this._loadHistory();
+        if (this.view === 'history' || phaseChanged) await this._loadHistory();
         if (phaseChanged) this.events = (await listDomotiqueEvents(50)).events || [];
       }
       if (!phaseChanged && this.view === 'details' && this._subtreeExists()) {
@@ -164,10 +176,12 @@ export class DomotiquePage {
 
   render() {
     this._stopPolling();
+    const previous = this.element;
     this.element = document.createElement('div');
     this.element.className = 'page-content domo-page';
     this._renderContent();
     this._bindEvents();
+    if (previous && previous.isConnected) previous.replaceWith(this.element);
     this._startPolling();
     return this.element;
   }
@@ -175,19 +189,20 @@ export class DomotiquePage {
   _renderContent() {
     if (this.error) {
       this.element.innerHTML = `
-        <div class="page-header"><div class="page-header-left"><span class="domo-kicker">DOMOTIQUE</span><h1>Séchoir à saucisson</h1></div></div>
-        <div class="card" role="alert"><div class="card-body"><p>Impossible de charger l'état du séchoir : ${this._escape(this.error.message || 'erreur inconnue')}</p><button class="btn btn-secondary" data-action="retry" type="button">Réessayer</button></div></div>`;
+        <div class="page-header"><div class="page-header-left"><span class="domo-kicker">DOMOTIQUE</span><h1>La Cave</h1></div></div>
+        <div class="card" role="alert"><div class="card-body"><p>Impossible de charger l'état de la cave : ${this._escape(this.error.message || 'erreur inconnue')}</p><button class="btn btn-secondary" data-action="retry" type="button">Réessayer</button></div></div>`;
       return;
     }
     const status = this.status || {};
+    const views = this.canConfigure ? [...VIEWS, { key: 'config', label: 'Configuration' }] : VIEWS;
     this.element.innerHTML = `
       <div class="page-header domo-header">
         <div class="page-header-left">
           <span class="domo-kicker">DOMOTIQUE</span>
-          <h1>Séchoir à saucisson</h1>
+          <h1>La Cave</h1>
         </div>
-        <div class="domo-views" role="tablist" aria-label="Vues du séchoir">
-          ${VIEWS.map((view) => `
+        <div class="domo-views" role="tablist" aria-label="Vues de la cave">
+          ${views.map((view) => `
             <button class="btn btn-sm ${this.view === view.key ? 'btn-primary' : 'btn-secondary'}" type="button" data-view="${view.key}" role="tab" aria-selected="${this.view === view.key}">${view.label}</button>
           `).join('')}
         </div>
@@ -197,6 +212,10 @@ export class DomotiquePage {
       </div>
       ${this.actionMessage ? `<div class="domo-flash">${this._escape(this.actionMessage)}</div>` : ''}
       <div data-domo-view>${this._viewContent(status)}</div>`;
+    if (this.view === 'config' && this.configPage) {
+      const host = this.element.querySelector('[data-domo-config]');
+      if (host) host.appendChild(this.configPage.render({ embedded: true }));
+    }
   }
 
   _viewContent(status) {
@@ -207,6 +226,8 @@ export class DomotiquePage {
         return this._cycleView(status);
       case 'equipment':
         return this._equipmentView(status);
+      case 'config':
+        return '<div class="domo-config-host" data-domo-config></div>';
       default:
         return this._detailsView(status);
     }
@@ -286,7 +307,10 @@ export class DomotiquePage {
   }
 
   _metricCard(title, cssClass, sensor, unit, target) {
-    const value = sensor && sensor.current_value != null ? this._num(sensor.current_value) : '—';
+    const corrected = sensor && sensor.corrected_value != null ? sensor.corrected_value : null;
+    const raw = sensor && sensor.current_value != null ? sensor.current_value : null;
+    const shown = corrected ?? raw;
+    const value = shown != null ? this._num(shown) : '—';
     const min = this.history?.min?.[sensor?.key];
     const max = this.history?.max?.[sensor?.key];
     const trend = this.history?.trend?.[sensor?.key];
@@ -305,9 +329,20 @@ export class DomotiquePage {
             <span>Max <strong>${max != null ? this._num(max) : '—'}</strong></span>
             <span>Tendance <strong>${trendLabel}</strong></span>
           </div>
-          ${sensor && sensor.current_at ? `<small class="text-muted">Relevé ${this._relativeTime(new Date(sensor.current_at).getTime())}</small>` : '<small class="text-muted">Aucune donnée</small>'}
+          ${this._metricMeta(sensor)}
         </div>
       </section>`;
+  }
+
+  _metricMeta(sensor) {
+    if (!sensor || !sensor.current_at) return '<small class="text-muted">Aucune donnée</small>';
+    let text = `Relevé ${this._relativeTime(new Date(sensor.current_at).getTime())}`;
+    const corrected = sensor.corrected_value != null ? sensor.corrected_value : null;
+    const raw = sensor.current_value != null ? sensor.current_value : null;
+    if (corrected != null && raw != null && Math.abs(corrected - raw) >= 0.05) {
+      text += ` · Mesure brute ${this._num(raw)} ${sensor.unit}`;
+    }
+    return `<small class="text-muted" data-live-meta>${text}</small>`;
   }
 
   _weightCard(cycle, weight) {
@@ -409,7 +444,51 @@ export class DomotiquePage {
 
   // ------------------------------------------------------------------ #
   // Vue Historique
-  // ------------------------------------------------------------------ #
+  // ------------------------------------------------------------------ //
+
+  _outputsChart(seriesList) {
+    const usable = (seriesList || []).filter((item) => item.points && item.points.length);
+    if (!usable.length) {
+      return '<p class="text-muted">Aucun historique de sorties pour cette période.</p>';
+    }
+    const width = 720;
+    const labelW = 150;
+    const laneH = 34;
+    const padTop = 10;
+    const padBottom = 20;
+    const height = padTop + usable.length * laneH + padBottom;
+    const t0 = this.history?.start ? new Date(this.history.start).getTime() : Date.now() - 86400000;
+    const t1 = Math.max(this.history?.end ? new Date(this.history.end).getTime() : Date.now(), t0 + 1000);
+    const x = (t) => labelW + ((t - t0) / Math.max(1, t1 - t0)) * (width - labelW - 8);
+    const colors = ['#2e7d32', '#c62828', '#1565c0', '#6a1b9a', '#ef6c00', '#00838f', '#5d4037', '#455a64'];
+    const lanes = usable.map((item, laneIndex) => {
+      const top = padTop + laneIndex * laneH + 4;
+      const bottom = top + laneH - 14;
+      let path = '';
+      let prevY = null;
+      item.points.forEach((point, i) => {
+        const px = Math.min(width - 8, Math.max(labelW, x(new Date(point.t).getTime())));
+        const py = point.v ? top : bottom;
+        if (i === 0) path += `M${px.toFixed(1)},${py.toFixed(1)}`;
+        else path += ` L${px.toFixed(1)},${prevY.toFixed(1)} L${px.toFixed(1)},${py.toFixed(1)}`;
+        prevY = py;
+      });
+      path += ` L${(width - 8).toFixed(1)},${prevY.toFixed(1)}`;
+      const color = colors[item.index % colors.length];
+      const middle = (top + bottom) / 2 + 4;
+      return `
+        <text x="0" y="${middle.toFixed(1)}" class="domo-lane-label">${this._escape(item.name)}</text>
+        <line x1="${labelW}" y1="${bottom.toFixed(1)}" x2="${width - 8}" y2="${bottom.toFixed(1)}" class="domo-lane-base" />
+        <path d="${path}" fill="none" stroke="${color}" stroke-width="2" />`;
+    });
+    const firstLabel = new Date(t0).toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+    const lastLabel = new Date(t1).toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+    return `
+      <div class="domo-chart-wrap">
+        <svg class="domo-chart domo-chart--outputs" viewBox="0 0 ${width} ${height}" role="img" aria-label="État des sorties">${lanes.join('')}</svg>
+        <div class="domo-chart-labels"><span>${firstLabel}</span><span>haut = ON · bas = OFF</span><span>${lastLabel}</span></div>
+      </div>`;
+  }
 
   _historyView() {
     const events = this.events || [];
@@ -426,10 +505,11 @@ export class DomotiquePage {
         ${this._chartCard('Température — historique', this._lineChart(this.history?.series?.temperature, this.history?.target_temperature, 'domo-line--temp'))}
         ${this._chartCard('Humidité — historique', this._lineChart(this.history?.series?.humidity, this.history?.target_humidity, 'domo-line--hum'))}
         ${this._chartCard('Poids — historique', this._lineChart(this.history?.series?.weight, null, 'domo-line--weight'))}
+        ${this._chartCard('Sorties — historique', this._outputsChart(this.history?.outputs))}
       </div>
       ${this._periodSelector()}
       <section class="card domo-card">
-        <div class="card-header"><div><span class="domo-eyebrow">JOURNAL</span><h2>Historique du séchoir</h2></div></div>
+        <div class="card-header"><div><span class="domo-eyebrow">JOURNAL</span><h2>Historique de la cave</h2></div></div>
         <div class="card-body"><ul class="domo-events">${rows}</ul></div>
       </section>`;
   }
@@ -496,6 +576,7 @@ export class DomotiquePage {
   _newCycleForm(status) {
     const options = (this.profiles || []).map((profile) => `
       <option value="${profile.id}">${this._escape(profile.name)}</option>`).join('');
+    const selected = (this.profiles || [])[0];
     const now = new Date(Date.now() - new Date().getTimezoneOffset() * 60000);
     const startValue = now.toISOString().slice(0, 16);
     return `
@@ -507,6 +588,7 @@ export class DomotiquePage {
             <label>Profil
               <select class="form-control" name="profile_id" required>${options}</select>
             </label>
+            <div class="domo-profile-preview" data-profile-preview>${this._profilePreview(selected)}</div>
             <label>Produit
               <input class="form-control" name="product" type="text" value="Saucisson" maxlength="100">
             </label>
@@ -522,10 +604,66 @@ export class DomotiquePage {
             <div class="domo-actions">
               <button class="btn btn-primary" type="submit">Démarrer</button>
             </div>
-            <small class="text-muted">Les paramètres du profil sont préremplis et modifiables depuis la configuration.</small>
+            <small class="text-muted">Les phases du profil sélectionné sont affichées ci-dessus ; modifiables depuis Domotique → Configuration.</small>
           </form>` : '<p class="text-muted">Permission « domotique.control » requise pour créer un cycle.</p>'}
         </div>
       </section>`;
+  }
+
+  _durationLabel(minHours, maxHours) {
+    const fmt = (hours) => {
+      if (hours % 24 === 0) return `${this._num(hours / 24)} j`;
+      if (hours > 24) {
+        const days = Math.floor(hours / 24);
+        const rest = hours % 24;
+        return rest ? `${days} j ${rest} h` : `${days} j`;
+      }
+      return `${this._num(hours)} h`;
+    };
+    if (minHours != null && maxHours != null) {
+      return minHours === maxHours ? fmt(minHours) : `${fmt(minHours)} – ${fmt(maxHours)}`;
+    }
+    if (minHours != null) return `dès ${fmt(minHours)}`;
+    return `jusqu’à ${fmt(maxHours)}`;
+  }
+
+  _profilePreview(profile) {
+    if (!profile) return '<p class="text-muted">Aucun profil disponible.</p>';
+    const phases = [...(profile.phases || [])].sort((a, b) => a.order - b.order);
+    const targets = [];
+    if (profile.target_weight_loss_pct != null) {
+      const range = profile.weight_loss_min_pct != null && profile.weight_loss_max_pct != null
+        ? ` (plage ${this._num(profile.weight_loss_min_pct)} – ${this._num(profile.weight_loss_max_pct)} %)`
+        : '';
+      targets.push(`<span>Objectif de perte <strong>${this._num(profile.target_weight_loss_pct)} %${range}</strong></span>`);
+    }
+    targets.push(`<span>Phases <strong>${phases.length}</strong></span>`);
+    const rows = phases.map((phase, index) => {
+      const details = [];
+      if (phase.target_temperature != null) {
+        details.push(`${this._num(phase.target_temperature)} °C ± ${this._num(phase.tolerance_temperature ?? 0)} °C`);
+      }
+      if (phase.target_humidity != null) {
+        details.push(`${this._num(phase.target_humidity)} %HR ± ${this._num(phase.tolerance_humidity ?? 0)} %`);
+      }
+      if (phase.min_duration_hours != null || phase.max_duration_hours != null) {
+        details.push(this._durationLabel(phase.min_duration_hours, phase.max_duration_hours));
+      }
+      if (phase.weight_loss_target_pct != null) {
+        details.push(`perte cible ${this._num(phase.weight_loss_target_pct)} %`);
+      }
+      details.push(`transition ${EXIT_CONDITION_LABELS[phase.exit_condition] || phase.exit_condition}`);
+      return `
+        <div class="domo-preview-phase">
+          <span class="domo-preview-phase-num">${index + 1}</span>
+          <strong>${this._escape(phase.name)}</strong>
+          <span class="domo-preview-phase-detail">${this._escape(details.join(' · '))}</span>
+        </div>`;
+    }).join('');
+    return `
+      ${profile.description ? `<p class="domo-preview-description">${this._escape(profile.description)}</p>` : ''}
+      <div class="domo-preview-targets">${targets.join('')}</div>
+      <div class="domo-preview-phases">${rows || '<span class="text-muted">Aucune phase.</span>'}</div>`;
   }
 
   // ------------------------------------------------------------------ #
@@ -577,9 +715,17 @@ export class DomotiquePage {
     if (tempCard && temp && temp.current_value != null) {
       tempCard.innerHTML = `${this._num(temp.current_value)}<small>°C</small>`;
     }
-    if (humCard && hum && hum.current_value != null) {
-      humCard.innerHTML = `${this._num(hum.current_value)}<small>% HR</small>`;
+    if (humCard && hum) {
+      const shown = hum.corrected_value != null ? hum.corrected_value : hum.current_value;
+      if (shown != null) {
+        humCard.innerHTML = `${this._num(shown)}<small>% HR</small>`;
+      }
     }
+    this.element.querySelectorAll('.domo-temp [data-live-meta], .domo-hum [data-live-meta]')
+      .forEach((node) => {
+        const sensor = node.closest('.domo-hum') ? hum : temp;
+        if (sensor) node.outerHTML = this._metricMeta(sensor);
+      });
   }
 
   // ------------------------------------------------------------------ #
@@ -591,9 +737,17 @@ export class DomotiquePage {
 
     this.element.querySelectorAll('[data-view]').forEach((button) => {
       button.addEventListener('click', async () => {
-        this.view = button.dataset.view;
+        const view = button.dataset.view;
+        if (view === 'config' && this.canConfigure) {
+          if (!this.configPage) this.configPage = new DomotiqueConfigPage(this.router);
+          if (!this.configInitialized) {
+            await this.configPage.initialize();
+            this.configInitialized = true;
+          }
+        }
+        this.view = view;
         this.actionMessage = '';
-        if (this.view === 'history') await this._loadHistory();
+        if (this.view === 'history' || this.view === 'details') await this._loadHistory();
         this.render();
       });
     });
@@ -634,6 +788,14 @@ export class DomotiquePage {
 
     const newCycleForm = this.element.querySelector('[data-new-cycle-form]');
     if (newCycleForm) {
+      const profileSelect = newCycleForm.querySelector('select[name="profile_id"]');
+      const profilePreview = newCycleForm.querySelector('[data-profile-preview]');
+      if (profileSelect && profilePreview) {
+        profileSelect.addEventListener('change', () => {
+          const profile = (this.profiles || []).find((item) => item.id === Number(profileSelect.value));
+          profilePreview.innerHTML = this._profilePreview(profile);
+        });
+      }
       newCycleForm.addEventListener('submit', async (event) => {
         event.preventDefault();
         const data = new FormData(newCycleForm);

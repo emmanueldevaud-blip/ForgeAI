@@ -74,8 +74,8 @@ export async function updateDomotiqueConfig(payload, code = 'sechoir-saucisson')
   return domotiqueApi.put(`/config?code=${encodeURIComponent(code)}`, payload);
 }
 
-export async function testDomotiqueConnection(code = 'sechoir-saucisson') {
-  return domotiqueApi.post(`/config/test?code=${encodeURIComponent(code)}`, {});
+export async function testDomotiqueConnection(payload = {}, code = 'sechoir-saucisson') {
+  return domotiqueApi.post(`/config/test?code=${encodeURIComponent(code)}`, payload);
 }
 
 export async function updateDomotiqueOutput(outputId, payload) {

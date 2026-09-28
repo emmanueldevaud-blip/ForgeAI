@@ -160,8 +160,8 @@ async def start_cycle(
         await engine._add_event(db, device, "cycle_resumed", "Reprise du cycle.", cycle=cycle)
         await engine._notify_users(
             db,
-            "Séchoir — cycle repris",
-            f"Le cycle du séchoir a repris (phase {await _phase_name(db, cycle)}).",
+            "La Cave — cycle repris",
+            f"Le cycle de la cave a repris (phase {await _phase_name(db, cycle)}).",
             data={"cycle_id": cycle.id},
         )
     else:
@@ -170,7 +170,7 @@ async def start_cycle(
         )
         await engine._notify_users(
             db,
-            "Séchoir — cycle démarré",
+            "La Cave — cycle démarré",
             f"Un cycle de séchage a démarré (phase {await _phase_name(db, cycle)}).",
             data={"cycle_id": cycle.id},
         )
@@ -203,8 +203,8 @@ async def stop_cycle(
     await engine._all_auto_outputs_off(db, device, cycle)
     await engine._notify_users(
         db,
-        "Séchoir — cycle arrêté",
-        "Le cycle du séchoir a été arrêté."
+        "La Cave — cycle arrêté",
+        "Le cycle de la cave a été arrêté."
         + (
             f" Perte de poids : {cycle.weight_loss_pct:.1f} %."
             if cycle.weight_loss_pct is not None
@@ -271,7 +271,12 @@ async def manual_command(
         )
     if not device.base_url:
         raise ValueError("Adresse du Raspberry non configurée.")
-    await raspberry.send_command(device.base_url, index, state)
+    await raspberry.send_command(
+        device.base_url,
+        index,
+        state,
+        auth=raspberry.credentials_from_config(device.config_json),
+    )
     output.state = state
     cycle = await get_active_cycle(db, device.id)
     await engine._add_event(

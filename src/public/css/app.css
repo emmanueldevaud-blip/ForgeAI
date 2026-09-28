@@ -5217,6 +5217,8 @@
 .domo-line { fill: none; stroke: var(--color-primary); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
 .domo-line-target { fill: none; stroke: var(--color-warning); stroke-width: 1.5; stroke-dasharray: 5 4; }
 .domo-line-target-label { fill: var(--color-warning); font-size: 10px; }
+.domo-lane-label { fill: var(--color-text-muted); font-size: 11px; }
+.domo-lane-base { stroke: var(--color-bg-tertiary); stroke-width: 1; stroke-dasharray: 4 4; }
 .domo-chart-labels { display: flex; justify-content: space-between; color: var(--color-text-muted); font-size: var(--font-size-xs); }
 .domo-progress { height: 10px; overflow: hidden; border-radius: var(--radius-full); background: var(--color-bg-tertiary); }
 .domo-progress i { display: block; height: 100%; border-radius: inherit; background: var(--color-primary); }
@@ -5285,3 +5287,11 @@
 .domo-output.is-on { border-color: var(--color-primary); box-shadow: 0 0 0 1px var(--color-primary) inset; }
 .domo-output-actions { display: flex; gap: var(--spacing-2); margin-left: auto; flex-wrap: wrap; }
 .domo-chart-card .card-body { display: flex; flex-direction: column; gap: var(--spacing-2); }
+
+.domo-profile-preview { display: flex; flex-direction: column; gap: var(--spacing-2); border: 1px dashed var(--color-border-light); border-radius: var(--radius-md); padding: var(--spacing-3); }
+.domo-preview-description { margin: 0; font-size: var(--font-size-xs); color: var(--color-text-secondary); }
+.domo-preview-targets { display: flex; gap: var(--spacing-3); flex-wrap: wrap; font-size: var(--font-size-xs); color: var(--color-text-tertiary); }
+.domo-preview-phases { display: flex; flex-direction: column; }
+.domo-preview-phase { display: grid; grid-template-columns: 22px minmax(110px, auto) minmax(0, 1fr); gap: var(--spacing-2); align-items: baseline; padding: var(--spacing-1) 0; border-top: 1px solid var(--color-border-light); font-size: var(--font-size-xs); }
+.domo-preview-phase-num { color: var(--color-text-tertiary); font-weight: 700; text-align: right; }
+.domo-preview-phase-detail { color: var(--color-text-secondary); text-align: right; }

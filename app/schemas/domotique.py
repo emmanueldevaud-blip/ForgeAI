@@ -16,6 +16,7 @@ class DomotiqueSensorResponse(BaseModel):
     unit: str
     enabled: bool
     current_value: Optional[float] = None
+    corrected_value: Optional[float] = None
     current_at: Optional[datetime] = None
 
     model_config = {"from_attributes": True}
@@ -80,12 +81,20 @@ class DomotiqueHistoryPoint(BaseModel):
     v: float
 
 
+class DomotiqueOutputSeriesResponse(BaseModel):
+    index: int
+    name: str
+    role: str
+    points: list[DomotiqueHistoryPoint] = Field(default_factory=list)
+
+
 class DomotiqueHistoryResponse(BaseModel):
     period: str
     start: datetime
     end: datetime
     min_sample_s: int
     series: dict[str, list[DomotiqueHistoryPoint]] = Field(default_factory=dict)
+    outputs: list[DomotiqueOutputSeriesResponse] = Field(default_factory=list)
     target_temperature: Optional[float] = None
     target_humidity: Optional[float] = None
     min: dict[str, Optional[float]] = Field(default_factory=dict)
@@ -219,6 +228,8 @@ class DomotiqueManualResponse(BaseModel):
 class DomotiqueConfigUpdate(BaseModel):
     base_url: Optional[str] = None
     poll_interval_s: Optional[int] = Field(default=None, ge=5, le=600)
+    api_user: Optional[str] = Field(default=None, max_length=100)
+    api_password: Optional[str] = None
     temp_min: Optional[float] = None
     temp_max: Optional[float] = None
     hum_min: Optional[float] = None
@@ -226,12 +237,24 @@ class DomotiqueConfigUpdate(BaseModel):
     alert_cooldown_min: Optional[int] = Field(default=None, ge=1, le=1440)
     retention_days: Optional[int] = Field(default=None, ge=7, le=730)
     obsolete_after_s: Optional[int] = Field(default=None, ge=15, le=3600)
+    cooler_min_off_s: Optional[int] = Field(default=None, ge=0, le=3600)
+    cooler_min_on_s: Optional[int] = Field(default=None, ge=0, le=3600)
+
+
+class DomotiqueConfigTestRequest(BaseModel):
+    """Valeurs de connexion a tester (non enregistrees)."""
+
+    base_url: Optional[str] = None
+    api_user: Optional[str] = None
+    api_password: Optional[str] = None
 
 
 class DomotiqueConfigResponse(BaseModel):
     code: str
     base_url: Optional[str] = None
     poll_interval_s: int
+    api_user: Optional[str] = None
+    has_api_password: bool = False
     config: dict[str, Any] = Field(default_factory=dict)
     outputs: list[DomotiqueOutputResponse] = Field(default_factory=list)
     sensors: list[DomotiqueSensorResponse] = Field(default_factory=list)

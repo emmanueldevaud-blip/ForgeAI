@@ -9,7 +9,7 @@ import {
   updateDomotiqueOutput,
   updateDomotiqueProfile,
   updateDomotiqueSensor,
-} from '../services/domotiqueApi.js?v=1';
+} from '../services/domotiqueApi.js?v=2';
 
 const OUTPUT_ROLES = [
   { value: 'heater', label: 'Chauffage' },
@@ -81,36 +81,48 @@ export class DomotiqueConfigPage {
     this.draftProfile.phases = (profile.phases || []).map((phase) => ({ ...phase }));
   }
 
-  render() {
+  render(options = {}) {
+    if (options.embedded !== undefined) this.embedded = Boolean(options.embedded);
+    const previous = this.element;
     this.element = document.createElement('div');
-    this.element.className = 'page-content domo-page';
+    this.element.className = this.embedded ? 'domo-config-embedded' : 'page-content domo-page';
     this._renderContent();
     this._bindEvents();
+    if (previous && previous !== this.element && previous.isConnected) {
+      previous.replaceWith(this.element);
+    }
     return this.element;
+  }
+
+  _header(title) {
+    if (this.embedded) return '';
+    return `
+      <div class="page-header">
+        <div class="page-header-left"><span class="domo-kicker">DOMOTIQUE</span><h1>${title}</h1></div>
+      </div>`;
   }
 
   _renderContent() {
     if (!this.canConfigure) {
       this.element.innerHTML = `
-        <div class="page-header"><div class="page-header-left"><span class="domo-kicker">DOMOTIQUE</span><h1>Configuration</h1></div></div>
+        ${this._header('Configuration')}
         <div class="card"><div class="card-body"><p class="text-muted">Permission « domotique.configure » requise.</p></div></div>`;
       return;
     }
     if (this.error) {
       this.element.innerHTML = `
-        <div class="page-header"><div class="page-header-left"><span class="domo-kicker">DOMOTIQUE</span><h1>Configuration</h1></div></div>
+        ${this._header('Configuration')}
         <div class="card" role="alert"><div class="card-body"><p>Erreur : ${this._escape(this.error.message || 'inconnue')}</p></div></div>`;
       return;
     }
     const config = this.config || {};
     this.element.innerHTML = `
-      <div class="page-header domo-header">
-        <div class="page-header-left"><span class="domo-kicker">DOMOTIQUE</span><h1>Configuration du séchoir</h1></div>
-      </div>
+      ${this._header('Configuration de la cave')}
       ${this.message ? `<div class="domo-flash">${this._escape(this.message)}</div>` : ''}
       <div class="domo-config-grid">
         ${this._connectionCard(config)}
         ${this._thresholdsCard(config)}
+        ${this._coolerCard(config)}
         ${this._sensorsCard(config)}
         ${this._outputsCard(config)}
       </div>
@@ -120,30 +132,61 @@ export class DomotiqueConfigPage {
   // ------------------------------------------------------------------ #
 
   _connectionCard(config) {
-    const test = this.testResult;
-    const testHtml = !test
-      ? ''
-      : `<p class="domo-test ${test.ok ? 'is-ok' : 'is-ko'}">${this._escape(test.message)}${test.state ? ` · T° ${this._num(test.state.temperature)} · HR ${this._num(test.state.humidity)}` : ''}</p>`;
+    const address = this._splitBaseUrl(config.base_url);
+    const passwordPlaceholder = config.has_api_password ? '(inchangé)' : '';
     return `
       <section class="card domo-card">
         <div class="card-header"><div><span class="domo-eyebrow">CONNEXION</span><h2>Raspberry Pi</h2></div></div>
         <div class="card-body">
-          <form data-connection-form>
-            <label>Adresse (base URL)
-              <input class="form-control" name="base_url" type="url" placeholder="http://192.168.1.50:8080" value="${this._escape(config.base_url || '')}">
-              <small class="text-muted">API attendue : GET /state · POST /command · GET /health</small>
+          <form data-connection-form class="domo-form--2">
+            <label>Adresse IP
+              <input class="form-control" name="ip" type="text" placeholder="192.168.1.82" value="${this._escape(address.ip)}" required>
+            </label>
+            <label>Port
+              <input class="form-control" name="port" type="number" min="1" max="65535" placeholder="8080" value="${this._escape(address.port)}">
+            </label>
+            <label>Utilisateur
+              <input class="form-control" name="api_user" type="text" autocomplete="username" value="${this._escape(config.api_user || '')}">
+            </label>
+            <label>Mot de passe
+              <input class="form-control" name="api_password" type="password" autocomplete="new-password" placeholder="${passwordPlaceholder}">
             </label>
             <label>Fréquence de récupération (s)
               <input class="form-control" name="poll_interval_s" type="number" min="5" max="600" value="${config.poll_interval_s || 30}">
             </label>
-            <div class="domo-actions">
+            <div class="domo-actions domo-span">
               <button class="btn btn-primary" type="submit">Enregistrer</button>
               <button class="btn btn-secondary" type="button" data-action="test-connection">Tester la connexion</button>
             </div>
           </form>
-          ${testHtml}
+          <div data-test-result>${this._testResultHtml()}</div>
+          <p class="text-muted"><small>API attendue : GET /state · POST /command · GET /health. Les identifiants sont envoyés en Basic Auth (mot de passe jamais renvoyé par l'API).</small></p>
         </div>
       </section>`;
+  }
+
+  _testResultHtml() {
+    const test = this.testResult;
+    if (!test) return '';
+    return `<p class="domo-test ${test.ok ? 'is-ok' : 'is-ko'}">${this._escape(test.message)}${test.state ? ` · T° ${this._num(test.state.temperature)} · HR ${this._num(test.state.humidity)}` : ''}</p>`;
+  }
+
+  _splitBaseUrl(base) {
+    if (!base) return { ip: '', port: '' };
+    try {
+      const url = new URL(base);
+      return { ip: url.hostname, port: url.port };
+    } catch {
+      return { ip: String(base).replace(/^https?:\/\//, '').split('/')[0], port: '' };
+    }
+  }
+
+  _buildBaseUrl(ip, port) {
+    const raw = String(ip || '').trim();
+    if (!raw) return '';
+    if (raw.includes('://')) return raw.replace(/\/+$/, '');
+    const suffix = String(port || '').trim() ? `:${String(port).trim()}` : '';
+    return `http://${raw.replace(/\/+$/, '')}${suffix}`;
   }
 
   _thresholdsCard(config) {
@@ -163,6 +206,26 @@ export class DomotiqueConfigPage {
             <div class="domo-actions"><button class="btn btn-primary" type="submit">Enregistrer</button></div>
           </form>
           <p class="text-muted"><small>Notifications envoyées aux utilisateurs ayant la permission « domotique.view ».</small></p>
+        </div>
+      </section>`;
+  }
+
+  _coolerCard(config) {
+    const values = config.config || {};
+    return `
+      <section class="card domo-card">
+        <div class="card-header"><div><span class="domo-eyebrow">COMPRESSEUR</span><h2>Anti-court-cycle</h2></div></div>
+        <div class="card-body">
+          <form data-cooler-form class="domo-form--2">
+            <label>Délai minimum entre 2 cycles (s)
+              <input class="form-control" name="cooler_min_off_s" type="number" min="0" max="3600" value="${values.cooler_min_off_s ?? 180}">
+            </label>
+            <label>Durée minimum de marche (s)
+              <input class="form-control" name="cooler_min_on_s" type="number" min="0" max="3600" value="${values.cooler_min_on_s ?? 120}">
+            </label>
+            <div class="domo-actions domo-span"><button class="btn btn-primary" type="submit">Enregistrer</button></div>
+          </form>
+          <p class="text-muted"><small>Le compresseur du froid ne démarre pas avant le délai minimum et reste allumé au minimum la durée indiquée : évite les cycles courts.</small></p>
         </div>
       </section>`;
   }
@@ -292,11 +355,15 @@ export class DomotiqueConfigPage {
       connectionForm.addEventListener('submit', async (event) => {
         event.preventDefault();
         const data = new FormData(connectionForm);
+        const payload = {
+          base_url: this._buildBaseUrl(data.get('ip'), data.get('port')),
+          poll_interval_s: Number(data.get('poll_interval_s')) || 30,
+          api_user: String(data.get('api_user') || '').trim(),
+        };
+        const password = String(data.get('api_password') || '');
+        if (password) payload.api_password = password;
         try {
-          await updateDomotiqueConfig({
-            base_url: (data.get('base_url') || '').trim(),
-            poll_interval_s: Number(data.get('poll_interval_s')) || 30,
-          });
+          await updateDomotiqueConfig(payload);
           this.message = 'Connexion enregistrée.';
           this.config = await getDomotiqueConfig();
         } catch (error) {
@@ -309,11 +376,20 @@ export class DomotiqueConfigPage {
     const testButton = this.element.querySelector('[data-action="test-connection"]');
     if (testButton) {
       testButton.addEventListener('click', async () => {
+        const data = new FormData(connectionForm);
+        const payload = {
+          base_url: this._buildBaseUrl(data.get('ip'), data.get('port')),
+          api_user: String(data.get('api_user') || '').trim(),
+        };
+        const password = String(data.get('api_password') || '');
+        if (password) payload.api_password = password;
         testButton.disabled = true;
-        this.testResult = await testDomotiqueConnection().catch((error) => ({
+        this.testResult = await testDomotiqueConnection(payload).catch((error) => ({
           ok: false, message: error.message || 'Test impossible',
         }));
-        this.render();
+        const resultBox = this.element.querySelector('[data-test-result]');
+        if (resultBox) resultBox.innerHTML = this._testResultHtml();
+        testButton.disabled = false;
       });
     }
 
@@ -333,6 +409,25 @@ export class DomotiqueConfigPage {
             retention_days: Number(data.get('retention_days')),
           });
           this.message = 'Seuils enregistrés.';
+          this.config = await getDomotiqueConfig();
+        } catch (error) {
+          this.message = error.message || 'Échec de l’enregistrement.';
+        }
+        this.render();
+      });
+    }
+
+    const coolerForm = this.element.querySelector('[data-cooler-form]');
+    if (coolerForm) {
+      coolerForm.addEventListener('submit', async (event) => {
+        event.preventDefault();
+        const data = new FormData(coolerForm);
+        try {
+          await updateDomotiqueConfig({
+            cooler_min_off_s: Number(data.get('cooler_min_off_s')),
+            cooler_min_on_s: Number(data.get('cooler_min_on_s')),
+          });
+          this.message = 'Réglages compresseur enregistrés.';
           this.config = await getDomotiqueConfig();
         } catch (error) {
           this.message = error.message || 'Échec de l’enregistrement.';

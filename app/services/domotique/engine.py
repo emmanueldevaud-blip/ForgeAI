@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import math
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -66,6 +67,8 @@ def _device_config(device: DomotiqueDevice) -> dict[str, Any]:
         ("alert_cooldown_min", 30),
         ("retention_days", 90),
         ("obsolete_after_s", 90),
+        ("cooler_min_off_s", 180),
+        ("cooler_min_on_s", 120),
     ):
         config.setdefault(key, default)
     return config
@@ -241,6 +244,34 @@ async def _sync_output_states(db: AsyncSession, device: DomotiqueDevice, states:
 # Regulation (envoi des consignes aux sorties automatiques)
 # --------------------------------------------------------------------------- #
 
+def _saturation_vapor_pressure(temp_c: float) -> float:
+    """Pression de vapeur saturante de l'eau (formule de Magnus), en hPa."""
+    return 6.1094 * math.exp(17.625 * temp_c / (temp_c + 243.04))
+
+
+def _corrected_humidity(
+    temperature: float | None,
+    humidity: float | None,
+    reference_temperature: float | None,
+) -> float | None:
+    """Humidite relative corrigee de la temperature du capteur.
+
+    Le capteur lit l'HR a sa propre temperature : si elle differe de la
+    temperature cible de la phase, l'HR change sans que l'eau reelle de
+    l'air change (air plus chaud => HR plus basse, et inversement).
+    Pour piloter la reduction d'humidite sur une base comparable a la
+    consigne, on conserve la pression de vapeur mesuree (teneur en
+    vapeur) et on la reconvertit a la temperature de reference.
+    """
+    if temperature is None or humidity is None or reference_temperature is None:
+        return humidity
+    if abs(reference_temperature - temperature) < 0.05:
+        return humidity
+    vapor = _saturation_vapor_pressure(temperature) * humidity / 100.0
+    corrected = 100.0 * vapor / _saturation_vapor_pressure(reference_temperature)
+    return max(0.0, min(100.0, corrected))
+
+
 def _desired_states(
     phase: DomotiquePhase,
     temperature: float | None,
@@ -252,12 +283,17 @@ def _desired_states(
     Seules les roles dotées d'une regle sont pilotees automatiquement :
     heater / cooler / humidifier / dehumidifier. Les roles fan et other
     restent en pilotage manuel (aucune regle inventee).
+
+    L'humidite utilisee par humidificateur / deshumidificateur est corrigee
+    de la temperature du capteur (cf. `_corrected_humidity`) pour eviter
+    qu'un ecart de temperature fausse la lecture.
     """
     desired: dict[int, bool] = {}
     tol_t = phase.tolerance_temperature if phase.tolerance_temperature is not None else 1.0
     tol_h = phase.tolerance_humidity if phase.tolerance_humidity is not None else 2.0
     target_t = phase.target_temperature
     target_h = phase.target_humidity
+    humidity_ref = _corrected_humidity(temperature, humidity, target_t)
 
     for output in outputs:
         if output.mode != OutputMode.AUTO or output.role == "other":
@@ -272,17 +308,44 @@ def _desired_states(
                 desired[output.index] = True
             elif temperature <= target_t:
                 desired[output.index] = False
-        elif output.role == "humidifier" and target_h is not None and humidity is not None:
-            if humidity < target_h - tol_h / 2:
+        elif output.role == "humidifier" and target_h is not None and humidity_ref is not None:
+            if humidity_ref < target_h - tol_h / 2:
                 desired[output.index] = True
-            elif humidity >= target_h:
+            elif humidity_ref >= target_h:
                 desired[output.index] = False
-        elif output.role == "dehumidifier" and target_h is not None and humidity is not None:
-            if humidity > target_h + tol_h / 2:
+        elif output.role == "dehumidifier" and target_h is not None and humidity_ref is not None:
+            if humidity_ref > target_h + tol_h / 2:
                 desired[output.index] = True
-            elif humidity <= target_h:
+            elif humidity_ref <= target_h:
                 desired[output.index] = False
     return desired
+
+
+def _cooler_delay_ok(
+    output: DomotiqueOutput,
+    state: bool,
+    now: datetime,
+    min_off_s: int,
+    min_on_s: int,
+) -> bool:
+    """Anti-court-cycle du compresseur (sortie role "cooler").
+
+    Un compresseur puissant ne supporte pas les cycles courts : on refuse
+    un demarrage si l'arret precedent est recent (delai min OFF) et un
+    arret si le demarrage est recent (duree min ON). Les autres roles ne
+    sont pas concernes.
+    """
+    if output.role != "cooler":
+        return True
+    changed_at = _as_utc(output.updated_at)
+    if changed_at is None:
+        return True
+    elapsed = (now - changed_at).total_seconds()
+    if state and not output.state:
+        return elapsed >= max(int(min_off_s), 0)
+    if not state and output.state:
+        return elapsed >= max(int(min_on_s), 0)
+    return True
 
 
 async def _apply_desired_states(
@@ -301,12 +364,23 @@ async def _apply_desired_states(
             )
         ).scalars().all()
     }
+    config = _device_config(device)
+    now = _now()
     for index, state in desired.items():
         output = outputs.get(index)
         if output is None or output.state == state:
             continue
+        if not _cooler_delay_ok(
+            output, state, now, config["cooler_min_off_s"], config["cooler_min_on_s"]
+        ):
+            continue
         try:
-            await raspberry.send_command(device.base_url, index, state)
+            await raspberry.send_command(
+                device.base_url,
+                index,
+                state,
+                auth=raspberry.credentials_from_config(device.config_json),
+            )
         except RaspberryError as exc:
             await _add_event(
                 db,
@@ -409,8 +483,8 @@ async def _advance_phase(
         await _all_auto_outputs_off(db, device, cycle)
         await _notify_users(
             db,
-            "Fin de cycle — Séchoir à saucisson",
-            f"Le cycle du séchoir est terminé.{loss_text}",
+            "Fin de cycle — La Cave",
+            f"Le cycle de la cave est terminé.{loss_text}",
             data={"cycle_id": cycle.id},
         )
         return
@@ -427,7 +501,7 @@ async def _advance_phase(
     )
     await _notify_users(
         db,
-        "Nouvelle phase — Séchoir à saucisson",
+        "Nouvelle phase — La Cave",
         f"Le séchoir est passé en phase {next_phase.name} "
         f"({next_phase.target_temperature} °C / {next_phase.target_humidity} % HR).",
         data={"cycle_id": cycle.id},
@@ -513,7 +587,7 @@ async def _check_phase_ranges(
                 db,
                 device,
                 [event_type],
-                f"Séchoir — {sensor.name} hors plage",
+                f"La Cave — {sensor.name} hors plage",
                 message,
                 data={"cycle_id": cycle.id},
             )
@@ -554,7 +628,7 @@ async def _check_sensor_staleness(
             db,
             device,
             ["sensor_stale"],
-            "Séchoir — capteur silencieux",
+            "La Cave — capteur silencieux",
             f"Le capteur {sensor.name} ne fournit plus de données depuis {age_s} s.",
         )
 
@@ -578,8 +652,8 @@ async def _check_communication(
             if previous in ("offline", "error"):
                 await _notify_users(
                     db,
-                    "Séchoir — Raspberry reconnecté",
-                    f"Le Raspberry du séchoir ({device.name}) est de nouveau joignable.",
+                    "La Cave — Raspberry reconnecté",
+                    f"Le Raspberry de la cave ({device.name}) est de nouveau joignable.",
                 )
         return
 
@@ -596,8 +670,8 @@ async def _check_communication(
                 db,
                 device,
                 ["comm_disconnect"],
-                "Séchoir — Raspberry injoignable",
-                f"Le Raspberry du séchoir ne répond plus depuis "
+                "La Cave — Raspberry injoignable",
+                f"Le Raspberry de la cave ne répond plus depuis "
                 f"{int((_now() - (last_seen or _now())).total_seconds())} s.",
             )
     else:
@@ -629,7 +703,10 @@ async def poll_device(db: AsyncSession, device: DomotiqueDevice) -> None:
         await db.commit()
         return
     try:
-        state = await raspberry.fetch_state(device.base_url)
+        state = await raspberry.fetch_state(
+            device.base_url,
+            auth=raspberry.credentials_from_config(device.config_json),
+        )
     except RaspberryError as exc:
         comm_error = str(exc)
 

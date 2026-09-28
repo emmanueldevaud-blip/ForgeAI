@@ -34,6 +34,16 @@ class RaspberryError(Exception):
     """Erreur de communication avec le Raspberry."""
 
 
+def credentials_from_config(config: dict[str, Any] | None) -> tuple[str, str] | None:
+    """Retourne les identifiants Basic Auth (utilisateur, mot de passe) s'il y en a."""
+    cfg = config or {}
+    user = cfg.get("api_user")
+    password = cfg.get("api_password")
+    if user and password:
+        return (str(user), str(password))
+    return None
+
+
 def _normalize_outputs(raw: Any) -> list[bool]:
     outputs: list[bool] = [False] * OUTPUT_COUNT
     if isinstance(raw, dict):
@@ -80,12 +90,18 @@ def normalize_state(payload: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-async def _get_json(client: httpx.AsyncClient, url: str) -> dict[str, Any]:
+async def _get_json(
+    client: httpx.AsyncClient,
+    url: str,
+    auth: tuple[str, str] | None = None,
+) -> dict[str, Any]:
     try:
-        response = await client.get(url)
+        response = await client.get(url, auth=auth)
         response.raise_for_status()
         data = response.json()
     except httpx.HTTPStatusError as exc:
+        if exc.response.status_code == 401:
+            raise RaspberryError("Authentification refusee (identifiants incorrects)") from exc
         raise RaspberryError(f"HTTP {exc.response.status_code} sur {url}") from exc
     except httpx.TimeoutException as exc:
         raise RaspberryError(f"Delai depasse sur {url}") from exc
@@ -98,20 +114,30 @@ async def _get_json(client: httpx.AsyncClient, url: str) -> dict[str, Any]:
     return data
 
 
-async def fetch_state(base_url: str, timeout: float = _TIMEOUT_SECONDS) -> dict[str, Any]:
+async def fetch_state(
+    base_url: str,
+    timeout: float = _TIMEOUT_SECONDS,
+    auth: tuple[str, str] | None = None,
+) -> dict[str, Any]:
     """Recupere l'etat courant (capteurs + sorties) du Raspberry."""
     if not base_url:
         raise RaspberryError("Adresse du Raspberry non configuree")
     url = f"{base_url.rstrip('/')}/state"
     async with httpx.AsyncClient(timeout=timeout, trust_env=False) as client:
-        payload = await _get_json(client, url)
+        payload = await _get_json(client, url, auth=auth)
     state = normalize_state(payload)
     if state["temperature"] is None and state["humidity"] is None:
         raise RaspberryError("Reponse /state sans temperature ni humidite")
     return state
 
 
-async def send_command(base_url: str, index: int, state: bool, timeout: float = _TIMEOUT_SECONDS) -> None:
+async def send_command(
+    base_url: str,
+    index: int,
+    state: bool,
+    timeout: float = _TIMEOUT_SECONDS,
+    auth: tuple[str, str] | None = None,
+) -> None:
     """Envoie une commande d'equipement (sortie GPIO 0..7) au Raspberry."""
     if not base_url:
         raise RaspberryError("Adresse du Raspberry non configuree")
@@ -120,9 +146,13 @@ async def send_command(base_url: str, index: int, state: bool, timeout: float = 
     url = f"{base_url.rstrip('/')}/command"
     async with httpx.AsyncClient(timeout=timeout, trust_env=False) as client:
         try:
-            response = await client.post(url, json={"index": index, "state": bool(state)})
+            response = await client.post(
+                url, json={"index": index, "state": bool(state)}, auth=auth
+            )
             response.raise_for_status()
         except httpx.HTTPStatusError as exc:
+            if exc.response.status_code == 401:
+                raise RaspberryError("Authentification refusee (identifiants incorrects)") from exc
             raise RaspberryError(f"HTTP {exc.response.status_code} sur {url}") from exc
         except httpx.TimeoutException as exc:
             raise RaspberryError(f"Delai depasse sur {url}") from exc
@@ -130,7 +160,11 @@ async def send_command(base_url: str, index: int, state: bool, timeout: float = 
             raise RaspberryError(f"Erreur reseau sur {url}: {exc}") from exc
 
 
-async def test_connection(base_url: str, timeout: float = _TIMEOUT_SECONDS) -> dict[str, Any]:
+async def test_connection(
+    base_url: str,
+    timeout: float = _TIMEOUT_SECONDS,
+    auth: tuple[str, str] | None = None,
+) -> dict[str, Any]:
     """Teste la connexion : GET /health puis fallback GET /state."""
     if not base_url:
         raise RaspberryError("Adresse du Raspberry non configuree")
@@ -138,10 +172,12 @@ async def test_connection(base_url: str, timeout: float = _TIMEOUT_SECONDS) -> d
     state: dict[str, Any] | None = None
     async with httpx.AsyncClient(timeout=timeout, trust_env=False) as client:
         try:
-            payload = await _get_json(client, f"{base_url.rstrip('/')}/health")
+            payload = await _get_json(client, f"{base_url.rstrip('/')}/health", auth=auth)
             if not payload.get("ok", True):
                 raise RaspberryError("Le Raspberry repond /health: ok=false")
         except RaspberryError:
-            state = normalize_state(await _get_json(client, f"{base_url.rstrip('/')}/state"))
+            state = normalize_state(
+                await _get_json(client, f"{base_url.rstrip('/')}/state", auth=auth)
+            )
     latency_ms = int((time.monotonic() - started) * 1000)
     return {"latency_ms": latency_ms, "state": state}

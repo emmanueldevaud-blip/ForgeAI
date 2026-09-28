@@ -33,6 +33,8 @@ DEFAULT_DEVICE_CONFIG: dict = {
     "alert_cooldown_min": 30,
     "retention_days": 90,
     "obsolete_after_s": 90,
+    "cooler_min_off_s": 180,
+    "cooler_min_on_s": 120,
 }
 
 _SENSORS = [
@@ -59,6 +61,7 @@ DEFAULT_PROFILES: list[dict] = [
         "target_weight_loss_pct": None,
         "weight_loss_min_pct": None,
         "weight_loss_max_pct": None,
+        "is_system": False,
         "phases": [
             {
                 "order": 1,
@@ -110,93 +113,7 @@ DEFAULT_PROFILES: list[dict] = [
             },
         ],
     },
-    {
-        "code": "alternatif-perte-poids",
-        "name": "Alternatif — perte de poids",
-        "description": (
-            "3 phases (14 °C/88 % puis 13 °C/84 % puis 12 °C/78 %) ; "
-            "fin de cycle pilotée par la perte de poids (objectif 38 %, plage 35 à 40 %)."
-        ),
-        "target_weight_loss_pct": 38.0,
-        "weight_loss_min_pct": 35.0,
-        "weight_loss_max_pct": 40.0,
-        "phases": [
-            {
-                "order": 1,
-                "name": "Phase 1",
-                "target_temperature": 14.0,
-                "target_humidity": 88.0,
-                "tolerance_temperature": 1.0,
-                "tolerance_humidity": 2.0,
-                "min_duration_hours": 72.0,
-                "max_duration_hours": 72.0,
-                "weight_loss_target_pct": None,
-                "exit_condition": ExitCondition.TIME,
-            },
-            {
-                "order": 2,
-                "name": "Phase 2",
-                "target_temperature": 13.0,
-                "target_humidity": 84.0,
-                "tolerance_temperature": 1.0,
-                "tolerance_humidity": 2.0,
-                "min_duration_hours": 168.0,
-                "max_duration_hours": 168.0,
-                "weight_loss_target_pct": None,
-                "exit_condition": ExitCondition.TIME,
-            },
-            {
-                "order": 3,
-                "name": "Phase 3 — jusqu'à objectif",
-                "target_temperature": 12.0,
-                "target_humidity": 78.0,
-                "tolerance_temperature": 1.0,
-                "tolerance_humidity": 2.0,
-                "min_duration_hours": None,
-                "max_duration_hours": None,
-                "weight_loss_target_pct": 38.0,
-                "exit_condition": ExitCondition.WEIGHT,
-            },
-        ],
-    },
-    {
-        "code": "boyau-40mm",
-        "name": "Boyau 40 mm",
-        "description": (
-            "Séchage à 14 °C / 80 % HR puis affinage vers 76-77 % HR. "
-            "Durée pilotée par la perte de poids (objectif 38 %, plage 35 à 40 %) : "
-            "renseigner le seuil de passage dans les phases si transition automatique souhaitée."
-        ),
-        "target_weight_loss_pct": 38.0,
-        "weight_loss_min_pct": 35.0,
-        "weight_loss_max_pct": 40.0,
-        "phases": [
-            {
-                "order": 1,
-                "name": "Séchage (HR 80 %)",
-                "target_temperature": 14.0,
-                "target_humidity": 80.0,
-                "tolerance_temperature": 1.0,
-                "tolerance_humidity": 2.0,
-                "min_duration_hours": None,
-                "max_duration_hours": None,
-                "weight_loss_target_pct": None,
-                "exit_condition": ExitCondition.WEIGHT,
-            },
-            {
-                "order": 2,
-                "name": "Descente HR (76-77 %)",
-                "target_temperature": 14.0,
-                "target_humidity": 76.5,
-                "tolerance_temperature": 1.0,
-                "tolerance_humidity": 1.5,
-                "min_duration_hours": None,
-                "max_duration_hours": None,
-                "weight_loss_target_pct": 38.0,
-                "exit_condition": ExitCondition.WEIGHT,
-            },
-        ],
-    },
+
 ]
 
 
@@ -208,7 +125,7 @@ async def seed_domotique(db: AsyncSession) -> None:
     if not device:
         device = DomotiqueDevice(
             code=SECHOIR_CODE,
-            name="Séchoir à saucisson",
+            name="La Cave",
             kind="dryer",
             base_url=None,
             poll_interval_s=30,
@@ -258,11 +175,13 @@ async def seed_domotique(db: AsyncSession) -> None:
         if profile_data["code"] in existing_profile_codes:
             continue
         phases = profile_data.pop("phases")
-        profile = DomotiqueProfile(**profile_data, is_system=True)
+        is_system = profile_data.pop("is_system", False)
+        profile = DomotiqueProfile(**profile_data, is_system=is_system)
         db.add(profile)
         await db.flush()
         for phase_data in phases:
             db.add(DomotiquePhase(profile_id=profile.id, **phase_data))
         profile_data["phases"] = phases  # restore pour un eventuel rejeu
+        profile_data["is_system"] = is_system
 
     await db.commit()

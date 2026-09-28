@@ -213,7 +213,7 @@ export class DomotiquePage {
   }
 
   // ------------------------------------------------------------------ #
-  # Indicateurs d'entete
+  // Indicateurs d'entete
   // ------------------------------------------------------------------ #
 
   _statusStrip(status) {

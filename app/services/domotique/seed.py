@@ -233,14 +233,13 @@ async def seed_domotique(db: AsyncSession) -> None:
                 )
             )
 
-    existing_output_indexes = {
-        o.index
-        for o in (
+    existing_output_indexes = set(
+        (
             await db.execute(
                 select(DomotiqueOutput.index).where(DomotiqueOutput.device_id == device.id)
             )
         ).scalars().all()
-    }
+    )
     for index in range(8):
         if index not in existing_output_indexes:
             db.add(

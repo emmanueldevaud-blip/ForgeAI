@@ -12,7 +12,7 @@ import {
   startDomotiqueCycle,
   stopDomotiqueCycle,
 } from '../services/domotiqueApi.js?v=2';
-import { DomotiqueConfigPage } from './DomotiqueConfigPage.js?v=6';
+import { DomotiqueConfigPage } from './DomotiqueConfigPage.js?v=8';
 
 const VIEWS = [
   { key: 'details', label: 'Détails' },
@@ -279,24 +279,182 @@ export class DomotiquePage {
     const sensors = status.sensors || [];
     const temp = sensors.find((sensor) => sensor.key === 'temperature');
     const hum = sensors.find((sensor) => sensor.key === 'humidity');
-    const weight = sensors.find((sensor) => sensor.key === 'weight');
     const cycle = status.cycle;
-    const cards = [
-      this._metricCard('Température', 'domo-temp', temp, '°C',
-        cycle && cycle.current_phase_name ? this._phaseTarget(status, 'temperature') : null),
-      this._metricCard('Humidité', 'domo-hum', hum, '% HR',
-        cycle && cycle.current_phase_name ? this._phaseTarget(status, 'humidity') : null),
-    ];
-    if (weight && weight.current_value != null) {
-      cards.push(this._weightCard(cycle, weight));
-    }
+    const outputs = status.outputs || [];
+    const stale = status.stale;
+    const deviceStatus = status.status;
+    const alerts = this._getAlerts(status);
+
+    const tempValue = temp ? (temp.corrected_value ?? temp.current_value) : null;
+    const humValue = hum ? (hum.corrected_value ?? hum.current_value) : null;
+    const tempTarget = cycle && cycle.current_phase_name ? this._phaseTarget(status, 'temperature') : null;
+    const humTarget = cycle && cycle.current_phase_name ? this._phaseTarget(status, 'humidity') : null;
+
+    const cycleStatusLabels = {
+      preparing: 'Préparation',
+      running: 'En cours',
+      paused: 'Pause',
+      completed: 'Terminé',
+      stopped: 'Arrêté',
+      error: 'Erreur',
+    };
+
+    const cycleStatus = cycle ? (cycleStatusLabels[cycle.status] || cycle.status) : 'Aucun cycle en cours';
+    const cycleName = cycle ? (cycle.profile_name || cycle.name || 'Cycle') : '';
+    const cyclePhase = cycle ? (cycle.current_phase_name || '—') : '—';
+    const cycleDay = cycle && cycle.started_at ? this._cycleDay(cycle.started_at) : null;
+    const cycleTotalDays = cycle && cycle.phases_total ? this._estimateCycleDays(cycle) : null;
+
+    const equipItems = outputs.map((output) => ({
+      name: output.name,
+      role: output.role,
+      state: output.state,
+    }));
+
+    const connStatus = this._getConnectionStatus(stale, deviceStatus);
+
     return `
-      <div class="domo-cards">${cards.join('')}</div>
-      <div class="domo-charts">
-        ${this._chartCard('Température — historique', this._lineChart(this.history?.series?.temperature, this.history?.target_temperature, 'domo-line--temp'))}
-        ${this._chartCard('Humidité — historique', this._lineChart(this.history?.series?.humidity, this.history?.target_humidity, 'domo-line--hum'))}
-      </div>
-      ${this._periodSelector()}`;
+      <div class="cave-scene" data-cave-scene>
+        <img class="cave-scene__image" src="/images/cave-background.svg" alt="Cave voûtée en pierre avec saucissons suspendus" loading="eager" />
+        <div class="cave-scene__overlay">
+          <h1 class="cave-scene__title">LA CAVE</h1>
+          <div class="cave-scene__grid">
+            <div class="cave-panel cave-panel--temp" data-panel="temp">
+              <div class="cave-panel__icon">🌡</div>
+              <div class="cave-panel__value">${tempValue != null ? this._num(tempValue) : '—'}<small>°C</small></div>
+              <div class="cave-panel__label">Température</div>
+              ${tempTarget != null ? `<div class="cave-panel__target">Cible ${this._num(tempTarget)} °C</div>` : ''}
+            </div>
+            <div class="cave-panel cave-panel--hum" data-panel="hum">
+              <div class="cave-panel__icon">💧</div>
+              <div class="cave-panel__value">${humValue != null ? this._num(humValue) : '—'}<small>% HR</small></div>
+              <div class="cave-panel__label">Humidité</div>
+              ${humTarget != null ? `<div class="cave-panel__target">Cible ${this._num(humTarget)} % HR</div>` : ''}
+            </div>
+            <div class="cave-panel cave-panel--cycle" data-panel="cycle">
+              <div class="cave-panel__cycle-name">${this._escape(cycleName)}</div>
+              <div class="cave-panel__cycle-meta">
+                <div class="cave-panel__cycle-meta-item">
+                  <span class="cave-panel__cycle-meta-label">Statut</span>
+                  <span class="cave-panel__cycle-meta-value">${this._escape(cycleStatus)}</span>
+                </div>
+                ${cyclePhase ? `
+                <div class="cave-panel__cycle-meta-item">
+                  <span class="cave-panel__cycle-meta-label">Phase</span>
+                  <span class="cave-panel__cycle-meta-value">${this._escape(cyclePhase)}</span>
+                </div>` : ''}
+                ${cycleDay != null && cycleTotalDays != null ? `
+                <div class="cave-panel__cycle-meta-item">
+                  <span class="cave-panel__cycle-meta-label">Avancement</span>
+                  <span class="cave-panel__cycle-meta-value">Jour ${cycleDay} / ${cycleTotalDays}</span>
+                </div>` : ''}
+                ${cycle && cycle.target_temperature != null ? `
+                <div class="cave-panel__cycle-meta-item">
+                  <span class="cave-panel__cycle-meta-label">Consigne T°</span>
+                  <span class="cave-panel__cycle-meta-value">${this._num(cycle.target_temperature)} °C</span>
+                </div>` : ''}
+                ${cycle && cycle.target_humidity != null ? `
+                <div class="cave-panel__cycle-meta-item">
+                  <span class="cave-panel__cycle-meta-label">Consigne HR</span>
+                  <span class="cave-panel__cycle-meta-value">${this._num(cycle.target_humidity)} %</span>
+                </div>` : ''}
+              </div>
+            </div>
+            <div class="cave-panel cave-panel--equip" data-panel="equip">
+              <div class="cave-panel__equip-list">
+                ${equipItems.map((item) => `
+                  <div class="cave-panel__equip-item" data-equip="${this._escape(item.name)}">
+                    <span class="cave-panel__equip-name">
+                      <span class="cave-panel__equip-dot ${item.state ? 'cave-panel__equip-dot--on' : 'cave-panel__equip-dot--off'}" data-equip-dot="${this._escape(item.name)}"></span>
+                      ${this._escape(item.name)} <small>(${this._escape(this._outputRoleLabel(item.role))})</small>
+                    </span>
+                    <span class="cave-panel__equip-state ${item.state ? 'cave-panel__equip-state--on' : 'cave-panel__equip-state--off'}" data-equip-state="${this._escape(item.name)}">
+                      ${item.state ? 'ACTIVE' : 'ARRÊTÉ'}
+                    </span>
+                  </div>
+                `).join('') || '<div class="text-muted" style="color:rgba(255,255,255,0.6);">Aucun équipement</div>'}
+              </div>
+            </div>
+            <div class="cave-panel cave-panel--conn" data-panel="conn">
+              <span class="cave-panel__conn-dot ${connStatus.class}" data-conn-dot></span>
+              <span data-conn-text>${this._escape(connStatus.text)}</span>
+            </div>
+          </div>
+          <div class="cave-scene__alerts" data-cave-alerts>
+            ${alerts.map((alert) => `
+              <div class="cave-alert cave-alert--${alert.type}">
+                ${alert.icon} ${this._escape(alert.message)}
+              </div>
+            `).join('')}
+          </div>
+        </div>
+      </div>`;
+  }
+
+  _getConnectionStatus(stale, deviceStatus) {
+    if (stale && deviceStatus === 'online') {
+      return { class: 'cave-panel__conn-dot--warn', text: 'Données obsolètes' };
+    }
+    if (deviceStatus === 'online') return { class: 'cave-panel__conn-dot--ok', text: 'La Cave connectée' };
+    if (deviceStatus === 'offline') return { class: 'cave-panel__conn-dot--ko', text: 'La Cave déconnectée' };
+    if (deviceStatus === 'error') return { class: 'cave-panel__conn-dot--warn', text: 'La Cave en erreur' };
+    return { class: 'cave-panel__conn-dot--idle', text: 'Statut inconnu' };
+  }
+
+  _outputRoleLabel(role) {
+    const labels = {
+      heater: 'Chauffage',
+      cooler: 'Refroidissement',
+      fan: 'Ventilation',
+      humidifier: 'Humidificateur',
+      dehumidifier: 'Déshumidificateur',
+      other: 'Autre',
+    };
+    return labels[role] || role;
+  }
+
+  _getAlerts(status) {
+    const alerts = [];
+    const sensors = status.sensors || [];
+    const temp = sensors.find((s) => s.key === 'temperature');
+    const hum = sensors.find((s) => s.key === 'humidity');
+    const cycle = status.cycle;
+
+    if (temp && temp.current_value != null) {
+      const val = temp.corrected_value ?? temp.current_value;
+      if (val < 10) alerts.push({ type: 'danger', icon: '⚠', message: `Température basse : ${this._num(val)} °C` });
+      else if (val > 20) alerts.push({ type: 'warning', icon: '⚠', message: `Température élevée : ${this._num(val)} °C` });
+    }
+    if (hum && hum.current_value != null) {
+      const val = hum.corrected_value ?? hum.current_value;
+      if (val < 60) alerts.push({ type: 'warning', icon: '⚠', message: `Humidité basse : ${this._num(val)} %` });
+      else if (val > 85) alerts.push({ type: 'danger', icon: '⚠', message: `Humidité élevée : ${this._num(val)} %` });
+    }
+    if (status.stale && status.status === 'online') {
+      alerts.push({ type: 'warning', icon: '⚠', message: 'Données obsolètes — vérifier la connexion Raspberry' });
+    }
+    if (status.status === 'offline') {
+      alerts.push({ type: 'danger', icon: '⚠', message: 'Raspberry déconnecté — impossible de récupérer les données' });
+    }
+    if (status.status === 'error') {
+      alerts.push({ type: 'danger', icon: '⚠', message: `Erreur Raspberry : ${status.last_error || 'inconnue'}` });
+    }
+    return alerts;
+  }
+
+  _cycleDay(startedAt) {
+    const start = new Date(startedAt).getTime();
+    if (Number.isNaN(start)) return null;
+    const diff = Date.now() - start;
+    return Math.max(1, Math.floor(diff / 86400000) + 1);
+  }
+
+  _estimateCycleDays(cycle) {
+    if (!cycle.phases_total) return null;
+    let totalHours = 0;
+    // We don't have phase durations here, estimate based on typical values
+    // This is a rough estimate for display purposes
+    return Math.max(1, cycle.phases_total * 7); // ~1 week per phase
   }
 
   _phaseTarget(status, kind) {
@@ -623,8 +781,8 @@ export class DomotiquePage {
     if (minHours != null && maxHours != null) {
       return minHours === maxHours ? fmt(minHours) : `${fmt(minHours)} – ${fmt(maxHours)}`;
     }
-    if (minHours != null) return `dès ${fmt(minHours)}`;
-    return `jusqu’à ${fmt(maxHours)}`;
+    if (maxHours != null) return fmt(maxHours);
+    return `dès ${fmt(minHours)}`;
   }
 
   _profilePreview(profile) {
@@ -708,24 +866,81 @@ export class DomotiquePage {
     const status = this.status || {};
     const strip = this.element.querySelector('.domo-status-strip');
     if (strip) strip.innerHTML = this._statusStrip(status);
-    const temp = (status.sensors || []).find((sensor) => sensor.key === 'temperature');
-    const hum = (status.sensors || []).find((sensor) => sensor.key === 'humidity');
-    const tempCard = this.element.querySelector('.domo-temp .domo-big');
-    const humCard = this.element.querySelector('.domo-hum .domo-big');
-    if (tempCard && temp && temp.current_value != null) {
-      tempCard.innerHTML = `${this._num(temp.current_value)}<small>°C</small>`;
+
+    const caveScene = this.element.querySelector('[data-cave-scene]');
+    if (!caveScene) return;
+
+    const sensors = status.sensors || [];
+    const temp = sensors.find((sensor) => sensor.key === 'temperature');
+    const hum = sensors.find((sensor) => sensor.key === 'humidity');
+    const outputs = status.outputs || [];
+    const stale = status.stale;
+    const deviceStatus = status.status;
+
+    const tempValue = temp ? (temp.corrected_value ?? temp.current_value) : null;
+    const humValue = hum ? (hum.corrected_value ?? hum.current_value) : null;
+    const tempTarget = this._phaseTarget(status, 'temperature');
+    const humTarget = this._phaseTarget(status, 'humidity');
+
+    const tempValueEl = caveScene.querySelector('[data-panel="temp"] .cave-panel__value');
+    if (tempValueEl && tempValue != null) {
+      tempValueEl.innerHTML = `${this._num(tempValue)}<small>°C</small>`;
     }
-    if (humCard && hum) {
-      const shown = hum.corrected_value != null ? hum.corrected_value : hum.current_value;
-      if (shown != null) {
-        humCard.innerHTML = `${this._num(shown)}<small>% HR</small>`;
+    const tempTargetEl = caveScene.querySelector('[data-panel="temp"] .cave-panel__target');
+    if (tempTargetEl && tempTarget != null) {
+      tempTargetEl.textContent = `Cible ${this._num(tempTarget)} °C`;
+    }
+
+    const humValueEl = caveScene.querySelector('[data-panel="hum"] .cave-panel__value');
+    if (humValueEl && humValue != null) {
+      humValueEl.innerHTML = `${this._num(humValue)}<small>% HR</small>`;
+    }
+    const humTargetEl = caveScene.querySelector('[data-panel="hum"] .cave-panel__target');
+    if (humTargetEl && humTarget != null) {
+      humTargetEl.textContent = `Cible ${this._num(humTarget)} % HR`;
+    }
+
+    const cycle = status.cycle;
+    if (cycle) {
+      const cycleDay = this._cycleDay(cycle.started_at);
+      const cycleTotalDays = this._estimateCycleDays(cycle);
+      const dayEl = caveScene.querySelector('[data-panel="cycle"] .cave-panel__cycle-meta-value:last-child');
+      if (dayEl && cycleDay != null && cycleTotalDays != null) {
+        dayEl.textContent = `Jour ${cycleDay} / ${cycleTotalDays}`;
       }
     }
-    this.element.querySelectorAll('.domo-temp [data-live-meta], .domo-hum [data-live-meta]')
-      .forEach((node) => {
-        const sensor = node.closest('.domo-hum') ? hum : temp;
-        if (sensor) node.outerHTML = this._metricMeta(sensor);
-      });
+
+    outputs.forEach((output) => {
+      const dotEl = caveScene.querySelector(`[data-equip-dot="${this._escape(output.name)}"]`);
+      const stateEl = caveScene.querySelector(`[data-equip-state="${this._escape(output.name)}"]`);
+      if (dotEl) {
+        dotEl.className = `cave-panel__equip-dot ${output.state ? 'cave-panel__equip-dot--on' : 'cave-panel__equip-dot--off'}`;
+      }
+      if (stateEl) {
+        stateEl.className = `cave-panel__equip-state ${output.state ? 'cave-panel__equip-state--on' : 'cave-panel__equip-state--off'}`;
+        stateEl.textContent = output.state ? 'ACTIVE' : 'ARRÊTÉ';
+      }
+    });
+
+    const connStatus = this._getConnectionStatus(stale, deviceStatus);
+    const connDotEl = caveScene.querySelector('[data-conn-dot]');
+    const connTextEl = caveScene.querySelector('[data-conn-text]');
+    if (connDotEl) {
+      connDotEl.className = `cave-panel__conn-dot ${connStatus.class}`;
+    }
+    if (connTextEl) {
+      connTextEl.textContent = connStatus.text;
+    }
+
+    const alerts = this._getAlerts(status);
+    const alertsContainer = caveScene.querySelector('[data-cave-alerts]');
+    if (alertsContainer) {
+      alertsContainer.innerHTML = alerts.map((alert) => `
+        <div class="cave-alert cave-alert--${alert.type}">
+          ${alert.icon} ${this._escape(alert.message)}
+        </div>
+      `).join('');
+    }
   }
 
   // ------------------------------------------------------------------ #

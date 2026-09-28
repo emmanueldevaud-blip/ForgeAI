@@ -1,0 +1,56 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1920" height="1080" viewBox="0 0 1920 1080">
+  <defs>
+    <linearGradient id="caveBg" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#2d1f16;stop-opacity:1" />
+      <stop offset="50%" style="stop-color:#1a120c;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#0d0805;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="vaultGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" style="stop-color:#3d2f24;stop-opacity:1" />
+      <stop offset="50%" style="stop-color:#5d4a3a;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#3d2f24;stop-opacity:1" />
+    </linearGradient>
+    <radialGradient id="lightSpot" cx="50%" cy="30%" r="40%">
+      <stop offset="0%" style="stop-color:#ffd4a3;stop-opacity:0.3" />
+      <stop offset="100%" style="stop-color:#ffd4a3;stop-opacity:0" />
+    </radialGradient>
+  </defs>
+  <rect width="1920" height="1080" fill="url(#caveBg)"/>
+  <ellipse cx="960" cy="100" rx="800" ry="150" fill="url(#vaultGrad)" opacity="0.8"/>
+  <ellipse cx="960" cy="120" rx="700" ry="120" fill="#1a120c"/>
+  <ellipse cx="960" cy="540" rx="1000" ry="400" fill="url(#lightSpot)"/>
+  <g fill="#4a3728">
+    <path d="M0,1080 Q480,600 960,1080 Q1440,600 1920,1080 Z" opacity="0.6"/>
+    <path d="M0,1080 Q480,700 960,1080 Q1440,700 1920,1080 Z" opacity="0.4"/>
+    <path d="M0,1080 Q480,800 960,1080 Q1440,800 1920,1080 Z" opacity="0.3"/>
+  </g>
+  <g fill="#3d2f24">
+    <rect x="100" y="400" width="80" height="680" rx="10" opacity="0.7"/>
+    <rect x="1740" y="400" width="80" height="680" rx="10" opacity="0.7"/>
+    <rect x="400" y="500" width="60" height="580" rx="8" opacity="0.5"/>
+    <rect x="1460" y="500" width="60" height="580" rx="8" opacity="0.5"/>
+  </g>
+  <g fill="#8b6d4a">
+    <ellipse cx="300" cy="200" rx="15" ry="80" transform="rotate(-15 300 200)"/>
+    <ellipse cx="500" cy="180" rx="12" ry="70" transform="rotate(-10 500 180)"/>
+    <ellipse cx="700" cy="220" rx="18" ry="90" transform="rotate(-5 700 220)"/>
+    <ellipse cx="1220" cy="220" rx="18" ry="90" transform="rotate(5 1220 220)"/>
+    <ellipse cx="1420" cy="180" rx="12" ry="70" transform="rotate(10 1420 180)"/>
+    <ellipse cx="1620" cy="200" rx="15" ry="80" transform="rotate(15 1620 200)"/>
+  </g>
+  <g fill="#6b4423">
+    <ellipse cx="600" cy="350" rx="25" ry="120" transform="rotate(-8 600 350)"/>
+    <ellipse cx="800" cy="320" rx="22" ry="110" transform="rotate(-4 800 320)"/>
+    <ellipse cx="1000" cy="300" rx="20" ry="100"/>
+    <ellipse cx="1120" cy="320" rx="22" ry="110" transform="rotate(4 1120 320)"/>
+    <ellipse cx="1320" cy="350" rx="25" ry="120" transform="rotate(8 1320 350)"/>
+  </g>
+  <g fill="#5d3a1a">
+    <ellipse cx="550" cy="450" rx="30" ry="150" transform="rotate(-10 550 450)"/>
+    <ellipse cx="750" cy="420" rx="28" ry="140" transform="rotate(-5 750 420)"/>
+    <ellipse cx="960" cy="400" rx="25" ry="130"/>
+    <ellipse cx="1170" cy="420" rx="28" ry="140" transform="rotate(5 1170 420)"/>
+    <ellipse cx="1370" cy="450" rx="30" ry="150" transform="rotate(10 1370 450)"/>
+  </g>
+  <text x="960" y="1000" text-anchor="middle" font-family="Georgia, serif" font-size="24" fill="#5d4a3a" opacity="0.5">LA CAVE — Placeholder Image (Replace with photorealistic cave photo)</text>
+</svg>

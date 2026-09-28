@@ -216,7 +216,7 @@ app.add_middleware(
 async def health_check():
     return {"status": "ok", "version": settings.APP_VERSION}
 
-SPA_PREFIXES = ("api/", "auth/", "admin/", "docs", "redoc", "openapi", "health", "css/", "js/", "modules/", "dashboard/", "notifications/")
+SPA_PREFIXES = ("api/", "auth/", "admin/", "docs", "redoc", "openapi", "health", "css/", "js/", "images/", "modules/", "dashboard/", "notifications/")
 
 
 def _is_spa_navigation(request: Request) -> bool:
@@ -265,6 +265,7 @@ if os.path.exists(frontend_path):
     SPA_INDEX = os.path.join(frontend_path, "index.html")
     app.mount("/css", StaticFiles(directory=os.path.join(frontend_path, "css")), name="css")
     app.mount("/js", StaticFiles(directory=os.path.join(frontend_path, "js")), name="js")
+    app.mount("/images", StaticFiles(directory=os.path.join(frontend_path, "images")), name="images")
     icons_dir = os.path.join(frontend_path, "icons")
     if os.path.isdir(icons_dir):
         app.mount("/icons", StaticFiles(directory=icons_dir), name="icons")

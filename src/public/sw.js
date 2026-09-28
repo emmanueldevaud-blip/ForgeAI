@@ -56,8 +56,27 @@ self.addEventListener('push', event => {
     tag: payload.tag || 'forgeai',
     data: { url: payload.url || '/' },
   };
-  event.waitUntil(self.registration.showNotification(payload.title || 'ForgeAI', options));
+  event.waitUntil((async () => {
+    await self.registration.showNotification(payload.title || 'ForgeAI', options);
+    await _updateAppBadge(payload.unread);
+  })());
 });
+
+/* Pastille sur l'icone d'accueil (Badging API : iOS 16.4+ / Chrome).
+   Pose le nombre de notifications non lues. Si l'app est deja ouverte
+   et visible, la pastille n'est pas posee : l'utilisateur est dedans. */
+async function _updateAppBadge(unread) {
+  if (!('setAppBadge' in self.navigator)) return;
+  const count = Number(unread);
+  if (!Number.isFinite(count) || count <= 0) return;
+  try {
+    const windows = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+    if (windows.some(client => client.visibilityState === 'visible')) return;
+    await self.navigator.setAppBadge(count);
+  } catch (error) {
+    /* best-effort : la notification reste affichee meme sans pastille. */
+  }
+}
 
 self.addEventListener('notificationclick', event => {
   event.notification.close();

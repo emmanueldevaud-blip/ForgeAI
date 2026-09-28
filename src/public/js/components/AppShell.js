@@ -4,6 +4,7 @@ import { MainContent } from './MainContent.js';
 import { MobileSidebar } from './MobileSidebar.js?v=3';
 import { authStore } from '../stores/auth.js';
 import { modulesApi } from '../services/api.js';
+import { markAllNotificationsRead } from '../services/notificationsApi.js?v=2';
 
 export class AppShell {
   constructor(router) {
@@ -15,6 +16,7 @@ export class AppShell {
     this.sidebarCollapsed = false;
     this.initialized = false;
     this._authUnsubscribe = null;
+    this._wasAuthenticated = false;
   }
 
   async initialize() {
@@ -69,6 +71,8 @@ export class AppShell {
 
   _setupEventListeners() {
     this._authUnsubscribe = authStore.subscribe((state) => {
+      const becameAuthenticated = state.authenticated && !this._wasAuthenticated;
+      this._wasAuthenticated = state.authenticated;
       this.header.setUser(state.currentUser);
       if (state.authenticated && !this.sidebar.navigation.length) {
         this.sidebar.loadNavigation().then(() => {
@@ -77,6 +81,15 @@ export class AppShell {
       } else if (!state.authenticated) {
         this.sidebar.clearNavigation();
         this.mobileSidebar.setNavigation([]);
+      }
+      if (becameAuthenticated) this._syncNotificationBadge();
+    });
+
+    /* Retour au premier plan : les notifications sont considerees comme lues,
+       la pastille de l'icone est effacee. */
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible' && authStore.authenticated) {
+        this._syncNotificationBadge();
       }
     });
 
@@ -105,6 +118,23 @@ export class AppShell {
     if (authStore.authenticated) {
       await this.sidebar.loadNavigation();
       this.mobileSidebar.setNavigation(this.sidebar.navigation);
+    }
+  }
+
+  /* Marque toutes les notifications comme lues puis efface la pastille de
+     l'icone d'accueil. Best-effort : un echec ne bloque jamais l'ouverture. */
+  async _syncNotificationBadge() {
+    try {
+      await markAllNotificationsRead();
+    } catch (error) {
+      return;
+    }
+    if ('setAppBadge' in navigator) {
+      try {
+        await navigator.clearAppBadge();
+      } catch (error) {
+        /* ignore */
+      }
     }
   }
 

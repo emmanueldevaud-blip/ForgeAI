@@ -1,6 +1,6 @@
 import { router, createAuthGuard, createNotFoundPage, createForbiddenPage } from './router/router.js';
 import { authStore } from './stores/auth.js';
-import { AppShell } from './components/AppShell.js?v=4';
+import { AppShell } from './components/AppShell.js?v=5';
 import { createModulePlaceholderPage } from './pages/ModulePlaceholder.js?v=3';
 import { createLoginPage } from './pages/LoginPage.js';
 import { createRegisterPage } from './pages/RegisterPage.js';

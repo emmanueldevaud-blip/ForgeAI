@@ -152,11 +152,12 @@ class NotificationService:
         ).scalars().all()
         if not subscriptions:
             return False
+        unread = await self.unread_count(notification.user_id)
         sent = False
         async with httpx.AsyncClient(timeout=_PUSH_TIMEOUT_SECONDS) as client:
             for subscription in subscriptions:
                 try:
-                    outcome = await self._push_one(client, subscription, notification)
+                    outcome = await self._push_one(client, subscription, notification, unread)
                 except Exception:
                     logger.warning(
                         "[NOTIFICATION] Echec push notification=%s", notification.id, exc_info=True
@@ -174,6 +175,7 @@ class NotificationService:
         client: httpx.AsyncClient,
         subscription: NotificationPushSubscription,
         notification: Notification,
+        unread: int,
     ) -> str:
         keys = get_settings()
         if not keys.NOTIFICATION_VAPID_PRIVATE_KEY:
@@ -192,6 +194,7 @@ class NotificationService:
                 "body": notification.message,
                 "tag": (notification.data_json or {}).get("url") or notification.category,
                 "url": (notification.data_json or {}).get("url"),
+                "unread": unread,
             },
             ensure_ascii=False,
         ).encode("utf-8")

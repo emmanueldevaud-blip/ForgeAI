@@ -35,6 +35,9 @@ DEFAULT_DEVICE_CONFIG: dict = {
     "obsolete_after_s": 90,
     "cooler_min_off_s": 180,
     "cooler_min_on_s": 120,
+    "alarm_temp_delta": 1.0,
+    "alarm_hum_delta": 2.0,
+    "comm_timeout_s": 90,
 }
 
 _SENSORS = [
@@ -68,8 +71,8 @@ DEFAULT_PROFILES: list[dict] = [
                 "name": "Étuvage",
                 "target_temperature": 23.0,
                 "target_humidity": 92.0,
-                "tolerance_temperature": 1.0,
-                "tolerance_humidity": 3.0,
+                "tolerance_temperature": 2.0,
+                "tolerance_humidity": 10.0,
                 "min_duration_hours": 24.0,
                 "max_duration_hours": 48.0,
                 "weight_loss_target_pct": None,
@@ -80,8 +83,8 @@ DEFAULT_PROFILES: list[dict] = [
                 "name": "Ressuyage",
                 "target_temperature": 19.0,
                 "target_humidity": 82.0,
-                "tolerance_temperature": 1.0,
-                "tolerance_humidity": 3.0,
+                "tolerance_temperature": 2.0,
+                "tolerance_humidity": 10.0,
                 "min_duration_hours": 24.0,
                 "max_duration_hours": 48.0,
                 "weight_loss_target_pct": None,
@@ -92,8 +95,8 @@ DEFAULT_PROFILES: list[dict] = [
                 "name": "Séchage",
                 "target_temperature": 14.0,
                 "target_humidity": 80.0,
-                "tolerance_temperature": 1.0,
-                "tolerance_humidity": 2.0,
+                "tolerance_temperature": 2.0,
+                "tolerance_humidity": 10.0,
                 "min_duration_hours": 720.0,   # 3 semaines
                 "max_duration_hours": 1008.0,  # 6 semaines
                 "weight_loss_target_pct": None,
@@ -104,8 +107,8 @@ DEFAULT_PROFILES: list[dict] = [
                 "name": "Affinage",
                 "target_temperature": 12.0,
                 "target_humidity": 76.5,
-                "tolerance_temperature": 1.0,
-                "tolerance_humidity": 1.5,
+                "tolerance_temperature": 2.0,
+                "tolerance_humidity": 10.0,
                 "min_duration_hours": None,
                 "max_duration_hours": None,
                 "weight_loss_target_pct": None,

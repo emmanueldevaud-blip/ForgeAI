@@ -161,6 +161,7 @@ class DomotiqueProfile(Base):
         back_populates="profile",
         cascade="all, delete-orphan",
         order_by="DomotiquePhase.order",
+        lazy="selectin",
     )
     cycles: Mapped[list["DomotiqueCycle"]] = relationship("DomotiqueCycle", back_populates="profile")
 
@@ -218,7 +219,9 @@ class DomotiqueCycle(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
 
     device: Mapped["DomotiqueDevice"] = relationship("DomotiqueDevice", back_populates="cycles")
-    profile: Mapped["DomotiqueProfile"] = relationship("DomotiqueProfile", back_populates="cycles")
+    profile: Mapped["DomotiqueProfile"] = relationship(
+        "DomotiqueProfile", back_populates="cycles", lazy="selectin"
+    )
     events: Mapped[list["DomotiqueEvent"]] = relationship(
         "DomotiqueEvent", back_populates="cycle", cascade="all, delete-orphan"
     )

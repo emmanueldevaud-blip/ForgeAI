@@ -10,12 +10,14 @@ from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
 
-from app.api import auth, audit, buildings, dashboard, equipment, housing, maintenance, modules, admin, volunteer, sport, administrative, agenda, notifications
+from app.api import auth, audit, buildings, dashboard, domotique, equipment, housing, maintenance, modules, admin, volunteer, sport, administrative, agenda, notifications
 from app.core.config import get_settings
 from app.db.session import close_db, init_db
 from app.modules import register_all_modules
 from app.services.ai_gateway.config_store import apply_from_db as apply_ai_settings_from_db
 from app.services.dashboard import register_dashboard_widgets
+from app.services.domotique.engine import domotique_loop
+from app.services.domotique.seed import seed_domotique
 from app.services.notifications.config_store import apply_vapid_from_db
 from app.services.rbac import seed_default_rbac
 
@@ -23,6 +25,7 @@ settings = get_settings()
 garmin_sync_task = None
 ad_sync_task = None
 sport_analysis_task = None
+domotique_task = None
 
 limiter = Limiter(
     key_func=get_remote_address,
@@ -32,7 +35,7 @@ limiter = Limiter(
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global garmin_sync_task, ad_sync_task
+    global garmin_sync_task, ad_sync_task, domotique_task
     await init_db()
     register_all_modules()
     register_dashboard_widgets()
@@ -42,11 +45,19 @@ async def lifespan(app: FastAPI):
         await _sync_module_statuses(db)
         await apply_ai_settings_from_db(db)
         await apply_vapid_from_db(db)
+        await seed_domotique(db)
         break
     garmin_sync_task = asyncio.create_task(_garmin_sync_loop())
     ad_sync_task = asyncio.create_task(_ad_sync_loop())
     sport_analysis_task = asyncio.create_task(_sport_analysis_loop())
+    domotique_task = asyncio.create_task(domotique_loop())
     yield
+    if domotique_task:
+        domotique_task.cancel()
+        try:
+            await domotique_task
+        except asyncio.CancelledError:
+            pass
     if sport_analysis_task:
         sport_analysis_task.cancel()
         try:
@@ -243,6 +254,7 @@ app.include_router(housing.router)
 app.include_router(maintenance.router)
 app.include_router(volunteer.router)
 app.include_router(sport.router)
+app.include_router(domotique.router)
 app.include_router(notifications.router)
 app.include_router(administrative.router)
 app.include_router(agenda.router)

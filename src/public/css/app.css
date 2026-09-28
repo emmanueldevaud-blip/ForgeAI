@@ -5189,3 +5189,99 @@
   .agenda-person-name { max-width: 120px; }
   .agenda-section-header h2 { font-size: var(--font-size-base); }
 }
+
+/* Domotique */
+.domo-page { display: flex; flex-direction: column; gap: var(--spacing-4); max-width: 1440px; }
+.domo-header { align-items: flex-end; }
+.domo-kicker, .domo-eyebrow { display: block; color: var(--color-primary); font-size: 0.68rem; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; }
+.domo-kicker { margin-bottom: var(--spacing-2); }
+.domo-flash { padding: var(--spacing-3) var(--spacing-4); border: 1px solid var(--color-border-light); border-left: 3px solid var(--color-primary); border-radius: var(--radius-md); background: var(--color-bg-secondary); font-size: var(--font-size-sm); }
+.domo-status-strip { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 1px; overflow: hidden; border: 1px solid var(--color-border-light); border-radius: var(--radius-lg); background: var(--color-border-light); }
+.domo-strip-item { display: flex; align-items: center; gap: var(--spacing-2); padding: var(--spacing-3) var(--spacing-4); background: var(--color-bg-secondary); font-size: var(--font-size-sm); }
+.domo-strip-item strong { color: var(--color-text-primary); }
+.domo-strip-label { color: var(--color-text-tertiary); font-size: var(--font-size-xs); }
+.domo-dot { flex: 0 0 9px; width: 9px; height: 9px; border-radius: var(--radius-full); background: var(--color-text-muted); }
+.domo-dot--ok { background: var(--color-success); }
+.domo-dot--warn { background: var(--color-warning); }
+.domo-dot--ko { background: var(--color-danger); }
+.domo-dot--idle { background: var(--color-text-muted); }
+.domo-cards { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--spacing-4); }
+.domo-card { min-width: 0; }
+.domo-card--big .domo-big { display: block; margin: var(--spacing-2) 0; color: var(--color-text-primary); font-size: clamp(1.6rem, 3vw, 2.3rem); font-weight: 700; line-height: 1; }
+.domo-range { display: flex; flex-wrap: wrap; gap: var(--spacing-3); color: var(--color-text-tertiary); font-size: var(--font-size-xs); }
+.domo-target { color: var(--color-text-secondary); font-weight: 600; }
+.domo-views, .domo-periods { display: flex; gap: var(--spacing-1); flex-wrap: wrap; }
+.domo-charts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--spacing-4); }
+.domo-chart-wrap { min-height: 180px; }
+.domo-chart { display: block; width: 100%; height: 180px; overflow: visible; }
+.domo-line { fill: none; stroke: var(--color-primary); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+.domo-line-target { fill: none; stroke: var(--color-warning); stroke-width: 1.5; stroke-dasharray: 5 4; }
+.domo-line-target-label { fill: var(--color-warning); font-size: 10px; }
+.domo-chart-labels { display: flex; justify-content: space-between; color: var(--color-text-muted); font-size: var(--font-size-xs); }
+.domo-progress { height: 10px; overflow: hidden; border-radius: var(--radius-full); background: var(--color-bg-tertiary); }
+.domo-progress i { display: block; height: 100%; border-radius: inherit; background: var(--color-primary); }
+.domo-progress-label { display: flex; justify-content: space-between; margin-bottom: var(--spacing-1); color: var(--color-text-tertiary); font-size: var(--font-size-xs); }
+.domo-loss { color: var(--color-text-primary); font-size: var(--font-size-xl); font-weight: 700; }
+.domo-phase-track { display: flex; flex-wrap: wrap; gap: var(--spacing-2); }
+.domo-phase { display: flex; flex-direction: column; min-width: 140px; padding: var(--spacing-3); border: 1px solid var(--color-border-light); border-radius: var(--radius-md); background: var(--color-bg-secondary); font-size: var(--font-size-xs); }
+.domo-phase strong { color: var(--color-text-primary); font-size: var(--font-size-sm); }
+.domo-phase--active { border-color: var(--color-primary); background: var(--color-primary-light); }
+.domo-phase--done { opacity: .65; }
+.domo-phase--pending { color: var(--color-text-muted); }
+.domo-cycle-grid { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(300px, 1fr); gap: var(--spacing-4); }
+.domo-outputs { display: grid; gap: var(--spacing-3); }
+.domo-output { display: flex; align-items: center; gap: var(--spacing-3); padding: var(--spacing-3); border: 1px solid var(--color-border-light); border-radius: var(--radius-md); background: var(--color-bg-secondary); }
+.domo-output-main { min-width: 0; flex: 1; }
+.domo-output-main strong, .domo-output-main small { display: block; }
+.domo-output-main small { color: var(--color-text-tertiary); font-size: var(--font-size-xs); }
+.domo-badge { display: inline-flex; align-items: center; padding: 2px 8px; border-radius: var(--radius-full); background: var(--color-bg-tertiary); color: var(--color-text-secondary); font-size: var(--font-size-xs); font-weight: 700; text-transform: capitalize; }
+.domo-badge--running { background: #dcfce7; color: #166534; }
+.domo-badge--preparing { background: #dbeafe; color: #1e40af; }
+.domo-badge--paused { background: #fef3c7; color: #92400e; }
+.domo-badge--completed { background: #e0e7ff; color: #3730a3; }
+.domo-badge--error, .domo-badge--stopped { background: #fee2e2; color: #991b1b; }
+.domo-badge--on { background: #dcfce7; color: #166534; }
+.domo-badge--off { background: var(--color-bg-tertiary); color: var(--color-text-tertiary); }
+.domo-badge--auto { background: #dbeafe; color: #1e40af; }
+.domo-badge--manual { background: #fef3c7; color: #92400e; }
+.domo-events { display: grid; gap: 1px; overflow: hidden; border: 1px solid var(--color-border-light); border-radius: var(--radius-md); background: var(--color-border-light); max-height: 380px; overflow-y: auto; }
+.domo-event { display: grid; grid-template-columns: 26px minmax(0, 1fr); gap: var(--spacing-2); padding: var(--spacing-3); background: var(--color-bg-primary); font-size: var(--font-size-sm); }
+.domo-event-icon { font-size: var(--font-size-base); }
+.domo-event-message { color: var(--color-text-primary); }
+.domo-event-time { color: var(--color-text-muted); font-size: var(--font-size-xs); }
+.domo-form { display: grid; gap: var(--spacing-3); }
+.domo-form label, .domo-form--2 label { display: flex; flex-direction: column; gap: var(--spacing-1); color: var(--color-text-secondary); font-size: var(--font-size-xs); font-weight: 600; }
+.domo-form--2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: var(--spacing-3); align-items: end; }
+.domo-form--2 .domo-span { grid-column: 1 / -1; }
+.domo-actions { display: flex; gap: var(--spacing-2); flex-wrap: wrap; align-items: center; }
+.domo-config-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--spacing-4); }
+.domo-config-row { display: flex; align-items: center; gap: var(--spacing-3); padding: var(--spacing-3) 0; border-bottom: 1px solid var(--color-border-light); font-size: var(--font-size-sm); }
+.domo-config-row:last-child { border-bottom: 0; }
+.domo-config-row > span { flex: 1; }
+.domo-config-row .form-control { width: 170px; }
+.domo-check { display: flex; align-items: center; gap: var(--spacing-2); white-space: nowrap; font-weight: 500; color: var(--color-text-secondary); }
+.domo-test { margin-top: var(--spacing-3); padding: var(--spacing-2) var(--spacing-3); border-radius: var(--radius-md); font-size: var(--font-size-sm); }
+.domo-test.is-ok { background: #dcfce7; color: #166534; }
+.domo-test.is-ko { background: #fee2e2; color: #991b1b; }
+.domo-profiles .card-header { flex-wrap: wrap; gap: var(--spacing-3); }
+.domo-table-wrap { overflow-x: auto; margin: var(--spacing-4) 0; }
+.domo-table { width: 100%; min-width: 980px; border-collapse: collapse; font-size: var(--font-size-xs); }
+.domo-table th { padding: var(--spacing-2); border-bottom: 2px solid var(--color-border-light); color: var(--color-text-tertiary); font-weight: 700; text-align: left; text-transform: uppercase; letter-spacing: .05em; }
+.domo-table td { padding: var(--spacing-2); border-bottom: 1px solid var(--color-border-light); }
+.domo-table td .form-control { min-width: 74px; padding: 6px var(--spacing-2); font-size: var(--font-size-xs); }
+.domo-table td:nth-child(2) .form-control { min-width: 140px; }
+
+@media (max-width: 1023px) {
+  .domo-cards, .domo-charts, .domo-config-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .domo-cycle-grid { grid-template-columns: 1fr; }
+}
+@media (max-width: 639px) {
+  .domo-status-strip, .domo-cards, .domo-charts, .domo-config-grid { grid-template-columns: 1fr; }
+  .domo-output { flex-wrap: wrap; }
+}
+
+.domo-big small { margin-left: 4px; color: var(--color-text-tertiary); font-size: var(--font-size-sm); font-weight: 600; }
+.domo-weight-detail { display: flex; align-items: baseline; justify-content: space-between; gap: var(--spacing-3); flex-wrap: wrap; margin-top: var(--spacing-2); font-size: var(--font-size-xs); color: var(--color-text-tertiary); }
+.domo-output.is-on { border-color: var(--color-primary); box-shadow: 0 0 0 1px var(--color-primary) inset; }
+.domo-output-actions { display: flex; gap: var(--spacing-2); margin-left: auto; flex-wrap: wrap; }
+.domo-chart-card .card-body { display: flex; flex-direction: column; gap: var(--spacing-2); }

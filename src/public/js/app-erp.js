@@ -33,6 +33,8 @@ import { createSportHealthPage } from './pages/SportHealthPage.js?v=1';
 import { createSportAnalysesPage } from './pages/SportAnalysesPage.js?v=1';
 import { createSportGoalsPage } from './pages/SportGoalsPage.js?v=1';
 import { createAgendaPage } from './pages/AgendaPage.js?v=24';
+import { createDomotiquePage } from './pages/DomotiquePage.js?v=1';
+import { createDomotiqueConfigPage } from './pages/DomotiqueConfigPage.js?v=1';
 
 const moduleRoutes = [
   'dashboard',
@@ -84,6 +86,8 @@ let sportHealthPage = null;
 let sportAnalysesPage = null;
 let sportGoalsPage = null;
 let agendaPage = null;
+let domotiquePage = null;
+let domotiqueConfigPage = null;
 
 async function initializeApp() {
   const app = document.getElementById('app');
@@ -245,6 +249,12 @@ async function initializeApp() {
     .addRoute('/sport/analyses', async (route) => {
       await showSportAnalysesPage(route);
     }, { requiresAuth: true, permissions: ['sport.analysis.read'] })
+    .addRoute('/domotique', async (route) => {
+      await showDomotiquePage(route);
+    }, { requiresAuth: true, permissions: ['domotique.view'] })
+    .addRoute('/domotique/config', async (route) => {
+      await showDomotiqueConfigPage(route);
+    }, { requiresAuth: true, permissions: ['domotique.configure'] })
     .addRoute('/agenda', async (route) => {
       await showAgendaPage(route);
     }, { requiresAuth: true, permissions: ['agenda.access'] })
@@ -584,6 +594,46 @@ async function showAgendaPage(route) {
     appShell.showContent(page.render());
   } catch (error) {
     console.error('Erreur affichage agenda:', error);
+    appShell.showError(error);
+  }
+}
+
+async function ensureDomotiquePage() {
+  if (!domotiquePage) {
+    domotiquePage = createDomotiquePage(router);
+  }
+  await domotiquePage.initialize();
+  return domotiquePage;
+}
+
+async function ensureDomotiqueConfigPage() {
+  if (!domotiqueConfigPage) {
+    domotiqueConfigPage = createDomotiqueConfigPage(router);
+  }
+  await domotiqueConfigPage.initialize();
+  return domotiqueConfigPage;
+}
+
+async function showDomotiquePage(route) {
+  if (!appShell) return;
+  appShell.showLoading();
+  try {
+    const page = await ensureDomotiquePage();
+    appShell.showContent(page.render());
+  } catch (error) {
+    console.error('Erreur affichage Domotique:', error);
+    appShell.showError(error);
+  }
+}
+
+async function showDomotiqueConfigPage(route) {
+  if (!appShell) return;
+  appShell.showLoading();
+  try {
+    const page = await ensureDomotiqueConfigPage();
+    appShell.showContent(page.render());
+  } catch (error) {
+    console.error('Erreur affichage configuration Domotique:', error);
     appShell.showError(error);
   }
 }

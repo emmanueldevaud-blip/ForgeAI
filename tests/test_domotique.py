@@ -520,13 +520,87 @@ async def test_alarm_notifications_on_drift_and_disconnect(domo_seed, db_session
     await db.commit()
     assert await notif_count() == before, "le cooldown anti-spam doit s'appliquer"
 
-    # 3) Alarme de deconnexion
+    # 3) Alarme de deconnexion reglee par comm_timeout_s
+    device.config_json = {**(device.config_json or {}), "comm_timeout_s": 600}
     device.status = "online"
-    device.last_seen = domotique_engine._now() - timedelta(minutes=5)
+    device.last_seen = domotique_engine._now() - timedelta(minutes=5)  # < 600 s
     await db.commit()
     before = await notif_count()
     await domotique_engine._check_communication(db, device, ok=False, error="timeout")
     await db.commit()
-    assert await notif_count() > before, "la deconnexion doit notifier"
+    assert await notif_count() == before, "le delai regle retarde l'alarme de deconnexion"
+    assert device.status != "offline", "pas encore hors ligne avant le delai"
+
+    device.status = "online"
+    device.last_seen = domotique_engine._now() - timedelta(minutes=11)  # > 600 s
+    await db.commit()
+    before = await notif_count()
+    await domotique_engine._check_communication(db, device, ok=False, error="timeout")
+    await db.commit()
+    assert await notif_count() > before, "la deconnexion doit notifier au dela du delai"
     titles = await notif_titles()
     assert any("injoignable" in title for title in titles), titles
+
+
+@pytest.mark.asyncio
+async def test_phase_drift_alarm_uses_configured_delta(client, admin_headers, domo_seed, db_session, admin_user):
+    from sqlalchemy import func, select
+
+    from app.models.domotique import (
+        DomotiqueDevice,
+        DomotiqueEvent,
+        DomotiqueProfile,
+        DomotiqueSensor,
+    )
+    from app.schemas.domotique import DomotiqueCycleCreate
+
+    updated = await client.put(
+        "/domotique/config",
+        headers=admin_headers,
+        json={
+            "alarm_temp_delta": 0.5,
+            "alarm_hum_delta": 4.0,
+            "comm_timeout_s": 60,
+        },
+    )
+    assert updated.status_code == 200
+    config = updated.json()["config"]
+    assert config["alarm_temp_delta"] == 0.5
+    assert config["alarm_hum_delta"] == 4.0
+    assert config["comm_timeout_s"] == 60
+
+    db = db_session
+    device = (await db.execute(select(DomotiqueDevice))).scalars().first()
+    device.base_url = "http://fake-raspberry.local"
+    sensors = {s.key: s for s in (await db.execute(select(DomotiqueSensor))).scalars().all()}
+    # Ecart de 0.6 °C : dans la tolerance de phase (± 1) mais hors delta configure (± 0.5)
+    sensors["temperature"].current_value = 23.6
+    sensors["humidity"].current_value = 90.0  # ecart 2 sous delta configure (± 4)
+    await db.commit()
+
+    profile = (await db.execute(select(DomotiqueProfile).order_by(DomotiqueProfile.id))).scalars().first()
+    cycle = await cycles_service.create_cycle(
+        db, device, DomotiqueCycleCreate(profile_id=profile.id, start_now=True)
+    )
+    phase = next(p for p in profile.phases if p.id == cycle.current_phase_id)
+
+    async def event_count(event_type: str) -> int:
+        return (
+            await db.execute(
+                select(func.count(DomotiqueEvent.id)).where(
+                    DomotiqueEvent.device_id == device.id,
+                    DomotiqueEvent.type == event_type,
+                )
+            )
+        ).scalar_one()
+
+    temp_before = await event_count("out_of_range_temperature")
+    hum_before = await event_count("out_of_range_humidity")
+    await domotique_engine._check_phase_ranges(db, device, cycle, phase, sensors)
+    await db.commit()
+    assert await event_count("out_of_range_temperature") > temp_before, (
+        "le delta d'alarme configure (0.5) prime sur la tolerance de phase (1)"
+    )
+    assert await event_count("out_of_range_humidity") == hum_before, (
+        "un ecart sous le delta configure (4) ne doit pas alarmer"
+    )

@@ -34,7 +34,7 @@ import { createSportAnalysesPage } from './pages/SportAnalysesPage.js?v=1';
 import { createSportGoalsPage } from './pages/SportGoalsPage.js?v=1';
 import { createAgendaPage } from './pages/AgendaPage.js?v=24';
 import { createDomotiquePage } from './pages/DomotiquePage.js?v=8';
-import { createDomotiqueConfigPage } from './pages/DomotiqueConfigPage.js?v=6';
+import { createDomotiqueConfigPage } from './pages/DomotiqueConfigPage.js?v=8';
 
 const moduleRoutes = [
   'dashboard',

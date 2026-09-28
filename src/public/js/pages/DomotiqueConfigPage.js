@@ -81,7 +81,6 @@ export class DomotiqueConfigPage {
     this.draftProfile.phases = (profile.phases || []).map((phase) => {
       const copy = { ...phase };
       // L'éditeur travaille en jours, la base reste en heures.
-      if (copy.min_duration_hours != null) copy.min_duration_hours = copy.min_duration_hours / 24;
       if (copy.max_duration_hours != null) copy.max_duration_hours = copy.max_duration_hours / 24;
       return copy;
     });
@@ -199,19 +198,33 @@ export class DomotiqueConfigPage {
     const values = config.config || {};
     return `
       <section class="card domo-card">
-        <div class="card-header"><div><span class="domo-eyebrow">SÉCURITÉ</span><h2>Seuils d’alerte</h2></div></div>
+        <div class="card-header"><div><span class="domo-eyebrow">ALARMES</span><h2>Seuils d’alerte</h2></div></div>
         <div class="card-body">
           <form data-thresholds-form class="domo-form--2">
+            <p class="domo-span domo-form-legend"><strong>Alarmes</strong></p>
+            <label>Écart alarme température (± °C)
+              <input class="form-control" name="alarm_temp_delta" type="number" step="0.1" min="0.1" value="${values.alarm_temp_delta ?? 1}">
+            </label>
+            <label>Écart alarme humidité (± % HR)
+              <input class="form-control" name="alarm_hum_delta" type="number" step="0.1" min="0.1" value="${values.alarm_hum_delta ?? 2}">
+            </label>
+            <label>Alarme déconnexion après (s)
+              <input class="form-control" name="comm_timeout_s" type="number" min="10" value="${values.comm_timeout_s ?? 90}">
+            </label>
+            <label>Anti-spam alertes (min)
+              <input class="form-control" name="alert_cooldown_min" type="number" min="1" value="${values.alert_cooldown_min ?? 30}">
+            </label>
+            <p class="domo-span domo-form-legend"><strong>Limites de sécurité</strong></p>
             <label>Température min (°C)<input class="form-control" name="temp_min" type="number" step="0.1" value="${values.temp_min ?? 5}"></label>
             <label>Température max (°C)<input class="form-control" name="temp_max" type="number" step="0.1" value="${values.temp_max ?? 30}"></label>
             <label>Humidité min (% HR)<input class="form-control" name="hum_min" type="number" step="0.1" value="${values.hum_min ?? 40}"></label>
             <label>Humidité max (% HR)<input class="form-control" name="hum_max" type="number" step="0.1" value="${values.hum_max ?? 99}"></label>
-            <label>Anti-spam alertes (min)<input class="form-control" name="alert_cooldown_min" type="number" min="1" value="${values.alert_cooldown_min ?? 30}"></label>
+            <p class="domo-span domo-form-legend"><strong>Autres réglages</strong></p>
             <label>Données obsolètes après (s)<input class="form-control" name="obsolete_after_s" type="number" min="15" value="${values.obsolete_after_s ?? 90}"></label>
             <label>Rétention historique (jours)<input class="form-control" name="retention_days" type="number" min="7" value="${values.retention_days ?? 90}"></label>
-            <div class="domo-actions"><button class="btn btn-primary" type="submit">Enregistrer</button></div>
+            <div class="domo-actions domo-span"><button class="btn btn-primary" type="submit">Enregistrer</button></div>
           </form>
-          <p class="text-muted"><small>Notifications envoyées aux utilisateurs ayant la permission « domotique.view ».</small></p>
+          <p class="text-muted"><small>Alarme envoyée si l’écart à la consigne de phase dépasse le seuil (en plus ou en moins), ou si le Raspberry ne répond plus depuis le délai indiqué. Anti-spam entre deux notifications.</small></p>
         </div>
       </section>`;
   }
@@ -309,7 +322,6 @@ export class DomotiqueConfigPage {
         <td><input class="form-control" data-phase-field="target_humidity" data-phase-index="${index}" type="number" step="0.1" value="${phase.target_humidity ?? ''}"></td>
         <td><input class="form-control" data-phase-field="tolerance_temperature" data-phase-index="${index}" type="number" step="0.1" value="${phase.tolerance_temperature ?? ''}"></td>
         <td><input class="form-control" data-phase-field="tolerance_humidity" data-phase-index="${index}" type="number" step="0.1" value="${phase.tolerance_humidity ?? ''}"></td>
-        <td><input class="form-control" data-phase-field="min_duration_hours" data-phase-index="${index}" type="number" step="0.5" min="0" value="${phase.min_duration_hours ?? ''}"></td>
         <td><input class="form-control" data-phase-field="max_duration_hours" data-phase-index="${index}" type="number" step="0.5" min="0" value="${phase.max_duration_hours ?? ''}"></td>
         <td><input class="form-control" data-phase-field="weight_loss_target_pct" data-phase-index="${index}" type="number" step="0.1" value="${phase.weight_loss_target_pct ?? ''}"></td>
         <td>
@@ -334,7 +346,7 @@ export class DomotiqueConfigPage {
             <thead>
               <tr>
                 <th>#</th><th>Nom</th><th>Target °C</th><th>Target %HR</th><th>Tol °C</th><th>Tol %HR</th>
-                <th>Min (j)</th><th>Max (j)</th><th>Perte cible %</th><th>Transition</th><th></th>
+                <th>Durée (j)</th><th>Perte cible %</th><th>Transition</th><th></th>
               </tr>
             </thead>
             <tbody>${phases}</tbody>
@@ -345,7 +357,7 @@ export class DomotiqueConfigPage {
           <button class="btn btn-secondary" type="button" data-action="add-phase">Ajouter une phase</button>
           ${draft.is_system ? '' : '<button class="btn btn-danger" type="button" data-action="delete-profile">Supprimer</button>'}
         </div>
-        <small class="text-muted">Transition « Durée » : passage à la phase suivante après la durée maximale. « Perte de poids » : lorsque le seuil de perte est atteint (laisser vide pour transition manuelle). « Manuelle » : passage via le bouton « Phase suivante » du cycle.</small>
+        <small class="text-muted">Transition « Durée » : passage à la phase suivante après la durée indiquée. « Perte de poids » : lorsque le seuil de perte est atteint (laisser vide pour transition manuelle). « Manuelle » : passage via le bouton « Phase suivante » du cycle.</small>
       </form>`;
   }
 
@@ -406,6 +418,9 @@ export class DomotiqueConfigPage {
         const data = new FormData(thresholdsForm);
         try {
           await updateDomotiqueConfig({
+            alarm_temp_delta: Number(data.get('alarm_temp_delta')),
+            alarm_hum_delta: Number(data.get('alarm_hum_delta')),
+            comm_timeout_s: Number(data.get('comm_timeout_s')),
             temp_min: Number(data.get('temp_min')),
             temp_max: Number(data.get('temp_max')),
             hum_min: Number(data.get('hum_min')),
@@ -414,7 +429,7 @@ export class DomotiqueConfigPage {
             obsolete_after_s: Number(data.get('obsolete_after_s')),
             retention_days: Number(data.get('retention_days')),
           });
-          this.message = 'Seuils enregistrés.';
+          this.message = 'Seuils d’alerte enregistrés.';
           this.config = await getDomotiqueConfig();
         } catch (error) {
           this.message = error.message || 'Échec de l’enregistrement.';
@@ -541,9 +556,7 @@ export class DomotiqueConfigPage {
             target_humidity: phase.target_humidity,
             tolerance_temperature: phase.tolerance_temperature,
             tolerance_humidity: phase.tolerance_humidity,
-            min_duration_hours: phase.min_duration_hours != null
-              ? Number(phase.min_duration_hours) * 24
-              : null,
+            min_duration_hours: null,
             max_duration_hours: phase.max_duration_hours != null
               ? Number(phase.max_duration_hours) * 24
               : null,

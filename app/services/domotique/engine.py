@@ -69,6 +69,9 @@ def _device_config(device: DomotiqueDevice) -> dict[str, Any]:
         ("obsolete_after_s", 90),
         ("cooler_min_off_s", 180),
         ("cooler_min_on_s", 120),
+        ("alarm_temp_delta", 1.0),
+        ("alarm_hum_delta", 2.0),
+        ("comm_timeout_s", 90),
     ):
         config.setdefault(key, default)
     return config
@@ -572,14 +575,15 @@ async def _check_phase_ranges(
     sensors: dict[str, DomotiqueSensor],
 ) -> None:
     """Journalise l'entree/sortie de la plage de consigne de la phase."""
+    config = _device_config(device)
     checks = [
-        ("out_of_range_temperature", sensors.get("temperature"), phase.target_temperature, phase.tolerance_temperature, "°C"),
-        ("out_of_range_humidity", sensors.get("humidity"), phase.target_humidity, phase.tolerance_humidity, "% HR"),
+        ("out_of_range_temperature", sensors.get("temperature"), phase.target_temperature, config["alarm_temp_delta"], "°C"),
+        ("out_of_range_humidity", sensors.get("humidity"), phase.target_humidity, config["alarm_hum_delta"], "% HR"),
     ]
-    for event_type, sensor, target, tolerance, unit in checks:
+    for event_type, sensor, target, tol, unit in checks:
         if sensor is None or not sensor.enabled or target is None or sensor.current_value is None:
             continue
-        tol = tolerance if tolerance is not None else (1.0 if unit == "°C" else 2.0)
+        tol = float(tol)
         value = sensor.current_value
         out = abs(value - target) > tol
         baseline_types = [event_type, event_type.replace("out_of_range", "in_range")]
@@ -658,7 +662,7 @@ async def _check_communication(
 ) -> None:
     previous = device.status
     config = _device_config(device)
-    stale_after = timedelta(seconds=int(config["obsolete_after_s"]))
+    stale_after = timedelta(seconds=int(config["comm_timeout_s"]))
 
     if ok:
         device.last_seen = _now()

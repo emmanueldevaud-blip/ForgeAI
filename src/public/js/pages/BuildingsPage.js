@@ -15,6 +15,9 @@ import {
   updateRoom,
   deleteRoom,
   listUsageTypes,
+  createUsageType,
+  updateUsageType,
+  deleteUsageType,
 } from '../services/buildingsApi.js';
 
 export class BuildingsPage {
@@ -105,6 +108,12 @@ export class BuildingsPage {
               : '<span class="status-badge inactive">Non</span>'
           },
         ];
+      case 'params':
+        return [
+          { key: 'code', label: 'Code', sortable: true },
+          { key: 'name', label: 'Nom', sortable: true },
+          { key: 'description', label: 'Description', sortable: false },
+        ];
       default:
         return [];
     }
@@ -115,6 +124,20 @@ export class BuildingsPage {
       return [
         { key: 'edit', label: 'Modifier', icon: 'edit', permission: 'building.update' },
         { key: 'delete', label: 'Supprimer', icon: 'trash', permission: 'building.delete' },
+      ];
+    }
+
+    if (this.currentView === 'params') {
+      const canManage = authStore.hasPermission('building.manage_refs');
+      if (!canManage) return [];
+      return [
+        { key: 'edit', label: 'Modifier', icon: 'edit', permission: 'building.manage_refs' },
+        { key: 'delete', label: item => item.usage_count > 0
+          ? `Suppression impossible (${item.usage_count} local${item.usage_count > 1 ? 'aux' : ''})`
+          : 'Supprimer',
+          icon: 'trash',
+          permission: 'building.manage_refs',
+          disabled: item => item.usage_count > 0,
       ];
     }
 
@@ -146,7 +169,12 @@ export class BuildingsPage {
         else if (this.currentView === 'buildings') this._openBuilding(item);
         break;
       case 'edit':
-        if (!authStore.hasPermission('building.update')) {
+        if (this.currentView === 'params') {
+          if (!authStore.hasPermission('building.manage_refs')) {
+            this.showToast(`Vous n'avez pas la permission de modifier les références.`, 'error');
+            return;
+          }
+        } else if (!authStore.hasPermission('building.update')) {
           const labelEdit = { sites: 'ce site', buildings: 'ce bâtiment', rooms: 'ce local' }[this.currentView];
           this.showToast(`Vous n'avez pas la permission de modifier ${labelEdit}.`, 'error');
           return;
@@ -154,7 +182,12 @@ export class BuildingsPage {
         this._openEditModal(item);
         break;
       case 'delete':
-        if (!authStore.hasPermission('building.delete')) {
+        if (this.currentView === 'params') {
+          if (!authStore.hasPermission('building.manage_refs')) {
+            this.showToast(`Vous n'avez pas la permission de supprimer les références.`, 'error');
+            return;
+          }
+        } else if (!authStore.hasPermission('building.delete')) {
           const labelDelete = { sites: 'ce site', buildings: 'ce bâtiment', rooms: 'ce local' }[this.currentView];
           this.showToast(`Vous n'avez pas la permission de supprimer ${labelDelete}.`, 'error');
           return;
@@ -180,6 +213,9 @@ export class BuildingsPage {
           break;
         case 'rooms':
           response = await listRooms({ page: this.page, page_size: this.pageSize, search: this.search || undefined, building_id: this.currentBuildingId, sort_by: this.sortBy, sort_order: this.sortOrder });
+          break;
+        case 'params':
+          response = await listUsageTypes({ page: this.page, page_size: this.pageSize, search: this.search || undefined, sort_by: this.sortBy, sort_order: this.sortOrder });
           break;
       }
       this.data = response.items || [];
@@ -264,13 +300,16 @@ export class BuildingsPage {
       sites: 'ce site',
       buildings: 'ce bâtiment',
       rooms: 'ce local',
+      params: 'cette référence',
     }[this.currentView];
 
     this.confirmDialog.open({
       title: 'Confirmer la suppression',
       message: this.currentView === 'rooms'
         ? `Toutes les données associées à ce local, notamment les équipements et occupations éventuels, seront supprimées.`
-        : `Êtes-vous sûr de vouloir supprimer ${typeLabel} ? Cette action est irréversible.`,
+        : this.currentView === 'params'
+          ? `Cette référence est utilisée par ${item.usage_count} local${item.usage_count > 1 ? 's' : ''}. La suppression est impossible.`  
+          : `Êtes-vous sûr de vouloir supprimer ${typeLabel} ? Cette action est irréversible.`,
       confirmText: this.currentView === 'rooms'
         ? 'Supprimer définitivement'
         : 'Supprimer',
@@ -292,6 +331,7 @@ export class BuildingsPage {
           sites: deleteSite,
           buildings: deleteBuilding,
           rooms: deleteRoom,
+          params: deleteUsageType,
         }[this.currentView];
         if (deleteFn) {
           const force = this.currentView === 'rooms';
@@ -309,6 +349,7 @@ export class BuildingsPage {
     const isEdit = !!item;
     const type = this.currentView === 'sites' ? 'site'
       : this.currentView === 'buildings' ? 'building'
+      : this.currentView === 'params' ? 'params'
       : 'room';
 
     if (type === 'room') {
@@ -324,6 +365,7 @@ export class BuildingsPage {
       site: 'un site',
       building: 'un bâtiment',
       room: 'un local',
+      params: 'une référence',
     }[type];
 
     const overlay = document.createElement('div');
@@ -354,6 +396,12 @@ export class BuildingsPage {
         <div class="form-group"><label>Nombre d'étages (info)</label><input name="floors_count" type="number" value="${v('floors_count')}"></div>
         <div class="form-group"><label>Description</label><textarea name="description">${this._escapeHtml(v('description'))}</textarea></div>
         ${!isEdit ? `<input type="hidden" name="site_id" value="${this.currentSiteId}">` : ''}
+      `;
+    } else if (type === 'params') {
+      fields = `
+        <div class="form-group"><label>Code</label><input name="code" value="${this._escapeHtml(v('code'))}" required></div>
+        <div class="form-group"><label>Nom</label><input name="name" value="${this._escapeHtml(v('name'))}" required></div>
+        <div class="form-group"><label>Description</label><textarea name="description">${this._escapeHtml(v('description'))}</textarea></div>
       `;
     } else if (type === 'room') {
       const usageOptions = this.usageTypes.map(ut =>
@@ -455,11 +503,13 @@ export class BuildingsPage {
           site: createSite,
           building: createBuilding,
           room: createRoom,
+          params: createUsageType,
         }[type];
         const updateFn = {
           site: updateSite,
           building: updateBuilding,
           room: updateRoom,
+          params: updateUsageType,
         }[type];
         if (isEdit) {
           await updateFn(item.id, data);
@@ -565,7 +615,15 @@ export class BuildingsPage {
       this._searchTimeout = setTimeout(() => { this.page = 1; this.loadData(); }, 300);
     });
 
-    this.element.querySelector('[data-page="prev"]')?.addEventListener('click', () => { if (this.page > 1) { this.page--; this.loadData(); } });
+    // Gestion des tabs en haut de page    this.element.querySelectorAll('.tab-button')?.forEach(btn => {      btn.addEventListener('click', (e) => {        const tab = btn.dataset.tab;        this.currentTab = tab;        if (tab === 'params') {
+          this.currentView = 'params';
+          this.currentBuildingId = null;
+          this.currentSite = null;
+        } else {
+          this.currentView = 'sites';
+          this.currentBuildingId = null;
+          this.currentSite = null;
+        }        this._refresh();        // Mise à jour visuelle        const active = this.element.querySelector('.tab-button--active');        if (active) active.classList.remove('tab-button--active');        btn.classList.add('tab-button--active');        e.preventDefault();        e.stopPropagation();        btn.focus();      });    });    this.element.querySelector('[data-page="prev"]')?.addEventListener('click', () => { if (this.page > 1) { this.page--; this.loadData(); } });
     this.element.querySelector('[data-page="next"]')?.addEventListener('click', () => { if (this.page < this.totalPages) { this.page++; this.loadData(); } });
 
     this._renderTable();

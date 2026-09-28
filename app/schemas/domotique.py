@@ -239,6 +239,9 @@ class DomotiqueConfigUpdate(BaseModel):
     obsolete_after_s: Optional[int] = Field(default=None, ge=15, le=3600)
     cooler_min_off_s: Optional[int] = Field(default=None, ge=0, le=3600)
     cooler_min_on_s: Optional[int] = Field(default=None, ge=0, le=3600)
+    alarm_temp_delta: Optional[float] = Field(default=None, ge=0.1, le=50)
+    alarm_hum_delta: Optional[float] = Field(default=None, ge=0.1, le=100)
+    comm_timeout_s: Optional[int] = Field(default=None, ge=10, le=3600)
 
 
 class DomotiqueConfigTestRequest(BaseModel):

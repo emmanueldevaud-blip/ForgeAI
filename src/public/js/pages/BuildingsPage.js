@@ -138,6 +138,7 @@ export class BuildingsPage {
           icon: 'trash',
           permission: 'building.manage_refs',
           disabled: item => item.usage_count > 0,
+        },
       ];
     }
 
@@ -615,7 +616,12 @@ export class BuildingsPage {
       this._searchTimeout = setTimeout(() => { this.page = 1; this.loadData(); }, 300);
     });
 
-    // Gestion des tabs en haut de page    this.element.querySelectorAll('.tab-button')?.forEach(btn => {      btn.addEventListener('click', (e) => {        const tab = btn.dataset.tab;        this.currentTab = tab;        if (tab === 'params') {
+    // Gestion des tabs en haut de page
+    this.element.querySelectorAll('.tab-button')?.forEach((btn) => {
+      btn.addEventListener('click', (e) => {
+        const tab = btn.dataset.tab;
+        this.currentTab = tab;
+        if (tab === 'params') {
           this.currentView = 'params';
           this.currentBuildingId = null;
           this.currentSite = null;
@@ -623,8 +629,24 @@ export class BuildingsPage {
           this.currentView = 'sites';
           this.currentBuildingId = null;
           this.currentSite = null;
-        }        this._refresh();        // Mise à jour visuelle        const active = this.element.querySelector('.tab-button--active');        if (active) active.classList.remove('tab-button--active');        btn.classList.add('tab-button--active');        e.preventDefault();        e.stopPropagation();        btn.focus();      });    });    this.element.querySelector('[data-page="prev"]')?.addEventListener('click', () => { if (this.page > 1) { this.page--; this.loadData(); } });
-    this.element.querySelector('[data-page="next"]')?.addEventListener('click', () => { if (this.page < this.totalPages) { this.page++; this.loadData(); } });
+        }
+        this._refresh();
+        // Mise à jour visuelle
+        const active = this.element.querySelector('.tab-button--active');
+        if (active) active.classList.remove('tab-button--active');
+        btn.classList.add('tab-button--active');
+        e.preventDefault();
+        e.stopPropagation();
+        btn.focus();
+      });
+    });
+
+    this.element.querySelector('[data-page="prev"]')?.addEventListener('click', () => {
+      if (this.page > 1) { this.page--; this.loadData(); }
+    });
+    this.element.querySelector('[data-page="next"]')?.addEventListener('click', () => {
+      if (this.page < this.totalPages) { this.page++; this.loadData(); }
+    });
 
     this._renderTable();
 

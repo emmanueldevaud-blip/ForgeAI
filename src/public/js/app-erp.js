@@ -5,7 +5,7 @@ import { createModulePlaceholderPage } from './pages/ModulePlaceholder.js?v=3';
 import { createLoginPage } from './pages/LoginPage.js';
 import { createRegisterPage } from './pages/RegisterPage.js';
 import { createAdministrationPage } from './pages/AdministrationPage.js?v=4';
-import { createBuildingsPage } from './pages/BuildingsPage.js';
+import { createBuildingsPage } from './pages/BuildingsPage.js?v=4';
 import { createBuildingRefsPage } from './pages/BuildingRefsPage.js';
 import { createEquipmentPage } from './pages/EquipmentPage.js';
 import { createEquipmentRefsPage } from './pages/EquipmentRefsPage.js';

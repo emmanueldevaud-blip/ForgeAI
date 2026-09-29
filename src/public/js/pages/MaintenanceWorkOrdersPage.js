@@ -64,7 +64,7 @@ export class MaintenanceWorkOrdersPage {
       ],
       actions: [
         { key: 'view', label: 'Voir', icon: 'eye' },
-        { key: 'edit', label: 'Modifier', icon: 'edit', disabled: (item) => !authStore.hasPermission('maintenance.update') },
+        { key: 'edit', label: 'Modifier', icon: 'edit', disabled: (item) => !authStore.hasPermission('maintenance.view') },
       ],
       onAction: (action, item) => this._handleAction(action, item),
       emptyMessage: 'Aucun ordre de travail trouvé',
@@ -117,7 +117,7 @@ export class MaintenanceWorkOrdersPage {
           <p class="page-subtitle">Gestion des ordres de travail</p>
         </div>
         <div class="page-header-right">
-          ${authStore.hasPermission('maintenance.create') ? '<button class="btn btn-primary" data-action="create">+ Nouvel OT</button>' : ''}
+          ${authStore.hasPermission('maintenance.view') ? '<button class="btn btn-primary" data-action="create">+ Nouvel OT</button>' : ''}
         </div>
       </div>
       <div class="page-filters">
@@ -211,7 +211,7 @@ export class MaintenanceWorkOrdersPage {
             </div>
             <div class="modal-footer">
               <button class="btn btn-secondary" data-action="close">Fermer</button>
-              ${full.status !== 'completed' && full.status !== 'cancelled' && authStore.hasPermission('maintenance.update') ? `<button class="btn btn-primary" data-action="edit">Modifier</button>` : ''}
+              ${full.status !== 'completed' && full.status !== 'cancelled' && authStore.hasPermission('maintenance.view') ? `<button class="btn btn-primary" data-action="edit">Modifier</button>` : ''}
             </div>
           </div>
         </div>

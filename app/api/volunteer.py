@@ -2,8 +2,9 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
-from app.api.deps import get_db, get_current_active_user
+from app.api.deps import get_db, get_current_active_user, require_any_permission, require_permission
 from app.models.volunteer import Volunteer
+from app.models.user import User
 from app.schemas.volunteer import VolunteerCreate, VolunteerUpdate, VolunteerResponse
 from app.services.volunteer import VolunteerService
 
@@ -18,6 +19,7 @@ async def list_volunteers(
     limit: int = 100,
     usage_type: str | None = None,
     is_active: bool | None = None,
+    current_user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
     """List all volunteers."""
@@ -28,6 +30,7 @@ async def list_volunteers(
 @router.post("/", response_model=VolunteerResponse, status_code=status.HTTP_201_CREATED)
 async def create_volunteer(
     volunteer_in: VolunteerCreate,
+    current_user: User = Depends(require_permission("volunteers.manage")),
     db: AsyncSession = Depends(get_db),
 ):
     """Create a new volunteer."""
@@ -41,6 +44,7 @@ async def create_volunteer(
 @router.get("/{volunteer_id}", response_model=VolunteerResponse)
 async def get_volunteer(
     volunteer_id: int,
+    current_user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
     """Get a specific volunteer by ID."""
@@ -57,6 +61,11 @@ async def get_volunteer(
 async def update_volunteer(
     volunteer_id: int,
     volunteer_in: VolunteerUpdate,
+    # Écriture autorisée à la gestion des volontaires (page volontaires) ou à
+    # la configuration Active Directory (liaison ad_dn depuis la page AD).
+    current_user: User = Depends(
+        require_any_permission("volunteers.manage", "ad_config")
+    ),
     db: AsyncSession = Depends(get_db),
 ):
     """Update a volunteer."""
@@ -75,6 +84,7 @@ async def update_volunteer(
 @router.delete("/{volunteer_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_volunteer(
     volunteer_id: int,
+    current_user: User = Depends(require_permission("volunteers.manage")),
     db: AsyncSession = Depends(get_db),
 ):
     """Delete a volunteer."""

@@ -11,7 +11,7 @@ export class AdministrationPage {
     this.element = null;
     this.currentTab = 'users';
     this.tabs = [
-      { id: 'users', label: 'Utilisateurs', permission: 'user_view', component: null },
+      { id: 'users', label: 'Utilisateurs', permission: 'admin.access', component: null },
       { id: 'groups', label: 'Groupes', permission: 'group_view', component: null },
       { id: 'roles', label: 'Rôles', permission: 'role_view', component: null },
       { id: 'permissions', label: 'Permissions', permission: 'permission_view', component: null },

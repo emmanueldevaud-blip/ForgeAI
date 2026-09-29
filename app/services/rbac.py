@@ -429,6 +429,9 @@ async def seed_default_rbac(db: AsyncSession) -> None:
         ("role_delete", "Supprimer des rôles", "rbac"),
         ("role_manage_permissions", "Gérer les permissions des rôles", "rbac"),
         ("permission_view", "Voir les permissions", "rbac"),
+        ("permission_create", "Créer des permissions", "rbac"),
+        ("permission_update", "Modifier des permissions", "rbac"),
+        ("permission_delete", "Supprimer des permissions", "rbac"),
         ("module_view", "Voir les modules", "module"),
         ("module_enable", "Activer des modules", "module"),
         ("module_disable", "Désactiver des modules", "module"),
@@ -473,6 +476,7 @@ async def seed_default_rbac(db: AsyncSession) -> None:
         ("housing.manage_email_templates", "Gérer les modèles d'emails", "housing"),
         ("housing.send_emails", "Envoyer des emails", "housing"),
         ("volunteers.view", "Consulter les volontaires", "volunteers"),
+        ("volunteers.manage", "Gérer les volontaires", "volunteers"),
         ("ai.use", "Utiliser l'assistant IA", "ai"),
         ("sport.access", "Accéder au module Sport", "sport"),
         ("sport.activities.read", "Consulter les activités sportives", "sport"),
@@ -501,16 +505,15 @@ async def seed_default_rbac(db: AsyncSession) -> None:
     
     default_roles = [
         ("admin", "Administrateur", "Rôle administrateur avec tous les droits", True),
-        ("super_admin", "Super Administrateur", "Rôle super administrateur avec tous les droits", True),
         ("user", "Utilisateur", "Rôle utilisateur standard", True),
     ]
-    
+
     for code, name, description, is_system in default_roles:
         role = await rbac.get_role_by_code(code)
         if not role:
             role = await rbac.create_role(code, name, description=description, is_system=is_system)
 
-        if code in ("admin", "super_admin"):
+        if code == "admin":
             all_perms = await db.execute(select(PermissionModel))
             all_perms = all_perms.scalars().all()
             for perm in all_perms:

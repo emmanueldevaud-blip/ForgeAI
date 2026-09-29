@@ -46,7 +46,7 @@ export class MaintenancePreventivePage {
       ],
       actions: [
         { key: 'view', label: 'Voir', icon: 'eye' },
-        { key: 'edit', label: 'Modifier', icon: 'edit', disabled: (item) => !authStore.hasPermission('maintenance.update') },
+        { key: 'edit', label: 'Modifier', icon: 'edit', disabled: (item) => !authStore.hasPermission('maintenance.plan') },
       ],
       onAction: (action, item) => this._handleAction(action, item),
       emptyMessage: 'Aucun plan de maintenance trouvé',
@@ -97,7 +97,7 @@ export class MaintenancePreventivePage {
           <p class="page-subtitle">Plans de maintenance préventive</p>
         </div>
         <div class="page-header-right">
-          ${authStore.hasPermission('maintenance.create') ? '<button class="btn btn-primary" data-action="create">+ Nouveau plan</button>' : ''}
+          ${authStore.hasPermission('maintenance.plan') ? '<button class="btn btn-primary" data-action="create">+ Nouveau plan</button>' : ''}
         </div>
       </div>
       <div class="page-filters">

@@ -744,27 +744,3 @@ async def get_planning(
     import json
     housing_id_list = json.loads(housing_ids) if housing_ids else None
     return await service.get_planning(start_date, end_date, view, housing_id_list, status_filter, include_completed)
-
-
-# ============================================================
-# OCCUPANCY WITH MULTIPLE OCCUPANTS
-# ============================================================
-
-@router.post("/occupancies", response_model=OccupancyResponse, status_code=201)
-async def create_occupancy(
-    data: OccupancyCreate,
-    service: HousingService = Depends(get_occupancy_manage_service),
-):
-    return await service.create_occupancy(data.model_dump())
-
-
-@router.patch("/occupancies/{occupancy_id}", response_model=OccupancyResponse)
-async def update_occupancy(
-    occupancy_id: int,
-    data: OccupancyUpdate,
-    service: HousingService = Depends(get_occupancy_manage_service),
-):
-    item = await service.update_occupancy(occupancy_id, data.model_dump(exclude_unset=True))
-    if not item:
-        raise HTTPException(status_code=404, detail="Occupation non trouvée")
-    return item

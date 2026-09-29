@@ -53,8 +53,8 @@ export class MaintenanceRequestsPage {
       ],
       actions: [
         { key: 'view', label: 'Voir', icon: 'eye' },
-        { key: 'edit', label: 'Modifier', icon: 'edit', disabled: (item) => !authStore.hasPermission('maintenance.update') },
-        { key: 'create_wo', label: 'Créer OT', icon: 'tool', disabled: (item) => !authStore.hasPermission('maintenance.create') || item.status === 'completed' || item.status === 'cancelled' },
+        { key: 'edit', label: 'Modifier', icon: 'edit', disabled: (item) => !authStore.hasPermission('maintenance.view') },
+        { key: 'create_wo', label: 'Créer OT', icon: 'tool', disabled: (item) => !authStore.hasPermission('maintenance.view') || item.status === 'completed' || item.status === 'cancelled' },
       ],
       onAction: (action, item) => this._handleAction(action, item),
       emptyMessage: 'Aucune demande trouvée',
@@ -109,7 +109,7 @@ export class MaintenanceRequestsPage {
           <p class="page-subtitle">Gestion des demandes d'intervention</p>
         </div>
         <div class="page-header-right">
-          ${authStore.hasPermission('maintenance.create') ? '<button class="btn btn-primary" data-action="create">+ Nouvelle demande</button>' : ''}
+          ${authStore.hasPermission('maintenance.view') ? '<button class="btn btn-primary" data-action="create">+ Nouvelle demande</button>' : ''}
         </div>
       </div>
       <div class="page-filters">
@@ -181,7 +181,7 @@ export class MaintenanceRequestsPage {
             </div>
             <div class="modal-footer">
               <button class="btn btn-secondary" data-action="close">Fermer</button>
-              ${full.status !== 'completed' && full.status !== 'cancelled' && authStore.hasPermission('maintenance.create') ? `<button class="btn btn-primary" data-action="create_wo">Créer OT</button>` : ''}
+              ${full.status !== 'completed' && full.status !== 'cancelled' && authStore.hasPermission('maintenance.view') ? `<button class="btn btn-primary" data-action="create_wo">Créer OT</button>` : ''}
             </div>
           </div>
         </div>

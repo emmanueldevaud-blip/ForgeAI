@@ -447,7 +447,7 @@ async def get_settings_ai_stats(
 
 async def get_admin_service(
     current_user: User = Depends(
-        require_permission("user_view")
+        require_permission("admin.access")
     ),
     db: AsyncSession = Depends(get_db),
 ) -> AdminUserService:
@@ -1539,7 +1539,7 @@ async def list_users(
 async def get_user_permissions(
     user_id: int,
     current_user: User = Depends(
-        require_permission("user_view")
+        require_permission("admin.access")
     ),
     db: AsyncSession = Depends(get_db),
 ):

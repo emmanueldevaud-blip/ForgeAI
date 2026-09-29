@@ -45,7 +45,7 @@ export class MaintenanceContractsPage {
       ],
       actions: [
         { key: 'view', label: 'Voir', icon: 'eye' },
-        { key: 'edit', label: 'Modifier', icon: 'edit', disabled: (item) => !authStore.hasPermission('maintenance.update') },
+        { key: 'edit', label: 'Modifier', icon: 'edit', disabled: (item) => !authStore.hasPermission('maintenance.manage_contracts') },
       ],
       onAction: (action, item) => this._handleAction(action, item),
       emptyMessage: 'Aucun contrat trouvé',
@@ -96,7 +96,7 @@ export class MaintenanceContractsPage {
           <p class="page-subtitle">Gestion des contrats de maintenance</p>
         </div>
         <div class="page-header-right">
-          ${authStore.hasPermission('maintenance.create') ? '<button class="btn btn-primary" data-action="create">+ Nouveau contrat</button>' : ''}
+          ${authStore.hasPermission('maintenance.manage_contracts') ? '<button class="btn btn-primary" data-action="create">+ Nouveau contrat</button>' : ''}
         </div>
       </div>
       <div class="page-filters">

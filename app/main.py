@@ -6,12 +6,12 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
-from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
-from slowapi.util import get_remote_address
 
 from app.api import auth, audit, buildings, dashboard, domotique, equipment, housing, maintenance, modules, admin, volunteer, sport, administrative, agenda, notifications
 from app.core.config import get_settings
+from app.core.limiter import limiter
 from app.db.session import close_db, init_db
 from app.modules import register_all_modules
 from app.services.ai_gateway.config_store import apply_from_db as apply_ai_settings_from_db
@@ -26,11 +26,6 @@ garmin_sync_task = None
 ad_sync_task = None
 sport_analysis_task = None
 domotique_task = None
-
-limiter = Limiter(
-    key_func=get_remote_address,
-    default_limits=[f"{settings.RATE_LIMIT_REQUESTS}/{settings.RATE_LIMIT_WINDOW_SECONDS}seconds"] if settings.RATE_LIMIT_ENABLED else [],
-)
 
 
 @asynccontextmanager

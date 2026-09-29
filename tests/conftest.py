@@ -1,5 +1,10 @@
 import os
 
+# Rate limiting slowapi désactivé pendant la suite de tests : les tests
+# créent beaucoup de sessions et dépasseraient le quota (10/60s).
+# Le comportement du quota est vérifié dans tests/test_security_fixes.py.
+os.environ["RATE_LIMIT_ENABLED"] = "false"
+
 import pytest
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import select

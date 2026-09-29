@@ -126,7 +126,7 @@ async function initializeApp() {
     }, { requiresAuth: true, permissions: ['admin.access'] })
     .addRoute('/administration/users', async (route) => {
       await showAdministrationPage(route);
-    }, { requiresAuth: true, permissions: ['user_view'] })
+    }, { requiresAuth: true, permissions: ['admin.access'] })
     .addRoute('/administration/groups', async (route) => {
       await showAdministrationPage(route);
     }, { requiresAuth: true, permissions: ['group_view'] })

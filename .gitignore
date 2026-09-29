@@ -55,4 +55,7 @@ logs/
 # Docker
 .docker/
 .aider*
+
+# Secrets / sessions locales
+cookies.txt
 new_cookies.txt

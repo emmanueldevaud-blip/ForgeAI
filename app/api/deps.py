@@ -64,23 +64,10 @@ async def require_admin(
     db: AsyncSession = Depends(get_db),
 ) -> User:
     rbac = RBACService(db)
-    if not await rbac.user_has_permission(current_user, "user_view"):
+    if not await rbac.user_has_permission(current_user, "admin.access"):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Accès administrateur requis",
-        )
-    return current_user
-
-
-async def require_super_admin(
-    current_user: User = Depends(get_current_active_user),
-    db: AsyncSession = Depends(get_db),
-) -> User:
-    rbac = RBACService(db)
-    if not await rbac.user_has_permission(current_user, "user_view"):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Accès super administrateur requis",
         )
     return current_user
 

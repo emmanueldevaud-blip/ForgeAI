@@ -134,7 +134,7 @@ export class CleaningVolunteersPage {
           <p class="page-subtitle">Gestion des volontaires ménage et maintenance</p>
         </div>
         <div class="page-header-right">
-          <button class="btn btn-primary" data-action="create">+ Ajouter un volontaire</button>
+          ${authStore.hasPermission('volunteers.manage') ? '<button class="btn btn-primary" data-action="create">+ Ajouter un volontaire</button>' : ''}
         </div>
       </div>
       <div class="page-filters" style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;">

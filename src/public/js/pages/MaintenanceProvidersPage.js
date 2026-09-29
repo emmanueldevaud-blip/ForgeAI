@@ -31,7 +31,7 @@ export class MaintenanceProvidersPage {
         { key: 'is_active', label: 'Statut', sortable: true, render: (item) => `<span class="status-badge status-${item.is_active ? 'active' : 'inactive'}">${item.is_active ? 'Actif' : 'Inactif'}</span>` },
       ],
       actions: [
-        { key: 'edit', label: 'Modifier', icon: 'edit', disabled: (item) => !authStore.hasPermission('maintenance.update') },
+        { key: 'edit', label: 'Modifier', icon: 'edit', disabled: (item) => !authStore.hasPermission('maintenance.manage_providers') },
       ],
       onAction: (action, item) => this._handleAction(action, item),
       emptyMessage: 'Aucun prestataire trouvé',
@@ -78,7 +78,7 @@ export class MaintenanceProvidersPage {
           <p class="page-subtitle">Gestion des prestataires de maintenance</p>
         </div>
         <div class="page-header-right">
-          ${authStore.hasPermission('maintenance.create') ? '<button class="btn btn-primary" data-action="create">+ Nouveau prestataire</button>' : ''}
+          ${authStore.hasPermission('maintenance.manage_providers') ? '<button class="btn btn-primary" data-action="create">+ Nouveau prestataire</button>' : ''}
         </div>
       </div>
       <div class="page-filters">

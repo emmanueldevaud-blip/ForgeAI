@@ -79,7 +79,7 @@ export class HousingUnavailabilitiesPage {
           key: 'delete',
           label: 'Supprimer',
           icon: 'trash',
-          disabled: (item) => !authStore.hasPermission('housing.delete'),
+          disabled: (item) => !authStore.hasPermission('housing.manage_unavailabilities'),
         },
       ],
       onAction: (action, item) => this._handleAction(action, item),
@@ -163,7 +163,7 @@ export class HousingUnavailabilitiesPage {
           <p class="page-subtitle">Gestion des periodes d'indisponibilite</p>
         </div>
         <div class="page-header-right">
-          ${authStore.hasPermission('housing.create') ? '<button class="btn btn-primary" data-action="create">+ Nouvelle indisponibilite</button>' : ''}
+          ${authStore.hasPermission('housing.manage_unavailabilities') ? '<button class="btn btn-primary" data-action="create">+ Nouvelle indisponibilite</button>' : ''}
         </div>
       </div>
       <div class="page-filters">

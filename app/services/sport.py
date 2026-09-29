@@ -208,12 +208,19 @@ class SportService:
             if context is None:
                 return False
             answer = await get_sport_ai_provider().answer(
-                "Raconte-moi cette sortie comme si on la débriefait ensemble après : ce que ça raconte, "
-                "ce qui est passé bien, ce qui peut progresser, puis un conseil pour la prochaine fois. "
-                "Appuie-toi sur toutes les données détaillées à disposition quand elles éclairent le propos : "
-                "courbe minute par minute, segments kilométriques, cadence, puissance, dénivelé. "
-                "Ton naturel de coach, en discutant — pas de tableau ni de liste de pourcentages. "
-                "Finis sur une note motivante avec une pointe d'humour.",
+                "Raconte-moi cette sortie comme si on la débriefait ensemble après la douche : "
+                "ce que les chiffres racontent, ce qui a bien fonctionné, ce qui peut progresser, "
+                "puis un conseil concret pour la suite. Appuie-toi sur toutes les données détaillées "
+                "quand elles éclairent le propos : courbe minute par minute, segments kilométriques, "
+                "cadence, puissance, dénivelé, FC. Ton naturel de coach complice : phrases courtes, "
+                "vocabulaire simple, tutoiement, humour léger et décalé présent naturellement "
+                "(~1 touche, 0 si fatigue, 2 si long), jamais forcé. Vocabulaire trail/endurance "
+                "occasionnel bienvenu (D+, cailloux, sentiers, ravitaillement, mental, bâtons). "
+                "Compare avec l'historique : tendances > donnée isolée. Pas de félicitations vides : "
+                "félicite sur la base des données. Séance difficile = humour doux, explicatif, jamais "
+                "culpabilisant. Fatigue = humour réduit, priorité récup. Structure libre mais claire : "
+                "ce que je vois / ce que ça signifie / mon avis / petite touche coach. "
+                "Termine sur un conseil applicable et une note motivante.",
                 context,
             )
             stored.ai_analysis_json = {"answer": answer.get("answer"), "provider": answer.get("provider"), "sources": answer.get("sources", [])}

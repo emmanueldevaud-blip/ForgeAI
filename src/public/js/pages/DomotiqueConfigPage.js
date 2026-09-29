@@ -214,7 +214,6 @@ export class DomotiqueConfigPage {
             <label>Anti-spam alertes (min)
               <input class="form-control" name="alert_cooldown_min" type="number" min="1" value="${values.alert_cooldown_min ?? 30}">
             </label>
-            <p class="domo-span domo-form-legend"><strong>Limites de sécurité</strong></p>
             <label>Température min (°C)<input class="form-control" name="temp_min" type="number" step="0.1" value="${values.temp_min ?? 5}"></label>
             <label>Température max (°C)<input class="form-control" name="temp_max" type="number" step="0.1" value="${values.temp_max ?? 30}"></label>
             <label>Humidité min (% HR)<input class="form-control" name="hum_min" type="number" step="0.1" value="${values.hum_min ?? 40}"></label>

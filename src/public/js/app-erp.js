@@ -608,6 +608,7 @@ async function showSportDashboardPage(route) {
   try {
     const page = await ensureSportDashboardPage();
     await page.initialize();
+    if (router.getCurrentRoute()?.path !== '/sport') return;
     appShell.showContent(page.render());
   } catch (error) {
     console.error('Erreur affichage Sport:', error);
@@ -622,6 +623,7 @@ async function showSportActivitiesPage(route) {
     const page = await ensureSportActivitiesPage();
     appShell.showContent(page.render());
     await page.initialize();
+    if (router.getCurrentRoute()?.path !== '/sport/activities') return;
     appShell.showContent(page.render());
   } catch (error) {
     console.error('Erreur affichage activités sportives:', error);

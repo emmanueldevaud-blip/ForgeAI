@@ -55,6 +55,7 @@ class AdminPasswordReset(BaseModel):
 class UserResponse(UserBase):
     model_config = ConfigDict(from_attributes=True)
 
+    email: str
     id: int
     is_active: bool
     role: str

@@ -177,13 +177,22 @@ export class DomotiquePage {
   render() {
     this._stopPolling();
     const previous = this.element;
-    this.element = document.createElement('div');
-    this.element.className = 'page-content domo-page';
-    this._renderContent();
-    this._bindEvents();
-    if (previous && previous.isConnected) previous.replaceWith(this.element);
+    const element = document.createElement('div');
+    element.className = 'page-content domo-page';
+    this.element = element;
+    try {
+      this._renderContent();
+      this._bindEvents();
+    } catch (error) {
+      // Un échec de rendu ne doit pas détacher la page : on remet l'ancien nœud
+      // en place, sinon les clics suivants n'auraient plus aucun effet.
+      this.element = previous;
+      this._startPolling();
+      throw error;
+    }
+    if (previous && previous.isConnected) previous.replaceWith(element);
     this._startPolling();
-    return this.element;
+    return element;
   }
 
   _renderContent() {
@@ -812,7 +821,7 @@ export class DomotiquePage {
       }
     }
     const started = cycle.started_at
-      ? this._parseUTCToLocale(cycle.started_at)('fr-FR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
+      ? this._parseUTCToLocale(cycle.started_at, { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
       : '—';
     const weightBlock = cycle.initial_weight != null ? `
       <div class="domo-weight-detail">
@@ -981,7 +990,7 @@ export class DomotiquePage {
         }
       }
       const started = cycle.started_at
-        ? this._parseUTCToLocale(cycle.started_at)('fr-FR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
+        ? this._parseUTCToLocale(cycle.started_at, { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
         : '—';
       const weightBlock = cycle.initial_weight != null ? `
         <div class="domo-weight-detail">

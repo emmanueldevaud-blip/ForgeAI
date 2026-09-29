@@ -273,6 +273,25 @@ class TestAuthEndpoints:
         assert "refresh_token" in data["tokens"]
 
     @pytest.mark.asyncio
+    async def test_login_accepts_special_use_email_domain(self, client, db_session):
+        user_data = {
+            "username": "adlocaluser",
+            "email": "adlocaluser@ad.local",
+            "password": "password123",
+            "is_active": True,
+            "role": UserRole.USER,
+            "source": "local",
+        }
+        await create_user(db_session, user_data)
+
+        response = await client.post("/auth/login", json={
+            "username": "adlocaluser",
+            "password": "password123",
+        })
+        assert response.status_code == 200
+        assert response.json()["user"]["email"] == "adlocaluser@ad.local"
+
+    @pytest.mark.asyncio
     async def test_login_invalid_credentials(self, client):
         response = await client.post("/auth/login", json={
             "username": "nonexistent",

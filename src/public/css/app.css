@@ -538,6 +538,8 @@
   border-bottom: 1px solid var(--color-border-light);
   background: var(--color-bg-secondary);
   overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-x: contain;
 }
 
 .tab-button {
@@ -558,6 +560,9 @@
   transition: all var(--transition-fast);
   white-space: nowrap;
   margin-bottom: -1px;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  user-select: none;
 }
 
 .tab-button:hover:not(:disabled):not(.tab-button--active) {

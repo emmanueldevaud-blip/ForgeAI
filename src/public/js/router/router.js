@@ -197,21 +197,11 @@ function createAuthGuard(authStore) {
   return async (route) => {
     if (!route.meta.requiresAuth) return true;
 
-    if (!authStore.authenticated) {
-      if (authStore.loading) {
-        await new Promise(resolve => {
-          const unsubscribe = authStore.subscribe(state => {
-            if (!state.loading) {
-              unsubscribe();
-              resolve();
-            }
-          });
-        });
-      }
+    // Always re-validate with server to catch expired tokens
+    await authStore.loadCurrentUser();
 
-      if (!authStore.authenticated) {
-        return new RouterError('Non authentifié', 401, '/login');
-      }
+    if (!authStore.authenticated) {
+      return new RouterError('Non authentifié', 401, '/login');
     }
 
     if (route.meta.permissions.length > 0) {

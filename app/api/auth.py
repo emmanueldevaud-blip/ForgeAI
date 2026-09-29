@@ -7,7 +7,6 @@ from sqlalchemy import delete, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_active_user, require_admin, require_permission
-from app.core.limiter import limiter
 from app.db.session import get_db
 from app.models import ADConfig, ADGroupMapping, ADSyncLog, Group, Role
 from app.models.user import User
@@ -176,13 +175,8 @@ from app.core.config import get_settings
 settings = get_settings()
 router = APIRouter(prefix="/auth", tags=["authentication"])
 
-# Quota appliqué aux endpoints d'authentification (force brute) :
-# même valeur que le quota global configurable via .env.
-AUTH_RATE_LIMIT = f"{settings.RATE_LIMIT_REQUESTS}/{settings.RATE_LIMIT_WINDOW_SECONDS}seconds"
-
 
 @router.post("/login", response_model=LoginResponse)
-@limiter.limit(AUTH_RATE_LIMIT)
 async def login(
     response: Response,
     credentials: LoginRequest,
@@ -264,7 +258,6 @@ async def logout(
 
 
 @router.post("/refresh", response_model=Token)
-@limiter.limit(AUTH_RATE_LIMIT)
 async def refresh_token(
     response: Response,
     refresh_request: RefreshTokenRequest,
@@ -321,7 +314,6 @@ async def get_me(
 
 
 @router.post("/register", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
-@limiter.limit(AUTH_RATE_LIMIT)
 async def register(
     user_data: UserCreate,
     request: Request,

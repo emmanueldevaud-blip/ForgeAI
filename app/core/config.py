@@ -82,7 +82,7 @@ class Settings(BaseSettings):
     OPENROUTER_MODEL: str = ""
 
     # Security
-    RATE_LIMIT_ENABLED: bool = True
+    RATE_LIMIT_ENABLED: bool = False
     RATE_LIMIT_REQUESTS: int = 10
     RATE_LIMIT_WINDOW_SECONDS: int = 60
 

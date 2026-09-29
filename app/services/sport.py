@@ -730,11 +730,35 @@ class SportService:
         goals = [{"name": goal.name, "goal_type": goal.goal_type, "target_value": goal.target_value, "unit": goal.unit, "target_date": goal.target_date} for goal in goals_result.scalars().all()]
         profile = SportAnalysisEngine.athlete_profile(activities, goals)
         profile["goal_analysis"] = SportAnalysisEngine.analyze_goals(goals, activities, today)
+        
+        # Analyses récentes (matin, soir, activité) pour le contexte IA
+        analyses_result = await self.db.execute(
+            select(SportAnalysis).where(
+                SportAnalysis.athlete_id == athlete.id,
+                SportAnalysis.generated_at >= datetime.combine(today - timedelta(days=30), datetime.min.time()),
+            ).order_by(SportAnalysis.generated_at.desc()).limit(20)
+        )
+        recent_analyses = [
+            {
+                "type": a.analysis_type,
+                "day": a.analysis_day.isoformat() if a.analysis_day else None,
+                "title": a.title,
+                "summary": a.summary,
+                "content": a.content,
+                "activity_id": a.activity_id,
+                "generated_at": a.generated_at.isoformat() if a.generated_at else None,
+            }
+            for a in analyses_result.scalars().all()
+        ]
+        
+        profile = SportAnalysisEngine.athlete_profile(activities, goals)
+        profile["goal_analysis"] = SportAnalysisEngine.analyze_goals(goals, activities, today)
         context = SportAnalysisEngine.build_context(
             {"display_name": athlete.display_name, "profile": profile, "heart_rate": (athlete.metadata_json or {}).get("heart_rate_zones")},
             activities[:5], weekly, monthly, goals,
             recovery=await self.recovery_context(),
         )
+        context["recent_analyses"] = recent_analyses
         context["health"] = await self.health_context(90)
         return context
 

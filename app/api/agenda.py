@@ -14,6 +14,7 @@ from app.schemas.agenda import (
     AgendaPlanningResponse,
     AgendaPresenceResponse,
     AgendaPresenceUpsert,
+    AgendaUserResponse,
 )
 from app.services.agenda import AgendaService
 from app.services.rbac import RBACService
@@ -26,6 +27,7 @@ class AgendaPresenceUpdate(BaseModel):
     needs_meal: Optional[bool] = None
     is_present: Optional[bool] = None
     period: Optional[str] = None
+    room_id: Optional[int] = None
 
 
 async def get_agenda_service(
@@ -47,13 +49,32 @@ async def get_planning(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
 
 
+@router.get("/users", response_model=list[AgendaUserResponse])
+async def list_agenda_users(
+    current_user: User = Depends(require_permission("agenda.manage")),
+    db: AsyncSession = Depends(get_db),
+):
+    from sqlalchemy import select
+    result = await db.execute(select(User).where(User.is_active.is_(True)).order_by(User.last_name, User.first_name))
+    return [AgendaUserResponse.model_validate(u) for u in result.scalars().all()]
+
+
 @router.post("/presences", response_model=AgendaPresenceResponse)
 async def upsert_own_presence(
     payload: AgendaPresenceUpsert,
-    service: AgendaService = Depends(get_agenda_service),
+    current_user: User = Depends(require_permission("agenda.access")),
+    db: AsyncSession = Depends(get_db),
 ):
+    if payload.user_id is not None and payload.user_id != current_user.id:
+        rbac = RBACService(db)
+        if not await rbac.user_has_permission(current_user, "agenda.manage"):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Permission 'agenda.manage' requise",
+            )
+    service = AgendaService(db, current_user)
     try:
-        return await service.upsert_own_presence(payload)
+        return await service.upsert_own_presence(payload, target_user_id=payload.user_id)
     except LookupError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
     except ValueError as exc:
@@ -109,6 +130,7 @@ async def update_presence(
             needs_meal=payload.needs_meal,
             is_present=payload.is_present,
             period=payload.period,
+            room_id=payload.room_id,
         )
     except LookupError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))

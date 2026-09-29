@@ -403,11 +403,22 @@ class AgendaService:
         )
         return result.scalar_one_or_none()
 
-    async def upsert_own_presence(self, payload: AgendaPresenceUpsert) -> AgendaPresenceResponse:
+    async def upsert_own_presence(
+        self,
+        payload: AgendaPresenceUpsert,
+        *,
+        target_user_id: Optional[int] = None,
+    ) -> AgendaPresenceResponse:
+        owner_id = self.current_user.id if target_user_id is None else target_user_id
+        if owner_id != self.current_user.id and not await self.db.get(User, owner_id):
+            raise LookupError("Utilisateur introuvable")
+
         if not payload.is_present:
             # "Absent" = hide own presence but keep the row as a manual decision
             # (the auto-assign will never recreate a day that already has a row)
-            existing = await self._find_own_presence(payload.presence_date, payload.room_id)
+            existing = await self._find_own_presence(
+                payload.presence_date, payload.room_id, user_id=owner_id
+            )
             if existing:
                 if existing.is_present:
                     existing.is_present = False
@@ -418,7 +429,7 @@ class AgendaService:
                 id=0,
                 presence_date=payload.presence_date,
                 room_id=payload.room_id,
-                user_id=self.current_user.id,
+                user_id=owner_id,
                 external_name=None,
                 source="user",
                 is_present=False,
@@ -438,8 +449,11 @@ class AgendaService:
             payload.room_id,
             period=payload.period,
             needs_meal=payload.needs_meal,
+            user_id=owner_id,
         )
-        existing = await self._find_own_presence(payload.presence_date, payload.room_id)
+        existing = await self._find_own_presence(
+            payload.presence_date, payload.room_id, user_id=owner_id
+        )
 
         if existing:
             existing.needs_workstation = payload.needs_workstation
@@ -451,7 +465,7 @@ class AgendaService:
             presence = AgendaPresence(
                 presence_date=payload.presence_date,
                 room_id=payload.room_id,
-                user_id=self.current_user.id,
+                user_id=owner_id,
                 external_name=None,
                 source="user",
                 is_present=True,
@@ -623,19 +637,30 @@ class AgendaService:
         needs_meal: Optional[bool] = None,
         is_present: Optional[bool] = None,
         period: Optional[str] = None,
+        room_id: Optional[int] = None,
     ) -> AgendaPresenceResponse:
         presence = await self.get_presence(presence_id)
         if not presence:
             raise LookupError("Présence introuvable")
         next_period = period if period is not None else presence.period
         next_meal = needs_meal if needs_meal is not None else presence.needs_meal
-        if period is not None or needs_meal is not None:
+        next_room = room_id if room_id is not None else presence.room_id
+        if next_room != presence.room_id:
+            await self._ensure_room_exists(next_room)
+            if presence.user_id is not None:
+                clash = await self._find_own_presence(
+                    presence.presence_date, next_room, user_id=presence.user_id
+                )
+                if clash and clash.id != presence.id:
+                    raise ValueError("Vous êtes déjà inscrit dans ce local ce jour-là")
+        if period is not None or needs_meal is not None or next_room != presence.room_id:
             await self._assert_own_day_allowed(
                 presence.presence_date,
-                presence.room_id,
+                next_room,
                 period=next_period,
                 needs_meal=next_meal,
                 exclude_presence_id=presence.id,
+                user_id=presence.user_id,
             )
         if needs_workstation is not None:
             presence.needs_workstation = needs_workstation
@@ -645,6 +670,8 @@ class AgendaService:
             presence.is_present = is_present
         if period is not None:
             presence.period = period
+        if next_room != presence.room_id:
+            presence.room_id = next_room
         await self.db.commit()
         await self.db.refresh(presence)
         return AgendaPresenceResponse.model_validate(presence)
@@ -657,10 +684,14 @@ class AgendaService:
         period: str,
         needs_meal: bool,
         exclude_presence_id: Optional[int] = None,
+        user_id: Optional[int] = None,
     ) -> None:
+        owner_id = self.current_user.id if user_id is None else user_id
+        if owner_id is None:
+            return
         stmt = select(AgendaPresence).where(
             AgendaPresence.presence_date == day,
-            AgendaPresence.user_id == self.current_user.id,
+            AgendaPresence.user_id == owner_id,
             AgendaPresence.room_id != room_id,
             AgendaPresence.is_present.is_(True),
         )
@@ -675,10 +706,17 @@ class AgendaService:
             if needs_meal and other.needs_meal:
                 raise ValueError("Repas déjà sélectionné dans un autre local")
 
-    async def _find_own_presence(self, day: date, room_id: Optional[int]) -> Optional[AgendaPresence]:
+    async def _find_own_presence(
+        self,
+        day: date,
+        room_id: Optional[int],
+        *,
+        user_id: Optional[int] = None,
+    ) -> Optional[AgendaPresence]:
+        owner_id = self.current_user.id if user_id is None else user_id
         stmt = select(AgendaPresence).where(
             AgendaPresence.presence_date == day,
-            AgendaPresence.user_id == self.current_user.id,
+            AgendaPresence.user_id == owner_id,
         )
         if room_id is not None:
             stmt = stmt.where(AgendaPresence.room_id == room_id)

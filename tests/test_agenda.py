@@ -1,6 +1,11 @@
 from datetime import date, timedelta
 
 import pytest
+from sqlalchemy import select
+
+from app.models import PermissionModel, Role, RolePermission, UserRoleAssignment
+from app.models.user import UserRole
+from app.services.auth import create_user
 
 
 def _next_weekday(day: date) -> date:
@@ -287,3 +292,167 @@ async def test_room_workstation_capacity_roundtrip(client, admin_headers):
     )
     assert updated.status_code == 200
     assert updated.json()["workstation_capacity"] == 3
+
+
+async def _create_user_with_permissions(db_session, username, permission_codes):
+    user = await create_user(db_session, {
+        "username": username,
+        "email": f"{username}@example.com",
+        "password": "password123",
+        "is_active": True,
+        "role": UserRole.USER,
+        "source": "local",
+    })
+    permissions = (await db_session.execute(
+        select(PermissionModel).where(PermissionModel.code.in_(list(permission_codes)))
+    )).scalars().all()
+    assert permissions, "permissions RBAC manquantes"
+    role = Role(code=f"role-{username}", name=f"Rôle {username}")
+    db_session.add(role)
+    await db_session.flush()
+    db_session.add_all([RolePermission(role_id=role.id, permission_id=permission.id) for permission in permissions])
+    db_session.add(UserRoleAssignment(user_id=user.id, role_id=role.id))
+    await db_session.commit()
+    return user
+
+
+async def _login_headers(client, username):
+    response = await client.post("/auth/login", json={"username": username, "password": "password123"})
+    assert response.status_code == 200, response.text
+    return {"Authorization": f"Bearer {response.cookies.get('access_token')}"}
+
+
+@pytest.mark.asyncio
+async def test_upsert_presence_for_another_user_requires_manage(client, db_session, admin_headers):
+    room_id = await _setup_bureau_room(client, admin_headers)
+    await _create_user_with_permissions(db_session, "agenda-reader", ["agenda.access"])
+    target = await _create_user_with_permissions(db_session, "agenda-target", ["agenda.access"])
+    headers = await _login_headers(client, "agenda-reader")
+    payload = {
+        "presence_date": _next_weekday(date.today()).isoformat(),
+        "room_id": room_id,
+        "is_present": True,
+        "period": "morning",
+    }
+
+    forbidden = await client.post(
+        "/agenda/presences", json={**payload, "user_id": target.id}, headers=headers
+    )
+    assert forbidden.status_code == 403, forbidden.text
+
+    own = await client.post("/agenda/presences", json=payload, headers=headers)
+    assert own.status_code == 200, own.text
+    assert own.json()["user_id"] is not None
+
+
+@pytest.mark.asyncio
+async def test_manager_upserts_presence_for_another_user(client, db_session, admin_headers):
+    room_id = await _setup_bureau_room(client, admin_headers)
+    target = await _create_user_with_permissions(db_session, "agenda-target-managed", ["agenda.access"])
+    presence_date = _next_weekday(date.today()).isoformat()
+
+    created = await client.post(
+        "/agenda/presences",
+        json={
+            "presence_date": presence_date,
+            "room_id": room_id,
+            "is_present": True,
+            "period": "morning",
+            "user_id": target.id,
+        },
+        headers=admin_headers,
+    )
+    assert created.status_code == 200, created.text
+    assert created.json()["user_id"] == target.id
+
+    planning = await client.get(
+        f"/agenda/planning?view=week&anchor={presence_date}", headers=admin_headers
+    )
+    day = next(d for d in planning.json()["days"] if d["date"] == presence_date)
+    room_day = next(r for r in day["rooms"] if r["room_id"] == room_id)
+    person = next(
+        p for p in room_day["presences"]
+        if p["person_type"] == "user" and p["person_id"] == target.id
+    )
+    assert person["is_mine"] is False
+    assert person["period"] == "morning"
+
+
+@pytest.mark.asyncio
+async def test_update_presence_can_move_room(client, admin_headers):
+    room_a, room_b = await _setup_bureau_rooms(client, admin_headers, names=("Move A", "Move B"))
+    presence_date = _next_weekday(date.today()).isoformat()
+
+    created = await client.post(
+        "/agenda/presences",
+        json={"presence_date": presence_date, "room_id": room_a, "is_present": True, "period": "morning"},
+        headers=admin_headers,
+    )
+    assert created.status_code == 200, created.text
+    presence_id = created.json()["id"]
+
+    moved = await client.patch(
+        f"/agenda/presences/{presence_id}", json={"room_id": room_b}, headers=admin_headers
+    )
+    assert moved.status_code == 200, moved.text
+    assert moved.json()["room_id"] == room_b
+
+    other = await client.post(
+        "/agenda/presences",
+        json={"presence_date": presence_date, "room_id": room_a, "is_present": True, "period": "afternoon"},
+        headers=admin_headers,
+    )
+    assert other.status_code == 200, other.text
+
+    # Deux présences du même jour ne peuvent pas se rejoindre dans le même local
+    clash = await client.patch(
+        f"/agenda/presences/{presence_id}", json={"room_id": room_a}, headers=admin_headers
+    )
+    assert clash.status_code == 409, clash.text
+
+    # Période en conflit dans un autre local
+    conflict = await client.patch(
+        f"/agenda/presences/{other.json()['id']}",
+        json={"room_id": room_b, "period": "morning"},
+        headers=admin_headers,
+    )
+    assert conflict.status_code == 409, conflict.text
+
+
+@pytest.mark.asyncio
+async def test_update_presence_conflict_uses_presence_owner(client, db_session, admin_headers):
+    room_editor, room_owner, room_free = await _setup_bureau_rooms(
+        client, admin_headers, names=("Conf Editor", "Conf Owner", "Conf Free")
+    )
+    presence_date = _next_weekday(date.today()).isoformat()
+    target = await _create_user_with_permissions(db_session, "agenda-owned", ["agenda.access"])
+
+    admin_presence = await client.post(
+        "/agenda/presences",
+        json={"presence_date": presence_date, "room_id": room_editor, "is_present": True, "period": "full"},
+        headers=admin_headers,
+    )
+    assert admin_presence.status_code == 200, admin_presence.text
+
+    target_presence = await client.post(
+        "/agenda/presences",
+        json={
+            "presence_date": presence_date,
+            "room_id": room_owner,
+            "is_present": True,
+            "period": "morning",
+            "user_id": target.id,
+        },
+        headers=admin_headers,
+    )
+    assert target_presence.status_code == 200, target_presence.text
+
+    # Le gestionnaire n'a aucune inscription sur cet après-midi : la mise à jour doit passer
+    updated = await client.patch(
+        f"/agenda/presences/{target_presence.json()['id']}",
+        json={"period": "afternoon", "room_id": room_free},
+        headers=admin_headers,
+    )
+    assert updated.status_code == 200, updated.text
+    assert updated.json()["period"] == "afternoon"
+    assert updated.json()["room_id"] == room_free

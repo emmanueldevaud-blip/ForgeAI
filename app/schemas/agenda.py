@@ -62,6 +62,7 @@ class AgendaPresenceUpsert(BaseModel):
     needs_workstation: bool = False
     needs_meal: bool = False
     period: AgendaPeriod = "full"
+    user_id: Optional[int] = None
 
 
 class AgendaAutoAssignRequest(BaseModel):
@@ -81,6 +82,20 @@ class AgendaExternalPresenceCreate(BaseModel):
     needs_workstation: bool = False
     needs_meal: bool = False
     period: AgendaPeriod = "full"
+
+
+class AgendaUserResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    username: str
+    email: Optional[str] = None
+    first_name: Optional[str] = None
+    last_name: Optional[str] = None
+    is_active: bool
+    role: str
+    source: str
+    full_name: Optional[str] = None
 
 
 class AgendaPresenceResponse(BaseModel):

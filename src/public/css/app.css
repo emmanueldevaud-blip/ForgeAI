@@ -697,6 +697,7 @@
 .modal-overlay {
   position: fixed;
   inset: 0;
+  z-index: var(--z-index-modal-backdrop);
   background: var(--color-overlay);
   animation: fadeIn var(--transition-normal);
   padding: env(safe-area-inset-top, 0) env(safe-area-inset-right, 0) env(safe-area-inset-bottom, 0) env(safe-area-inset-left, 0);
@@ -5145,6 +5146,33 @@
 .agenda-cell-name-text { display: block; max-width: 90px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--color-text-primary); font-weight: var(--font-weight-medium); }
 .agenda-cell-name .agenda-badge { padding: 0 4px; font-size: 9px; }
 .agenda-period-wrap { min-width: 130px; }
+.agenda-table--people { min-width: 980px; }
+.agenda-table--people th[data-day] { cursor: pointer; }
+.agenda-table--people .agenda-room-head { position: sticky; left: 0; z-index: 2; min-width: 160px; max-width: 240px; box-shadow: 1px 0 0 var(--color-border-light); }
+.agenda-table--people thead .agenda-room-head { z-index: 4; }
+.agenda-table--people td { padding: 2px; }
+.agenda-person-head { vertical-align: middle; }
+.agenda-people-cell { min-width: 68px; min-height: 34px; flex-direction: row; justify-content: center; gap: var(--spacing-1); padding: var(--spacing-1); }
+.agenda-people-cell-room { display: block; max-width: 96px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--font-size-xs); font-weight: var(--font-weight-medium); }
+.agenda-people-cell-flag { font-size: 9px; line-height: 1.2; text-transform: uppercase; letter-spacing: .03em; color: var(--color-text-tertiary); }
+.agenda-people-cell.is-empty .agenda-people-cell-flag.is-add { color: var(--color-primary); font-size: var(--font-size-sm); font-weight: var(--font-weight-semibold); }
+.agenda-people-cell:disabled { opacity: .8; cursor: default; }
+.agenda-people-cell:disabled:hover, .agenda-people-cell:disabled:focus-visible { border-color: transparent; background: transparent; }
+.agenda-table--people-month { min-width: max-content; }
+.agenda-table--people-month .agenda-room-head { min-width: 132px; }
+.agenda-table--people-month .agenda-people-cell { min-width: 44px; }
+.agenda-table--people-month .agenda-people-cell-room { max-width: 44px; font-size: 10px; }
+.agenda-cell-form-grid { display: flex; flex-wrap: wrap; align-items: flex-end; gap: var(--spacing-4); }
+.agenda-cell-form-grid .form-control-wrap { display: block; width: auto; min-width: 240px; flex: 0 0 auto; }
+.agenda-cell-form-grid .agenda-check { display: inline-flex; flex-direction: row; align-items: center; width: auto; gap: var(--spacing-2); }
+.agenda-cell-form-grid .agenda-check input { width: 18px; height: 18px; padding: 0; border: none; }
+.agenda-cell-form-grid .form-control-wrap > span { display: block; margin-bottom: var(--spacing-1); color: var(--color-text-secondary); font-size: var(--font-size-sm); font-weight: var(--font-weight-medium); }
+.agenda-planning-toolbar { display: flex; align-items: center; gap: var(--spacing-3); }
+.agenda-add-person-grid { display: flex; flex-wrap: wrap; align-items: flex-end; gap: var(--spacing-4); }
+.agenda-add-person-grid .form-control-wrap { display: block; width: auto; min-width: 220px; flex: 0 0 auto; }
+.agenda-add-person-grid .agenda-check { display: inline-flex; flex-direction: row; align-items: center; width: auto; gap: var(--spacing-2); }
+.agenda-add-person-grid .agenda-check input { width: 18px; height: 18px; padding: 0; border: none; }
+.agenda-add-person-grid .form-control-wrap > span { display: block; margin-bottom: var(--spacing-1); color: var(--color-text-secondary); font-size: var(--font-size-sm); font-weight: var(--font-weight-medium); }
 .agenda-badge--period { background: var(--color-bg-tertiary); color: var(--color-text-secondary); border: 1px dashed var(--color-border-medium); }
 .agenda-legend { display: flex; flex-wrap: wrap; gap: var(--spacing-4); color: var(--color-text-tertiary); font-size: var(--font-size-sm); }
 .agenda-legend-item { display: inline-flex; align-items: center; gap: var(--spacing-2); }

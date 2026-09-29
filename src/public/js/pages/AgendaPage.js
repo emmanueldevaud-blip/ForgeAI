@@ -4,6 +4,7 @@ import {
   createExternalPresence,
   deletePresence,
   getAgendaPlanning,
+  updatePresence,
   upsertMyPresence,
 } from '../services/agendaApi.js';
 
@@ -97,6 +98,8 @@ export class AgendaPage {
     this.error = null;
     this.openDay = null;
     this.openRoom = null;
+    this.editCell = null;
+    this.addPersonOpen = false;
     this._authUnsubscribe = null;
   }
 
@@ -208,12 +211,18 @@ export class AgendaPage {
           <header class="agenda-section-header agenda-section-header--plain">
             <div>
               <h2 id="agenda-planning-title">Planning par bureau</h2>
-              <p class="agenda-section-desc">Récapitulatif des inscrits local par local. Cliquez sur une case pour le détail du jour.</p>
+              <p class="agenda-section-desc">Une ligne par personne, colonne par jour et par demi-journée. Cliquez sur une case pour gérer l’inscription, sur un jour pour voir le détail.</p>
             </div>
-            <div class="agenda-period-label">${escapeHtml(this._periodLabel())}</div>
+            <div class="agenda-planning-toolbar">
+              <div class="agenda-period-label">${escapeHtml(this._periodLabel())}</div>
+              ${canManage ? `
+                <button type="button" class="btn btn-primary btn-sm" data-action="add-person-to-planning" aria-label="Ajouter une personne au planning">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+                  Ajouter une personne
+                </button>` : ''}
           </header>
           <section class="card agenda-card" aria-label="Planning des présences">
-            ${this._planningBody(rooms, days)}
+            ${this._planningBody(days)}
           </section>
           <section class="agenda-legend" aria-label="Légende">
             <span class="agenda-legend-item"><span class="agenda-dot agenda-dot--user"></span> inscription</span>
@@ -238,15 +247,19 @@ export class AgendaPage {
       `}
 
       ${this.openDay ? this._dayPanelHtml(rooms) : ''}
+      ${this.editCell ? this._cellEditorHtml(rooms) : ''}
+      ${this.addPersonOpen ? this._addPersonModalHtml() : ''}
     `;
 
     this._bindCommon();
     if (rooms.length) {
       this._bindMineForm();
-      this._bindPlanning(rooms);
+      this._bindPlanning();
       if (canManage) this._bindFreeForm();
     }
     if (this.openDay) this._bindDayPanel();
+    if (this.editCell) this._bindCellEditor();
+    if (this.addPersonOpen) this._bindAddPersonModal();
   }
 
   _noRoomsHtml() {
@@ -438,130 +451,469 @@ export class AgendaPage {
     return today;
   }
 
-  _planningBody(rooms, days) {
-    if (this.view === 'week') return this._weekGrid(rooms, days);
-    return this._monthGrid(rooms, days);
-  }
-
-_halfCellHtml(day, room, half, dayByIso) {
-    const counters = (dayByIso.get(day.date)?.rooms || []).find(r => r.room_id === room.id);
-    const people = (counters?.presences || [])
-      .sort((a, b) => a.person_name.localeCompare(b.person_name))
-      .filter(person => {
-        const period = person.period || 'full';
-        return period === 'full' || period === half.field;
-      });
-    const present = people.length;
-    const desks = people.filter(person => person.needs_workstation).length;
-    const capacity = counters?.capacity ?? room.workstation_capacity ?? 0;
-    const namesHtml = people.length ? `
-      <ul class="agenda-cell-names">
-        ${people.map(person => `
-          <li class="agenda-cell-name" title="${escapeHtml(person.person_name)} — ${escapeHtml(SOURCE_BADGES[person.person_type] || person.person_type)}">
-            <span class="agenda-cell-name-text">${escapeHtml(person.person_name)}</span>
-            <span class="agenda-dot agenda-dot--${person.person_type}" title="${escapeHtml(SOURCE_BADGES[person.person_type] || person.person_type)}"></span>
-          </li>
-        `).join('')}
-      </ul>` : '';
-    return `
-      <td class="agenda-cell ${present ? 'has-presence' : ''}">
-        <button class="agenda-cell-btn" data-day="${day.date}" data-room="${room.id}"
-          aria-label="${escapeHtml(room.name)} le ${escapeHtml(formatDayLabel(day.date))} — ${half.label} : ${present} présent(s)">
-          <span class="agenda-count agenda-count--people">${present}</span>
-          ${capacity ? `<span class="agenda-count agenda-count--desk ${desks > capacity ? 'is-over' : ''}">${desks}/${capacity}</span>` : (desks ? `<span class="agenda-count agenda-count--desk">${desks}</span>` : '')}
-          ${namesHtml}
-        </button>
-      </td>`;
-  }
-
-  _weekGrid(rooms, days) {
+  _planningBody(days) {
+    const dates = this._mineGridDates();
+    const people = this._peopleList();
     const dayByIso = new Map(days.map(day => [day.date, day]));
-    const halfRows = [
-      { field: 'morning', label: 'Matin' },
-      { field: 'afternoon', label: 'Après-midi' },
-    ];
+    const today = toISODate(new Date());
+    const isMonth = this.view === 'month';
+    const canManage = authStore.hasPermission('agenda.manage');
 
-    const headers = days.map(day => {
-      const date = parseISODate(day.date);
-      const isToday = day.date === toISODate(new Date());
-      return `<th class="agenda-day-head ${isToday ? 'is-today' : ''}" colspan="2" scope="col">
-        <span class="agenda-day-name">${DAY_LABELS_SHORT[(date.getDay() + 6) % 7]}</span>
-        <span class="agenda-day-num">${date.getDate()}</span>
-      </th>`;
-    }).join('');
+    if (!people.length) {
+      return '<div class="card-body agenda-empty"><p class="agenda-none">Aucune inscription sur cette période.</p></div>';
+    }
 
-    const subHeaders = days.map(() =>
-      halfRows.map(half => `<th class="agenda-half-subhead" scope="col">${half.label}</th>`).join('')
-    ).join('');
+    const head = `
+      <thead>
+        <tr>
+          <th class="agenda-room-head agenda-corner" rowspan="2" scope="col">Personne</th>
+          ${dates.map(iso => {
+            const dayDate = parseISODate(iso);
+            const known = dayByIso.has(iso);
+            return `<th class="agenda-day-head ${iso === today ? 'is-today' : ''}" colspan="2" scope="col" ${known ? `data-day="${iso}"` : ''} title="${escapeHtml(formatDayLabel(iso))}">
+              <span class="agenda-day-name">${DAY_LABELS_SHORT[(dayDate.getDay() + 6) % 7]}</span>
+              <span class="agenda-day-num">${dayDate.getDate()}</span>
+            </th>`;
+          }).join('')}
+        </tr>
+        <tr>
+          ${dates.map(() => '<th class="agenda-half-subhead" scope="col">Matin</th><th class="agenda-half-subhead" scope="col">Après-midi</th>').join('')}
+        </tr>
+      </thead>`;
 
-    const rows = rooms.map(room => halfRows.map((half, halfIndex) => {
-      const lead = halfIndex === 0
-        ? `<th class="agenda-room-head" rowspan="2" scope="rowgroup">
-            <span class="agenda-room-name">${escapeHtml(room.name)}</span>
-            <span class="agenda-room-meta">${escapeHtml(room.building_name || '')}${room.workstation_capacity ? ` · ${room.workstation_capacity} postes` : ''}</span>
-          </th>
-          <th class="agenda-half-head" scope="row">${half.label}</th>`
-        : `<th class="agenda-half-head" scope="row">${half.label}</th>`;
-      const cells = days.map(day => this._halfCellHtml(day, room, half, dayByIso)).join('');
-      return `<tr>${lead}${cells}</tr>`;
-    }).join('')).join('');
+    const rows = people.map(person => `
+      <tr>
+        <th class="agenda-room-head agenda-person-head" scope="row" title="${escapeHtml(SOURCE_BADGES[person.type] || person.type)}">
+          <span class="agenda-room-name">${escapeHtml(person.name)}${person.isMine ? ' (moi)' : ''}</span>
+          <span class="agenda-room-meta">${escapeHtml(SOURCE_BADGES[person.type] || person.type)}</span>
+        </th>
+        ${dates.map(iso => ['morning', 'afternoon']
+          .map(half => this._personCellHtml(person, iso, half, canManage, isMonth))
+          .join('')).join('')}
+      </tr>`).join('');
 
     return `
       <div class="agenda-scroll">
-        <table class="agenda-table agenda-table--half" role="grid">
-          <thead>
-            <tr>
-              <th class="agenda-room-head agenda-corner" rowspan="2" scope="col">Local</th>
-              <th class="agenda-corner agenda-half-corner" rowspan="2" scope="col">Option</th>
-              ${headers}
-            </tr>
-            <tr>${subHeaders}</tr>
-          </thead>
+        <table class="agenda-table agenda-table--people ${isMonth ? 'agenda-table--people-month' : ''}" role="grid" aria-label="Planning des inscrits">
+          ${head}
           <tbody>${rows}</tbody>
         </table>
       </div>`;
   }
 
-  _monthGrid(rooms, days) {
-    const first = parseISODate(days[0].date);
-    const lead = (first.getDay() + 6) % 7;
-    const cells = [];
-
-    for (let i = 0; i < lead; i += 1) {
-      cells.push('<td class="agenda-month-cell is-empty" aria-hidden="true"></td>');
+  _personCellHtml(person, iso, half, canManage, isMonth) {
+    const inPeriod = (this.data?.days || []).some(day => day.date === iso);
+    const editable = inPeriod && this._canEditPerson(person, canManage);
+    const entry = this._presenceCovering(person, iso, half);
+    const halfLabel = half === 'morning' ? 'Matin' : 'Après-midi';
+    const details = [];
+    let label = '';
+    if (entry) {
+      const room = this._roomById(entry.roomId);
+      label = room ? room.name : (SOURCE_BADGES[person.type] || '');
+      details.push(`${person.name} — ${formatDayLabel(iso)} · ${halfLabel}`);
+      details.push(`Local : ${label}`);
+      if (entry.presence.needs_workstation) details.push('Poste');
+      if (entry.presence.needs_meal) details.push('Repas');
+    } else if (editable) {
+      details.push(`Inscrire ${person.name} — ${formatDayLabel(iso)} · ${halfLabel}`);
     }
+    return `
+      <td class="agenda-cell ${entry ? 'has-presence' : ''}">
+        <button type="button" class="agenda-cell-btn agenda-people-cell ${entry ? 'has-presence' : 'is-empty'} ${isMonth ? 'is-compact' : ''}"
+          ${editable ? '' : 'disabled'}
+          data-cell-person="${escapeHtml(person.key)}" data-cell-date="${iso}" data-cell-half="${half}"
+          title="${escapeHtml(details.join(' · '))}"
+          aria-label="${escapeHtml(details.join(' · ') || `${person.name} — ${formatDayLabel(iso)} · ${halfLabel}`)}">
+          ${entry
+            ? `<span class="agenda-people-cell-room">${escapeHtml(label)}</span>${entry.presence.needs_meal ? '<span class="agenda-people-cell-flag">repas</span>' : ''}${entry.presence.needs_workstation ? '<span class="agenda-people-cell-flag">poste</span>' : ''}`
+            : (editable ? '<span class="agenda-people-cell-flag is-add">+</span>' : '')}
+        </button>
+      </td>`;
+  }
 
-    days.forEach(day => {
-      const date = parseISODate(day.date);
-      const isToday = day.date === toISODate(new Date());
-      const integrated = day.integrated?.length || 0;
-      const isWeekend = date.getDay() === 0 || date.getDay() === 6;
-      cells.push(`
-        <td class="agenda-month-cell ${isToday ? 'is-today' : ''} ${day.total_present ? 'has-presence' : ''} ${isWeekend ? 'is-weekend' : ''}">
-          <button class="agenda-month-btn" data-day="${day.date}" aria-label="${escapeHtml(formatDayLabel(day.date))}">
-            <span class="agenda-month-num">${date.getDate()}</span>
-            ${day.total_present ? `<span class="agenda-month-total">${day.total_present}</span>` : ''}
-            ${integrated ? `<span class="agenda-month-integrated">+${integrated}</span>` : ''}
-          </button>
-        </td>`);
-    });
-
-    while (cells.length % 7 !== 0) {
-      cells.push('<td class="agenda-month-cell is-empty" aria-hidden="true"></td>');
+  _peopleList() {
+    const byNormName = new Map();
+    const ensure = (type, personId, name, isMine, date, roomId, period, presence) => {
+      const norm = this._normalizePersonName(name);
+      const existing = byNormName.get(norm);
+      if (existing) {
+        existing.presences.push({ date, roomId, period, presence });
+        if (isMine) existing.isMine = true;
+        existing.sourceTypes.add(type);
+        return;
+      }
+      byNormName.set(norm, {
+        normName: norm,
+        displayName: name,
+        type: type === 'user' ? 'user' : type,
+        personId: personId ?? null,
+        isMine: isMine || false,
+        sourceTypes: new Set([type]),
+        presences: [{ date, roomId, period, presence }],
+      });
+    };
+    for (const day of this.data?.days || []) {
+      for (const counter of day.rooms || []) {
+        for (const presence of counter.presences || []) {
+          ensure(presence.person_type, presence.person_id, presence.person_name, presence.is_mine,
+            day.date, counter.room_id ?? presence.room_id ?? null, presence.period || 'full', presence);
+        }
+      }
+      for (const presence of day.integrated || []) {
+        ensure(presence.person_type, presence.person_id, presence.person_name, false,
+          day.date, presence.room_id ?? null, presence.period || 'full', presence);
+      }
     }
+    const people = [...byNormName.values()]
+      .sort((a, b) => a.displayName.localeCompare(b.displayName, 'fr'))
+      .map(p => ({
+        key: `${p.type}:${p.personId ?? p.displayName}`,
+        name: p.displayName,
+        type: p.type,
+        personId: p.personId,
+        isMine: p.isMine,
+        sourceTypes: p.sourceTypes,
+        presences: p.presences,
+      }));
+    return people;
+  }
 
-    const weeks = [];
-    for (let i = 0; i < cells.length; i += 7) {
-      weeks.push(`<tr>${cells.slice(i, i + 7).join('')}</tr>`);
-    }
+  _normalizePersonName(name) {
+    return String(name ?? '').toLowerCase().trim().replace(/\s+/g, ' ');
+  }
+
+  _presenceCovering(person, iso, half) {
+    return person.presences.find(entry => entry.date === iso && (entry.period === 'full' || entry.period === half)) || null;
+  }
+
+  _canEditPerson(person, canManage = authStore.hasPermission('agenda.manage')) {
+    if (person.type === 'external') return canManage;
+    if (person.type !== 'user') return false;
+    return canManage || person.isMine;
+  }
+
+  _roomById(roomId) {
+    if (roomId == null) return null;
+    return (this.data?.rooms || []).find(room => String(room.id) === String(roomId)) || null;
+  }
+
+  _cellEditorHtml(rooms) {
+    const person = this._peopleList().find(item => item.key === this.editCell.key);
+    if (!person) return '';
+    const { date, half } = this.editCell;
+    const halfLabel = half === 'morning' ? 'Matin' : 'Après-midi';
+    const entry = this._presenceCovering(person, date, half);
+    const editable = this._canEditPerson(person);
+    const selectedRoomId = entry?.roomId ?? rooms[0]?.id ?? null;
+    const entryRoom = entry ? this._roomById(entry.roomId) : null;
+    const entryLabel = entry ? (entryRoom ? entryRoom.name : (SOURCE_BADGES[person.type] || '')) : '';
 
     return `
-      <div class="agenda-scroll">
-        <table class="agenda-month" role="grid" aria-label="Vue mois">
-          <thead><tr>${DAY_LABELS_SHORT.map(d => `<th scope="col">${d}</th>`).join('')}</tr></thead>
-          <tbody>${weeks.join('')}</tbody>
-        </table>
+      <div class="modal-overlay open agenda-cell-overlay" data-action="close-cell">
+        <div class="modal open agenda-day-modal" role="dialog" aria-modal="true" aria-label="Inscription">
+          <div class="modal-content agenda-day-modal-content">
+            <div class="modal-header agenda-day-header">
+              <div class="agenda-day-header-text">
+                <span class="agenda-eyebrow">INSCRIPTION</span>
+                <h2>${escapeHtml(person.name)} · ${halfLabel}</h2>
+                <p class="agenda-day-totals">${escapeHtml(formatDayLabel(date))}${entry ? ` — ${escapeHtml(entryLabel)}` : ' — aucune inscription'}</p>
+              </div>
+              <button type="button" class="modal-close" data-action="close-cell" aria-label="Fermer">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+              </button>
+            </div>
+            <div class="modal-body agenda-day-body">
+              ${editable ? `
+                <form data-agenda-cell-form>
+                  <div class="agenda-cell-form-grid">
+                    <label class="form-control-wrap">
+                      <span>Local</span>
+                      <select class="form-control" name="room_id" required>
+                        ${rooms.map(room => `
+                          <option value="${room.id}" ${String(selectedRoomId) === String(room.id) ? 'selected' : ''}>
+                            ${escapeHtml(room.name)}${room.building_name ? ` — ${escapeHtml(room.building_name)}` : ''}
+                          </option>`).join('')}
+                      </select>
+                    </label>
+                    <label class="agenda-check">
+                      <input type="checkbox" name="needs_workstation" ${entry?.presence.needs_workstation ? 'checked' : ''}>
+                      <span>Poste de travail</span>
+                    </label>
+                    <label class="agenda-check">
+                      <input type="checkbox" name="needs_meal" ${entry?.presence.needs_meal ? 'checked' : ''}>
+                      <span>Repas</span>
+                    </label>
+                  </div>
+                  ${entry?.presence.period === 'full'
+                    ? '<p class="agenda-field-help">Cette personne est inscrite toute la journée : le changement de local s’applique à la journée entière, sinon seule la période affichée est retirée.</p>'
+                    : ''}
+                </form>`
+              : `
+                <p class="agenda-none">${entry ? `Inscription : ${escapeHtml(entryLabel)}` : 'Aucune inscription sur ce créneau.'}</p>
+                <p class="agenda-field-help">Lecture seule : seuls les gestionnaires de l’agenda peuvent modifier cette ligne.</p>
+              `}
+            </div>
+            <div class="modal-footer agenda-day-footer">
+              ${editable && entry ? '<button class="btn btn-danger" type="button" data-action="remove-cell">Retirer</button>' : ''}
+              <button class="btn btn-secondary" type="button" data-action="close-cell">Annuler</button>
+              ${editable ? '<button class="btn btn-primary" type="button" data-action="save-cell">Enregistrer</button>' : ''}
+            </div>
+          </div>
+        </div>
       </div>`;
+  }
+
+  _addPersonModalHtml() {
+    const canManage = authStore.hasPermission('agenda.manage');
+    if (!canManage) return '';
+    const today = toISODate(new Date());
+    const futureDays = (this.data?.days || [])
+      .filter(d => d.date >= today)
+      .map(d => d.date);
+    if (!futureDays.length) return '';
+    const userOptions = (authStore.currentUser?.permissions || [])
+      .includes('agenda.access')
+      ? '' : '';
+    return `
+      <div class="modal-overlay open agenda-add-person-overlay" data-action="close-add-person">
+        <div class="modal open agenda-day-modal" role="dialog" aria-modal="true" aria-label="Ajouter une personne">
+          <div class="modal-content agenda-day-modal-content">
+            <div class="modal-header agenda-day-header">
+              <div class="agenda-day-header-text">
+                <span class="agenda-eyebrow">AJOUTER UNE PERSONNE</span>
+                <h2>Inscrire au planning</h2>
+              </div>
+              <button type="button" class="modal-close" data-action="close-add-person" aria-label="Fermer">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+              </button>
+            </div>
+            <div class="modal-body agenda-day-body">
+              <form data-agenda-add-person-form>
+                <div class="agenda-add-person-grid">
+                  <label class="form-control-wrap">
+                    <span>Personne</span>
+                    <select class="form-control" name="user_id" required>
+                      <option value="">Choisir un utilisateur…</option>
+                    </select>
+                  </label>
+                  <label class="form-control-wrap">
+                    <span>Date</span>
+                    <input class="form-control" type="date" name="presence_date" value="${futureDays[0]}" min="${today}" required>
+                  </label>
+                  <label class="form-control-wrap">
+                    <span>Période</span>
+                    <select class="form-control" name="period" required>
+                      <option value="morning">Matin</option>
+                      <option value="afternoon">Après-midi</option>
+                      <option value="full">Journée</option>
+                    </select>
+                  </label>
+                  <label class="form-control-wrap">
+                    <span>Local</span>
+                    <select class="form-control" name="room_id" required>
+                      <option value="">Choisir un local…</option>
+                      ${(this.data?.rooms || []).map(room => `
+                        <option value="${room.id}">${escapeHtml(room.name)}${room.building_name ? ` — ${escapeHtml(room.building_name)}` : ''}</option>`).join('')}
+                    </select>
+                  </label>
+                  <label class="agenda-check">
+                    <input type="checkbox" name="needs_workstation">
+                    <span>Poste de travail</span>
+                  </label>
+                  <label class="agenda-check">
+                    <input type="checkbox" name="needs_meal">
+                    <span>Repas</span>
+                  </label>
+                </div>
+              </form>
+            </div>
+            <div class="modal-footer agenda-day-footer">
+              <button class="btn btn-secondary" type="button" data-action="close-add-person">Annuler</button>
+              <button class="btn btn-primary" type="button" data-action="save-add-person">Ajouter l'inscription</button>
+            </div>
+          </div>
+        </div>
+      </div>`;
+  }
+
+  _bindCellEditor() {
+    const overlay = this.element.querySelector('.agenda-cell-overlay');
+    overlay?.addEventListener('click', event => {
+      if (event.target === overlay) {
+        this.editCell = null;
+        this.renderState();
+      }
+    });
+    this.element.querySelectorAll('[data-action="close-cell"]').forEach(el => {
+      el.addEventListener('click', () => {
+        this.editCell = null;
+        this.renderState();
+      });
+    });
+    this.element.querySelector('[data-action="save-cell"]')?.addEventListener('click', () => this._saveCellEditor());
+    this.element.querySelector('[data-action="remove-cell"]')?.addEventListener('click', () => this._removeCellEditor());
+  }
+
+  _bindAddPersonModal() {
+    const overlay = this.element.querySelector('.agenda-add-person-overlay');
+    overlay?.addEventListener('click', event => {
+      if (event.target === overlay) {
+        this.addPersonOpen = false;
+        this.renderState();
+      }
+    });
+    this.element.querySelectorAll('[data-action="close-add-person"]').forEach(el => {
+      el.addEventListener('click', () => {
+        this.addPersonOpen = false;
+        this.renderState();
+      });
+    });
+    this.element.querySelector('[data-action="save-add-person"]')?.addEventListener('click', () => this._saveAddPersonModal());
+    this._populateAddPersonUsers();
+  }
+
+  async _populateAddPersonUsers() {
+    const select = this.element.querySelector('[data-agenda-add-person-form] select[name="user_id"]');
+    if (!select) return;
+    try {
+      const token = document.cookie.match(/access_token=([^;]+)/)?.[1] || '';
+      const response = await fetch('/agenda/users', {
+        headers: { 'Authorization': `Bearer ${token}` },
+      });
+      if (!response.ok) throw new Error('Impossible de charger les utilisateurs');
+      const data = await response.json();
+      const users = (data.users || []).filter(u => u.is_active);
+      select.innerHTML = '<option value="">Choisir un utilisateur…</option>' +
+        users.map(u => `<option value="${u.id}">${escapeHtml(u.full_name || u.username)}${u.email ? ` <${u.email}>` : ''}</option>`).join('');
+    } catch (error) {
+      select.innerHTML = '<option value="">Erreur de chargement</option>';
+      console.error(error);
+    }
+  }
+
+  async _saveAddPersonModal() {
+    const form = this.element.querySelector('[data-agenda-add-person-form]');
+    if (!form) return;
+    const userId = Number(form.elements.user_id.value);
+    const date = form.elements.presence_date.value;
+    const roomId = Number(form.elements.room_id.value);
+    const period = form.elements.period.value;
+    const needsWorkstation = form.elements.needs_workstation.checked;
+    const needsMeal = form.elements.needs_meal.checked;
+    if (!userId || !date || !roomId) {
+      this._toast('Champs obligatoires manquants', 'error');
+      return;
+    }
+    try {
+      await upsertMyPresence({
+        presence_date: date,
+        room_id: roomId,
+        is_present: true,
+        needs_workstation: needsWorkstation,
+        needs_meal: needsMeal,
+        period: period,
+        user_id: userId,
+      });
+      await this.loadPlanning();
+      this.addPersonOpen = false;
+      this.renderState();
+      this._toast('Inscription ajoutée', 'success');
+    } catch (error) {
+      this._toast(error.message || 'Erreur', 'error');
+    }
+  }
+
+  _cellEditorContext() {
+    const person = this._peopleList().find(item => item.key === this.editCell?.key);
+    if (!person || !this.editCell) return null;
+    const { date, half } = this.editCell;
+    return { person, date, half, entry: this._presenceCovering(person, date, half) };
+  }
+
+  async _createPersonPresence(person, { date, roomId, half, needsWorkstation, needsMeal }) {
+    if (person.type === 'external') {
+      await createExternalPresence({
+        presence_date: date,
+        room_id: roomId,
+        external_name: person.name,
+        needs_workstation: needsWorkstation,
+        needs_meal: needsMeal,
+        period: half,
+      });
+      return;
+    }
+    await upsertMyPresence({
+      presence_date: date,
+      room_id: roomId,
+      is_present: true,
+      needs_workstation: needsWorkstation,
+      needs_meal: needsMeal,
+      period: half,
+      user_id: person.personId,
+    });
+  }
+
+  async _saveCellEditor() {
+    const form = this.element.querySelector('[data-agenda-cell-form]');
+    const context = this._cellEditorContext();
+    if (!form || !context) return;
+    const { person, date, half, entry } = context;
+    const roomId = Number(form.elements.room_id.value);
+    const needsWorkstation = form.elements.needs_workstation.checked;
+    const needsMeal = form.elements.needs_meal.checked;
+    const otherHalf = half === 'morning' ? 'afternoon' : 'morning';
+    try {
+      if (!entry) {
+        await this._createPersonPresence(person, { date, roomId, half, needsWorkstation, needsMeal });
+      } else if (entry.roomId === roomId) {
+        await updatePresence(entry.presence.id, {
+          needs_workstation: needsWorkstation,
+          needs_meal: needsMeal,
+        });
+      } else if (entry.period === half) {
+        await updatePresence(entry.presence.id, {
+          room_id: roomId,
+          needs_workstation: needsWorkstation,
+          needs_meal: needsMeal,
+        });
+      } else {
+        await updatePresence(entry.presence.id, { period: otherHalf });
+        await this._createPersonPresence(person, { date, roomId, half, needsWorkstation, needsMeal });
+      }
+      await this.loadPlanning();
+      this.editCell = null;
+      this.renderState();
+      this._toast('Inscription enregistrée', 'success');
+    } catch (error) {
+      this._toast(error.message || 'Erreur', 'error');
+    }
+  }
+
+  async _removeCellEditor() {
+    const context = this._cellEditorContext();
+    if (!context || !context.entry) return;
+    const { person, date, half, entry } = context;
+    try {
+      if (entry.period === 'full') {
+        const otherHalf = half === 'morning' ? 'afternoon' : 'morning';
+        await updatePresence(entry.presence.id, { period: otherHalf });
+      } else if (person.type === 'user' && person.isMine) {
+        await upsertMyPresence({
+          presence_date: date,
+          room_id: entry.roomId,
+          is_present: false,
+        });
+      } else {
+        await deletePresence(entry.presence.id);
+      }
+      await this.loadPlanning();
+      this.editCell = null;
+      this.renderState();
+      this._toast('Inscription retirée', 'success');
+    } catch (error) {
+      this._toast(error.message || 'Erreur', 'error');
+    }
   }
 
   _dayPanelHtml(rooms) {
@@ -950,12 +1302,27 @@ _halfCellHtml(day, room, half, dayByIso) {
   }
 
   _bindPlanning() {
-    this.element.querySelectorAll('[data-day]').forEach(btn => {
-      btn.addEventListener('click', () => {
-        this.openDay = btn.dataset.day;
-        this.openRoom = btn.dataset.room || null;
+    this.element.querySelectorAll('th[data-day]').forEach(head => {
+      head.addEventListener('click', () => {
+        this.openDay = head.dataset.day;
+        this.openRoom = null;
         this.renderState();
       });
+    });
+    this.element.querySelectorAll('[data-cell-person]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        if (btn.disabled) return;
+        this.editCell = {
+          key: btn.dataset.cellPerson,
+          date: btn.dataset.cellDate,
+          half: btn.dataset.cellHalf,
+        };
+        this.renderState();
+      });
+    });
+    this.element.querySelector('[data-action="add-person-to-planning"]')?.addEventListener('click', () => {
+      this.addPersonOpen = true;
+      this.renderState();
     });
   }
 

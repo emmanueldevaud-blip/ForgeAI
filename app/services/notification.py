@@ -188,13 +188,25 @@ class NotificationService:
             await self.db.delete(subscription)
             return "expired"
 
+        data = notification.data_json or {}
+        enriched_body = notification.message
+        if notification.category == "sport_analysis":
+            analysis_id = data.get("analysis_id")
+            if analysis_id:
+                enriched_body += f"\n\nAnalyse #{analysis_id}"
+        elif data.get("url"):
+            enriched_body += f"\n\n{data['url']}"
+
         payload = json.dumps(
             {
                 "title": notification.title,
-                "body": notification.message,
-                "tag": (notification.data_json or {}).get("url") or notification.category,
-                "url": (notification.data_json or {}).get("url"),
+                "body": enriched_body,
+                "tag": data.get("url") or notification.category,
+                "url": data.get("url"),
                 "unread": unread,
+                "category": notification.category,
+                "data": data,
+                "timestamp": int(notification.created_at.timestamp()) if notification.created_at else None,
             },
             ensure_ascii=False,
         ).encode("utf-8")

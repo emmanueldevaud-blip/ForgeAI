@@ -463,11 +463,22 @@ class SportAnalysisService:
         if analysis.notification_sent or not athlete.user_id:
             return
         title = f"{_EMOJI.get(analysis_type, '')} {_NOTIFICATION_TITLES.get(analysis_type, 'Analyse Sport')}".strip()
+        # Construire un message plus détaillé
+        message_parts = []
+        if analysis.summary:
+            message_parts.append(analysis.summary)
+        if analysis.content and len(analysis.content) > len(analysis.summary or ""):
+            # Ajouter le contenu s'il apporte plus que le résumé
+            content_preview = analysis.content[:300]
+            if len(analysis.content) > 300:
+                content_preview += "..."
+            message_parts.append(content_preview)
+        message = "\n\n".join(message_parts) if message_parts else analysis.title
         try:
             await NotificationService(self.db).send(
                 user_id=athlete.user_id,
                 title=title,
-                message=analysis.summary or analysis.title,
+                message=message,
                 category=_NOTIFICATION_CATEGORY,
                 data={
                     "url": _NOTIFICATION_URL,

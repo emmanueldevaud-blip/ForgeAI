@@ -14,7 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import load_only, selectinload
 
 from app.models.sport import (SportActivity, SportActivityAnalysis, SportAnalysis, SportAthlete, SportAthleteObservation,
-                               SportGoal, SportHealthDaily, SportTrackPoint)
+                               SportGarminConnection, SportGoal, SportHealthDaily, SportRecommendation, SportTrackPoint)
 from app.models.user import User
 from app.schemas.sport import (SportActivityCreate, SportGoalCreate, SportNormalizedActivity,
                                 SportHeartRateConfig, SportObservationCreate)
@@ -724,7 +724,15 @@ class SportService:
         )
 
     async def build_coach_context(self, athlete) -> dict:
-        """Construit le contexte de données (activités, périsodes, objectifs) utilisé par le coach IA."""
+        """Contexte compact du coach IA (prompts soumis à la limite d'entrée de l'AI Gateway).
+
+        Le contexte part dans un prompt unique : il ne contient que des résumés
+        (périodes, tendances, récupération, santé récente, recommandations,
+        alertes). Les détails (activités anciennes, analyses complètes, santé
+        jour par jour) restent en base et sont récupérés par les outils de
+        l'Agent Sport (get_recent_activities, get_training_history,
+        list_previous_analyses, get_health_data).
+        """
         today = datetime.now(timezone.utc).date()
         start = today - timedelta(days=27)
         result = await self.db.execute(
@@ -741,21 +749,22 @@ class SportService:
         goals = [{"name": goal.name, "goal_type": goal.goal_type, "target_value": goal.target_value, "unit": goal.unit, "target_date": goal.target_date} for goal in goals_result.scalars().all()]
         profile = SportAnalysisEngine.athlete_profile(activities, goals)
         profile["goal_analysis"] = SportAnalysisEngine.analyze_goals(goals, activities, today)
-        
-        # Analyses récentes (matin, soir, activité) pour le contexte IA
+
+        # Analyses récentes (matin, soir, activité) : titres + résumés seuls.
+        # Le corps complet (plus de 10 000 tokens pour 15 analyses) reste en
+        # base et est relu par l'outil list_previous_analyses.
         analyses_result = await self.db.execute(
             select(SportAnalysis).where(
                 SportAnalysis.athlete_id == athlete.id,
                 SportAnalysis.generated_at >= datetime.combine(today - timedelta(days=30), datetime.min.time()),
-            ).order_by(SportAnalysis.generated_at.desc()).limit(20)
+            ).order_by(SportAnalysis.generated_at.desc()).limit(5)
         )
         recent_analyses = [
             {
                 "type": a.analysis_type,
                 "day": a.analysis_day.isoformat() if a.analysis_day else None,
                 "title": a.title,
-                "summary": a.summary,
-                "content": a.content,
+                "summary": (a.summary or "")[:200],
                 "activity_id": a.activity_id,
                 "generated_at": a.generated_at.isoformat() if a.generated_at else None,
             }
@@ -768,8 +777,111 @@ class SportService:
             recovery=await self.recovery_context(),
         )
         context["recent_analyses"] = recent_analyses
-        context["health"] = await self.health_context(90)
+        # Tendances 7 et 30 jours : synthèse + évolution vs période précédente.
+        context["period_trends"] = self._period_trends(activities, today)
+        context["recommendations"] = await self._coach_recommendations(athlete)
+        health = await self.health_context(90)
+        rows = health.get("rows") or []
+        if len(rows) > 7:
+            health["rows"] = rows[-7:]
+            health["rows_note"] = "7 derniers jours détaillés ; historique complet via l'outil get_health_data"
+        context["health"] = health
+        garmin = (await self.db.execute(
+            select(SportGarminConnection).where(SportGarminConnection.athlete_id == athlete.id)
+        )).scalars().first()
+        context["alerts"] = self._coach_alerts(context["recovery"], goals, garmin, today)
         return context
+
+    @staticmethod
+    def _period_trends(activities: list[SportActivity], today: date) -> dict[str, Any]:
+        """Synthèse + évolution (%) sur les fenêtres glissantes de 7 et 30 jours."""
+        trends: dict[str, Any] = {}
+        for days in (7, 30):
+            current_start = today - timedelta(days=days - 1)
+            previous_start = today - timedelta(days=days * 2 - 1)
+            current = SportAnalysisEngine.summarize(
+                item for item in activities if current_start <= item.started_at.date() <= today
+            )
+            previous = SportAnalysisEngine.summarize(
+                item for item in activities if previous_start <= item.started_at.date() < current_start
+            )
+            trends[f"d{days}"] = {
+                "summary": current,
+                "change_percent_vs_previous": {
+                    key: SportAnalysisEngine.percent_change(current.get(key), previous.get(key))
+                    for key in ("distance_m", "duration_seconds", "elevation_gain_m", "activity_count", "avg_pace_sec_km", "avg_heart_rate")
+                },
+            }
+        return trends
+
+    async def _coach_recommendations(self, athlete) -> dict:
+        """Recommandations encore actives + les plus récentes (texte tronqué)."""
+        active = (await self.db.execute(
+            select(SportRecommendation).where(
+                SportRecommendation.athlete_id == athlete.id,
+                SportRecommendation.status.in_(("pending", "accepted")),
+            ).order_by(SportRecommendation.created_at.desc()).limit(6)
+        )).scalars().all()
+        recent = (await self.db.execute(
+            select(SportRecommendation).where(SportRecommendation.athlete_id == athlete.id)
+            .order_by(SportRecommendation.created_at.desc()).limit(5)
+        )).scalars().all()
+
+        def brief(row: SportRecommendation) -> dict[str, Any]:
+            return {
+                "id": row.id,
+                "status": row.status,
+                "category": row.category,
+                "recommendation": (row.recommendation or "")[:200],
+                "valid_until": row.valid_until.date().isoformat() if row.valid_until else None,
+                "objective_id": row.objective_id,
+            }
+
+        return {"active": [brief(row) for row in active], "recent": [brief(row) for row in recent]}
+
+    @staticmethod
+    def _coach_alerts(recovery: dict, goals: list[dict], garmin, today: date) -> list[dict[str, Any]]:
+        """Alertes importantes dérivées des données existantes (mêmes seuils que les événements d'anomalie)."""
+        alerts: list[dict[str, Any]] = []
+        latest = (recovery or {}).get("latest") or {}
+        readiness = latest.get("readiness_score")
+        if isinstance(readiness, (int, float)) and readiness < 20:
+            alerts.append({
+                "type": "readiness_critique",
+                "severity": "critical",
+                "message": f"Readiness à {readiness:.0f} : récupération très basse.",
+            })
+        if latest.get("sleep_total_minutes") == 0:
+            alerts.append({
+                "type": "sommeil_nul",
+                "severity": "critical",
+                "message": "Aucun sommeil enregistré la nuit dernière.",
+            })
+        for goal in goals:
+            target_date = goal.get("target_date")
+            if isinstance(target_date, date) and target_date < today:
+                alerts.append({
+                    "type": "objectif_echu",
+                    "severity": "warning",
+                    "message": f"Objectif « {goal.get('name')} » échu le {target_date.isoformat()}.",
+                })
+        if garmin is not None:
+            last_sync = garmin.last_sync_at
+            if last_sync is not None and last_sync.tzinfo is None:
+                last_sync = last_sync.replace(tzinfo=timezone.utc)
+            if garmin.status != "connected":
+                alerts.append({
+                    "type": "garmin_deconnecte",
+                    "severity": "critical",
+                    "message": "Connexion Garmin non connectée : données potentiellement obsolètes.",
+                })
+            elif last_sync is None or (datetime.now(timezone.utc) - last_sync) > timedelta(days=2):
+                alerts.append({
+                    "type": "garmin_non_synchronise",
+                    "severity": "warning",
+                    "message": "Aucune synchronisation Garmin depuis plus de 48 h.",
+                })
+        return alerts[:5]
 
     async def create_observation(self, data: SportObservationCreate) -> SportAthleteObservation:
         athlete = await self.get_or_create_athlete()

@@ -11,7 +11,10 @@ Interface stable pour les modules applicatifs :
 
 La passerelle gère seule le choix du fournisseur, du modèle, les retries,
 les quotas, le fallback et la journalisation. Les modules ne manipulent
-jamais de clés API ni de spécificités de fournisseurs.
+ jamais de clés API ni de spécificités de fournisseurs.
+
+Le routage intelligent des modèles (cascade OpenCode → Groq → Gemini → OpenRouter)
+est intégré via le ModelCascade, configuré via les paramètres IA en base de données.
 """
 
 import asyncio
@@ -234,7 +237,75 @@ class AIGateway:
         max_tokens: int | None,
         preferred_provider: str | None,
     ) -> AIResponse:
-        """Sélection du fournisseur, retries, fallback, quotas et journalisation."""
+        """Sélection du fournisseur, retries, fallback, quotas et journalisation.
+
+        D'abord, on essaie le ModelCascade (OpenCode Free → Groq → Gemini → OpenRouter)
+        si le routage intelligent est activé. Sinon, on utilise le routage classique.
+        """
+        # Essayer le ModelCascade de routage intelligent si activé
+        if self.settings.AI_ROUTER_ENABLED:
+            try:
+                from app.services.ai.model_router import ModelCascade
+
+                cascade = ModelCascade(self.settings)
+                cascade._refresh_opencode_models()
+                selected = cascade.select_development_model_cascade(task_type=task_type)
+                if selected:
+                    logger.info(
+                        "[AI-GATEWAY] model_router_selected provider=%s model=%s",
+                        selected["provider"],
+                        selected["model"],
+                    )
+                    # Appeler le provider sélectionné via le modèle existant
+                    provider_name = selected["provider"]
+                    resolved_model = selected["model"]
+                    if provider_name in self._providers:
+                        provider = self._providers[provider_name]
+                        try:
+                            text, tokens_in, tokens_out = await self._call_with_retries(
+                                provider, resolved_model, messages, temperature, max_tokens
+                            )
+                            latency = asyncio.get_event_loop().time() - started
+                            self.stats.record_request(provider_name, resolved_model)
+                            self.stats.record_success(
+                                provider_name, resolved_model, tokens_in, tokens_out
+                            )
+                            return AIResponse(
+                                text=text,
+                                provider_used=provider_name,
+                                model_used=resolved_model,
+                                tokens_input=tokens_in,
+                                tokens_output=tokens_out,
+                                latency=round(latency, 3),
+                                fallback_used=False,
+                                quota_status=self.stats.quota_status(),
+                            )
+                        except AIGatewayError as exc:
+                            if should_fallback(exc):
+                                # Enregistrer l'échec dans la cascade
+                                state = cascade._get_model_state(
+                                    selected["provider"], selected["model"]
+                                )
+                                state.record_failure(exc, asyncio.get_event_loop().time())
+                                logger.warning(
+                                    "[AI-GATEWAY] provider=%s model=%s status=fallback",
+                                    provider_name,
+                                    resolved_model,
+                                )
+                            # Fallthrough vers le routage classique ci-dessous
+                    else:
+                        logger.warning(
+                            "[AI-GATEWAY] model_router_provider=%s not available",
+                            provider_name,
+                        )
+            except Exception as exc:
+                # Erreur dans le ModelCascade, on continue avec le routage classique
+                logger.warning(
+                    "[AI-GATEWAY] model_router_error=%s, fallback classique",
+                    exc,
+                )
+
+        # --- Routage classique ---
         order = self._resolve_order(preferred_provider)
         candidates = [name for name in order if self._is_candidate(name)]
         if not candidates:

@@ -155,6 +155,9 @@ class AiSettingsResponse(BaseModel):
     timeout_seconds: float = 30.0
     max_retries: int = 2
     retry_backoff_seconds: float = 1.0
+    ai_router_enabled: bool = True
+    ai_router_prefer_free: bool = True
+    ai_router_cooldown_seconds: float = 300.0
     groq: AiProviderSettings = Field(default_factory=AiProviderSettings)
     gemini: AiProviderSettings = Field(default_factory=AiProviderSettings)
     openrouter: AiProviderSettings = Field(default_factory=AiProviderSettings)
@@ -175,6 +178,9 @@ class AiSettingsUpdate(BaseModel):
     timeout_seconds: float = Field(30.0, gt=0, le=300)
     max_retries: int = Field(2, ge=0, le=5)
     retry_backoff_seconds: float = Field(1.0, ge=0, le=30)
+    ai_router_enabled: bool = Field(True, description="Activer/désactiver le routage intelligent des modèles")
+    ai_router_prefer_free: bool = Field(True, description="Privilégier les modèles gratuits OpenCode")
+    ai_router_cooldown_seconds: float = Field(300.0, gt=0, description="Cooldown par défaut en secondes entre les tentatives de modèle")
     groq: AiProviderSettingsUpdate = Field(default_factory=AiProviderSettingsUpdate)
     gemini: AiProviderSettingsUpdate = Field(default_factory=AiProviderSettingsUpdate)
     openrouter: AiProviderSettingsUpdate = Field(default_factory=AiProviderSettingsUpdate)

@@ -114,6 +114,11 @@ class Settings(BaseSettings):
     OPENCODE_BIN: str = ""
     OPENCODE_WORK_DIR: str = "."
 
+    # AI Model Router (routage intelligent multi-providers)
+    AI_ROUTER_ENABLED: bool = True
+    AI_ROUTER_PREFER_FREE: bool = True
+    AI_ROUTER_COOLDOWN_SECONDS: float = 300.0
+
     # Notifications (Web Push vers le telephone -> repliquee sur la montre Garmin)
     NOTIFICATION_VAPID_PUBLIC_KEY: str = ""
     NOTIFICATION_VAPID_PRIVATE_KEY: str = ""

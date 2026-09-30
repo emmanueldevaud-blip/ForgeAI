@@ -137,7 +137,7 @@ async def list_files(ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
     path = args.get("path", ".")
     max_depth = args.get("max_depth", 3)
 
-    work_dir = Path(ctx.work_dir)
+    work_dir = Path(ctx.work_dir).resolve()
     target = (work_dir / path).resolve()
     if not target.is_relative_to(work_dir):
         return {"error": "Accès refusé"}

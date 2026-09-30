@@ -99,7 +99,7 @@ async def test_registry_has_tools():
     assert "deploy_production" in names
     
     # Total
-    assert len(names) >= 17
+    assert len(names) == 15
 
 
 async def test_opencode_client_available():

@@ -30,18 +30,17 @@ domotique_task = None
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global garmin_sync_task, ad_sync_task, domotique_task
+    global garmin_sync_task, ad_sync_task, domotique_task, sport_analysis_task
     await init_db()
     register_all_modules()
     register_dashboard_widgets()
-    from app.db.session import get_db
-    async for db in get_db():
+    from app.db.session import get_db_context
+    async with get_db_context() as db:
         await seed_default_rbac(db)
         await _sync_module_statuses(db)
         await apply_ai_settings_from_db(db)
         await apply_vapid_from_db(db)
         await seed_domotique(db)
-        break
     garmin_sync_task = asyncio.create_task(_garmin_sync_loop())
     ad_sync_task = asyncio.create_task(_ad_sync_loop())
     sport_analysis_task = asyncio.create_task(_sport_analysis_loop())

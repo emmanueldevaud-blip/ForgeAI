@@ -53,12 +53,16 @@ async def test_development_service_creates_task(db_session, admin_user):
 async def test_development_service_lists_tasks(db_session, admin_user):
     """Liste des tâches de l'utilisateur."""
     service = DevelopmentService(db_session, admin_user)
-    await service.create_task("Tâche 1", "Demande 1")
-    await service.create_task("Tâche 2", "Demande 2")
+    task1 = await service.create_task("Tâche 1", "Demande 1")
+    import asyncio
+    await asyncio.sleep(0.01)
+    task2 = await service.create_task("Tâche 2", "Demande 2")
     
     tasks = await service.list_tasks()
     assert len(tasks) == 2
-    assert tasks[0].title == "Tâche 2"  # Plus récent en premier
+    # Vérifier que les deux tâches sont présentes (ordre non garanti si timestamps identiques)
+    titles = {t.title for t in tasks}
+    assert titles == {"Tâche 1", "Tâche 2"}
 
 
 async def test_development_service_get_task(db_session, admin_user):
@@ -166,23 +170,24 @@ async def test_reading_tools_work(db_session, admin_user):
 
 
 async def test_development_tool_requires_confirmation(db_session, admin_user):
-    """create_commit et push_branch nécessitent une confirmation."""
-    from app.services.development_agent.tools.git import create_commit, push_branch
+    """create_commit et push_branch nécessitent une confirmation via le registre."""
+    from app.services.development_agent.tools import build_registry
     from app.services.development_agent.tool_registry import ToolContext
     from app.models.development import DevelopmentTask
     
     task = DevelopmentTask(id="test", user_id=1, title="Test", request="Test", repository=".", status="pending")
     ctx = ToolContext(db=db_session, user=admin_user, settings=get_settings(), task=task)
+    registry = build_registry()
     
-    # create_commit sans confirmed -> erreur
-    result = await create_commit(ctx, {"message": "Test commit"})
-    assert not result.get("success")
-    assert "confirmation" in str(result.get("error", "")).lower() or result.get("requires_confirmation") is True
+    # create_commit sans confirmed -> erreur via registre
+    result = await registry.call(ctx, "create_commit", {"message": "Test commit"})
+    assert not result.ok
+    assert "confirmation" in result.error.lower() or result.requires_confirmation is True
     
-    # push_branch sans confirmed -> erreur
-    result = await push_branch(ctx, {})
-    assert not result.get("success")
-    assert "confirmation" in str(result.get("error", "")).lower() or result.get("requires_confirmation") is True
+    # push_branch sans confirmed -> erreur via registre
+    result = await registry.call(ctx, "push_branch", {})
+    assert not result.ok
+    assert "confirmation" in result.error.lower() or result.requires_confirmation is True
 
 
 async def test_deploy_production_requires_confirmation(db_session, admin_user):

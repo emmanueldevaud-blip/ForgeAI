@@ -1,3 +1,4 @@
+# Test suite for Sport AI provider using the centralized AI Gateway
 from app.services.ai_gateway import AINoProviderAvailable, ai_gateway
 from app.services.sport_ai import (
     GatewaySportAIProvider,

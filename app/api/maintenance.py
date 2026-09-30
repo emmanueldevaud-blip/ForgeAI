@@ -61,6 +61,7 @@ from app.services.rbac import RBACService
 from app.services.maintenance import MaintenanceService
 from app.services.sport import SportService
 from app.services.sport_agent import agent_enabled, run_agent_trigger
+from app.services.development_agent import run_development_trigger
 from app.services.sport_ai import get_sport_ai_provider
 
 logger = logging.getLogger(__name__)
@@ -710,6 +711,17 @@ _SPORT_QUESTION_RE = re.compile(
     re.IGNORECASE,
 )
 
+# Détection des demandes de développement : mots-clés techniques
+_DEVELOPMENT_QUESTION_RE = re.compile(
+    r"(ajoute|ajouter|crée|créer|modifie|modifier|corrige|corriger|implémente|implémenter|"
+    r"développe|développer|refactor|refactorise|refactoriser|optimise|optimiser|"
+    r"bug|erreur|problème|fix|patch|feature|fonctionnalité|module|api|endpoint|"
+    r"base de données|database|migration|schéma|model|repository|git|commit|push|"
+    r"déploie|déployer|deploy|test|tests|pytest|lint|docker|container|service|"
+    r"forgeai|application|code|fichier|classe|fonction|méthode|variable|import)",
+    re.IGNORECASE,
+)
+
 
 async def _build_sport_context(db: AsyncSession, user: User) -> dict | None:
     """Contexte du coach sport pour l'utilisateur, ou None si indisponible."""
@@ -746,7 +758,15 @@ async def ai_chat(
     sport_allowed = bool(_SPORT_QUESTION_RE.search(data.message))
     if sport_allowed:
         sport_allowed = await RBACService(db).user_has_permission(current_user, "sport.access")
-    conversation_module = data.module or ("sport" if sport_allowed else "maintenance")
+
+    # Détection des demandes de développement
+    development_allowed = bool(_DEVELOPMENT_QUESTION_RE.search(data.message))
+    if development_allowed:
+        development_allowed = await RBACService(db).user_has_permission(current_user, "development.execute")
+
+    conversation_module = data.module or (
+        "development" if development_allowed else ("sport" if sport_allowed else "maintenance")
+    )
 
     if data.conversation_id:
         result = await db.execute(
@@ -807,6 +827,43 @@ async def ai_chat(
                 "[AI-CHAT] event=agent_answer execution=%s actions=%s",
                 outcome.get("execution_id"),
                 outcome.get("actions"),
+            )
+
+    # Agent Développement
+    if ai_text is None and development_allowed:
+        try:
+            from app.services.development_agent.service import run_development_trigger
+            from app.core.config import get_settings
+            outcome = await run_development_trigger(
+                db,
+                current_user,
+                "user_request",
+                payload={"question": data.message, "history": agent_history},
+            )
+        except Exception:
+            logger.exception("[AI-CHAT] Échec Agent Développement (user %s)", current_user.id)
+            outcome = {}
+        if outcome.get("status") in ("ready_for_review", "completed", "analyzing", "planning", "developing", "testing", "fixing"):
+            status_map = {
+                "analyzing": "Analyse du repository en cours...",
+                "planning": "Planification du développement...",
+                "developing": "Développement en cours via OpenCode...",
+                "testing": "Exécution des tests...",
+                "fixing": "Correction des erreurs...",
+                "ready_for_review": "Développement terminé, en attente de validation.",
+                "completed": "Tâche terminée.",
+            }
+            answer = outcome.get("answer") or status_map.get(outcome.get("status"), "Demande prise en charge par l'Agent Développement.")
+            if outcome.get("task_id"):
+                answer += f"\n\nTâche : {outcome['task_id']}"
+                if outcome.get("branch"):
+                    answer += f" (branche : {outcome['branch']})"
+            ai_text = answer
+            ai_model = "development-agent"
+            logger.info(
+                "[AI-CHAT] event=development_agent_answer task=%s status=%s",
+                outcome.get("task_id"),
+                outcome.get("status"),
             )
 
     sport_context = None

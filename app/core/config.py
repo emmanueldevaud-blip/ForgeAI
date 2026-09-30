@@ -106,6 +106,14 @@ class Settings(BaseSettings):
     SPORT_AGENT_MAX_TOOL_CALLS: int = 16
     SPORT_AGENT_TIMEOUT_SECONDS: int = 60
 
+    # Agent Développement (orchestration OpenCode pour le développement ForgeAI).
+    DEVELOPMENT_AGENT_ENABLED: bool = False
+    DEVELOPMENT_AGENT_MAX_STEPS: int = 10
+    DEVELOPMENT_AGENT_MAX_TOOL_CALLS: int = 20
+    DEVELOPMENT_AGENT_TIMEOUT_SECONDS: int = 300
+    OPENCODE_BIN: str = ""
+    OPENCODE_WORK_DIR: str = "."
+
     # Notifications (Web Push vers le telephone -> repliquee sur la montre Garmin)
     NOTIFICATION_VAPID_PUBLIC_KEY: str = ""
     NOTIFICATION_VAPID_PRIVATE_KEY: str = ""

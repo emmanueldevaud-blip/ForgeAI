@@ -63,6 +63,9 @@ class User(Base):
         foreign_keys="UserRoleAssignment.assigned_by", 
         back_populates="assigned_by_user"
     )
+    development_tasks: Mapped[list["DevelopmentTask"]] = relationship(
+        "DevelopmentTask", back_populates="user"
+    )
 
     @property
     def full_name(self) -> str:

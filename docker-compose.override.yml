@@ -1,0 +1,7 @@
+version: '3.8'
+
+services:
+  app:
+    environment:
+      - DOMOTIQUE_POLL_INTERVAL_S=0
+      - DOMOTIQUE_ENABLED=false

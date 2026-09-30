@@ -496,6 +496,13 @@ async def seed_default_rbac(db: AsyncSession) -> None:
         ("domotique.control", "Commander les équipements domotiques", "domotique"),
         ("domotique.configure", "Configurer les installations domotiques", "domotique"),
         ("domotique.admin", "Administrer le module Domotique", "domotique"),
+        # Development Agent
+        ("development.view", "Consulter les tâches de développement", "development"),
+        ("development.execute", "Exécuter des tâches de développement", "development"),
+        ("development.commit", "Créer des commits", "development"),
+        ("development.push", "Pousser des branches", "development"),
+        ("development.deploy", "Déployer en production", "development"),
+        ("development.admin", "Administrer l'Agent Développement", "development"),
     ]
     
     for code, name, module in default_permissions:

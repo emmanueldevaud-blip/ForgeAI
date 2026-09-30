@@ -101,37 +101,6 @@ class SportHealthResponse(BaseModel):
     series: dict[str, list[dict[str, Any]]] = Field(default_factory=dict)
 
 
-class SportCoachRequest(BaseModel):
-    question: str = Field(..., min_length=1, max_length=1000)
-    conversation_id: Optional[int] = Field(None, ge=1)
-
-
-class SportCoachResponse(BaseModel):
-    available: bool
-    provider: str | None = None
-    answer: str
-    sources: list[str] = Field(default_factory=list)
-    conversation_id: Optional[int] = None
-    message_id: Optional[int] = None
-
-
-class SportCoachMessageResponse(BaseModel):
-    id: int
-    role: str
-    content: str
-    provider: Optional[str] = None
-    sources: list[str] = Field(default_factory=list)
-    created_at: datetime
-
-
-class SportCoachConversationResponse(BaseModel):
-    id: int
-    title: Optional[str] = None
-    created_at: datetime
-    updated_at: datetime
-    messages: list[SportCoachMessageResponse] = Field(default_factory=list)
-
-
 class SportObservationCreate(BaseModel):
     content: str = Field(..., min_length=1, max_length=2000)
     activity_id: Optional[int] = Field(None, ge=1)

@@ -97,6 +97,13 @@ class SportActivityAnalysis(Base):
 
 
 class SportCoachConversation(Base):
+    """LEGACY — conversation de l'ancien « Coach Sport » (chat supprimé).
+
+    Conservé pour ne pas détruire les tables existantes ; plus aucune API ni
+    service ne l'utilise. L'Agent Sport (``app.services.sport_agent``) passe
+    par ``sport_agent_executions`` et n'écrit jamais ici.
+    """
+
     __tablename__ = "sport_coach_conversations"
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
@@ -111,6 +118,8 @@ class SportCoachConversation(Base):
 
 
 class SportCoachMessage(Base):
+    """LEGACY — messages de l'ancien « Coach Sport ». Voir SportCoachConversation."""
+
     __tablename__ = "sport_coach_messages"
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
@@ -236,3 +245,72 @@ class SportAnalysis(Base):
 
     athlete: Mapped["SportAthlete"] = relationship("SportAthlete")
     activity: Mapped["SportActivity | None"] = relationship("SportActivity")
+
+
+class SportAgentExecution(Base):
+    """Trace complete d'une execution de l'Agent Sport.
+
+    Une execution correspond a un reveil de l'agent (trigger) et conserve
+    l'ordre des etapes observees : c'est la reponse technique a
+    « pourquoi l'agent a-t-il decide cela ? ».
+    """
+
+    __tablename__ = "sport_agent_executions"
+    __table_args__ = (
+        Index("ix_sport_agent_executions_trigger", "trigger", "started_at"),
+        Index("ix_sport_agent_executions_athlete_status", "athlete_id", "status"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
+    athlete_id: Mapped[int | None] = mapped_column(ForeignKey("sport_athletes.id", ondelete="CASCADE"), nullable=True, index=True)
+    objective_id: Mapped[int | None] = mapped_column(ForeignKey("sport_goals.id", ondelete="SET NULL"), nullable=True, index=True)
+    trigger: Mapped[str] = mapped_column(String(40), nullable=False)
+    status: Mapped[str] = mapped_column(String(30), nullable=False, default="running", index=True)
+    step_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    summary: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    provider: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    model: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    steps_json: Mapped[list[Any]] = mapped_column(JSON, nullable=False, default=list)
+    result_json: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    user: Mapped["User | None"] = relationship("User")
+    athlete: Mapped["SportAthlete | None"] = relationship("SportAthlete")
+    objective: Mapped["SportGoal | None"] = relationship("SportGoal")
+
+
+class SportRecommendation(Base):
+    """Recommandation persistee par l'Agent Sport.
+
+    Elle porte l'objectif qui l'a fait naitre : c'est le lien concret entre
+    la page Objectifs et les decisions de l'agent. Le statut permet de
+    suivre les recommandations non realissees, remplacees ou expirees.
+    """
+
+    __tablename__ = "sport_recommendations"
+    __table_args__ = (
+        Index("ix_sport_recommendations_athlete_status", "athlete_id", "status"),
+        Index("ix_sport_recommendations_created", "created_at"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    athlete_id: Mapped[int] = mapped_column(ForeignKey("sport_athletes.id", ondelete="CASCADE"), nullable=False, index=True)
+    user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
+    objective_id: Mapped[int | None] = mapped_column(ForeignKey("sport_goals.id", ondelete="SET NULL"), nullable=True, index=True)
+    execution_id: Mapped[int | None] = mapped_column(ForeignKey("sport_agent_executions.id", ondelete="SET NULL"), nullable=True, index=True)
+    category: Mapped[str] = mapped_column(String(40), nullable=False, default="training")
+    recommendation: Mapped[str] = mapped_column(Text, nullable=False)
+    reason: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    status: Mapped[str] = mapped_column(String(30), nullable=False, default="pending", index=True)
+    valid_from: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    valid_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    result_json: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
+    athlete: Mapped["SportAthlete"] = relationship("SportAthlete")
+    objective: Mapped["SportGoal | None"] = relationship("SportGoal")
+    execution: Mapped["SportAgentExecution | None"] = relationship("SportAgentExecution")

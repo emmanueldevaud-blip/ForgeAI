@@ -31,18 +31,29 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
-from app.models.sport import SportActivity, SportAnalysis, SportAthlete, SportGarminConnection, SportHealthDaily
+from app.models.sport import (
+    SportActivity,
+    SportAnalysis,
+    SportAthlete,
+    SportGarminConnection,
+    SportHealthDaily,
+)
 from app.models.user import User
 from app.services.ai_gateway import AIGatewayError, ai_gateway
 from app.services.notification import NotificationService
 from app.services.sport import SportService
 from app.services.sport_analysis import SportAnalysisEngine
+from app.services.sport_personality import COACH_PERSONALITY
 
 logger = logging.getLogger(__name__)
 
 # Une activité plus vieille que ce délai (import d'historique) n'est pas
 # analysée automatiquement : seules les sorties récentes déclenchent une analyse.
 ACTIVITY_ANALYSIS_MAX_AGE_HOURS = 48
+
+# L'Agent Sport ne se réveille pas pour un même déclencheur plus d'une fois
+# par cet intervalle : la boucle du cycle tourne toutes les minutes.
+AGENT_TRIGGER_COOLDOWN_MINUTES = 30
 
 _NOTIFICATION_CATEGORY = "sport_analysis"
 _NOTIFICATION_URL = "/sport/analyses"
@@ -66,24 +77,11 @@ _SYSTEM_PROMPT = (
     "## Charge et récupération / ## Comparaison avec l'historique / ## Conseil pour la suite\"} "
     "RÈGLES ABSOLUES :\n"
     "- UNIQUEMENT les données fournies (ne fabrique AUCUNE valeur absente).\n"
-    "- En français, ton de coach sportif : sympathique, chaleureux, motivant, accessible, naturel, "
-    "légèrement taquin, parfois décalé, complice avec l'utilisateur.\n"
-    "- Distingue mesure et interprétation. Jamais de diagnostic médical.\n"
     "- Si une donnée manque, ne la mentionne pas.\n\n"
-    "STYLE ET HUMOUR :\n"
-    "- Phrases courtes, vocabulaire naturel, tutoiement, formulations directes.\n"
-    "- Humour léger et intelligent présent régulièrement mais naturellement "
-    "(~1 touche par analyse, 0 si contexte sérieux/fatigue, 2 si analyse longue).\n"
-    "- Jeux de mots, métaphores sportives, autodérision, références trail/endurance occasionnelles "
-    "(D+, cailloux, ravitaillement, sentiers, frontale, mental, bâtons).\n"
-    "- Dosage : 70% coach / 20% analyse / 10% humour. L'humour est une épice, pas le plat principal.\n"
-    "- Adapte l'humour : enthousiaste si belle séance, doux si séance dure, réduit si fatigue importante.\n"
-    "- Quelques emojis modérés (🏃 ❤️ 💪 😄 ⛰️ 🔥 🧠 😴 ☕) quand ça apporte quelque chose.\n"
-    "- PAS de félicitations vides (\"Bravo ! Super !\") : félicite sur la base des données.\n"
-    "- Varie les ouvertures, évite les répétitions.\n"
-    "- Structure préférée dans content : ## Résumé / ## Points remarquables / "
+    f"{COACH_PERSONALITY}\n\n"
+    "Structure préférée dans content : ## Résumé / ## Points remarquables / "
     "## Charge et récupération / ## Comparaison avec l'historique / ## Conseil pour la suite\n"
-    "- La notification doit rester lisible sur une montre (concise, chiffres + verdict + touche coach)."
+    "La notification doit rester lisible sur une montre (concise, chiffres + verdict + touche coach)."
 )
 
 _MORNING_INSTRUCTION = (
@@ -99,7 +97,17 @@ _MORNING_INSTRUCTION = (
     "- Termine par un conseil concret pour la journée.\n"
     "- Petite touche d'humour légère si le contexte s'y prête (ex: \"aucune montagne n'a été déclarée "
     "obligatoire avant le café ☕😄\").\n"
-    "- Notification courte : chiffres clés (HRV, Body Battery, Readiness) + verdict + 1 phrase coach."
+    "- Notification courte : chiffres clés (HRV, Body Battery, Readiness) + verdict + 1 phrase coach.\n\n"
+    "BODY BATTERY (règle stricte) :\n"
+    "- recovery.latest.body_battery est la dernière valeur enregistrée, datée de "
+    "recovery.latest.body_battery_day : c'est souvent la fin de journée de la veille.\n"
+    "- recovery.body_battery_today n'est renseigné que si le Body Battery du jour est déjà synchronisé, "
+    "sinon il vaut null : la valeur du réveil n'est alors pas disponible.\n"
+    "- Si body_battery_today est null, dis-le clairement (« Body Battery du jour pas encore synchronisé ; "
+    "valeur de fin de journée du JJ/MM : X % ») et ne présente JAMAIS cette valeur comme celle du réveil.\n"
+    "- Ne recopie JAMAIS un autre chiffre du contexte (HRV, éveil, pas, stress...) comme Body Battery.\n"
+    "- Toute donnée latest est datée : si elle ne provient pas de la nuit écoulée ou d'aujourd'hui, "
+    "précise de quel jour elle vient au lieu de la présenter comme actuelle."
 )
 
 _EVENING_INSTRUCTION = (
@@ -191,9 +199,9 @@ class SportAnalysisService:
     # Analyses
     # ------------------------------------------------------------------ #
 
-    async def analyze_morning(self) -> tuple[bool, SportAnalysis | None]:
+    async def analyze_morning(self, notify: bool = True) -> tuple[bool, SportAnalysis | None]:
         """(nouvelle_analyse, analyse) — idempotente par jour et par athlète."""
-        return await self._analyze_daily("morning", _MORNING_INSTRUCTION, self._morning_context)
+        return await self._analyze_daily("morning", _MORNING_INSTRUCTION, self._morning_context, notify)
 
     async def morning_sleep_available(self) -> bool:
         """Vrai si la nuit dernière figure déjà dans les données du jour.
@@ -201,6 +209,9 @@ class SportAnalysisService:
         Garmin date le sommeil par le jour de réveil : la nuit écoulée est
         rangée sous aujourd'hui une fois synchronisée. Tant qu'elle manque,
         l'analyse du matin patiente (sinon elle décrirait la nuit d'avant).
+
+        Garmin renvoie aussi un squelette ``sleep`` vide pour le jour en
+        cours : la présence de la clé ne suffit pas, il faut une durée.
         """
         athlete = await self.sport.get_or_create_athlete()
         health_json = await self.db.scalar(
@@ -209,18 +220,39 @@ class SportAnalysisService:
                 SportHealthDaily.day == self._local_today(),
             )
         )
-        return bool(health_json and health_json.get("sleep"))
+        if not isinstance(health_json, dict):
+            return False
+        sleep = health_json.get("sleep")
+        if not isinstance(sleep, dict) or not sleep:
+            return False
+        dto = sleep.get("dailySleepDTO")
+        if not isinstance(dto, dict):
+            dto = {}
+        total = (
+            sleep.get("sleepTimeSeconds")
+            or sleep.get("totalSleepSeconds")
+            or dto.get("sleepTimeSeconds")
+            or dto.get("totalSleepSeconds")
+        )
+        return total is not None
 
-    async def analyze_evening(self) -> tuple[bool, SportAnalysis | None]:
-        return await self._analyze_daily("evening", _EVENING_INSTRUCTION, self._evening_context)
+    async def analyze_evening(self, notify: bool = True) -> tuple[bool, SportAnalysis | None]:
+        return await self._analyze_daily("evening", _EVENING_INSTRUCTION, self._evening_context, notify)
 
-    async def _analyze_daily(self, analysis_type: str, instruction: str, context_builder) -> tuple[bool, SportAnalysis | None]:
+    async def _analyze_daily(
+        self,
+        analysis_type: str,
+        instruction: str,
+        context_builder,
+        notify: bool = True,
+    ) -> tuple[bool, SportAnalysis | None]:
         athlete = await self.sport.get_or_create_athlete()
         day = self._local_today()
         dedupe_key = f"{analysis_type}:{day.isoformat()}"
         existing = await self._find(athlete, dedupe_key)
         if existing is not None:
-            await self._notify(athlete, existing, analysis_type)
+            if notify:
+                await self._notify(athlete, existing, analysis_type)
             return False, existing
         try:
             context = await context_builder(athlete, day)
@@ -237,9 +269,10 @@ class SportAnalysisService:
             analysis_day=day,
             dedupe_key=dedupe_key,
             generated=generated,
+            notify=notify,
         )
 
-    async def analyze_activity(self, activity_id: int) -> tuple[bool, SportAnalysis | None]:
+    async def analyze_activity(self, activity_id: int, notify: bool = True) -> tuple[bool, SportAnalysis | None]:
         """Analyse automatique d'une activité (une seule fois par activité)."""
         athlete = await self.sport.get_or_create_athlete()
         activity = await self.db.scalar(
@@ -252,7 +285,8 @@ class SportAnalysisService:
         dedupe_key = f"activity:{activity.id}"
         existing = await self._find(athlete, dedupe_key)
         if existing is not None:
-            await self._notify(athlete, existing, "activity")
+            if notify:
+                await self._notify(athlete, existing, "activity")
             return False, existing
         context = await self.sport.build_activity_ai_context(activity.id)
         if context is None:
@@ -268,12 +302,13 @@ class SportAnalysisService:
             analysis_day=activity.started_at.date(),
             dedupe_key=dedupe_key,
             generated=generated,
+            notify=notify,
         )
 
-    async def analyze_recent_activities(self, now: datetime | None = None) -> int:
-        """Analyse les activités Garmin récemment synchronisées (après délai).
+    async def list_activities_due(self, now: datetime | None = None) -> list[SportActivity]:
+        """Activités Garmin éligibles à une analyse automatique.
 
-        Une activité n'est analysée qu'une seule fois ; elle doit être
+        Une activité n'est prise en compte qu'une seule fois ; elle doit être
         terminée, synchronisée depuis plus de ``SPORT_ACTIVITY_ANALYSIS_DELAY_MINUTES``
         et avoir débuté dans les 48 dernières heures.
         """
@@ -292,6 +327,16 @@ class SportAnalysisService:
             ).order_by(SportActivity.started_at.asc())
         )
         activities = list(result.scalars().all())
+        return [
+            activity
+            for activity in activities
+            if self._ends_at(activity) <= _naive_utc(now)
+        ]
+
+    async def analyze_recent_activities(self, now: datetime | None = None) -> int:
+        """Analyse les activités Garmin récemment synchronisées (après délai)."""
+        now = now or datetime.now(timezone.utc)
+        activities = await self.list_activities_due(now)
         if not activities:
             return 0
         analyzed_ids = {
@@ -311,8 +356,6 @@ class SportAnalysisService:
         for activity in activities:
             if activity.id in analyzed_ids:
                 continue
-            if self._ends_at(activity) > _naive_utc(now):
-                continue  # l'activité n'est pas encore terminée
             was_created, _ = await self.analyze_activity(activity.id)
             if was_created:
                 created += 1
@@ -431,6 +474,7 @@ class SportAnalysisService:
         analysis_day: date,
         dedupe_key: str,
         generated: dict[str, Any],
+        notify: bool = True,
     ) -> tuple[bool, SportAnalysis | None]:
         meta = generated.get("_meta") or {}
         analysis = SportAnalysis(
@@ -446,7 +490,9 @@ class SportAnalysisService:
             model=meta.get("model"),
             duration_ms=meta.get("duration_ms"),
             fallback_used=bool(meta.get("fallback_used")),
-            notification_sent=False,
+            # Sans notification, la cible est d'emblée considérée comme traitée :
+            # un passage ultérieur du cycle ne doit pas la notifier à retardement.
+            notification_sent=not notify,
         )
         self.db.add(analysis)
         try:
@@ -456,7 +502,8 @@ class SportAnalysisService:
             await self.db.rollback()
             return False, await self._find(athlete, dedupe_key)
         await self.db.commit()
-        await self._notify(athlete, analysis, analysis_type)
+        if notify:
+            await self._notify(athlete, analysis, analysis_type)
         return True, analysis
 
     async def _notify(self, athlete: SportAthlete, analysis: SportAnalysis, analysis_type: str) -> None:
@@ -513,6 +560,7 @@ async def run_sport_analysis_cycle(db: AsyncSession, now: datetime | None = None
         "morning": 0,
         "evening": 0,
         "activities": 0,
+        "agent_events": 0,
         "errors": 0,
     }
     if not settings.SPORT_ANALYSIS_ENABLED:
@@ -559,17 +607,163 @@ async def run_sport_analysis_cycle(db: AsyncSession, now: datetime | None = None
         if user is None or not user.is_active:
             continue
         service = SportAnalysisService(db, user)
+        agent_on = bool(settings.SPORT_AGENT_ENABLED)
         if morning_due and await _morning_ready(service, morning_deadline, local_time):
-            stats["errors"] += await _run_quietly(stats, "morning", service.analyze_morning)
+            agent_turn = agent_on and await _agent_due(db, athlete, "morning")
+            stats["errors"] += await _dispatch_analysis(
+                db, user, "morning", stats, "morning", service.analyze_morning, agent_turn
+            )
         if evening_due:
-            stats["errors"] += await _run_quietly(stats, "evening", service.analyze_evening)
+            agent_turn = agent_on and await _agent_due(db, athlete, "evening")
+            stats["errors"] += await _dispatch_analysis(
+                db, user, "evening", stats, "evening", service.analyze_evening, agent_turn
+            )
         if activity_due:
+            payload: dict[str, Any] | None = None
+            agent_turn = False
+            if agent_on:
+                pending = await _pending_activity_ids(db, athlete, service, now)
+                agent_turn = bool(pending) and not await _agent_cooldown(db, athlete, "activity", now)
+                if agent_turn:
+                    payload = {"activity_ids": pending}
+            stats["errors"] += await _dispatch_analysis(
+                db,
+                user,
+                "activity",
+                stats,
+                "activities",
+                lambda: service.analyze_recent_activities(now),
+                agent_turn,
+                payload,
+            )
+        if agent_on:
+            # Événement métier : une recommandation d'entraînement échue est
+            # signalée une seule fois (marquage dans result_json), puis
+            # l'agent décide quoi en faire.
             try:
-                stats["activities"] += await service.analyze_recent_activities(now)
+                from app.services.sport_agent.events import (
+                    collect_missed_training_events,
+                    emit_agent_event,
+                )
+
+                missed = await collect_missed_training_events(db, athlete.id, now)
+                for event_trigger, event_payload in missed:
+                    outcome = await emit_agent_event(db, user, athlete.id, event_trigger, event_payload)
+                    stats["agent_events"] += 1
+                    logger.info(
+                        "[SPORT-ANALYSIS] event=agent_event trigger=%s status=%s",
+                        event_trigger,
+                        (outcome or {}).get("status"),
+                    )
+                if missed:
+                    await db.commit()
             except Exception:
-                stats["errors"] += 1
-                logger.exception("[SPORT-ANALYSIS] Échec analyse d'activités (user %s)", user.id)
+                logger.exception(
+                    "[SPORT-ANALYSIS] Échec événement Agent Sport (user %s)", user.id
+                )
+                try:
+                    await db.rollback()
+                except Exception:
+                    logger.exception("[SPORT-ANALYSIS] rollback événement impossible")
     return stats
+
+
+async def _dispatch_analysis(
+    db: AsyncSession,
+    user: User,
+    trigger: str,
+    stats: dict[str, Any],
+    stat_key: str,
+    legacy_factory,
+    agent_turn: bool,
+    payload: dict[str, Any] | None = None,
+) -> int:
+    """Réveil de l'Agent Sport, avec repli obligatoire sur le job historique.
+
+    Le job historique n'est court-circuité que si l'agent a effectivement
+    produit au moins une analyse : dans tous les autres cas (drapeau éteint,
+    agent en échec, en repli ou sans résultat) il s'exécute comme par le passé.
+    """
+    if agent_turn:
+        outcome: dict[str, Any] | None = None
+        try:
+            # Import tardif : sport_agent dépend de ce module (analyse du matin/soir).
+            from app.services.sport_agent import run_agent_trigger
+
+            outcome = await run_agent_trigger(db, user, trigger, payload=payload)
+        except Exception:
+            logger.exception("[SPORT-ANALYSIS] Échec Agent Sport %s (user %s)", trigger, user.id)
+        created = int((outcome or {}).get("created_analyses") or 0)
+        # ``budget_exhausted`` est un état terminal valide : l'agent a produit
+        # ce qu'il pouvait produire avant son budget d'étapes.
+        if (outcome or {}).get("status") in ("completed", "budget_exhausted") and created > 0:
+            stats[stat_key] += created
+            return 0
+        logger.warning(
+            "[SPORT-ANALYSIS] Agent %s status=%s (created=%d) → repli historique (user %s)",
+            trigger,
+            (outcome or {}).get("status", "exception"),
+            created,
+            user.id,
+        )
+    try:
+        result = await legacy_factory()
+    except Exception:
+        logger.exception("[SPORT-ANALYSIS] Échec analyse %s", trigger)
+        return 1
+    created = result[0] if isinstance(result, tuple) else result
+    if isinstance(created, bool):
+        created = 1 if created else 0
+    stats[stat_key] += int(created or 0)
+    return 0
+
+
+async def _agent_due(db: AsyncSession, athlete: SportAthlete, kind: str) -> bool:
+    """L'agent planifié (matin/soir) ne se réveille que s'il reste une analyse
+    à produire et qu'il n'a pas déjà tourné pour ce déclencheur."""
+    if await _agent_cooldown(db, athlete, kind, datetime.now(timezone.utc)):
+        return False
+    dedupe_key = f"{kind}:{SportAnalysisService._local_today().isoformat()}"
+    existing = await db.scalar(
+        select(SportAnalysis.id).where(
+            SportAnalysis.athlete_id == athlete.id,
+            SportAnalysis.dedupe_key == dedupe_key
+        )
+    )
+    return existing is None
+
+
+async def _agent_cooldown(db: AsyncSession, athlete: SportAthlete, trigger: str, now: datetime) -> bool:
+    """Un même déclencheur ne réveille pas l'agent plus d'une fois par
+    ``AGENT_TRIGGER_COOLDOWN_MINUTES`` : la boucle tourne toutes les minutes.
+
+    L'implémentation est partagée avec ``sport_agent.triggers`` afin que le
+    cycle planifié et les événements appliquent exactement la même règle."""
+    from app.services.sport_agent.triggers import agent_woken_recently
+
+    return await agent_woken_recently(db, athlete.id, trigger, now)
+
+
+async def _pending_activity_ids(
+    db: AsyncSession, athlete: SportAthlete, service: SportAnalysisService, now: datetime
+) -> list[int]:
+    """Activités dues et pas encore analysées (idempotence identique au job)."""
+    due = await service.list_activities_due(now)
+    if not due:
+        return []
+    ids = [activity.id for activity in due]
+    analyzed = set(
+        (
+            await db.execute(
+                select(SportAnalysis.activity_id).where(
+                    SportAnalysis.athlete_id == athlete.id,
+                    SportAnalysis.analysis_type == "activity",
+                    SportAnalysis.activity_id.in_(ids),
+                )
+            )
+        ).scalars()
+    )
+    return [activity_id for activity_id in ids if activity_id not in analyzed]
 
 
 async def _morning_ready(
@@ -583,15 +777,3 @@ async def _morning_ready(
     if deadline is None or local_time >= deadline:
         return True
     return await service.morning_sleep_available()
-
-
-async def _run_quietly(stats: dict[str, Any], key: str, coroutine_factory) -> int:
-    """Lance une analyse en isolant toute erreur ; retourne 1 si erreur."""
-    try:
-        created, _ = await coroutine_factory()
-    except Exception:
-        logger.exception("[SPORT-ANALYSIS] Échec analyse %s", key)
-        return 1
-    if created:
-        stats[key] += 1
-    return 0

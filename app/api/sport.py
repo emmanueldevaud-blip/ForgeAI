@@ -26,9 +26,6 @@ from app.schemas.sport import (
     GarminConnectRequest,
     GarminConnectionResponse,
     GarminSyncResponse,
-    SportCoachRequest,
-    SportCoachResponse,
-    SportCoachConversationResponse,
     SportObservationCreate,
     SportObservationResponse,
     SportAthleteProfileResponse,
@@ -241,33 +238,6 @@ async def sport_activity_analysis(
     return analysis
 
 
-@router.post("/coach", response_model=SportCoachResponse)
-async def sport_coach(
-    data: SportCoachRequest,
-    service: SportService = Depends(get_sport_analysis_service),
-):
-    try:
-        return await service.coach(data.question, data.conversation_id)
-    except ValueError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
-
-
-@router.get("/coach/conversations", response_model=list[SportCoachConversationResponse])
-async def list_sport_coach_conversations(service: SportService = Depends(get_sport_analysis_service)):
-    return await service.list_coach_conversations()
-
-
-@router.get("/coach/conversations/{conversation_id}", response_model=SportCoachConversationResponse)
-async def get_sport_coach_conversation(
-    conversation_id: int,
-    service: SportService = Depends(get_sport_analysis_service),
-):
-    conversation = await service.get_coach_conversation(conversation_id)
-    if conversation is None:
-        raise HTTPException(status_code=404, detail="Conversation Sport introuvable")
-    return conversation
-
-
 @router.get("/observations", response_model=list[SportObservationResponse])
 async def list_sport_observations(service: SportService = Depends(get_sport_analysis_service)):
     return [{"id": item.id, "activity_id": item.activity_id, "kind": item.kind, "content": item.content,
@@ -320,8 +290,23 @@ async def list_sport_goals(service: SportService = Depends(get_sport_goal_read_s
 
 
 @router.post("/goals", response_model=SportGoalResponse, status_code=201)
-async def create_sport_goal(data: SportGoalCreate, service: SportService = Depends(get_sport_goal_write_service)):
-    return await service.create_goal(data)
+async def create_sport_goal(
+    data: SportGoalCreate,
+    background_tasks: BackgroundTasks,
+    service: SportService = Depends(get_sport_goal_write_service),
+):
+    goal = await service.create_goal(data)
+    # Événement « objectif créé » : réveille l'Agent Sport (si activé).
+    from app.services.sport_agent.events import schedule_agent_event
+
+    background_tasks.add_task(
+        schedule_agent_event,
+        service.current_user.id,
+        goal.athlete_id,
+        "objective_created",
+        {"goal_id": goal.id, "goal_type": goal.goal_type},
+    )
+    return goal
 
 
 def _garmin_response(connection) -> GarminConnectionResponse:
@@ -365,14 +350,27 @@ async def connect_garmin(
 
 @router.post("/garmin/sync", response_model=GarminSyncResponse)
 async def sync_garmin(
+    background_tasks: BackgroundTasks,
     full_history: bool = Query(False, description="Récupère tout l'historique Garmin disponible"),
     service: SportService = Depends(get_sport_activity_write_service),
 ):
     athlete = await service.get_or_create_athlete()
     try:
-        return await SportGarminConnectService(service.db).sync_for_athlete(athlete, full_history)
+        result = await SportGarminConnectService(service.db).sync_for_athlete(athlete, full_history)
     except GarminServiceError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
+    if result.get("status") == "success":
+        # Événements post-synchronisation (garmin_sync, récupération, séance) :
+        # évalués dans une tâche de fond, avec une session propre.
+        from app.services.sport_agent.events import schedule_post_sync_events
+
+        background_tasks.add_task(
+            schedule_post_sync_events,
+            service.current_user.id,
+            athlete.id,
+            int(result.get("imported_count") or 0),
+        )
+    return result
 
 
 @router.delete("/garmin", response_model=dict)

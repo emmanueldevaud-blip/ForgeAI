@@ -99,6 +99,13 @@ class Settings(BaseSettings):
     SPORT_ACTIVITY_ANALYSIS_DELAY_MINUTES: int = 15
     SPORT_ANALYSIS_TIMEZONE: str = "Europe/Paris"
 
+    # Agent Sport (orchestration autonome au-dessus des analyses existantes).
+    # Desactiver pour retomber automatiquement sur les jobs historiques.
+    SPORT_AGENT_ENABLED: bool = False
+    SPORT_AGENT_MAX_STEPS: int = 5
+    SPORT_AGENT_MAX_TOOL_CALLS: int = 16
+    SPORT_AGENT_TIMEOUT_SECONDS: int = 60
+
     # Notifications (Web Push vers le telephone -> repliquee sur la montre Garmin)
     NOTIFICATION_VAPID_PUBLIC_KEY: str = ""
     NOTIFICATION_VAPID_PRIVATE_KEY: str = ""

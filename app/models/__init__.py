@@ -36,9 +36,9 @@ from app.models.rbac import (
 from app.models.user import User, UserRole
 from app.models.volunteer import Volunteer
 from app.models.notification import Notification, NotificationPushSubscription
-from app.models.sport import (SportActivity, SportActivityAnalysis, SportAnalysis, SportAthlete, SportAthleteObservation,
+from app.models.sport import (SportActivity, SportActivityAnalysis, SportAgentExecution, SportAnalysis, SportAthlete, SportAthleteObservation,
                                SportCoachConversation, SportCoachMessage, SportGarminConnection,
-                               SportGarminSyncLog, SportGoal, SportHealthDaily, SportTrackPoint)
+                               SportGarminSyncLog, SportGoal, SportHealthDaily, SportRecommendation, SportTrackPoint)
 from app.models.administrative import AdministrativeAssignment, AdministrativeCapability, AdministrativeMonthlySession, AdministrativeProgramType, AdministrativeRoleType, VolunteerCapability, VolunteerUnavailability
 from app.models.domotique import (
     DomotiqueCycle,
@@ -109,12 +109,14 @@ __all__ = [
     "UsageType",
     "SportActivity",
     "SportActivityAnalysis",
+    "SportAgentExecution",
     "SportAnalysis",
     "SportAthleteObservation",
     "SportCoachConversation",
     "SportCoachMessage",
     "SportAthlete",
     "SportGoal",
+    "SportRecommendation",
     "SportTrackPoint",
     "SportGarminConnection",
     "SportGarminSyncLog",

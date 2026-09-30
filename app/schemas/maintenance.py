@@ -591,7 +591,7 @@ class MaintenanceDashboard(BaseModel):
 
 class AIChatRequest(BaseModel):
     message: str = Field(..., min_length=1)
-    module: str = Field(..., max_length=50)
+    module: Optional[str] = Field(None, max_length=50)
     entity_type: Optional[str] = Field(None, max_length=50)
     entity_id: Optional[int] = None
     conversation_id: Optional[int] = None

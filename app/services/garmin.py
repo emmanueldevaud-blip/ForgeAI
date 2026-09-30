@@ -140,10 +140,25 @@ class SportGarminConnectService:
             )
             for connection in result.scalars().all():
                 try:
-                    await self._sync_connection(connection, connection.athlete)
+                    outcome = await self._sync_connection(connection, connection.athlete)
                 except Exception:
                     # One unavailable Garmin account must never stop the scheduler.
                     continue
+                # Événements Agent Sport (garmin_sync, récupération, séance) :
+                # évalués en tâche de fond avec une session propre.
+                if (
+                    outcome.get("status") == "success"
+                    and connection.athlete
+                    and connection.athlete.user_id
+                    and get_settings().SPORT_AGENT_ENABLED
+                ):
+                    from app.services.sport_agent.events import fire_post_sync_events
+
+                    fire_post_sync_events(
+                        connection.athlete.user_id,
+                        connection.athlete.id,
+                        int(outcome.get("imported_count") or 0),
+                    )
 
     async def _sync_connection(self, connection: SportGarminConnection, athlete: SportAthlete, full_history: bool = False) -> dict:
         started = datetime.now(timezone.utc)

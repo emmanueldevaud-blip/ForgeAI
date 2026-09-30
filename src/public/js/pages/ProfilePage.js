@@ -1,4 +1,4 @@
-import { askSportCoach, getSportAthleteProfile, getSportCoachConversation, getSportDashboard, listSportCoachConversations, updateSportHeartRateConfig } from '../services/sportApi.js?v=6';
+import { getSportAthleteProfile, getSportDashboard, updateSportHeartRateConfig } from '../services/sportApi.js?v=6';
 
 export class ProfilePage {
   constructor(router) {

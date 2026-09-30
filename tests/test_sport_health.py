@@ -251,6 +251,38 @@ async def test_recovery_context_for_ai(db_session, admin_user):
     assert default["recovery"]["available"] is False
 
 
+async def test_recovery_context_distinguishes_today_body_battery(db_session, admin_user):
+    service = SportService(db_session, admin_user)
+    athlete = await _athlete(db_session, admin_user)
+    today = date.today()
+    yesterday = today - timedelta(days=1)
+    db_session.add(SportHealthDaily(
+        athlete_id=athlete.id,
+        day=yesterday,
+        source_type="garmin",
+        health_json={"body_battery": {"bodyBatteryValuesArray": [[1790377200000, 32], [1790433720000, 53]]}},
+    ))
+    await db_session.commit()
+
+    # Sans donnée du jour : la dernière valeur est celle de la veille, datée.
+    ctx = await service.recovery_context(today)
+    assert ctx["latest"]["body_battery"] == 53
+    assert ctx["latest"]["body_battery_day"] == yesterday.isoformat()
+    assert ctx["body_battery_today"] is None
+
+    db_session.add(SportHealthDaily(
+        athlete_id=athlete.id,
+        day=today,
+        source_type="garmin",
+        health_json={"body_battery": {"bodyBatteryValuesArray": [[1790440000000, 61], [1790450000000, 88]]}},
+    ))
+    await db_session.commit()
+
+    ctx = await service.recovery_context(today)
+    assert ctx["latest"]["body_battery_day"] == today.isoformat()
+    assert ctx["body_battery_today"] == 88
+
+
 async def test_coach_context_includes_all_health_data(db_session, admin_user):
     athlete = await _athlete(db_session, admin_user)
     db_session.add(SportHealthDaily(

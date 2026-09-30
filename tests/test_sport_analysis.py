@@ -131,16 +131,15 @@ def test_sport_coach_memory_is_scoped_to_athletes():
     assert "goal_analysis" in SportDashboardResponse.model_fields
 
 
-async def test_coach_persists_conversation_and_user_observation(db_session, auth_user):
+async def test_user_observation_is_persisted(db_session, auth_user):
     service = SportService(db_session, auth_user)
 
-    answer = await service.coach("Comment va ma semaine ?")
-    conversation = await service.get_coach_conversation(answer["conversation_id"])
     observation = await service.create_observation(SportObservationCreate(content="Je prépare un trail."))
 
-    assert answer["message_id"] is not None
-    assert [message["role"] for message in conversation["messages"]] == ["user", "assistant"]
     assert observation.status == "confirmed"
+    stored = await db_session.get(SportAthleteObservation, observation.id)
+    assert stored is not None
+    assert stored.content == "Je prépare un trail."
 
 
 async def test_activity_ai_analysis_is_generated_separately_from_import(db_session, auth_user):

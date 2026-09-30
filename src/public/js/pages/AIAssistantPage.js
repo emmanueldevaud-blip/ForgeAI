@@ -32,7 +32,7 @@ export class AIAssistantPage {
 
   async _loadConversations() {
     try {
-      const r = await listAIConversations({ module: 'maintenance' });
+      const r = await listAIConversations({});
       this.conversations = r.items || [];
     } catch (e) { this.conversations = []; }
   }
@@ -150,7 +150,6 @@ export class AIAssistantPage {
     try {
       const r = await sendAIMessage({
         message: message,
-        module: 'maintenance',
         conversation_id: this.currentConversationId,
       });
 

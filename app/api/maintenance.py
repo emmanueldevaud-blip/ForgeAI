@@ -60,6 +60,7 @@ from app.services.ai_gateway import AIGatewayError, ai_gateway
 from app.services.rbac import RBACService
 from app.services.maintenance import MaintenanceService
 from app.services.sport import SportService
+from app.services.sport_agent import agent_enabled, run_agent_trigger
 from app.services.sport_ai import get_sport_ai_provider
 
 logger = logging.getLogger(__name__)
@@ -721,17 +722,6 @@ async def _build_sport_context(db: AsyncSession, user: User) -> dict | None:
         return None
 
 
-MODULE_PERMISSION_MAP = {
-    "maintenance": "maintenance.view",
-    "agenda": "agenda.access",
-    "sport": "sport.access",
-    "buildings": "building.view",
-    "housing": "housing.view",
-    "equipment": "equipment.view",
-    "volunteers": "volunteers.view",
-}
-
-
 @router.post("/ai/chat", response_model=AIChatResponse)
 async def ai_chat(
     data: AIChatRequest,
@@ -750,6 +740,13 @@ async def ai_chat(
             status_code=status.HTTP_403_FORBIDDEN,
             detail=f"Permission '{module_perm}' requise pour le module {data.module}",
         )
+
+    # Module de la conversation : déduit si le client n'en envoie pas
+    # (l'assistant IA global n'est plus branché sur un module unique).
+    sport_allowed = bool(_SPORT_QUESTION_RE.search(data.message))
+    if sport_allowed:
+        sport_allowed = await RBACService(db).user_has_permission(current_user, "sport.access")
+    conversation_module = data.module or ("sport" if sport_allowed else "maintenance")
 
     if data.conversation_id:
         result = await db.execute(
@@ -771,7 +768,7 @@ async def ai_chat(
     else:
         conversation = AIConversation(
             user_id=current_user.id,
-            module=data.module,
+            module=conversation_module,
             entity_type=data.entity_type,
             entity_id=data.entity_id,
             title=data.message[:100],
@@ -781,30 +778,60 @@ async def ai_chat(
         prior_messages = []
 
     history = [{"role": m.role, "content": m.content} for m in prior_messages]
+    # Histoire sans le message courant : l'Agent Sport reçoit sa mission
+    # (qui contient la question) comme dernier message utilisateur.
+    agent_history = list(history)
     history.append({"role": "user", "content": data.message})
 
+    ai_text: str | None = None
+    ai_model: str | None = None
+    ai_tokens: int | None = None
+
+    if sport_allowed and agent_enabled():
+        try:
+            outcome = await run_agent_trigger(
+                db,
+                current_user,
+                "user_request",
+                payload={"question": data.message},
+                history=agent_history,
+            )
+        except Exception:
+            logger.exception("[AI-CHAT] Échec Agent Sport (user %s)", current_user.id)
+            outcome = {}
+        if outcome.get("status") == "completed":
+            answer = (outcome.get("answer") or outcome.get("summary") or "").strip()
+            ai_text = answer or "Demande prise en charge par le coach sportif."
+            ai_model = outcome.get("model") or outcome.get("provider") or "sport-agent"
+            logger.info(
+                "[AI-CHAT] event=agent_answer execution=%s actions=%s",
+                outcome.get("execution_id"),
+                outcome.get("actions"),
+            )
+
     sport_context = None
-    if _SPORT_QUESTION_RE.search(data.message) and await RBACService(db).user_has_permission(current_user, "sport.access"):
+    if ai_text is None and sport_allowed:
         sport_context = await _build_sport_context(db, current_user)
 
-    try:
-        if sport_context is not None:
-            sport_result = await get_sport_ai_provider().answer(data.message, sport_context)
-            ai_text = sport_result.get("answer")
-            ai_model = sport_result.get("provider")
-            ai_tokens = None
-        else:
-            ai_response = await ai_gateway.generate(
-                history=history,
-                system_prompt=AI_CHAT_SYSTEM_PROMPT,
-                max_tokens=AI_CHAT_MAX_TOKENS,
-            )
-            ai_text = ai_response.text
-            ai_model = ai_response.model_used
-            ai_tokens = ai_response.tokens_output
-    except AIGatewayError as exc:
-        await db.rollback()
-        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    if ai_text is None:
+        try:
+            if sport_context is not None:
+                sport_result = await get_sport_ai_provider().answer(data.message, sport_context)
+                ai_text = sport_result.get("answer")
+                ai_model = sport_result.get("provider")
+                ai_tokens = None
+            else:
+                ai_response = await ai_gateway.generate(
+                    history=history,
+                    system_prompt=AI_CHAT_SYSTEM_PROMPT,
+                    max_tokens=AI_CHAT_MAX_TOKENS,
+                )
+                ai_text = ai_response.text
+                ai_model = ai_response.model_used
+                ai_tokens = ai_response.tokens_output
+        except AIGatewayError as exc:
+            await db.rollback()
+            raise HTTPException(status_code=502, detail=str(exc)) from exc
 
     db.add(AIMessage(
         conversation_id=conversation.id,

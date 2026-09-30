@@ -49,23 +49,4 @@ async def test_goals_page_flow_list_create_and_analysis(client, admin_headers):
     assert "recent_28_days" in item
 
 
-@pytest.mark.asyncio
-async def test_sport_coach_conversation_can_be_retrieved(client, admin_headers):
-    response = await client.post("/sport/coach", headers=admin_headers, json={"question": "Quel est mon volume ?"})
 
-    assert response.status_code == 200
-    conversation_id = response.json()["conversation_id"]
-    history = await client.get(f"/sport/coach/conversations/{conversation_id}", headers=admin_headers)
-
-    assert history.status_code == 200
-    assert [message["role"] for message in history.json()["messages"]] == ["user", "assistant"]
-
-
-@pytest.mark.asyncio
-async def test_sport_conversation_cannot_be_accessed_with_another_athlete(client, admin_headers, db_session, auth_user):
-    from app.services.sport import SportService
-
-    conversation = await SportService(db_session, auth_user).coach("Question privée")
-    response = await client.get(f"/sport/coach/conversations/{conversation['conversation_id']}", headers=admin_headers)
-
-    assert response.status_code == 404

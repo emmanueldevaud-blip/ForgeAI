@@ -13,8 +13,8 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import load_only, selectinload
 
-from app.models.sport import (SportActivity, SportActivityAnalysis, SportAthlete, SportAthleteObservation,
-                               SportCoachConversation, SportCoachMessage, SportGoal, SportHealthDaily, SportTrackPoint)
+from app.models.sport import (SportActivity, SportActivityAnalysis, SportAnalysis, SportAthlete, SportAthleteObservation,
+                               SportGoal, SportHealthDaily, SportTrackPoint)
 from app.models.user import User
 from app.schemas.sport import (SportActivityCreate, SportGoalCreate, SportNormalizedActivity,
                                 SportHeartRateConfig, SportObservationCreate)
@@ -513,10 +513,20 @@ class SportService:
             items = series.get(key) or []
             return items[-1].get(field) if items else None
 
+        # Garmin n'expose le Body Battery du jour courant qu'après sa clôture :
+        # on signale séparément la valeur du jour pour éviter à l'IA de
+        # présenter la fin de journée de la veille comme l'état du réveil.
+        body_battery_items = series.get("body_battery") or []
+        today_iso = data["period_end"].isoformat()
+        body_battery_today = next(
+            (item for item in reversed(body_battery_items) if item.get("date") == today_iso), None
+        )
+
         return {
             "available": True,
             "days_with_data": data["days_available"],
             "reference_day": data["period_end"].isoformat(),
+            "body_battery_today": body_battery_today.get("last") if body_battery_today else None,
             "latest": {
                 "readiness_score": latest("readiness", "score"),
                 "readiness_status": latest("readiness", "status"),
@@ -527,6 +537,7 @@ class SportService:
                 "resting_hr": latest("heart_rate", "resting"),
                 "stress_avg": latest("stress", "avg"),
                 "body_battery": latest("body_battery", "last"),
+                "body_battery_day": body_battery_items[-1].get("date") if body_battery_items else None,
                 "spo2": latest("spo2", "value"),
             },
             "period_averages": {
@@ -750,9 +761,7 @@ class SportService:
             }
             for a in analyses_result.scalars().all()
         ]
-        
-        profile = SportAnalysisEngine.athlete_profile(activities, goals)
-        profile["goal_analysis"] = SportAnalysisEngine.analyze_goals(goals, activities, today)
+
         context = SportAnalysisEngine.build_context(
             {"display_name": athlete.display_name, "profile": profile, "heart_rate": (athlete.metadata_json or {}).get("heart_rate_zones")},
             activities[:5], weekly, monthly, goals,
@@ -761,65 +770,6 @@ class SportService:
         context["recent_analyses"] = recent_analyses
         context["health"] = await self.health_context(90)
         return context
-
-    async def coach(self, question: str, conversation_id: int | None = None) -> dict:
-        athlete = await self.get_or_create_athlete()
-        conversation = None
-        if conversation_id is not None:
-            conversation = await self.db.scalar(select(SportCoachConversation).where(
-                SportCoachConversation.id == conversation_id,
-                SportCoachConversation.athlete_id == athlete.id,
-            ))
-            if conversation is None:
-                raise ValueError("Conversation Sport introuvable")
-        else:
-            conversation = SportCoachConversation(athlete_id=athlete.id, title=question[:300])
-            self.db.add(conversation)
-            await self.db.flush()
-
-        self.db.add(SportCoachMessage(conversation_id=conversation.id, role="user", content=question, sources_json=[]))
-        await self.db.flush()
-        context = await self.build_coach_context(athlete)
-        result = await get_sport_ai_provider().answer(question, context)
-        assistant_message = SportCoachMessage(
-            conversation_id=conversation.id,
-            role="assistant",
-            content=result["answer"],
-            provider=result.get("provider"),
-            sources_json=result.get("sources", []),
-        )
-        self.db.add(assistant_message)
-        conversation.updated_at = datetime.now(timezone.utc)
-        await self.db.commit()
-        await self.db.refresh(assistant_message)
-        return {**result, "conversation_id": conversation.id, "message_id": assistant_message.id}
-
-    async def list_coach_conversations(self) -> list[dict]:
-        athlete = await self.get_or_create_athlete()
-        result = await self.db.execute(select(SportCoachConversation).where(
-            SportCoachConversation.athlete_id == athlete.id,
-        ).order_by(SportCoachConversation.updated_at.desc()).limit(50))
-        return [{"id": item.id, "title": item.title, "created_at": item.created_at, "updated_at": item.updated_at, "messages": []}
-                for item in result.scalars().all()]
-
-    async def get_coach_conversation(self, conversation_id: int) -> dict | None:
-        athlete = await self.get_or_create_athlete()
-        result = await self.db.execute(select(SportCoachConversation).options(selectinload(SportCoachConversation.messages)).where(
-            SportCoachConversation.id == conversation_id,
-            SportCoachConversation.athlete_id == athlete.id,
-        ))
-        conversation = result.scalar_one_or_none()
-        if not conversation:
-            return None
-        return {
-            "id": conversation.id,
-            "title": conversation.title,
-            "created_at": conversation.created_at,
-            "updated_at": conversation.updated_at,
-            "messages": [{"id": message.id, "role": message.role, "content": message.content,
-                           "provider": message.provider, "sources": message.sources_json,
-                           "created_at": message.created_at} for message in conversation.messages],
-        }
 
     async def create_observation(self, data: SportObservationCreate) -> SportAthleteObservation:
         athlete = await self.get_or_create_athlete()

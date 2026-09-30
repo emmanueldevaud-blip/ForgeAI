@@ -15,9 +15,12 @@ jamais de clés API ni de spécificités de fournisseurs.
 """
 
 import asyncio
+import json
 import logging
+import time
 from dataclasses import dataclass, field
 from functools import lru_cache
+from typing import Any, Awaitable, Callable
 
 import httpx
 
@@ -33,12 +36,15 @@ from app.services.ai_gateway.errors import (
 from app.services.ai_gateway.models import resolve_model
 from app.services.ai_gateway.providers import BaseAIProvider, build_providers
 from app.services.ai_gateway.stats import StatsStore
+from app.services.ai_gateway.tool_protocol import build_tool_instructions, parse_tool_calls
 
 logger = logging.getLogger(__name__)
 
 DEFAULT_PROVIDER_ORDER = ["groq", "gemini", "openrouter"]
 TEMPORARY_ERROR_COOLDOWN_SECONDS = 60.0
 QUOTA_ERROR_COOLDOWN_SECONDS = 300.0
+DEFAULT_MAX_TOOL_ROUNDS = 4
+DEFAULT_MAX_TOOL_CALLS = 16
 
 
 @dataclass
@@ -53,6 +59,8 @@ class AIResponse:
     latency: float = 0.0
     fallback_used: bool = False
     quota_status: dict[str, str] = field(default_factory=dict)
+    # Traçabilité des appels d'outils exécutés pendant la requête (noms + issue).
+    tool_calls: list[dict[str, Any]] = field(default_factory=list)
 
 
 class AIGateway:
@@ -84,13 +92,26 @@ class AIGateway:
         max_tokens: int | None = None,
         preferred_provider: str | None = None,
         history: list[dict[str, str]] | None = None,
+        tools: list[dict] | None = None,
+        tool_executor: Callable[[str, dict], Awaitable[Any]] | None = None,
+        max_tool_rounds: int | None = None,
+        max_tool_calls: int | None = None,
     ) -> AIResponse:
+        """Appel IA. Les paramètres d'outils sont optionnels : sans ``tools``,
+        le comportement est strictement identique aux versions précédentes."""
         if not self.settings.AI_GATEWAY_ENABLED:
             raise AINoProviderAvailable("AI Gateway désactivée (AI_GATEWAY_ENABLED=false)")
 
+        if tools and tool_executor is None:
+            raise ValueError("tool_executor est requis lorsque tools est fourni")
+
+        system = system_prompt
+        if tools:
+            system = f"{system or ''}{build_tool_instructions(tools)}"
+
         messages: list[dict[str, str]] = []
-        if system_prompt:
-            messages.append({"role": "system", "content": system_prompt})
+        if system:
+            messages.append({"role": "system", "content": system})
         if history:
             messages.extend(history)
         elif prompt and prompt.strip():
@@ -101,6 +122,119 @@ class AIGateway:
         if not model or model.lower() == "auto":
             model = self.settings.AI_DEFAULT_MODEL or "auto"
 
+        response = await self._dispatch(messages, model, task_type, temperature, max_tokens, preferred_provider)
+        if not tools:
+            return response
+        return await self._run_tool_loop(
+            response,
+            messages,
+            model,
+            task_type,
+            temperature,
+            max_tokens,
+            preferred_provider,
+            tool_executor,
+            max_tool_rounds,
+            max_tool_calls,
+        )
+
+    async def _run_tool_loop(
+        self,
+        response: AIResponse,
+        messages: list[dict[str, str]],
+        model: str,
+        task_type: str,
+        temperature: float | None,
+        max_tokens: int | None,
+        preferred_provider: str | None,
+        tool_executor: Callable[[str, dict], Awaitable[Any]] | None,
+        max_tool_rounds: int | None,
+        max_tool_calls: int | None,
+    ) -> AIResponse:
+        """Boucle modèle -> outils -> modèle jusqu'à la décision finale."""
+        budget_rounds = max_tool_rounds if max_tool_rounds is not None else DEFAULT_MAX_TOOL_ROUNDS
+        budget_calls = max_tool_calls if max_tool_calls is not None else DEFAULT_MAX_TOOL_CALLS
+        tokens_input = response.tokens_input or 0
+        tokens_output = response.tokens_output or 0
+        executed: list[dict[str, Any]] = []
+        rounds = 0
+        exhausted = False
+
+        while True:
+            pending = parse_tool_calls(response.text)
+            if not pending:
+                break
+            if rounds >= budget_rounds or len(executed) >= budget_calls:
+                exhausted = True
+                break
+            rounds += 1
+            results = [await self._execute_tool_call(tool_executor, call, executed, budget_calls) for call in pending]
+            messages.append({"role": "assistant", "content": response.text})
+            messages.append({
+                "role": "user",
+                "content": "Résultats des outils (JSON) :\n" + json.dumps(results, ensure_ascii=False, default=str),
+            })
+            response = await self._dispatch(messages, model, task_type, temperature, max_tokens, preferred_provider)
+            tokens_input += response.tokens_input or 0
+            tokens_output += response.tokens_output or 0
+
+        if exhausted:
+            # Dernier tour : les appels restants sont exécutés, puis le modèle
+            # est invité à conclure sans nouvel outil.
+            results = [await self._execute_tool_call(tool_executor, call, executed, budget_calls) for call in pending]
+            messages.append({"role": "assistant", "content": response.text})
+            messages.append({
+                "role": "user",
+                "content": (
+                    "Résultats des outils (JSON) :\n" + json.dumps(results, ensure_ascii=False, default=str)
+                    + "\n\nBudget d'outils épuisé : conclus MAINTENANT avec {\"final\": ...} "
+                    "sans demander d'autre outil."
+                ),
+            })
+            response = await self._dispatch(messages, model, task_type, temperature, max_tokens, preferred_provider)
+            tokens_input += response.tokens_input or 0
+            tokens_output += response.tokens_output or 0
+
+        response.tokens_input = tokens_input
+        response.tokens_output = tokens_output
+        response.tool_calls = executed
+        return response
+
+    async def _execute_tool_call(
+        self,
+        tool_executor: Callable[[str, dict], Awaitable[Any]] | None,
+        call: dict[str, Any],
+        executed: list[dict[str, Any]],
+        budget_calls: int,
+    ) -> dict[str, Any]:
+        entry: dict[str, Any] = {"name": call.get("name"), "arguments": call.get("arguments") or {}}
+        if tool_executor is None:
+            entry.update({"ok": False, "error": "aucun_executant"})
+        elif len(executed) >= budget_calls:
+            entry.update({"ok": False, "error": "budget_outil_atteint"})
+        else:
+            started = time.monotonic()
+            try:
+                result = await tool_executor(entry["name"], entry["arguments"])
+            except Exception as exc:  # un outil en échec n'interrompt pas la boucle
+                entry.update({"ok": False, "error": str(exc) or type(exc).__name__})
+            else:
+                entry.update({"ok": True, "result": result})
+            entry["duration_ms"] = int((time.monotonic() - started) * 1000)
+        if entry.get("ok"):
+            executed.append(entry)
+        return entry
+
+    async def _dispatch(
+        self,
+        messages: list[dict[str, str]],
+        model: str,
+        task_type: str,
+        temperature: float | None,
+        max_tokens: int | None,
+        preferred_provider: str | None,
+    ) -> AIResponse:
+        """Sélection du fournisseur, retries, fallback, quotas et journalisation."""
         order = self._resolve_order(preferred_provider)
         candidates = [name for name in order if self._is_candidate(name)]
         if not candidates:

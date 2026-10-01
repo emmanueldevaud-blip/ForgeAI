@@ -386,9 +386,6 @@ export class AIAssistantPage {
   }
 
   _updateCurrentUsageDisplay() {
-    const agentEl = this.element?.querySelector('[data-current-agent]');
-    const llmEl = this.element?.querySelector('[data-current-llm]');
-    const fallbackEl = this.element?.querySelector('.ai-current-usage-fallback');
     const usageContainer = this.element?.querySelector('.ai-current-usage');
 
     if (!usageContainer) return;

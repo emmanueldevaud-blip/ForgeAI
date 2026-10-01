@@ -246,7 +246,12 @@ export class AIAssistantPage {
         </div>
         <div class="ai-message-content">
           <div class="ai-message-text">${escapeHtml(m.content)}</div>
-          ${m.model ? `<div class="ai-message-model" title="Modèle utilisé pour cette réponse">🧠 ${escapeHtml(m.model)}</div>` : ''}
+          ${(m.model || m.actual_model) ? `
+            <div class="ai-message-model" title="Modèle utilisé pour cette réponse">
+              ${m.actual_agent ? `<span class="ai-message-agent">${escapeHtml(m.actual_agent)}</span> · ` : ''}
+              🧠 ${escapeHtml(m.actual_model || m.model)}
+            </div>
+          ` : ''}
           <div class="ai-message-time">${formatTime(m.created_at)}</div>
         </div>
       </div>
@@ -311,6 +316,9 @@ export class AIAssistantPage {
         role: 'assistant',
         content: r.response,
         model: r.model || null,
+        actual_agent: r.actual_agent,
+        actual_provider: r.actual_provider,
+        actual_model: r.actual_model,
         created_at: new Date().toISOString(),
       });
 
@@ -710,54 +718,6 @@ render() {
   _renderAgentLLMSelectors() {
     const agentOptions = this.agents.map(a => `<option value="${escapeHtml(a)}">${escapeHtml(a)}</option>`).join('');
     const llmOptions = this.llmProviders.map(p => `<option value="${escapeHtml(p.provider)}|${escapeHtml(p.model)}">${escapeHtml(p.display_name)}</option>`).join('');
-    const llmAutoOption = '<option value="auto|auto">Automatique</option>';
-
-    // Determine current usage display
-    let usageHtml = '';
-    if (this.actualAgent || this.actualProvider || this.actualModel) {
-      usageHtml = `
-        <div class="ai-current-usage">
-          <div class="ai-current-usage-header">Utilisation actuelle</div>
-          <div class="ai-current-usage-grid">
-            <div class="ai-current-usage-item">
-              <span class="ai-current-usage-label">Agent</span>
-              <span class="ai-current-usage-value">${escapeHtml(this.actualAgent || '—')}</span>
-            </div>
-            <div class="ai-current-usage-item">
-              <span class="ai-current-usage-label">LLM</span>
-              <span class="ai-current-usage-value">${escapeHtml(this.actualProvider && this.actualModel ? `${this.actualProvider} / ${this.actualModel}` : '—')}</span>
-            </div>
-          </div>
-          ${this.fallbackInfo ? `
-            <div class="ai-current-usage-fallback">
-              ${this.fallbackInfo.startsWith('⏳') || this.fallbackInfo.startsWith('↪') ? 
-                `<span class="ai-fallback-indicator">${escapeHtml(this.fallbackInfo)}</span>` :
-                `ℹ️ ${escapeHtml(this.fallbackInfo)}`
-              }
-            </div>
-          ` : ''}
-        </div>
-      `;
-    } else {
-      usageHtml = `
-        <div class="ai-current-usage ai-current-usage--empty">
-          <div class="ai-current-usage-header">Utilisation actuelle</div>
-          <div class="ai-current-usage-grid">
-            <div class="ai-current-usage-item">
-              <span class="ai-current-usage-label">Agent</span>
-              <span class="ai-current-usage-value">—</span>
-            </div>
-            <div class="ai-current-usage-item">
-              <span class="ai-current-usage-label">LLM</span>
-              <span class="ai-current-usage-value">—</span>
-            </div>
-          </div>
-        </div>
-      `;
-    }
-
-    const agentOptionsHtml = this.agents.map(a => `<option value="${escapeHtml(a)}">${escapeHtml(a)}</option>`).join('');
-    const llmOptionsHtml = this.llmProviders.map(p => `<option value="${escapeHtml(p.provider)}|${escapeHtml(p.model)}">${escapeHtml(p.display_name)}</option>`).join('');
 
     return `
       <div class="ai-config-section">
@@ -777,7 +737,6 @@ render() {
             </select>
           </div>
         </div>
-        ${usageHtml}
       </div>
     `;
   }

@@ -6640,8 +6640,19 @@
   gap: var(--spacing-1);
 }
 
+.ai-message-agent {
+  font-weight: 600;
+  color: var(--color-primary);
+  font-family: var(--font-family-base);
+  font-size: var(--font-size-xs);
+}
+
 .ai-message--user .ai-message-model {
   color: rgba(255, 255, 255, 0.7);
+}
+
+.ai-message--user .ai-message-agent {
+  color: rgba(255, 255, 255, 0.9);
 }
 
 .ai-message-time {

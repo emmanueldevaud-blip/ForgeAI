@@ -2739,7 +2739,7 @@
 }
 
 .permission-module {
-  border: 1px solid var(--border-color);
+  border: 1px solid var(--color-border-light);
   border-radius: var(--radius-lg);
   margin-bottom: var(--spacing-4);
   overflow: hidden;
@@ -2748,7 +2748,7 @@
 .permission-module-header {
   background: var(--bg-secondary);
   padding: var(--spacing-3) var(--spacing-4);
-  border-bottom: 1px solid var(--border-color);
+  border-bottom: 1px solid var(--color-border-light);
   font-weight: var(--font-weight-semibold);
 }
 
@@ -3101,7 +3101,7 @@
 
 .ai-sidebar {
   width: 280px;
-  border-right: 1px solid var(--border-color);
+  border-right: 1px solid var(--color-border-light);
   display: flex;
   flex-direction: column;
   background: var(--bg-secondary);
@@ -3112,7 +3112,7 @@
   justify-content: space-between;
   align-items: center;
   padding: var(--spacing-4);
-  border-bottom: 1px solid var(--border-color);
+  border-bottom: 1px solid var(--color-border-light);
 }
 
 .ai-sidebar-header h3 {
@@ -3166,7 +3166,7 @@
 
 .ai-header {
   padding: var(--spacing-4) var(--spacing-6);
-  border-bottom: 1px solid var(--border-color);
+  border-bottom: 1px solid var(--color-border-light);
 }
 
 .ai-header h2 {
@@ -3219,7 +3219,7 @@
 
 .ai-suggestion-btn {
   padding: var(--spacing-2) var(--spacing-4);
-  border: 1px solid var(--border-color);
+  border: 1px solid var(--color-border-light);
   border-radius: var(--radius-full);
   background: var(--bg-primary);
   color: var(--text-primary);
@@ -3296,7 +3296,7 @@
 
 .ai-input-area {
   padding: var(--spacing-4) var(--spacing-6);
-  border-top: 1px solid var(--border-color);
+  border-top: 1px solid var(--color-border-light);
   display: flex;
   gap: var(--spacing-3);
   align-items: flex-end;
@@ -3305,7 +3305,7 @@
 .ai-input {
   flex: 1;
   padding: var(--spacing-3);
-  border: 1px solid var(--border-color);
+  border: 1px solid var(--color-border-light);
   border-radius: var(--radius-md);
   font-family: inherit;
   font-size: var(--font-size-sm);
@@ -3341,7 +3341,7 @@
 
 .calendar-table th,
 .calendar-table td {
-  border: 1px solid var(--border-color);
+  border: 1px solid var(--color-border-light);
   padding: var(--spacing-2);
   vertical-align: top;
 }
@@ -3395,7 +3395,7 @@
   align-items: center;
   gap: var(--spacing-2);
   padding: var(--spacing-2) 0;
-  border-bottom: 1px solid var(--border-color);
+  border-bottom: 1px solid var(--color-border-light);
 }
 
 .status-row:last-child {
@@ -3504,7 +3504,7 @@
 .stat-card {
   padding: var(--spacing-4);
   background: var(--bg-primary);
-  border: 1px solid var(--border-color);
+  border: 1px solid var(--color-border-light);
   border-radius: var(--radius-md);
   text-align: center;
 }
@@ -3531,7 +3531,7 @@
 .dashboard-card {
   padding: var(--spacing-4);
   background: var(--bg-primary);
-  border: 1px solid var(--border-color);
+  border: 1px solid var(--color-border-light);
   border-radius: var(--radius-md);
 }
 
@@ -3563,7 +3563,7 @@
     width: 100%;
     height: 200px;
     border-right: none;
-    border-bottom: 1px solid var(--border-color);
+    border-bottom: 1px solid var(--color-border-light);
   }
 
   .ai-message {
@@ -4037,7 +4037,7 @@
 
 .planning-wrapper {
   overflow: auto;
-  border: 1px solid var(--border-color);
+  border: 1px solid var(--color-border-light);
   border-radius: var(--radius-md);
   height: 100%;
   -webkit-overflow-scrolling: touch;
@@ -4616,7 +4616,7 @@
 }
 
 .detail-occupant-row + .detail-occupant-row {
-  border-top: 1px solid var(--border-color);
+  border-top: 1px solid var(--color-border-light);
 }
 
 .btn-group .btn.active {
@@ -5849,7 +5849,7 @@
   flex-wrap: wrap;
   gap: var(--spacing-3);
   padding: var(--spacing-3) var(--spacing-6);
-  border-bottom: 1px solid var(--border-color);
+  border-bottom: 1px solid var(--color-border-light);
   background: var(--color-bg-secondary);
 }
 

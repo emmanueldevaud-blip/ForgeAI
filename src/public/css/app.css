@@ -3288,6 +3288,12 @@
   color: rgba(255,255,255,0.7);
 }
 
+.ai-message-model {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-secondary);
+  margin-top: var(--spacing-1);
+}
+
 .ai-input-area {
   padding: var(--spacing-4) var(--spacing-6);
   border-top: 1px solid var(--border-color);
@@ -5935,6 +5941,20 @@
 .ai-action-status--success { color: var(--color-success); }
 .ai-action-status--error { color: var(--color-danger); }
 .ai-action-status--muted { color: var(--color-text-muted); }
+
+.ai-model-badge {
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  padding: 2px var(--spacing-2);
+  border-radius: 999px;
+  color: var(--color-primary);
+  background: var(--color-primary-light);
+  border: 1px solid var(--color-primary);
+  max-width: 45%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 
 .modal--confirm .modal-body p {
   white-space: pre-line;

@@ -20,6 +20,7 @@ def make_settings(**values):
         "DATABASE_URL": "sqlite+aiosqlite:///:memory:",
         "AI_MAX_RETRIES": 0,
         "AI_RETRY_BACKOFF_SECONDS": 0,
+        "OPENCODE_ENABLED": False,
         "GROQ_ENABLED": False,
         "GROQ_API_KEY": "",
         "GEMINI_ENABLED": False,

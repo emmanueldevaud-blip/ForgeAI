@@ -251,3 +251,28 @@ async def test_registry_permissions(db_session, admin_user):
     spec = registry.get("deploy_production")
     assert spec.permission == "development.deploy"
     assert spec.requires_confirmation is True
+
+async def test_trigger_task_targets_work_dir(db_session, admin_user, monkeypatch):
+    """La tâche créée pointe vers OPENCODE_WORK_DIR (repository réel, pas « . »).
+
+    Régression : sans cela, l'agent travaillait dans le répertoire courant du
+    conteneur (/app) au lieu du repository Git monté.
+    """
+    async def fake_run_task(self, task_id, trigger, payload=None):
+        return {"status": "ready_for_review", "task_id": task_id}
+
+    monkeypatch.setattr(DevelopmentService, "run_task", fake_run_task)
+    settings = get_settings()
+    monkeypatch.setattr(settings, "DEVELOPMENT_AGENT_ENABLED", True)
+    monkeypatch.setattr(settings, "OPENCODE_WORK_DIR", "/app/repo")
+
+    outcome = await run_development_trigger(
+        db_session, admin_user, "user_request", request="Analyse le repo"
+    )
+    assert outcome["status"] == "ready_for_review"
+
+    result = await db_session.execute(
+        select(DevelopmentTask).order_by(DevelopmentTask.created_at.desc())
+    )
+    task = result.scalars().first()
+    assert task.repository == "/app/repo"

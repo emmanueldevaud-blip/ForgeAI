@@ -138,7 +138,91 @@ class OpenRouterProvider(BaseAIProvider):
     base_url_setting = "OPENROUTER_BASE_URL"
 
 
+class OpenCodeProvider(BaseAIProvider):
+    """Modèles OpenCode (CLI local), notamment les modèles gratuits.
+
+    Pas de clé API ni d'URL : l'appel se fait via ``opencode run``.
+    """
+
+    name = "opencode"
+
+    @property
+    def enabled(self) -> bool:
+        return bool(getattr(self.settings, "OPENCODE_ENABLED", True))
+
+    @property
+    def is_available(self) -> bool:
+        if not self.enabled:
+            return False
+        return self._opencode().is_available()
+
+    def _opencode(self):
+        from app.services.development_agent.opencode import OpenCodeClient
+
+        if getattr(self, "_opencode_client", None) is None:
+            self._opencode_client = OpenCodeClient(self.settings)
+        return self._opencode_client
+
+    @staticmethod
+    def _prompt_from_messages(messages: list[dict[str, str]]) -> str:
+        parts: list[str] = []
+        for message in messages:
+            role = (message.get("role") or "user").lower()
+            content = message.get("content") or ""
+            if not content:
+                continue
+            if role == "system":
+                parts.append(content)
+            elif role == "assistant":
+                parts.append(f"Assistant : {content}")
+            else:
+                parts.append(f"Utilisateur : {content}")
+        return "\n\n".join(parts)
+
+    async def chat(
+        self,
+        *,
+        model: str,
+        messages: list[dict[str, str]],
+        temperature: float | None,
+        max_tokens: int | None,
+    ) -> tuple[str, int | None, int | None]:
+        client = self._opencode()
+        if not client.is_available():
+            raise AIProviderUnavailable("OpenCode non disponible", provider=self.name)
+
+        prompt = self._prompt_from_messages(messages)
+        if not prompt:
+            raise AIProviderUnavailable("Prompt vide", provider=self.name)
+
+        model_id = model if model.startswith("opencode/") else f"opencode/{model}"
+        timeout = getattr(self.settings, "AI_TIMEOUT_SECONDS", DEFAULT_TIMEOUT_SECONDS)
+        try:
+            timeout_seconds = int(float(timeout) or DEFAULT_TIMEOUT_SECONDS)
+        except (TypeError, ValueError):
+            timeout_seconds = int(DEFAULT_TIMEOUT_SECONDS)
+
+        result = await client.run_task(prompt, model=model_id, timeout=timeout_seconds)
+        if result.success:
+            text = (result.output or "").strip()
+            if not text:
+                raise AIProviderUnavailable(
+                    "Réponse vide d'OpenCode", provider=self.name
+                )
+            return text, None, None
+
+        error_text = f"{result.error or ''} {result.output or ''}".lower()
+        if "timeout" in error_text:
+            raise AIRequestTimeout(provider=self.name)
+        if "rate limit" in error_text or "429" in error_text or "quota" in error_text:
+            raise AIQuotaExceeded(provider=self.name)
+        raise AIProviderUnavailable(
+            f"OpenCode: {result.error or 'échec de l’appel'}", provider=self.name
+        )
+
+
 PROVIDER_CLASSES: dict[str, type[BaseAIProvider]] = {
+    "opencode": OpenCodeProvider,
     "groq": GroqProvider,
     "gemini": GeminiProvider,
     "openrouter": OpenRouterProvider,

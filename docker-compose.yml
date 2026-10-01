@@ -49,6 +49,10 @@ services:
       - AI_MAX_RETRIES=${AI_MAX_RETRIES:-2}
       - AI_RETRY_BACKOFF_SECONDS=${AI_RETRY_BACKOFF_SECONDS:-1.0}
       - DEVELOPMENT_AGENT_ENABLED=${DEVELOPMENT_AGENT_ENABLED:-true}
+      - OPENCODE_ENABLED=${OPENCODE_ENABLED:-true}
+      - OPENCODE_WORK_DIR=/app/repo
+      - OPENCODE_BIN=/home/edevaud/.opencode/bin/opencode
+      - HOME=/home/edevaud
       - GROQ_ENABLED=${GROQ_ENABLED:-true}
       - GROQ_API_KEY=${GROQ_API_KEY:-}
       - GROQ_BASE_URL=${GROQ_BASE_URL:-https://api.groq.com/openai/v1}
@@ -82,6 +86,16 @@ services:
       - ./app:/app/app
       - ./alembic:/app/alembic
       - ./src/public:/app/src/public
+      # Repository Git complet (statut / commit / déploiement de l'Agent Développement)
+      - .:/app/repo
+      # OpenCode (édition de code) + sa configuration
+      - ${HOME}/.opencode:/home/edevaud/.opencode:ro
+      - ${HOME}/.config/opencode:/home/edevaud/.config/opencode:ro
+      - ${HOME}/.local:/home/edevaud/.local
+      - ${HOME}/.cache:/home/edevaud/.cache
+      # SSH + script de déploiement (déploiement production)
+      - ${HOME}/.ssh:/home/edevaud/.ssh:ro
+      - ${HOME}/deploy-forgeai.sh:/home/edevaud/deploy-forgeai.sh:ro
 
 volumes:
   mysql_data:

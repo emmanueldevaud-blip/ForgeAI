@@ -498,6 +498,7 @@ async def seed_default_rbac(db: AsyncSession) -> None:
         ("domotique.admin", "Administrer le module Domotique", "domotique"),
         # Development Agent
         ("development.view", "Consulter les tâches de développement", "development"),
+        ("development.read", "Consulter le code du repository", "development"),
         ("development.execute", "Exécuter des tâches de développement", "development"),
         ("development.commit", "Créer des commits", "development"),
         ("development.push", "Pousser des branches", "development"),

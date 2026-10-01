@@ -75,6 +75,22 @@ async def seed_rbac(db_session):
     await seed_default_rbac(db_session)
 
 
+@pytest.fixture(scope="function", autouse=True)
+def disable_opencode_provider():
+    """Provider OpenCode désactivé pendant les tests.
+
+    Évite tout appel réel au CLI ``opencode`` depuis la cascade : les tests
+    contrôlent les appels via des providers factices injectés.
+    """
+    from app.core.config import get_settings
+
+    settings = get_settings()
+    original = settings.OPENCODE_ENABLED
+    settings.OPENCODE_ENABLED = False
+    yield
+    settings.OPENCODE_ENABLED = original
+
+
 @pytest.fixture(scope="function")
 async def client(db_session):
     def override_get_db():

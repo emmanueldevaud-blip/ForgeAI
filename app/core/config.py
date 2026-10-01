@@ -113,6 +113,7 @@ class Settings(BaseSettings):
     DEVELOPMENT_AGENT_TIMEOUT_SECONDS: int = 300
     OPENCODE_BIN: str = ""
     OPENCODE_WORK_DIR: str = "."
+    OPENCODE_ENABLED: bool = True
 
     # AI Model Router (routage intelligent multi-providers)
     AI_ROUTER_ENABLED: bool = True

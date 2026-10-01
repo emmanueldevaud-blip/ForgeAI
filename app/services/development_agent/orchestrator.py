@@ -63,6 +63,16 @@ class DevelopmentOrchestrator:
         brief = await self._observe()
         status = await self._loop(brief)
 
+        # Reporter la réponse finale de l'agent dans le bilan d'exécution
+        final_decision = next(
+            (d for d in reversed(self.decisions) if d.get("answer") or d.get("summary")),
+            None,
+        ) or {}
+        if final_decision.get("answer"):
+            brief["answer"] = final_decision["answer"]
+        if final_decision.get("summary"):
+            brief["summary"] = final_decision["summary"]
+
         self.ctx.execution.status = status
         self.ctx.execution.finished_at = datetime.now(timezone.utc)
         self.ctx.execution.step_count = self.step_count

@@ -132,7 +132,14 @@ class DevelopmentService:
             task.updated_at = datetime.now(timezone.utc)
             await self.db.commit()
 
-        return {"status": task.status, "task_id": task.id, "execution_id": execution.id}
+        result_json = execution.result_json or {}
+        return {
+            "status": task.status,
+            "task_id": task.id,
+            "execution_id": execution.id,
+            "answer": result_json.get("answer"),
+            "summary": result_json.get("summary"),
+        }
 
 
 async def run_development_trigger(
@@ -158,6 +165,7 @@ async def run_development_trigger(
         task = await service.create_task(
             title=title or request[:100],
             request=request,
+            repository=settings.OPENCODE_WORK_DIR or ".",
             payload=payload,
         )
         return await service.run_task(task.id, trigger, payload)

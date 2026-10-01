@@ -206,12 +206,30 @@ export class AIAssistantPage {
         </div>
         <div class="ai-message-content">
           <div class="ai-message-text">${escapeHtml(m.content)}</div>
+          ${m.model ? `<div class="ai-message-model" title="Modèle utilisé pour cette réponse">🧠 ${escapeHtml(m.model)}</div>` : ''}
           <div class="ai-message-time">${formatTime(m.created_at)}</div>
         </div>
       </div>
     `).join('');
 
     container.scrollTop = container.scrollHeight;
+    this._updateModelBadge();
+  }
+
+  _updateModelBadge() {
+    const badge = this.element?.querySelector('[data-model-badge]');
+    if (!badge) return;
+    const messages = this._state().messages;
+    let lastModel = null;
+    for (let i = messages.length - 1; i >= 0; i--) {
+      if (messages[i].role === 'assistant' && messages[i].model) {
+        lastModel = messages[i].model;
+        break;
+      }
+    }
+    badge.hidden = !lastModel;
+    badge.textContent = lastModel || '';
+    badge.title = lastModel ? `Modèle actuellement utilisé : ${lastModel}` : '';
   }
 
   async _sendMessage() {
@@ -246,6 +264,7 @@ export class AIAssistantPage {
       state.messages.push({
         role: 'assistant',
         content: r.response,
+        model: r.model || null,
         created_at: new Date().toISOString(),
       });
 
@@ -507,6 +526,7 @@ export class AIAssistantPage {
           <div class="ai-header">
             <div class="ai-header-top">
               <h2 data-mode-title>${MODES[this.mode].title}</h2>
+              <span class="ai-model-badge" data-model-badge hidden></span>
               <div class="ai-mode-switch" role="tablist" aria-label="Mode de l'assistant">
                 <button type="button" class="ai-mode-btn ai-mode-btn--active" role="tab" aria-selected="true" data-mode="assistant">🤖 Assistant</button>
                 <button type="button" class="ai-mode-btn" role="tab" aria-selected="false" data-mode="development" ${this.canDevelop ? '' : 'hidden'}>🛠 Développement</button>

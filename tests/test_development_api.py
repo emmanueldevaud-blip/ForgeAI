@@ -337,3 +337,22 @@ async def test_dev_mode_agent_disabled_returns_reason(client, admin_headers, mon
     assert response.status_code == 200
     assert response.json()["model"] == "development-agent"
     assert fake_gateway.calls == []
+
+
+# ============================================================
+# RBAC : permission development.read (outils de lecture)
+# ============================================================
+
+async def test_development_read_permission_is_seeded(db_session, admin_user):
+    """La permission development.read existe (seed) et est assignée à l'admin.
+
+    Régression : cette permission est celle exigée par les outils de lecture
+    (get_repository_status, list_files, ...) ; sans elle, l'Agent Développement
+    est refusé sur chaque outil de lecture du repository.
+    """
+    from app.services.rbac import RBACService
+
+    rbac = RBACService(db_session)
+    perm = await rbac.get_permission_by_code("development.read")
+    assert perm is not None
+    assert await rbac.user_has_permission(admin_user, "development.read")

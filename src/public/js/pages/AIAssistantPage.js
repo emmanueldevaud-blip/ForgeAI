@@ -1,5 +1,5 @@
 import { authStore } from '../stores/auth.js';
-import { sendAIMessage, listAIConversations, getAIConversation } from '../services/maintenanceApi.js';
+import { sendAIMessage, listAIConversations, getAIConversation, getAIOptions } from '../services/maintenanceApi.js';
 import { getDevelopmentStatus, commitDevelopment, deployDevelopment } from '../services/developmentApi.js';
 import { ConfirmDialog } from '../components/ConfirmDialog.js';
 
@@ -72,13 +72,48 @@ export class AIAssistantPage {
     this.canCommit = false;
     this.canDeploy = false;
     this.confirmDialog = null;
+
+    // Agent/LLM selection
+    this.agents = ['Automatique', 'Assistant général'];
+    this.llmProviders = [];
+    this.selectedAgent = 'Automatique';
+    this.selectedLLMProvider = 'Automatique';
+    this.selectedLLMModel = 'Automatique';
+
+    // Actual usage display
+    this.actualAgent = null;
+    this.actualProvider = null;
+    this.actualModel = null;
+    this.fallbackInfo = null;
+    this.requestedAgent = null;
+    this.requestedProvider = null;
+    this.requestedModel = null;
   }
 
   async initialize() {}
 
   async loadData() {
     await this._loadConversations();
+    await this._loadAIOptions();
     this._renderConversationList();
+  }
+
+  async _loadAIOptions() {
+    try {
+      const r = await getAIOptions();
+      this.agents = r.agents || ['Automatique', 'Assistant général'];
+      this.llmProviders = r.llm_providers || [];
+      // Ensure "Automatique" is first
+      if (!this.agents.includes('Automatique')) {
+        this.agents.unshift('Automatique');
+      }
+      // Set defaults
+      this.selectedAgent = 'Automatique';
+      this.selectedLLMProvider = 'Automatique';
+      this.selectedLLMModel = 'Automatique';
+    } catch (e) {
+      console.error('Erreur chargement options IA:', e);
+    }
   }
 
   _state() {
@@ -255,7 +290,13 @@ export class AIAssistantPage {
     this._renderMessages();
 
     try {
-      const payload = { message, conversation_id: state.conversationId };
+      const payload = {
+        message,
+        conversation_id: state.conversationId,
+        agent: this.mode === 'assistant' ? this.selectedAgent : undefined,
+        llm_provider: this.mode === 'assistant' && this.selectedLLMProvider !== 'Automatique' ? this.selectedLLMProvider : undefined,
+        llm_model: this.mode === 'assistant' && this.selectedLLMModel !== 'Automatique' ? this.selectedLLMModel : undefined,
+      };
       if (this.mode === 'development') payload.module = 'development';
 
       const r = await sendAIMessage(payload);
@@ -267,6 +308,18 @@ export class AIAssistantPage {
         model: r.model || null,
         created_at: new Date().toISOString(),
       });
+
+      // Update actual usage display
+      if (this.mode === 'assistant') {
+        this.actualAgent = r.actual_agent || 'Assistant général';
+        this.actualProvider = r.actual_provider;
+        this.actualModel = r.actual_model;
+        this.fallbackInfo = r.fallback_info;
+        this.requestedAgent = r.requested_agent;
+        this.requestedProvider = r.requested_provider;
+        this.requestedModel = r.requested_model;
+        this._updateCurrentUsageDisplay();
+      }
 
       state.conversationId = r.conversation_id;
       await this._loadConversations();
@@ -308,11 +361,62 @@ export class AIAssistantPage {
     const title = this.element.querySelector('[data-mode-title]');
     if (title) title.textContent = MODES[mode].title;
 
+    const actionButtons = this.element.querySelector('[data-action-buttons]');
+    if (actionButtons) {
+      actionButtons.hidden = mode === 'assistant';
+    }
+
+    // Re-render the selectors area when switching to assistant mode
+    if (mode === 'assistant') {
+      const selectorsContainer = this.element.querySelector('.ai-selectors');
+      if (selectorsContainer) {
+        selectorsContainer.outerHTML = this._renderAgentLLMSelectors();
+        this._bindSelectorEvents();
+      } else {
+        // Insert after header
+        const header = this.element.querySelector('.ai-header');
+        if (header) {
+          header.insertAdjacentHTML('afterend', this._renderAgentLLMSelectors());
+          this._bindSelectorEvents();
+        }
+      }
+    }
+
     this._renderConversationList();
     this._renderMessages();
     this._renderDevStatus();
 
     if (mode === 'development' && !this.devStatus) this._refreshDevStatus();
+  }
+
+  _updateCurrentUsageDisplay() {
+    const agentEl = this.element?.querySelector('[data-current-agent]');
+    const llmEl = this.element?.querySelector('[data-current-llm]');
+    const fallbackEl = this.element?.querySelector('.ai-current-usage-fallback');
+
+    if (agentEl) {
+      agentEl.textContent = this.actualAgent || '—';
+    }
+    if (llmEl) {
+      llmEl.textContent = (this.actualProvider && this.actualModel) ? `${this.actualProvider} / ${this.actualModel}` : '—';
+    }
+    if (fallbackEl) {
+      if (this.fallbackInfo) {
+        fallbackEl.textContent = `ℹ️ ${this.fallbackInfo}`;
+        fallbackEl.style.display = 'block';
+      } else {
+        fallbackEl.style.display = 'none';
+      }
+    } else if (this.fallbackInfo) {
+      // Create fallback element if it doesn't exist
+      const usageContainer = this.element?.querySelector('[data-current-usage]');
+      if (usageContainer) {
+        const div = document.createElement('div');
+        div.className = 'ai-current-usage-fallback';
+        div.textContent = `ℹ️ ${this.fallbackInfo}`;
+        usageContainer.appendChild(div);
+      }
+    }
   }
 
   // ------------------------------------------------------------------ #
@@ -533,9 +637,10 @@ export class AIAssistantPage {
               </div>
             </div>
           </div>
+          ${this.mode === 'assistant' ? this._renderAgentLLMSelectors() : ''}
           <div class="ai-actions">
             <div class="ai-status" data-dev-status hidden></div>
-            <div class="ai-action-buttons">
+            <div class="ai-action-buttons" data-action-buttons ${this.mode === 'assistant' ? 'hidden' : ''}>
               ${this.canCommit ? '<button type="button" class="btn btn-secondary btn-sm" data-action="commit">💾 Commit</button>' : ''}
               ${this.canDeploy ? '<button type="button" class="btn btn-danger btn-sm" data-action="deploy">🚀 Déployer</button>' : ''}
             </div>
@@ -566,6 +671,11 @@ export class AIAssistantPage {
       btn.addEventListener('click', () => this._setMode(btn.dataset.mode));
     });
 
+    // Agent/LLM selectors
+    if (this.mode === 'assistant') {
+      this._bindSelectorEvents();
+    }
+
     const input = this.element.querySelector('[data-ai-input]');
     if (input) {
       input.addEventListener('keydown', (e) => {
@@ -577,6 +687,68 @@ export class AIAssistantPage {
     }
 
     return this.element;
+  }
+
+  _renderAgentLLMSelectors() {
+    const agentOptions = this.agents.map(a => `<option value="${escapeHtml(a)}">${escapeHtml(a)}</option>`).join('');
+    const llmOptions = this.llmProviders.map(p => `<option value="${escapeHtml(p.provider)}|${escapeHtml(p.model)}">${escapeHtml(p.display_name)}</option>`).join('');
+    // Add "Automatique" option for LLM
+    const llmAutoOption = '<option value="auto|auto">Automatique</option>';
+
+    return `
+      <div class="ai-selectors">
+        <div class="ai-selector-group">
+          <label class="ai-selector-label">Agent</label>
+          <select class="ai-selector" data-selector="agent">
+            ${agentOptions}
+          </select>
+        </div>
+        <div class="ai-selector-group">
+          <label class="ai-selector-label">LLM</label>
+          <select class="ai-selector" data-selector="llm">
+            ${llmAutoOption}
+            ${llmOptions}
+          </select>
+        </div>
+        <div class="ai-current-usage" data-current-usage>
+          <div class="ai-current-usage-header">Utilisation actuelle</div>
+          <div class="ai-current-usage-row">
+            <span class="ai-current-usage-label">Agent :</span>
+            <span class="ai-current-usage-value" data-current-agent>${escapeHtml(this.actualAgent || '—')}</span>
+          </div>
+          <div class="ai-current-usage-row">
+            <span class="ai-current-usage-label">LLM :</span>
+            <span class="ai-current-usage-value" data-current-llm>${escapeHtml(this.actualProvider && this.actualModel ? `${this.actualProvider} / ${this.actualModel}` : '—')}</span>
+          </div>
+          ${this.fallbackInfo ? `
+            <div class="ai-current-usage-fallback">
+              ℹ️ ${escapeHtml(this.fallbackInfo)}
+            </div>
+          ` : ''}
+        </div>
+      </div>
+    `;
+  }
+
+  _bindSelectorEvents() {
+    const agentSelect = this.element.querySelector('[data-selector="agent"]');
+    const llmSelect = this.element.querySelector('[data-selector="llm"]');
+
+    if (agentSelect) {
+      agentSelect.value = this.selectedAgent;
+      agentSelect.addEventListener('change', (e) => {
+        this.selectedAgent = e.target.value;
+      });
+    }
+
+    if (llmSelect) {
+      llmSelect.value = 'auto|auto';
+      llmSelect.addEventListener('change', (e) => {
+        const [provider, model] = e.target.value.split('|');
+        this.selectedLLMProvider = provider;
+        this.selectedLLMModel = model;
+      });
+    }
   }
 
   destroy() {

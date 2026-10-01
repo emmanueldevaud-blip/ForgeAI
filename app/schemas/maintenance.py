@@ -595,13 +595,35 @@ class AIChatRequest(BaseModel):
     entity_type: Optional[str] = Field(None, max_length=50)
     entity_id: Optional[int] = None
     conversation_id: Optional[int] = None
+    agent: Optional[str] = Field(None, max_length=50)
+    llm_provider: Optional[str] = Field(None, max_length=50)
+    llm_model: Optional[str] = Field(None, max_length=100)
 
 
 class AIChatResponse(BaseModel):
     response: str
     conversation_id: int
     model: Optional[str] = None
+    actual_agent: Optional[str] = None
+    actual_provider: Optional[str] = None
+    actual_model: Optional[str] = None
+    requested_agent: Optional[str] = None
+    requested_provider: Optional[str] = None
+    requested_model: Optional[str] = None
+    fallback_info: Optional[str] = None
 
 
 class MessageResponse(BaseModel):
     message: str
+
+
+class AIOptionsResponse(BaseModel):
+    agents: List[str] = []
+    llm_providers: List[dict] = []
+
+
+class AIModelInfo(BaseModel):
+    provider: str
+    model: str
+    free: Optional[bool] = None
+    display_name: Optional[str] = None

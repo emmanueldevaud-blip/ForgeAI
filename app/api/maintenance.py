@@ -12,6 +12,7 @@ from app.models.user import User
 from app.schemas.maintenance import (
     AIChatRequest,
     AIChatResponse,
+    AIOptionsResponse,
     ContractCreate,
     ContractListParams,
     ContractListResponse,
@@ -887,15 +888,31 @@ async def ai_chat(
                 ai_text = sport_result.get("answer")
                 ai_model = sport_result.get("provider")
                 ai_tokens = None
+                actual_agent = "Coach sportif"
+                actual_provider = sport_result.get("provider")
+                actual_model = sport_result.get("model")
+                fallback_info = None
             else:
+                # Utiliser la sélection de l'utilisateur si fournie
+                preferred_provider = data.llm_provider if data.llm_provider and data.llm_provider != "auto" else None
+                model = data.llm_model if data.llm_model and data.llm_model != "auto" else "auto"
+
                 ai_response = await ai_gateway.generate(
                     history=history,
                     system_prompt=AI_CHAT_SYSTEM_PROMPT,
                     max_tokens=AI_CHAT_MAX_TOKENS,
+                    preferred_provider=preferred_provider,
+                    model=model,
                 )
                 ai_text = ai_response.text
                 ai_model = ai_response.model_used
                 ai_tokens = ai_response.tokens_output
+                actual_agent = "Assistant général"
+                actual_provider = ai_response.provider_used
+                actual_model = ai_response.model_used
+                fallback_info = None
+                if ai_response.fallback_used:
+                    fallback_info = f"Fallback automatique utilisé (provider: {actual_provider}, modèle: {actual_model})"
         except AIGatewayError as exc:
             await db.rollback()
             raise HTTPException(status_code=502, detail=str(exc)) from exc
@@ -918,6 +935,13 @@ async def ai_chat(
         response=ai_text,
         conversation_id=conversation.id,
         model=ai_model,
+        actual_agent=actual_agent if 'actual_agent' in locals() else None,
+        actual_provider=actual_provider if 'actual_provider' in locals() else None,
+        actual_model=actual_model if 'actual_model' in locals() else None,
+        requested_agent=data.agent,
+        requested_provider=data.llm_provider,
+        requested_model=data.llm_model,
+        fallback_info=fallback_info if 'fallback_info' in locals() else None,
     )
 
 
@@ -949,6 +973,67 @@ async def list_ai_conversations(
             for c in conversations
         ]
     }
+
+
+@router.get("/ai/options", response_model=AIOptionsResponse)
+async def get_ai_options(
+    current_user: User = Depends(require_permission("ai.use")),
+    db: AsyncSession = Depends(get_db),
+):
+    """Retourne les agents et modèles LLM disponibles pour le sélecteur."""
+    from app.services.ai_gateway import ai_gateway
+    from app.services.ai_gateway.models import MODEL_CATALOG
+    from app.core.config import get_settings
+
+    settings = get_settings()
+
+    # Agents disponibles
+    agents = ["Automatique", "Assistant général"]
+    rbac = RBACService(db)
+    if await rbac.user_has_permission(current_user, "sport.access"):
+        agents.append("Coach sportif")
+    if await rbac.user_has_permission(current_user, "development.execute"):
+        agents.append("Agent Développement")
+
+    # Modèles LLM depuis le catalogue et la configuration
+    llm_providers = []
+
+    # Modèles OpenCode (si disponibles)
+    try:
+        from app.services.ai.model_router import discover_opencode_models
+        opencode_models = discover_opencode_models()
+        for m in opencode_models:
+            if m.get("free") is True:
+                llm_providers.append({
+                    "provider": "opencode",
+                    "model": m["id"],
+                    "display_name": f"OpenCode / {m['id']}",
+                    "free": True,
+                })
+    except Exception:
+        pass
+
+    # Modèles AI Gateway (catalogue + config)
+    for task_type, providers in MODEL_CATALOG.items():
+        for provider_name, model in providers.items():
+            display = f"{provider_name.capitalize()} / {model}"
+            llm_providers.append({
+                "provider": provider_name,
+                "model": model,
+                "display_name": display,
+                "free": False,
+            })
+
+    # Dédupliquer
+    seen = set()
+    unique_providers = []
+    for p in llm_providers:
+        key = (p["provider"], p["model"])
+        if key not in seen:
+            seen.add(key)
+            unique_providers.append(p)
+
+    return AIOptionsResponse(agents=agents, llm_providers=unique_providers)
 
 
 @router.get("/ai/conversations/{conversation_id}")

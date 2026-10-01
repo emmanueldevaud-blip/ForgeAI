@@ -758,7 +758,6 @@ render() {
 
     const agentOptionsHtml = this.agents.map(a => `<option value="${escapeHtml(a)}">${escapeHtml(a)}</option>`).join('');
     const llmOptionsHtml = this.llmProviders.map(p => `<option value="${escapeHtml(p.provider)}|${escapeHtml(p.model)}">${escapeHtml(p.display_name)}</option>`).join('');
-    const llmAutoOption = '<option value="auto|auto">Automatique</option>';
 
     return `
       <div class="ai-config-section">

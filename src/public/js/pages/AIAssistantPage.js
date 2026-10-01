@@ -111,6 +111,13 @@ export class AIAssistantPage {
       this.selectedAgent = 'Automatique';
       this.selectedLLMProvider = 'Automatique';
       this.selectedLLMModel = 'Automatique';
+      
+      // Re-render selectors if they exist
+      const selectorsWrapper = this.element?.querySelector('.ai-config-section-wrapper');
+      if (selectorsWrapper) {
+        selectorsWrapper.innerHTML = this._renderAgentLLMSelectors();
+        this._bindSelectorEvents();
+      }
     } catch (e) {
       console.error('Erreur chargement options IA:', e);
     }

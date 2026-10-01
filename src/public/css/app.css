@@ -3564,25 +3564,261 @@
 
   .ai-sidebar {
     width: 100%;
-    height: 200px;
+    height: auto;
+    max-height: 300px;
     border-right: none;
     border-bottom: 1px solid var(--color-border-light);
+    flex-shrink: 0;
+  }
+
+  .ai-sidebar-header {
+    padding: var(--spacing-3) var(--spacing-4);
+  }
+
+  .ai-conversations-list {
+    max-height: 250px;
+  }
+
+  .conversation-item {
+    padding: var(--spacing-3) var(--spacing-4);
+    min-height: 44px;
   }
 
   .ai-message {
     max-width: 95%;
   }
 
-  .dashboard-stats {
-    grid-template-columns: repeat(2, 1fr);
+  .ai-header {
+    padding: var(--spacing-3) var(--spacing-4);
   }
 
-  .dashboard-grid {
-    grid-template-columns: 1fr;
+  .ai-header-top {
+    flex-direction: column;
+    align-items: stretch;
+    gap: var(--spacing-3);
   }
 
-   .detail-grid {
-    grid-template-columns: 1fr;
+  .ai-header h2 {
+    font-size: var(--font-size-lg);
+  }
+
+  .ai-mode-switch {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .ai-mode-btn {
+    flex: 1;
+    justify-content: center;
+    min-height: 44px;
+    padding: var(--spacing-2) var(--spacing-3);
+    font-size: var(--font-size-sm);
+  }
+
+  .ai-model-badge {
+    max-width: 100%;
+    text-align: center;
+    margin-top: var(--spacing-2);
+  }
+
+  .ai-selectors {
+    padding: var(--spacing-3) var(--spacing-4);
+  }
+
+  .ai-selector-group {
+    width: 100%;
+  }
+
+  .ai-selector {
+    height: 44px;
+    font-size: var(--font-size-base);
+  }
+
+  .ai-current-usage-row {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--spacing-1);
+  }
+
+  .ai-current-usage-label {
+    min-width: auto;
+  }
+
+  .ai-current-usage-value {
+    width: 100%;
+    text-align: left;
+  }
+
+  .ai-selectors-content {
+    max-height: 250px;
+  }
+
+  .ai-selector {
+    height: 44px;
+    font-size: 16px;
+  }
+
+  .ai-main {
+    flex: 1;
+    min-height: 0;
+  }
+
+  .ai-messages {
+    padding: var(--spacing-4);
+    gap: var(--spacing-3);
+  }
+
+  .ai-message {
+    max-width: 90%;
+  }
+
+  .ai-message-content {
+    max-width: 100%;
+  }
+
+  .ai-message-text {
+    word-wrap: break-word;
+    overflow-wrap: break-word;
+  }
+
+  .ai-input-area {
+    padding: var(--spacing-3) var(--spacing-4);
+    gap: var(--spacing-2);
+  }
+
+  .ai-input {
+    min-height: 44px;
+    max-height: 150px;
+    font-size: 16px;
+    padding: var(--spacing-3);
+  }
+
+  .ai-input-area .btn {
+    min-height: 44px;
+    min-width: 44px;
+    padding: var(--spacing-2) var(--spacing-3);
+  }
+
+  .ai-action-buttons {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .ai-action-buttons .btn {
+    min-height: 44px;
+    padding: var(--spacing-2) var(--spacing-4);
+    font-size: var(--font-size-sm);
+  }
+
+  .ai-status {
+    padding: var(--spacing-3);
+    gap: var(--spacing-2);
+  }
+
+  .ai-status-item {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--spacing-1);
+  }
+
+  .ai-status-label {
+    font-weight: 600;
+  }
+
+  .conversation-item {
+    padding: var(--spacing-3) var(--spacing-4);
+    min-height: 44px;
+  }
+
+  .conversation-title {
+    font-size: var(--font-size-base);
+  }
+
+  .conversation-meta {
+    font-size: var(--font-size-xs);
+  }
+
+  .ai-actions {
+    padding: var(--spacing-2) var(--spacing-4);
+  }
+
+  .ai-status {
+    padding: var(--spacing-2) var(--spacing-3);
+  }
+
+  .ai-current-usage-fallback {
+    font-size: var(--font-size-xs);
+    padding: var(--spacing-2) var(--spacing-3);
+  }
+}
+
+@media (max-width: 480px) {
+  .ai-header {
+    padding: var(--spacing-2) var(--spacing-3);
+  }
+
+  .ai-selectors {
+    padding: var(--spacing-2) var(--spacing-3);
+  }
+
+  .ai-messages {
+    padding: var(--spacing-3);
+  }
+
+  .ai-input-area {
+    padding: var(--spacing-2) var(--spacing-3);
+    flex-direction: column;
+    align-items: stretch;
+    gap: var(--spacing-2);
+  }
+
+  .ai-input {
+    width: 100%;
+    min-height: 44px;
+  }
+
+  .ai-input-area .btn {
+    width: 100%;
+    min-height: 48px;
+  }
+
+  .ai-sidebar {
+    max-height: 250px;
+  }
+
+  .ai-conversations-list {
+    max-height: 200px;
+  }
+
+  .ai-selectors {
+    padding: var(--spacing-2) var(--spacing-3);
+  }
+
+  .ai-selectors-content {
+    max-height: 200px;
+  }
+
+  .ai-current-usage-header {
+    font-size: var(--font-size-xs);
+  }
+
+  .ai-current-usage-value {
+    font-size: var(--font-size-xs);
+  }
+
+  .ai-action-buttons {
+    flex-direction: column;
+    width: 100%;
+  }
+
+  .ai-action-buttons .btn {
+    width: 100%;
+    min-height: 44px;
+  }
+
+  .ai-mode-btn {
+    padding: var(--spacing-2) var(--spacing-3);
+    font-size: var(--font-size-xs);
   }
 }
 

@@ -10,7 +10,7 @@ from app.services.ai_gateway import (
     AINoProviderAvailable,
 )
 from app.services.ai_gateway.gateway import get_ai_gateway
-from app.services.ai_gateway.models import resolve_model
+from app.services.ai_gateway.models import MODEL_CATALOG, resolve_model
 
 
 def make_settings(**values):
@@ -88,10 +88,14 @@ async def test_quota_exceeded_falls_back_to_gemini():
     assert response.provider_used == "gemini"
     assert response.text == "Réponse Gemini"
     assert response.fallback_used is True
-    assert calls == ["api.groq.com", "generativelanguage.googleapis.com"]
+    # Cascade intra-provider : chaque modèle Groq configuré est tenté (un quota
+    # sur un modèle ne rend pas Groq entier indisponible), puis Gemini répond.
+    groq_calls = [host for host in calls if host == "api.groq.com"]
+    assert groq_calls, "Groq doit être tenté en premier"
+    assert calls == groq_calls + ["generativelanguage.googleapis.com"]
     quota = gateway.get_stats()
     groq = next(p for p in quota["providers"] if p["provider"] == "groq")
-    assert groq["errors"] == 1
+    assert groq["errors"] == len(groq_calls)
     assert groq["status"] == "quota_exceeded"
 
 
@@ -278,7 +282,9 @@ async def test_stats_are_recorded():
     await gateway.generate(prompt="Bonjour")
     stats = gateway.get_stats()
     providers = {p["provider"]: p for p in stats["providers"]}
-    assert providers["groq"]["errors"] == 1
+    # Cascade intra-provider : chaque modèle Groq configuré est tenté (quota).
+    groq_models = {MODEL_CATALOG[task]["groq"] for task in MODEL_CATALOG}
+    assert providers["groq"]["errors"] == len(groq_models)
     assert providers["gemini"]["requests"] == 1
     assert providers["gemini"]["tokens_input"] == 10
     assert providers["gemini"]["tokens_output"] == 5

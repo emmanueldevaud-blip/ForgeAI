@@ -80,6 +80,20 @@ class AIGateway:
         self._client = client
         self.stats = stats or StatsStore()
         self._providers = providers or build_providers(self.settings, client)
+        self._cascade: Any | None = None
+
+    def _get_cascade(self):
+        """Instance de ModelCascade partagée par toutes les requêtes de la gateway.
+
+        L'instance est conservée afin que l'état par modèle (cooldown) persiste
+        d'une requête à l'autre. L'horloge reste celle de ``time.time`` sauf
+        injection explicite en test.
+        """
+        if self._cascade is None:
+            from app.services.ai.model_router import ModelCascade
+
+            self._cascade = ModelCascade(self.settings)
+        return self._cascade
 
     # ------------------------------------------------------------------ #
     # API publique
@@ -243,67 +257,42 @@ class AIGateway:
         si le routage intelligent est activé. Sinon, on utilise le routage classique.
         """
         # Essayer le ModelCascade de routage intelligent si activé
-        if self.settings.AI_ROUTER_ENABLED:
+        if self.settings.AI_ROUTER_ENABLED and (not model or model.lower() == "auto"):
+            cascade = None
+            candidates: list[dict[str, str]] = []
             try:
-                from app.services.ai.model_router import ModelCascade
-
-                cascade = ModelCascade(self.settings)
+                cascade = self._get_cascade()
                 cascade._refresh_opencode_models()
-                selected = cascade.select_development_model_cascade(task_type=task_type)
-                if selected:
-                    logger.info(
-                        "[AI-GATEWAY] model_router_selected provider=%s model=%s",
-                        selected["provider"],
-                        selected["model"],
-                    )
-                    # Appeler le provider sélectionné via le modèle existant
-                    provider_name = selected["provider"]
-                    resolved_model = selected["model"]
-                    if provider_name in self._providers:
-                        provider = self._providers[provider_name]
-                        try:
-                            text, tokens_in, tokens_out = await self._call_with_retries(
-                                provider, resolved_model, messages, temperature, max_tokens
-                            )
-                            latency = asyncio.get_event_loop().time() - started
-                            self.stats.record_request(provider_name, resolved_model)
-                            self.stats.record_success(
-                                provider_name, resolved_model, tokens_in, tokens_out
-                            )
-                            return AIResponse(
-                                text=text,
-                                provider_used=provider_name,
-                                model_used=resolved_model,
-                                tokens_input=tokens_in,
-                                tokens_output=tokens_out,
-                                latency=round(latency, 3),
-                                fallback_used=False,
-                                quota_status=self.stats.quota_status(),
-                            )
-                        except AIGatewayError as exc:
-                            if should_fallback(exc):
-                                # Enregistrer l'échec dans la cascade
-                                state = cascade._get_model_state(
-                                    selected["provider"], selected["model"]
-                                )
-                                state.record_failure(exc, asyncio.get_event_loop().time())
-                                logger.warning(
-                                    "[AI-GATEWAY] provider=%s model=%s status=fallback",
-                                    provider_name,
-                                    resolved_model,
-                                )
-                            # Fallthrough vers le routage classique ci-dessous
-                    else:
-                        logger.warning(
-                            "[AI-GATEWAY] model_router_provider=%s not available",
-                            provider_name,
-                        )
+                candidates = cascade.build_candidates(
+                    task_type=task_type,
+                    preferred_provider=self._preferred_name(preferred_provider),
+                )
             except Exception as exc:
                 # Erreur dans le ModelCascade, on continue avec le routage classique
                 logger.warning(
                     "[AI-GATEWAY] model_router_error=%s, fallback classique",
                     exc,
                 )
+                cascade = None
+
+            if cascade is not None:
+                if candidates:
+                    logger.info(
+                        "[AI-GATEWAY] model_router_selected provider=%s model=%s",
+                        candidates[0]["provider"],
+                        candidates[0]["model"],
+                    )
+                    response = await self._dispatch_cascade(
+                        cascade, candidates, messages, temperature, max_tokens
+                    )
+                    if response is not None:
+                        return response
+                    # Erreur non récupérable pour la cascade : le routage
+                    # classique ci-dessous reprend la main.
+                else:
+                    logger.warning(
+                        "[AI-GATEWAY] model_router_no_candidate, fallback classique"
+                    )
 
         # --- Routage classique ---
         order = self._resolve_order(preferred_provider)
@@ -373,6 +362,135 @@ class AIGateway:
             "Tous les fournisseurs IA configurés ont échoué", errors=errors
         )
 
+    async def _dispatch_cascade(
+        self,
+        cascade: Any,
+        candidates: list[dict[str, str]],
+        messages: list[dict[str, str]],
+        temperature: float | None,
+        max_tokens: int | None,
+    ) -> AIResponse | None:
+        """Exécute les candidats de la cascade dans l'ordre, appel par appel.
+
+        Retourne la réponse du premier candidat réussi, lève
+        ``AINoProviderAvailable`` si la cascade est épuisée, ou retourne
+        ``None`` lorsqu'une erreur classée non récupérable impose de reprendre
+        le routage classique.
+
+        Chaque tentative est tracée : provider, modèle, attempt, résultat,
+        raison de l'échec et candidat suivant (aucune clé API dans les logs).
+        """
+        from app.services.ai.model_router import should_fallback
+
+        started = asyncio.get_event_loop().time()
+        errors: list[Exception] = []
+        failed_providers: set[str] = set()
+        fallback_used = False
+        attempt = 0
+
+        for index, candidate in enumerate(candidates):
+            provider_name = candidate["provider"]
+            resolved_model = candidate["model"]
+            next_candidate = candidates[index + 1] if index + 1 < len(candidates) else None
+            next_label = (
+                f"{next_candidate['provider']}/{next_candidate['model']}"
+                if next_candidate
+                else "classic"
+            )
+
+            state = cascade._get_model_state(provider_name, resolved_model)
+            if not state.can_attempt():
+                logger.debug(
+                    "[AI-GATEWAY] cascade attempt=0 provider=%s model=%s "
+                    "result=skipped failure_reason=model_cooldown fallback=%s",
+                    provider_name,
+                    resolved_model,
+                    next_label,
+                )
+                continue
+
+            provider = self._providers.get(provider_name)
+            if provider is None:
+                logger.debug(
+                    "[AI-GATEWAY] cascade attempt=0 provider=%s model=%s "
+                    "result=skipped failure_reason=provider_not_configured fallback=%s",
+                    provider_name,
+                    resolved_model,
+                    next_label,
+                )
+                continue
+            if not provider.is_available:
+                logger.debug(
+                    "[AI-GATEWAY] cascade attempt=0 provider=%s model=%s "
+                    "result=skipped failure_reason=provider_unavailable fallback=%s",
+                    provider_name,
+                    resolved_model,
+                    next_label,
+                )
+                continue
+
+            attempt += 1
+            try:
+                text, tokens_in, tokens_out = await self._call_with_retries(
+                    provider, resolved_model, messages, temperature, max_tokens
+                )
+            except AIGatewayError as exc:
+                status = self._status_for(exc)
+                recoverable = should_fallback(exc)
+                self.stats.record_error(
+                    provider_name, resolved_model, status, self._cooldown_for(exc)
+                )
+                state.record_failure(exc, cascade.now())
+                fallback_used = True
+                if provider_name not in failed_providers:
+                    failed_providers.add(provider_name)
+                    errors.append(exc)
+                logger.warning(
+                    "[AI-GATEWAY] cascade attempt=%d provider=%s model=%s "
+                    "result=failure failure_reason=%s fallback=%s",
+                    attempt,
+                    provider_name,
+                    resolved_model,
+                    status,
+                    next_label if recoverable else "classic",
+                )
+                if not recoverable:
+                    # Classification courante : erreur non récupérable, la
+                    # cascade s'arrête (pas de déroulement aveugle).
+                    return None
+                continue
+
+            latency = asyncio.get_event_loop().time() - started
+            self.stats.record_request(provider_name, resolved_model)
+            self.stats.record_success(provider_name, resolved_model, tokens_in, tokens_out)
+            if fallback_used:
+                self.stats.record_fallback(provider_name)
+            logger.info(
+                "[AI-GATEWAY] cascade attempt=%d provider=%s model=%s "
+                "result=success failure_reason=- fallback=none",
+                attempt,
+                provider_name,
+                resolved_model,
+            )
+            return AIResponse(
+                text=text,
+                provider_used=provider_name,
+                model_used=resolved_model,
+                tokens_input=tokens_in,
+                tokens_output=tokens_out,
+                latency=round(latency, 3),
+                fallback_used=fallback_used,
+                quota_status=self.stats.quota_status(),
+            )
+
+        logger.error(
+            "[AI-GATEWAY] status=cascade_exhausted errors=%s",
+            [type(e).__name__ for e in errors],
+        )
+        raise AINoProviderAvailable(
+            "Tous les fournisseurs IA configurés ont échoué", errors=errors
+        )
+
     def get_stats(self) -> dict:
         """Statistiques d'utilisation (aucun secret, aucun prompt)."""
         return self.stats.snapshot()
@@ -381,15 +499,22 @@ class AIGateway:
     # Internes
     # ------------------------------------------------------------------ #
 
-    def _resolve_order(self, preferred_provider: str | None) -> list[str]:
-        order = [p.strip().lower() for p in self.settings.AI_PROVIDER_ORDER.split(",") if p.strip()]
-        order = order or list(DEFAULT_PROVIDER_ORDER)
+    def _preferred_name(self, preferred_provider: str | None) -> str:
+        """Provider préféré effectif (paramètre d'appel, sinon défaut configuré)."""
         preferred = (preferred_provider or "").strip().lower()
         if not preferred or preferred == "auto":
             default = (self.settings.AI_DEFAULT_PROVIDER or "").strip().lower()
             if default and default != "auto":
                 preferred = default
         if preferred and preferred in PROVIDER_NAMES:
+            return preferred
+        return ""
+
+    def _resolve_order(self, preferred_provider: str | None) -> list[str]:
+        order = [p.strip().lower() for p in self.settings.AI_PROVIDER_ORDER.split(",") if p.strip()]
+        order = order or list(DEFAULT_PROVIDER_ORDER)
+        preferred = self._preferred_name(preferred_provider)
+        if preferred:
             order = [preferred] + [p for p in order if p != preferred]
         return order
 

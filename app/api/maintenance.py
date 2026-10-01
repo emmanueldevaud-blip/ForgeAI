@@ -74,6 +74,7 @@ MODULE_PERMISSION_MAP = {
     "housing": "housing.view",
     "equipment": "equipment.view",
     "volunteers": "volunteers.view",
+    "development": "development.execute",
 }
 
 
@@ -759,8 +760,9 @@ async def ai_chat(
     if sport_allowed:
         sport_allowed = await RBACService(db).user_has_permission(current_user, "sport.access")
 
-    # Détection des demandes de développement
-    development_allowed = bool(_DEVELOPMENT_QUESTION_RE.search(data.message))
+    # Détection des demandes de développement : mode explicite ou mots-clés
+    development_explicit = data.module == "development"
+    development_allowed = development_explicit or bool(_DEVELOPMENT_QUESTION_RE.search(data.message))
     if development_allowed:
         development_allowed = await RBACService(db).user_has_permission(current_user, "development.execute")
 
@@ -829,8 +831,8 @@ async def ai_chat(
                 outcome.get("actions"),
             )
 
-    # Agent Développement
-    if ai_text is None and development_allowed:
+    # Agent Développement : uniquement en mode explicite (module="development")
+    if ai_text is None and development_allowed and development_explicit:
         try:
             from app.services.development_agent.service import run_development_trigger
             from app.core.config import get_settings
@@ -839,6 +841,7 @@ async def ai_chat(
                 current_user,
                 "user_request",
                 payload={"question": data.message, "history": agent_history},
+                request=data.message,
             )
         except Exception:
             logger.exception("[AI-CHAT] Échec Agent Développement (user %s)", current_user.id)
@@ -863,6 +866,13 @@ async def ai_chat(
             logger.info(
                 "[AI-CHAT] event=development_agent_answer task=%s status=%s",
                 outcome.get("task_id"),
+                outcome.get("status"),
+            )
+        else:
+            ai_text = outcome.get("error") or "Agent Développement indisponible."
+            ai_model = "development-agent"
+            logger.warning(
+                "[AI-CHAT] event=development_agent_unavailable status=%s",
                 outcome.get("status"),
             )
 

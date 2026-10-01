@@ -2,7 +2,7 @@
 
 /* Cache strictement limite aux ressources statiques (CSS/JS/icônes).
    Jamais l'API ni les pages HTML : aucune donnee utilisateur en cache. */
-const STATIC_CACHE = 'forgeai-static-v1';
+const STATIC_CACHE = 'forgeai-static-v5';
 const STATIC_PREFIXES = ['/css/', '/js/', '/icons/'];
 
 self.addEventListener('install', event => {

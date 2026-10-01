@@ -10,7 +10,8 @@ Responsable de :
 
 import subprocess
 import re
-from typing import Any, Dict, List, Optional, Tuple
+import time
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from app.core.config import Settings
 from app.services.ai_gateway.errors import (
@@ -174,9 +175,17 @@ def should_fallback(error: AIGatewayError) -> bool:
 class ModelState:
     """Suivi de l'état par modèle (cooldown, dernier échec, etc.)."""
 
-    def __init__(self, model_id: str, provider: str):
+    def __init__(
+        self,
+        model_id: str,
+        provider: str,
+        cooldown_seconds: float = 300.0,
+        clock: Callable[[], float] = time.time,
+    ):
         self.model_id = model_id
         self.provider = provider
+        self.cooldown_seconds = float(cooldown_seconds)
+        self._clock = clock
         self.cooldown_until: float = 0.0
         self.last_error: Optional[str] = None
         self.last_success: Optional[float] = None
@@ -184,7 +193,7 @@ class ModelState:
 
     def can_attempt(self) -> bool:
         """Retourne True si le modèle peut être réessayé (hors cooldown)."""
-        return time.time() >= self.cooldown_until
+        return self._clock() >= self.cooldown_until
 
     def record_failure(self, error: AIGatewayError, now: float) -> None:
         """Enregistre un échec avec classification de l'erreur."""
@@ -193,11 +202,12 @@ class ModelState:
         if should_fallback(error):
             # Appliquer cooldown pour les erreurs de quota / rate limit
             if isinstance(error, AIQuotaExceeded):
-                self.cooldown_until = now + 300.0  # 5 min cooldown quota
+                # Cooldown configuré (AI_ROUTER_COOLDOWN_SECONDS, 300s par défaut)
+                self.cooldown_until = now + self.cooldown_seconds
             elif isinstance(error, AIProviderUnavailable):
-                self.cooldown_until = now + 60.0  # 1 min cooldown indisponibilité
+                self.cooldown_until = now + min(60.0, self.cooldown_seconds)
             elif isinstance(error, AIRequestTimeout):
-                self.cooldown_until = now + 30.0  # 30s cooldown timeout
+                self.cooldown_until = now + min(30.0, self.cooldown_seconds)
         else:
             # Erreur non récupérable -> pas de cooldown, on abandonne ce modèle
             self.cooldown_until = float("inf")
@@ -213,18 +223,28 @@ class ModelState:
 # Sélection de modèle par cascade
 # -------------------------------------------------------------------------
 
-import time
-
 
 class ModelCascade:
     """Gestionnaire de cascade de sélection de modèles."""
 
-    def __init__(self, settings: Settings):
+    def __init__(self, settings: Settings, clock: Callable[[], float] | None = None):
         self.settings = settings
+        self._clock: Callable[[], float] = clock or time.time
         self.opencode_models: List[Dict[str, Any]] = []
         self.model_states: Dict[str, ModelState] = {}  # "provider/model" -> ModelState
         self._provider_priority: List[str] | None = None
         self._refresh_opencode_models()
+
+    def now(self) -> float:
+        """Horloge courante de la cascade (injectable pour les tests)."""
+        return self._clock()
+
+    def _cooldown_seconds(self) -> float:
+        """Cooldown configuré en base (module_configs / AI_ROUTER_COOLDOWN_SECONDS)."""
+        try:
+            return float(self.settings.AI_ROUTER_COOLDOWN_SECONDS or 300.0)
+        except (TypeError, ValueError):  # pragma: no cover - valeur DB défensive
+            return 300.0
 
     def _refresh_opencode_models(self) -> None:
         """Rafraîchit la liste des modèles OpenCode découverts."""
@@ -233,7 +253,12 @@ class ModelCascade:
         for model in self.opencode_models:
             key = f"{model['provider']}/{model['id']}"
             if key not in self.model_states:
-                self.model_states[key] = ModelState(model["id"], model["provider"])
+                self.model_states[key] = ModelState(
+                    model["id"],
+                    model["provider"],
+                    cooldown_seconds=self._cooldown_seconds(),
+                    clock=self._clock,
+                )
 
     def _get_provider_order(self) -> List[str]:
         """Retourne l'ordre des providers configuré."""
@@ -248,7 +273,12 @@ class ModelCascade:
         """Récupère ou crée l'état d'un modèle."""
         key = self._model_key(provider, model)
         if key not in self.model_states:
-            self.model_states[key] = ModelState(model, provider)
+            self.model_states[key] = ModelState(
+                model,
+                provider,
+                cooldown_seconds=self._cooldown_seconds(),
+                clock=self._clock,
+            )
         return self.model_states[key]
 
     def _is_model_available(self, model_key: str) -> bool:
@@ -272,7 +302,7 @@ class ModelCascade:
 
         Returns dict with "provider" and "model" keys, or None if no model available.
         """
-        now = time.time()
+        now = self.now()
 
         # --- Phase 1 : Essayer les modèles OpenCode Free ---
         if self.settings.AI_ROUTER_PREFER_FREE:
@@ -340,6 +370,74 @@ class ModelCascade:
 
         # --- Aucun modèle n'a réussi ---
         return None
+
+    def build_candidates(
+        self,
+        task_type: str = "general",
+        preferred_provider: str | None = None,
+    ) -> List[Dict[str, str]]:
+        """Construit l'ordre complet des candidats de la cascade.
+
+        Ordre :
+        1. modèles OpenCode Free (si AI_ROUTER_PREFER_FREE) : MiMo → Nemotron → autres ;
+        2. providers AI Gateway (AI_PROVIDER_ORDER), modèle par modèle
+           (modèle résolu pour le task_type puis autres modèles du catalogue) ;
+        3. un provider préféré passe en tête sans changer l'ordre relatif des autres.
+
+        Retourne des dicts {"provider": ..., "model": ...}.
+        """
+        candidates: List[Dict[str, str]] = []
+        seen: set = set()
+
+        def _add(provider: str, model: str) -> None:
+            if not model or not provider:
+                return
+            key = (provider, model)
+            if key in seen:
+                return
+            seen.add(key)
+            candidates.append({"provider": provider, "model": model})
+
+        # 1. Modèles OpenCode Free
+        if self.settings.AI_ROUTER_PREFER_FREE:
+            for model_key in self._get_free_opencode_models_priority():
+                provider, _, model = model_key.partition("/")
+                _add(provider, model)
+
+        # 2. Providers AI Gateway, modèle par modèle
+        for provider_name in self._get_provider_order():
+            for model in self._provider_models(provider_name, task_type):
+                _add(provider_name, model)
+
+        # 3. Provider préféré en tête
+        preferred = (preferred_provider or "").strip().lower()
+        if preferred:
+            preferred_first = [c for c in candidates if c["provider"] == preferred]
+            if preferred_first:
+                others = [c for c in candidates if c["provider"] != preferred]
+                candidates = preferred_first + others
+
+        return candidates
+
+    def _provider_models(self, provider: str, task_type: str = "general") -> List[str]:
+        """Modèles configurés pour un provider, dans l'ordre de la cascade.
+
+        Le modèle résolu pour le task_type passe en premier, suivi des autres
+        modèles du catalogue pour ce provider (permet un fallback intra-provider
+        sans considérer un quota sur un modèle comme une indisponibilité du
+        provider entier).
+        """
+        from app.services.ai_gateway.models import MODEL_CATALOG
+
+        models: List[str] = []
+        primary = type(self)._resolve_model_for_provider(self.settings, provider, task_type)
+        if primary:
+            models.append(primary)
+        for catalog in MODEL_CATALOG.values():
+            candidate = catalog.get(provider)
+            if candidate and candidate not in models:
+                models.append(candidate)
+        return models
 
     @staticmethod
     def _resolve_model_for_provider(

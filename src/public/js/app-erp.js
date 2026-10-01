@@ -17,8 +17,9 @@ import { createMaintenanceProvidersPage } from './pages/MaintenanceProvidersPage
 import { createMaintenanceContractsPage } from './pages/MaintenanceContractsPage.js';
 import { createMaintenanceRefsPage } from './pages/MaintenanceRefsPage.js';
 import { createMaintenanceCalendarPage } from './pages/MaintenanceCalendarPage.js';
-import { createAIAssistantPage } from './pages/AIAssistantPage.js?v=2';
+import { createAIAssistantPage } from './pages/AIAssistantPage.js?v=3';
 import { createHousingPage } from './pages/HousingPage.js';
+import { createProfilePage } from './pages/ProfilePage.js?v=2';
 import { createCleaningVolunteersPage } from './pages/CleaningVolunteersPage.js?v=4';
 import { createAdministrativeProgramsPage } from './pages/AdministrativeProgramsPage.js';
 import { createSportDashboardPage } from './pages/SportDashboardPage.js?v=5';

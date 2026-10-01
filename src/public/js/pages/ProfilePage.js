@@ -1,4 +1,4 @@
-import { getSportAthleteProfile, getSportDashboard, updateSportHeartRateConfig } from '../services/sportApi.js?v=6';
+import { authStore } from '../stores/auth.js';
 
 export class ProfilePage {
   constructor(router) {
@@ -8,11 +8,7 @@ export class ProfilePage {
   }
 
   async initialize() {
-    try {
-      this.user = await getSportAthleteProfile();
-    } catch (error) {
-      this.user = null;
-    }
+    this.user = authStore.currentUser;
   }
 
   render() {
@@ -37,19 +33,28 @@ export class ProfilePage {
 
     this.element.innerHTML = `
       <div class="page-header">
-        <div><h1>Mon profil</h1><p class="page-subtitle">Informations personnelles</p></div>
+        <div>
+          <h1>Mon profil</h1>
+          <p class="page-subtitle">Informations personnelles</p>
+        </div>
       </div>
 
       <div class="card">
         <div class="card-header">
-          <div><span class="sport-eyebrow">Informations générales</span></div>
+          <div><span class="eyebrow">Informations générales</span></div>
         </div>
-        <div class="card-body sport-profile-card">
+        <div class="card-body">
           <div class="form-row">
+            <div class="form-group">
+              <label>Nom d'utilisateur</label>
+              <input type="text" class="form-control" value="${this._escapeHtml(this.user.username)}" readonly>
+            </div>
             <div class="form-group">
               <label>Nom complet</label>
               <input type="text" class="form-control" value="${this._escapeHtml(displayName)}" readonly>
             </div>
+          </div>
+          <div class="form-row">
             <div class="form-group">
               <label>Email</label>
               <input type="email" class="form-control" value="${this._escapeHtml(email)}" readonly>
@@ -60,14 +65,16 @@ export class ProfilePage {
           <div class="form-row">
             <div class="form-group">
               <label>Rôle(s)</label>
-              <span>${roles.map(r => `<span class="sport-badge sport-badge--${r === 'admin' ? 'admin' : 'user'}">${this._getRoleLabel(r)}</span>`).join(' ')}</span>
+              <div style="display: flex; gap: 8px;">
+                ${roles.map(r => `<span class="badge badge--${r === 'admin' ? 'primary' : 'secondary'}">${this._getRoleLabel(r)}</span>`).join('')}
+              </div>
             </div>
           </div>
           ` : ''}
 
-          <hr>
+          <hr style="margin: 24px 0; border: 0; border-top: 1px solid var(--border-color);">
 
-          <div class="form-row">
+          <div class="form-row" style="display: flex; gap: 12px;">
             <button class="btn btn-primary" data-action="edit-profile">Modifier mon profil</button>
             <button class="btn btn-secondary" data-action="change-password">Changer de mot de passe</button>
           </div>
@@ -81,11 +88,11 @@ export class ProfilePage {
 
   _bindEvents() {
     this.element.querySelector('[data-action="edit-profile"]')?.addEventListener('click', () => {
-      alert('Fonctionnalité de modification de profil à venir');
+      alert('La modification du profil sera disponible prochainement.');
     });
 
     this.element.querySelector('[data-action="change-password"]')?.addEventListener('click', () => {
-      alert('Fonctionnalité de changement de mot de passe à venir');
+      alert('Le changement de mot de passe sera disponible prochainement.');
     });
   }
 
@@ -97,7 +104,7 @@ export class ProfilePage {
 
   _getRoleLabel(role) {
     if (role === 'admin') return 'Administrateur';
-    return 'Utilisateur';
+    return role.charAt(0).toUpperCase() + role.slice(1);
   }
 }
 

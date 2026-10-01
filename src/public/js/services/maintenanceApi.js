@@ -254,3 +254,7 @@ export async function listAIConversations(params = {}) {
 export async function getAIConversation(id) {
   return maintenanceApi.get(`/ai/conversations/${id}`);
 }
+
+export async function getAIOptions() {
+  return maintenanceApi.get('/ai/options');
+}

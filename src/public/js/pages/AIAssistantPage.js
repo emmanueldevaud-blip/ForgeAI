@@ -354,42 +354,33 @@ export class AIAssistantPage {
 
     this.mode = mode;
 
+    // Update mode buttons
     this.element.querySelectorAll('.ai-mode-btn').forEach((btn) => {
       const active = btn.dataset.mode === mode;
       btn.classList.toggle('ai-mode-btn--active', active);
       btn.setAttribute('aria-selected', String(active));
     });
 
+    // Update input placeholder
     const input = this.element.querySelector('[data-ai-input]');
     if (input) input.placeholder = MODES[mode].placeholder;
 
-    const title = this.element.querySelector('[data-mode-title]');
-    if (title) title.textContent = MODES[mode].title;
-
-    const actionButtons = this.element.querySelector('[data-action-buttons]');
-    if (actionButtons) {
-      actionButtons.hidden = mode === 'assistant';
+    // Show/hide dev actions
+    const devActions = this.element.querySelector('.ai-dev-actions');
+    if (devActions) {
+      devActions.hidden = mode === 'assistant';
     }
 
-    // Re-render the selectors area when switching to assistant mode
-    if (mode === 'assistant') {
-      const selectorsContainer = this.element.querySelector('.ai-selectors');
-      if (selectorsContainer) {
-        selectorsContainer.outerHTML = this._renderAgentLLMSelectors();
-        this._bindSelectorEvents();
-      } else {
-        // Insert after header
-        const header = this.element.querySelector('.ai-header');
-        if (header) {
-          header.insertAdjacentHTML('afterend', this._renderAgentLLMSelectors());
-          this._bindSelectorEvents();
-        }
-      }
+    // Re-render selectors area
+    const selectorsWrapper = this.element.querySelector('.ai-config-section-wrapper');
+    if (selectorsWrapper) {
+      selectorsWrapper.innerHTML = this._renderAgentLLMSelectors();
+      this._bindSelectorEvents();
     }
 
+    // Update conversation list and messages for the new mode
     this._renderConversationList();
     this._renderMessages();
-    this._renderDevStatus();
 
     if (mode === 'development' && !this.devStatus) this._refreshDevStatus();
   }
@@ -398,29 +389,39 @@ export class AIAssistantPage {
     const agentEl = this.element?.querySelector('[data-current-agent]');
     const llmEl = this.element?.querySelector('[data-current-llm]');
     const fallbackEl = this.element?.querySelector('.ai-current-usage-fallback');
+    const usageContainer = this.element?.querySelector('.ai-current-usage');
 
-    if (agentEl) {
-      agentEl.textContent = this.actualAgent || '—';
-    }
-    if (llmEl) {
-      llmEl.textContent = (this.actualProvider && this.actualModel) ? `${this.actualProvider} / ${this.actualModel}` : '—';
-    }
+    if (!usageContainer) return;
+
+    // Update agent/llm values
+    const agentValueEl = usageContainer.querySelector('[data-current-agent]');
+    const llmValueEl = usageContainer.querySelector('[data-current-llm]');
+    const fallbackEl = usageContainer.querySelector('.ai-current-usage-fallback');
+
+    if (agentValueEl) agentValueEl.textContent = this.actualAgent || '—';
+    if (llmValueEl) llmValueEl.textContent = (this.actualProvider && this.actualModel) ? `${this.actualProvider} / ${this.actualModel}` : '—';
+
+    // Handle fallback
     if (fallbackEl) {
       if (this.fallbackInfo) {
-        fallbackEl.textContent = `ℹ️ ${this.fallbackInfo}`;
+        if (this.fallbackInfo.startsWith('⏳') || this.fallbackInfo.startsWith('↪')) {
+          fallbackEl.innerHTML = `<span class="ai-fallback-indicator">${escapeHtml(this.fallbackInfo)}</span>`;
+        } else {
+          fallbackEl.textContent = `ℹ️ ${this.fallbackInfo}`;
+        }
         fallbackEl.style.display = 'block';
       } else {
         fallbackEl.style.display = 'none';
       }
     } else if (this.fallbackInfo) {
-      // Create fallback element if it doesn't exist
-      const usageContainer = this.element?.querySelector('[data-current-usage]');
-      if (usageContainer) {
-        const div = document.createElement('div');
-        div.className = 'ai-current-usage-fallback';
-        div.textContent = `ℹ️ ${this.fallbackInfo}`;
-        usageContainer.appendChild(div);
+      const fbDiv = document.createElement('div');
+      fbDiv.className = 'ai-current-usage-fallback';
+      if (this.fallbackInfo.startsWith('⏳') || this.fallbackInfo.startsWith('↪')) {
+        fbDiv.innerHTML = `<span class="ai-fallback-indicator">${escapeHtml(this.fallbackInfo)}</span>`;
+      } else {
+        fbDiv.textContent = `ℹ️ ${this.fallbackInfo}`;
       }
+      usageContainer.appendChild(fbDiv);
     }
   }
 
@@ -615,7 +616,7 @@ export class AIAssistantPage {
   // Rendu
   // ------------------------------------------------------------------ #
 
-  render() {
+render() {
     this.canDevelop = authStore.hasPermission('development.execute');
     this.canCommit = authStore.hasPermission('development.commit');
     this.canDeploy = authStore.hasPermission('development.deploy');
@@ -632,30 +633,37 @@ export class AIAssistantPage {
           <div class="ai-conversations-list" data-conversations></div>
         </div>
         <div class="ai-main">
-          <div class="ai-header">
-            <div class="ai-header-top">
-              <h2 data-mode-title>${MODES[this.mode].title}</h2>
-              <span class="ai-model-badge" data-model-badge hidden></span>
+          <header class="ai-header">
+            <div class="ai-header-main">
+              <h1 class="ai-title">🤖 Assistant IA</h1>
               <div class="ai-mode-switch" role="tablist" aria-label="Mode de l'assistant">
-                <button type="button" class="ai-mode-btn ai-mode-btn--active" role="tab" aria-selected="true" data-mode="assistant">🤖 Assistant</button>
-                <button type="button" class="ai-mode-btn" role="tab" aria-selected="false" data-mode="development" ${this.canDevelop ? '' : 'hidden'}>🛠 Développement</button>
+                <button type="button" class="ai-mode-btn ${this.mode === 'assistant' ? 'ai-mode-btn--active' : ''}" role="tab" aria-selected="${this.mode === 'assistant'}" data-mode="assistant">Assistant</button>
+                <button type="button" class="ai-mode-btn ${this.mode === 'development' ? 'ai-mode-btn--active' : ''}" role="tab" aria-selected="${this.mode === 'development'}" data-mode="development" ${this.canDevelop ? '' : 'hidden'}>Développement</button>
               </div>
             </div>
-          </div>
-          ${this.mode === 'assistant' ? this._renderAgentLLMSelectors() : ''}
-          <div class="ai-actions">
-            <div class="ai-status" data-dev-status hidden></div>
-            <div class="ai-action-buttons" data-action-buttons ${this.mode === 'assistant' ? 'hidden' : ''}>
-              ${this.canCommit ? '<button type="button" class="btn btn-secondary btn-sm" data-action="commit">💾 Commit</button>' : ''}
-              ${this.canDeploy ? '<button type="button" class="btn btn-danger btn-sm" data-action="deploy">🚀 Déployer</button>' : ''}
+          </header>
+
+          <section class="ai-config-section-wrapper">
+            ${this._renderAgentLLMSelectors()}
+          </section>
+
+          ${this.mode === 'development' ? `
+            <div class="ai-dev-actions">
+              ${this.canCommit ? '<button type="button" class="btn btn-secondary" data-action="commit">💾 Commit</button>' : ''}
+              ${this.canDeploy ? '<button type="button" class="btn btn-danger" data-action="deploy">🚀 Déployer</button>' : ''}
             </div>
-            <span class="ai-action-status" data-action-status role="status"></span>
-          </div>
-          <div class="ai-messages" data-messages></div>
-          <div class="ai-input-area">
-            <textarea class="ai-input" data-ai-input placeholder="${MODES[this.mode].placeholder}" rows="2"></textarea>
-            <button class="btn btn-primary" data-action="send">Envoyer</button>
-          </div>
+          ` : ''}
+
+          <section class="ai-conversation-section">
+            <div class="ai-messages" data-messages></div>
+          </section>
+
+          <footer class="ai-input-footer">
+            <div class="ai-input-area">
+              <textarea class="ai-input" data-ai-input placeholder="${MODES[this.mode].placeholder}" rows="1"></textarea>
+              <button type="button" class="btn btn-primary ai-send-btn" data-action="send" aria-label="Envoyer">Envoyer</button>
+            </div>
+          </footer>
         </div>
       </div>
     `;
@@ -666,7 +674,6 @@ export class AIAssistantPage {
       state.messages = [];
       this._renderMessages();
       this._renderConversationList();
-      // Focus input for new chat
       setTimeout(() => {
         const input = this.element?.querySelector('[data-ai-input]');
         if (input) input.focus();
@@ -681,10 +688,27 @@ export class AIAssistantPage {
       btn.addEventListener('click', () => this._setMode(btn.dataset.mode));
     });
 
-    // Agent/LLM selectors
     if (this.mode === 'assistant') {
       this._bindSelectorEvents();
     }
+
+    const input = this.element.querySelector('[data-ai-input]');
+    if (input) {
+      input.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' && !e.shiftKey) {
+          e.preventDefault();
+          this._sendMessage();
+        }
+      });
+      // Auto-resize textarea
+      input.addEventListener('input', () => {
+        input.style.height = 'auto';
+        input.style.height = Math.min(input.scrollHeight, 150) + 'px';
+      });
+    }
+
+    return this.element;
+  }
 
     const input = this.element.querySelector('[data-ai-input]');
     if (input) {
@@ -702,42 +726,75 @@ export class AIAssistantPage {
   _renderAgentLLMSelectors() {
     const agentOptions = this.agents.map(a => `<option value="${escapeHtml(a)}">${escapeHtml(a)}</option>`).join('');
     const llmOptions = this.llmProviders.map(p => `<option value="${escapeHtml(p.provider)}|${escapeHtml(p.model)}">${escapeHtml(p.display_name)}</option>`).join('');
-    // Add "Automatique" option for LLM
+    const llmAutoOption = '<option value="auto|auto">Automatique</option>';
+
+    // Determine current usage display
+    let usageHtml = '';
+    if (this.actualAgent || this.actualProvider || this.actualModel) {
+      usageHtml = `
+        <div class="ai-current-usage">
+          <div class="ai-current-usage-header">Utilisation actuelle</div>
+          <div class="ai-current-usage-grid">
+            <div class="ai-current-usage-item">
+              <span class="ai-current-usage-label">Agent</span>
+              <span class="ai-current-usage-value">${escapeHtml(this.actualAgent || '—')}</span>
+            </div>
+            <div class="ai-current-usage-item">
+              <span class="ai-current-usage-label">LLM</span>
+              <span class="ai-current-usage-value">${escapeHtml(this.actualProvider && this.actualModel ? `${this.actualProvider} / ${this.actualModel}` : '—')}</span>
+            </div>
+          </div>
+          ${this.fallbackInfo ? `
+            <div class="ai-current-usage-fallback">
+              ${this.fallbackInfo.startsWith('⏳') || this.fallbackInfo.startsWith('↪') ? 
+                `<span class="ai-fallback-indicator">${escapeHtml(this.fallbackInfo)}</span>` :
+                `ℹ️ ${escapeHtml(this.fallbackInfo)}`
+              }
+            </div>
+          ` : ''}
+        </div>
+      `;
+    } else {
+      usageHtml = `
+        <div class="ai-current-usage ai-current-usage--empty">
+          <div class="ai-current-usage-header">Utilisation actuelle</div>
+          <div class="ai-current-usage-grid">
+            <div class="ai-current-usage-item">
+              <span class="ai-current-usage-label">Agent</span>
+              <span class="ai-current-usage-value">—</span>
+            </div>
+            <div class="ai-current-usage-item">
+              <span class="ai-current-usage-label">LLM</span>
+              <span class="ai-current-usage-value">—</span>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    const agentOptionsHtml = this.agents.map(a => `<option value="${escapeHtml(a)}">${escapeHtml(a)}</option>`).join('');
+    const llmOptionsHtml = this.llmProviders.map(p => `<option value="${escapeHtml(p.provider)}|${escapeHtml(p.model)}">${escapeHtml(p.display_name)}</option>`).join('');
     const llmAutoOption = '<option value="auto|auto">Automatique</option>';
 
     return `
-      <div class="ai-selectors">
-        <div class="ai-selectors-content">
-          <div class="ai-selector-group">
-            <label class="ai-selector-label">Agent</label>
-            <select class="ai-selector" data-selector="agent">
-              ${agentOptions}
+      <div class="ai-config-section">
+        <h3 class="ai-config-title">Configuration</h3>
+        <div class="ai-config-grid">
+          <div class="ai-config-field">
+            <label class="ai-config-label">Agent</label>
+            <select class="ai-config-select" data-selector="agent">
+              ${this.agents.map(a => `<option value="${escapeHtml(a)}" ${a === this.selectedAgent ? 'selected' : ''}>${escapeHtml(a)}</option>`).join('')}
             </select>
           </div>
-          <div class="ai-selector-group">
-            <label class="ai-selector-label">LLM</label>
-            <select class="ai-selector" data-selector="llm">
-              ${llmAutoOption}
-              ${llmOptions}
+          <div class="ai-config-field">
+            <label class="ai-config-label">LLM</label>
+            <select class="ai-config-select" data-selector="llm">
+              <option value="auto|auto" ${this.selectedLLMProvider === 'Automatique' ? 'selected' : ''}>Automatique</option>
+              ${this.llmProviders.map(p => `<option value="${escapeHtml(p.provider)}|${escapeHtml(p.model)}" ${p.provider === this.selectedLLMProvider && p.model === this.selectedLLMModel ? 'selected' : ''}>${escapeHtml(p.display_name)}</option>`).join('')}
             </select>
-          </div>
-          <div class="ai-current-usage" data-current-usage>
-            <div class="ai-current-usage-header">Utilisation actuelle</div>
-            <div class="ai-current-usage-row">
-              <span class="ai-current-usage-label">Agent :</span>
-              <span class="ai-current-usage-value" data-current-agent>${escapeHtml(this.actualAgent || '—')}</span>
-            </div>
-            <div class="ai-current-usage-row">
-              <span class="ai-current-usage-label">LLM :</span>
-              <span class="ai-current-usage-value" data-current-llm>${escapeHtml(this.actualProvider && this.actualModel ? `${this.actualProvider} / ${this.actualModel}` : '—')}</span>
-            </div>
-            ${this.fallbackInfo ? `
-              <div class="ai-current-usage-fallback">
-                ℹ️ ${escapeHtml(this.fallbackInfo)}
-              </div>
-            ` : ''}
           </div>
         </div>
+        ${usageHtml}
       </div>
     `;
   }

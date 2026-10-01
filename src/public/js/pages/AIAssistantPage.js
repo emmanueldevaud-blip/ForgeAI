@@ -707,19 +707,6 @@ render() {
     return this.element;
   }
 
-    const input = this.element.querySelector('[data-ai-input]');
-    if (input) {
-      input.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter' && !e.shiftKey) {
-          e.preventDefault();
-          this._sendMessage();
-        }
-      });
-    }
-
-    return this.element;
-  }
-
   _renderAgentLLMSelectors() {
     const agentOptions = this.agents.map(a => `<option value="${escapeHtml(a)}">${escapeHtml(a)}</option>`).join('');
     const llmOptions = this.llmProviders.map(p => `<option value="${escapeHtml(p.provider)}|${escapeHtml(p.model)}">${escapeHtml(p.display_name)}</option>`).join('');

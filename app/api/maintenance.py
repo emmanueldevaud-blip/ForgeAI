@@ -826,6 +826,9 @@ async def ai_chat(
             answer = (outcome.get("answer") or outcome.get("summary") or "").strip()
             ai_text = answer or "Demande prise en charge par le coach sportif."
             ai_model = outcome.get("model") or outcome.get("provider") or "sport-agent"
+            actual_agent = "Coach sportif"
+            actual_provider = outcome.get("provider") or "sport-agent"
+            actual_model = outcome.get("model") or outcome.get("provider") or "sport-agent"
             logger.info(
                 "[AI-CHAT] event=agent_answer execution=%s actions=%s",
                 outcome.get("execution_id"),
@@ -864,6 +867,9 @@ async def ai_chat(
                     answer += f" (branche : {outcome['branch']})"
             ai_text = answer
             ai_model = "development-agent"
+            actual_agent = "Agent Développement"
+            actual_provider = "development-agent"
+            actual_model = "development-agent"
             logger.info(
                 "[AI-CHAT] event=development_agent_answer task=%s status=%s",
                 outcome.get("task_id"),
@@ -872,6 +878,9 @@ async def ai_chat(
         else:
             ai_text = outcome.get("error") or "Agent Développement indisponible."
             ai_model = "development-agent"
+            actual_agent = "Agent Développement"
+            actual_provider = "development-agent"
+            actual_model = "development-agent"
             logger.warning(
                 "[AI-CHAT] event=development_agent_unavailable status=%s",
                 outcome.get("status"),

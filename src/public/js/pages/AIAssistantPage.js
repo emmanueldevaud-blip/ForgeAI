@@ -165,6 +165,11 @@ export class AIAssistantPage {
       state.messages = r.messages || [];
       this._renderMessages();
       this._renderConversationList();
+      // Restore focus to input after loading conversation
+      setTimeout(() => {
+        const input = this.element?.querySelector('[data-ai-input]');
+        if (input) input.focus();
+      }, 0);
     } catch (e) {
       console.error('Erreur chargement conversation:', e);
     }
@@ -661,6 +666,11 @@ export class AIAssistantPage {
       state.messages = [];
       this._renderMessages();
       this._renderConversationList();
+      // Focus input for new chat
+      setTimeout(() => {
+        const input = this.element?.querySelector('[data-ai-input]');
+        if (input) input.focus();
+      }, 0);
     });
 
     this.element.querySelector('[data-action="send"]')?.addEventListener('click', () => this._sendMessage());

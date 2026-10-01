@@ -3162,6 +3162,7 @@
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  min-height: 0;
 }
 
 .ai-header {
@@ -3300,6 +3301,8 @@
   display: flex;
   gap: var(--spacing-3);
   align-items: flex-end;
+  flex-shrink: 0;
+  z-index: 10;
 }
 
 .ai-input {

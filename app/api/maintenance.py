@@ -1088,6 +1088,38 @@ async def get_ai_conversation(
     }
 
 
+@router.delete("/ai/conversations/{conversation_id}")
+async def delete_ai_conversation(
+    conversation_id: int,
+    current_user: User = Depends(require_permission("ai.use")),
+    db: AsyncSession = Depends(get_db),
+):
+    from sqlalchemy import select, delete
+    from app.models.maintenance import AIConversation, AIMessage
+
+    result = await db.execute(
+        select(AIConversation).where(
+            AIConversation.id == conversation_id,
+            AIConversation.user_id == current_user.id,
+        )
+    )
+    conversation = result.scalar_one_or_none()
+    if not conversation:
+        raise HTTPException(status_code=404, detail="Conversation non trouvée")
+
+    # Delete messages first (foreign key constraint)
+    await db.execute(
+        delete(AIMessage).where(AIMessage.conversation_id == conversation_id)
+    )
+    # Delete conversation
+    await db.execute(
+        delete(AIConversation).where(AIConversation.id == conversation_id)
+    )
+    await db.commit()
+
+    return {"success": True, "message": "Conversation supprimée"}
+
+
 # ============================================================
 # HELPERS
 # ============================================================

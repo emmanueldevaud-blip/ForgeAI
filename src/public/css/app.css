@@ -6247,20 +6247,63 @@
 }
 
 .conversation-item {
+  position: relative;
   padding: var(--spacing-3);
   border-radius: var(--radius-md);
   cursor: pointer;
   margin-bottom: var(--spacing-1);
-  transition: background-color 0.15s;
+  transition: background-color 0.15s, transform 0.2s ease;
+  overflow: hidden;
 }
 
 .conversation-item:hover {
   background: var(--color-bg-tertiary);
 }
 
+.conversation-item.swipe-open {
+  background: var(--color-danger-light);
+}
+
 .conversation-item--active {
   background: var(--color-primary-light);
   border-left: 3px solid var(--color-primary);
+}
+
+.conversation-content {
+  display: flex;
+  flex-direction: column;
+  z-index: 1;
+  transition: transform 0.2s ease;
+}
+
+.conversation-item.swipe-open .conversation-content {
+  transform: translateX(-80px);
+}
+
+.conversation-delete-btn {
+  position: absolute;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  width: 80px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--color-danger);
+  color: var(--color-white);
+  border-radius: 0 var(--radius-md) var(--radius-md) 0;
+  cursor: pointer;
+  transition: background-color 0.2s;
+  z-index: 2;
+}
+
+.conversation-delete-btn:hover {
+  background: var(--color-danger-hover);
+}
+
+.conversation-delete-btn svg {
+  width: 24px;
+  height: 24px;
 }
 
 .conversation-title {

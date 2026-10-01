@@ -154,13 +154,66 @@ export class AIAssistantPage {
     const currentId = this._state().conversationId;
     list.innerHTML = items.map(c => `
       <div class="conversation-item ${c.id === currentId ? 'conversation-item--active' : ''}" data-conv-id="${c.id}">
-        <div class="conversation-title">${escapeHtml(c.title || 'Sans titre')}</div>
-        <div class="conversation-meta">${c.module || ''} - ${formatTime(c.created_at)}</div>
+        <div class="conversation-content">
+          <div class="conversation-title">${escapeHtml(c.title || 'Sans titre')}</div>
+          <div class="conversation-meta">${c.module || ''} - ${formatTime(c.created_at)}</div>
+        </div>
+        <div class="conversation-delete-btn" data-conv-id="${c.id}" title="Supprimer">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+          </svg>
+        </div>
       </div>
     `).join('');
 
     list.querySelectorAll('.conversation-item').forEach(el => {
-      el.addEventListener('click', () => this._loadConversation(parseInt(el.dataset.convId)));
+      const content = el.querySelector('.conversation-content');
+      const deleteBtn = el.querySelector('.conversation-delete-btn');
+      const convId = parseInt(el.dataset.convId);
+
+      // Click to load conversation
+      content?.addEventListener('click', () => this._loadConversation(convId));
+
+      // Swipe to delete
+      let startX = 0;
+      let currentX = 0;
+      let isSwiping = false;
+
+      el.addEventListener('touchstart', (e) => {
+        startX = e.touches[0].clientX;
+        isSwiping = true;
+      }, { passive: true });
+
+      el.addEventListener('touchmove', (e) => {
+        if (!isSwiping) return;
+        currentX = e.touches[0].clientX;
+        const deltaX = startX - currentX;
+        if (deltaX > 0 && deltaX < 100) {
+          e.preventDefault();
+          el.style.transform = `translateX(-${deltaX}px)`;
+        }
+      }, { passive: false });
+
+      el.addEventListener('touchend', () => {
+        if (!isSwiping) return;
+        isSwiping = false;
+        const deltaX = startX - currentX;
+        if (deltaX > 60) {
+          // Swipe threshold reached - show delete button
+          el.style.transform = 'translateX(-80px)';
+          el.classList.add('swipe-open');
+        } else {
+          // Swipe cancelled - reset
+          el.style.transform = '';
+          el.classList.remove('swipe-open');
+        }
+      });
+
+      // Delete button click
+      deleteBtn?.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this._deleteConversation(convId);
+      });
     });
   }
 
@@ -766,6 +819,26 @@ render() {
         this.selectedLLMProvider = provider;
         this.selectedLLMModel = model;
       });
+    }
+  }
+
+  async _deleteConversation(convId) {
+    if (!confirm('Supprimer cette conversation ?')) return;
+    try {
+      await import('../services/maintenanceApi.js').then(m => m.default?.delete?.(`/maintenance/ai/conversations/${convId}`) || fetch(`/maintenance/ai/conversations/${convId}`, { method: 'DELETE', credentials: 'include' }));
+      // Reload conversations
+      await this._loadConversations();
+      this._renderConversationList();
+      // If deleted conversation was active, clear messages
+      const state = this._state();
+      if (state.conversationId === convId) {
+        state.conversationId = null;
+        state.messages = [];
+        this._renderMessages();
+      }
+    } catch (e) {
+      console.error('Erreur suppression conversation:', e);
+      alert('Erreur lors de la suppression');
     }
   }
 

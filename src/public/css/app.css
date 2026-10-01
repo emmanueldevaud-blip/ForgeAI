@@ -5969,6 +5969,12 @@
   border-radius: var(--radius-lg);
   padding: var(--spacing-4);
   margin-bottom: var(--spacing-4);
+  /* overflow-y: auto; - removed to allow select dropdowns to open fully */
+}
+
+.ai-selectors-content {
+  max-height: 300px;
+  overflow-y: auto;
 }
 
 .ai-selector-group {

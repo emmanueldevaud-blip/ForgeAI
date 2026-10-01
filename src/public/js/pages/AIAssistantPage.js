@@ -707,34 +707,36 @@ export class AIAssistantPage {
 
     return `
       <div class="ai-selectors">
-        <div class="ai-selector-group">
-          <label class="ai-selector-label">Agent</label>
-          <select class="ai-selector" data-selector="agent">
-            ${agentOptions}
-          </select>
-        </div>
-        <div class="ai-selector-group">
-          <label class="ai-selector-label">LLM</label>
-          <select class="ai-selector" data-selector="llm">
-            ${llmAutoOption}
-            ${llmOptions}
-          </select>
-        </div>
-        <div class="ai-current-usage" data-current-usage>
-          <div class="ai-current-usage-header">Utilisation actuelle</div>
-          <div class="ai-current-usage-row">
-            <span class="ai-current-usage-label">Agent :</span>
-            <span class="ai-current-usage-value" data-current-agent>${escapeHtml(this.actualAgent || '—')}</span>
+        <div class="ai-selectors-content">
+          <div class="ai-selector-group">
+            <label class="ai-selector-label">Agent</label>
+            <select class="ai-selector" data-selector="agent">
+              ${agentOptions}
+            </select>
           </div>
-          <div class="ai-current-usage-row">
-            <span class="ai-current-usage-label">LLM :</span>
-            <span class="ai-current-usage-value" data-current-llm>${escapeHtml(this.actualProvider && this.actualModel ? `${this.actualProvider} / ${this.actualModel}` : '—')}</span>
+          <div class="ai-selector-group">
+            <label class="ai-selector-label">LLM</label>
+            <select class="ai-selector" data-selector="llm">
+              ${llmAutoOption}
+              ${llmOptions}
+            </select>
           </div>
-          ${this.fallbackInfo ? `
-            <div class="ai-current-usage-fallback">
-              ℹ️ ${escapeHtml(this.fallbackInfo)}
+          <div class="ai-current-usage" data-current-usage>
+            <div class="ai-current-usage-header">Utilisation actuelle</div>
+            <div class="ai-current-usage-row">
+              <span class="ai-current-usage-label">Agent :</span>
+              <span class="ai-current-usage-value" data-current-agent>${escapeHtml(this.actualAgent || '—')}</span>
             </div>
-          ` : ''}
+            <div class="ai-current-usage-row">
+              <span class="ai-current-usage-label">LLM :</span>
+              <span class="ai-current-usage-value" data-current-llm>${escapeHtml(this.actualProvider && this.actualModel ? `${this.actualProvider} / ${this.actualModel}` : '—')}</span>
+            </div>
+            ${this.fallbackInfo ? `
+              <div class="ai-current-usage-fallback">
+                ℹ️ ${escapeHtml(this.fallbackInfo)}
+              </div>
+            ` : ''}
+          </div>
         </div>
       </div>
     `;

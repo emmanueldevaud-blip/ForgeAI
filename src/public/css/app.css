@@ -6172,6 +6172,10 @@
   gap: var(--spacing-2);
 }
 
+.ai-action-buttons[hidden] {
+  display: none !important;
+}
+
 .ai-action-status {
   font-size: var(--font-size-sm);
   color: var(--color-text-secondary);

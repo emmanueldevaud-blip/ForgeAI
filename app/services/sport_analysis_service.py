@@ -69,19 +69,26 @@ _SYSTEM_PROMPT = (
     "Tu reçois uniquement des données d'entraînement et de santé (Garmin) au format JSON. "
     "Réponds STRICTEMENT par un objet JSON valide, sans texte avant ou après, sans balises Markdown, "
     "avec exactement ces clés : "
-    '{"title": "titre court (80 caractères max)", '
-    '"notification": "version courte pour notification téléphone/montre : 4 à 6 lignes maximum, '
-    'chiffres clés puis verdict (effort, charge, récupération) avec ton coach", '
-    '"summary": "résumé en 1 à 2 phrases", '
-    '"content": "analyse complète en français structurée ainsi : ## Résumé / ## Points remarquables / '
-    "## Charge et récupération / ## Comparaison avec l'historique / ## Conseil pour la suite\"} "
-    "RÈGLES ABSOLUES :\n"
-    "- UNIQUEMENT les données fournies (ne fabrique AUCUNE valeur absente).\n"
-    "- Si une donnée manque, ne la mentionne pas.\n\n"
+    '{"title": "titre court (80 caracteres max)", '
+    '"notification": "version courte pour notification telephone/montre : 4 a 6 lignes MAXIMUM, '
+    'format : 1 ligne distance/duree, 1 ligne charge, 1 ligne recuperation, 1 ligne verdict coach. '
+    'PAS de phrases longues, PAS de details, PAS de liste a puces.", '
+    '"summary": "resume en 1 a 2 phrases maximum", '
+    '"content": "analyse complete en francais structuree EXACTEMENT avec ces 5 sections MARKDOWN : '
+    '## Resume\\n## Points remarquables\\n## Charge et recuperation\\n'
+    '## Comparaison avec l\'historique\\n## Conseil pour la suite. '
+    'Chaque section doit etre presente, separee par une ligne vide."} '
+    "REGLES ABSOLUES :\n"
+    "- UNIQUEMENT les donnees fournies (ne fabrique AUCUNE valeur absente).\n"
+    "- Si une donnee manque, ne la mentionne pas.\n\n"
     f"{COACH_PERSONALITY}\n\n"
-    "Structure préférée dans content : ## Résumé / ## Points remarquables / "
-    "## Charge et récupération / ## Comparaison avec l'historique / ## Conseil pour la suite\n"
-    "La notification doit rester lisible sur une montre (concise, chiffres + verdict + touche coach)."
+    "Structure OBLIGATOIRE dans content (5 sections, dans l'ordre, separees par ligne vide) :\n"
+    "## Resume\n"
+    "## Points remarquables\n"
+    "## Charge et recuperation\n"
+    "## Comparaison avec l'historique\n"
+    "## Conseil pour la suite\n"
+    "La notification doit tenir sur une montre : 4 lignes max, concis, chiffres + verdict."
 )
 
 _MORNING_INSTRUCTION = (
@@ -198,6 +205,17 @@ def _parse_json_answer(text: str) -> dict[str, Any] | None:
 def _shorten(text: str, limit: int = 500) -> str:
     lines = [line for line in text.strip().splitlines() if line.strip()]
     short = "\n".join(lines[:6])
+    return short if len(short) <= limit else short[: limit - 1] + "…"
+
+
+def _shorten_notification(text: str, max_lines: int = 4, limit: int = 300) -> str:
+    """Crée une notification ultra-courte pour montre/téléphone (max 4 lignes)."""
+    lines = [line.strip() for line in text.strip().splitlines() if line.strip()]
+    # Garder seulement les lignes qui contiennent des infos utiles (chiffres, verdict)
+    filtered = [l for l in lines if any(c.isdigit() for c in l) or any(w in l.lower() for w in ["verdict", "coach", "charge", "récup", "effort", "distance", "durée", "fc", "hrv"])]
+    if not filtered:
+        filtered = lines
+    short = "\n".join(filtered[:max_lines])
     return short if len(short) <= limit else short[: limit - 1] + "…"
 
 
@@ -441,8 +459,8 @@ class SportAnalysisService:
             response = await ai_gateway.generate(
                 prompt=prompt,
                 system_prompt=_SYSTEM_PROMPT,
-                temperature=0.4,
-                max_tokens=1400,
+                temperature=0.3,
+                max_tokens=2000,
             )
         except AIGatewayError as exc:
             # Un échec IA n'affecte jamais les données : simple journal, retenté plus tard.
@@ -458,7 +476,9 @@ class SportAnalysisService:
             # Repli : la réponse brute devient l'analyse complète.
             payload = {"content": text, "summary": _shorten(text, 300), "notification": _shorten(text)}
         payload.setdefault("title", "Analyse Sport")
-        payload.setdefault("notification", _shorten(str(payload.get("summary") or payload["content"])))
+        # Notification : 4 lignes max, format compact
+        raw_notification = str(payload.get("summary") or payload["content"])
+        payload.setdefault("notification", _shorten_notification(raw_notification))
         payload.setdefault("summary", _shorten(str(payload["content"]), 300))
         payload["_meta"] = {
             "provider": getattr(response, "provider_used", None),

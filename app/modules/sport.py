@@ -58,12 +58,20 @@ class SportModule(BaseModule):
         )
 
         children = [{
+            "code": "sport-analyses",
+            "name": "Analyses IA",
+            "icon": "sparkles",
+            "route": "/sport/analyses",
+            "order": -2,
+        }] if has_analyses else []
+
+        children.append({
             "code": "sport-home",
             "name": "Accueil",
             "icon": "dashboard",
             "route": "/sport",
             "order": -1,
-        }]
+        })
 
         if has_activities:
             children.append({
@@ -99,15 +107,6 @@ class SportModule(BaseModule):
                 "icon": "watch",
                 "route": "/sport/garmin",
                 "order": 3,
-            })
-
-        if has_analyses:
-            children.append({
-                "code": "sport-analyses",
-                "name": "Analyses IA",
-                "icon": "sparkles",
-                "route": "/sport/analyses",
-                "order": 4,
             })
 
         return [{

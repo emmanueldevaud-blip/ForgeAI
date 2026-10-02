@@ -5,7 +5,7 @@ import { createModulePlaceholderPage } from './pages/ModulePlaceholder.js?v=3';
 import { createLoginPage } from './pages/LoginPage.js';
 import { createRegisterPage } from './pages/RegisterPage.js';
 import { createAdministrationPage } from './pages/AdministrationPage.js?v=4';
-import { createBuildingsPage } from './pages/BuildingsPage.js?v=4';
+import { createBuildingsPage } from './pages/BuildingsPage.js?v=5';
 import { createBuildingRefsPage } from './pages/BuildingRefsPage.js';
 import { createEquipmentPage } from './pages/EquipmentPage.js?v=2';
 import { createEquipmentRefsPage } from './pages/EquipmentRefsPage.js';
@@ -17,7 +17,7 @@ import { createMaintenanceProvidersPage } from './pages/MaintenanceProvidersPage
 import { createMaintenanceContractsPage } from './pages/MaintenanceContractsPage.js';
 import { createMaintenanceRefsPage } from './pages/MaintenanceRefsPage.js';
 import { createMaintenanceCalendarPage } from './pages/MaintenanceCalendarPage.js';
-import { createAIAssistantPage } from './pages/AIAssistantPage.js?v=20';
+import { createAIAssistantPage } from './pages/AIAssistantPage.js?v=21';
 import { createHousingPage } from './pages/HousingPage.js';
 import { createProfilePage } from './pages/ProfilePage.js?v=2';
 import { createCleaningVolunteersPage } from './pages/CleaningVolunteersPage.js?v=4';

@@ -120,6 +120,18 @@ class Settings(BaseSettings):
     AI_ROUTER_PREFER_FREE: bool = True
     AI_ROUTER_COOLDOWN_SECONDS: float = 300.0
 
+    # Web Search (pour l'Agent Sport - recherche autonome d'informations)
+    WEB_SEARCH_ENABLED: bool = True
+    WEB_SEARCH_PROVIDER: str = "brave"  # brave, duckduckgo, serper
+    WEB_SEARCH_API_KEY: str = ""
+    WEB_SEARCH_MAX_RESULTS: int = 8
+    WEB_SEARCH_TIMEOUT_SECONDS: float = 15.0
+    WEB_SEARCH_FALLBACK_ENABLED: bool = True
+
+    # Web Search Cache
+    WEB_SEARCH_CACHE_ENABLED: bool = True
+    WEB_SEARCH_CACHE_TTL_SECONDS: int = 3600
+
     # Notifications (Web Push vers le telephone -> repliquee sur la montre Garmin)
     NOTIFICATION_VAPID_PUBLIC_KEY: str = ""
     NOTIFICATION_VAPID_PRIVATE_KEY: str = ""

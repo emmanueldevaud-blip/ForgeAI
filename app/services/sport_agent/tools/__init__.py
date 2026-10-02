@@ -17,6 +17,8 @@ from app.services.sport_agent.tools import (
     recommendations,
     recovery,
     training,
+    web_fetch,
+    web_search,
 )
 
 TOOL_MODULES = (
@@ -29,6 +31,8 @@ TOOL_MODULES = (
     recommendations,
     notifications,
     analysis,
+    web_search,
+    web_fetch,
 )
 
 

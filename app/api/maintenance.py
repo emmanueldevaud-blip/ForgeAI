@@ -1016,12 +1016,22 @@ async def get_ai_options(
 
     settings = get_settings()
 
+    # Agent Développement : actif seulement si le flag est activé ET que le
+    # binaire OpenCode est détecté (sinon le mode développement est masqué).
+    development_agent_enabled = False
+    if settings.DEVELOPMENT_AGENT_ENABLED:
+        try:
+            from app.services.development_agent.opencode import get_opencode_client
+            development_agent_enabled = get_opencode_client(settings).is_available()
+        except Exception:
+            development_agent_enabled = False
+
     # Agents disponibles
     agents = ["Automatique", "Assistant général"]
     rbac = RBACService(db)
     if await rbac.user_has_permission(current_user, "sport.access"):
         agents.append("Coach sportif")
-    if await rbac.user_has_permission(current_user, "development.execute"):
+    if development_agent_enabled and await rbac.user_has_permission(current_user, "development.execute"):
         agents.append("Agent Développement")
 
     # Modèles LLM depuis le catalogue et la configuration
@@ -1062,7 +1072,11 @@ async def get_ai_options(
             seen.add(key)
             unique_providers.append(p)
 
-    return AIOptionsResponse(agents=agents, llm_providers=unique_providers)
+    return AIOptionsResponse(
+        agents=agents,
+        llm_providers=unique_providers,
+        development_agent_enabled=development_agent_enabled,
+    )
 
 
 @router.get("/ai/conversations/{conversation_id}")

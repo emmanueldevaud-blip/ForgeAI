@@ -6543,6 +6543,10 @@
   font-weight: 500;
 }
 
+.ai-dev-actions[hidden] {
+  display: none;
+}
+
 .ai-conversation-section {
   flex: 1;
   display: flex;

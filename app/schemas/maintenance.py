@@ -620,6 +620,7 @@ class MessageResponse(BaseModel):
 class AIOptionsResponse(BaseModel):
     agents: List[str] = []
     llm_providers: List[dict] = []
+    development_agent_enabled: bool = True
 
 
 class AIModelInfo(BaseModel):

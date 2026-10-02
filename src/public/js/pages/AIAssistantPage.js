@@ -68,6 +68,7 @@ export class AIAssistantPage {
       development: { conversationId: null, messages: [] },
     };
     this.devStatus = null;
+    this.devAgentEnabled = null;
     this.canDevelop = false;
     this.canCommit = false;
     this.canDeploy = false;
@@ -111,7 +112,16 @@ export class AIAssistantPage {
       this.selectedAgent = 'Automatique';
       this.selectedLLMProvider = 'Automatique';
       this.selectedLLMModel = 'Automatique';
-      
+
+      // Masquer le mode développement si l'agent n'est pas actif côté serveur
+      if ('development_agent_enabled' in r) {
+        this.devAgentEnabled = !!r.development_agent_enabled;
+        this.canDevelop = authStore.hasPermission('development.execute') && this.devAgentEnabled;
+        const devBtn = this.element?.querySelector('.ai-mode-btn[data-mode="development"]');
+        if (devBtn) devBtn.hidden = !this.canDevelop;
+        if (this.element && !this.canDevelop && this.mode === 'development') this._setMode('assistant');
+      }
+
       // Re-render selectors if they exist
       const selectorsWrapper = this.element?.querySelector('.ai-config-section-wrapper');
       if (selectorsWrapper) {
@@ -422,7 +432,7 @@ export class AIAssistantPage {
     // Show/hide dev actions
     const devActions = this.element.querySelector('.ai-dev-actions');
     if (devActions) {
-      devActions.hidden = mode === 'assistant';
+      devActions.hidden = !(mode === 'development' && (this.canCommit || this.canDeploy));
     }
 
     // Re-render selectors area
@@ -668,7 +678,7 @@ export class AIAssistantPage {
   // ------------------------------------------------------------------ #
 
 render() {
-    this.canDevelop = authStore.hasPermission('development.execute');
+    this.canDevelop = authStore.hasPermission('development.execute') && this.devAgentEnabled !== false;
     this.canCommit = authStore.hasPermission('development.commit');
     this.canDeploy = authStore.hasPermission('development.deploy');
 
@@ -698,12 +708,10 @@ render() {
             ${this._renderAgentLLMSelectors()}
           </section>
 
-          ${this.mode === 'development' ? `
-            <div class="ai-dev-actions">
-              ${this.canCommit ? '<button type="button" class="btn btn-secondary" data-action="commit">💾 Commit</button>' : ''}
-              ${this.canDeploy ? '<button type="button" class="btn btn-danger" data-action="deploy">🚀 Déployer</button>' : ''}
-            </div>
-          ` : ''}
+          <div class="ai-dev-actions" ${this.mode === 'development' && (this.canCommit || this.canDeploy) ? '' : 'hidden'}>
+            ${this.canCommit ? '<button type="button" class="btn btn-secondary" data-action="commit">💾 Commit</button>' : ''}
+            ${this.canDeploy ? '<button type="button" class="btn btn-danger" data-action="deploy">🚀 Déployer</button>' : ''}
+          </div>
 
           <section class="ai-conversation-section">
             <div class="ai-messages" data-messages></div>

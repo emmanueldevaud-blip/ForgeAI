@@ -6547,6 +6547,36 @@
   display: none;
 }
 
+.ai-dev-status {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-2);
+  padding: var(--spacing-3) var(--spacing-6);
+  border-bottom: 1px solid var(--color-border-light);
+  font-size: var(--font-size-xs);
+  color: var(--color-text-secondary);
+}
+
+.ai-dev-status[hidden] {
+  display: none;
+}
+
+.ai-dev-live {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-1);
+  padding-top: var(--spacing-2);
+  border-top: 1px dashed var(--color-border-light);
+}
+
+.ai-dev-live-line {
+  font-family: ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
+  font-size: var(--font-size-xs);
+  color: var(--color-text-tertiary);
+  line-height: 1.5;
+  word-break: break-word;
+}
+
 .ai-conversation-section {
   flex: 1;
   display: flex;

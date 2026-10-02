@@ -44,6 +44,8 @@ const TASK_STATUS_CLASSES = {
   fixing: 'is-running',
 };
 
+const ACTIVE_TASK_STATUSES = ['pending', 'analyzing', 'planning', 'developing', 'testing', 'fixing'];
+
 const MODES = {
   assistant: {
     title: '🤖 Assistant IA',
@@ -98,6 +100,12 @@ export class AIAssistantPage {
     await this._loadConversations();
     await this._loadAIOptions();
     this._renderConversationList();
+    // La page peut être revenue en mode développement : si une tâche tourne
+    // encore côté serveur, on reprend le suivi en direct.
+    if (this.mode === 'development' && this.canDevelop) {
+      await this._refreshDevStatus();
+      if (this._devIsRunning(this.devStatus)) this._startDevPolling();
+    }
   }
 
   async _loadAIOptions() {
@@ -365,25 +373,8 @@ export class AIAssistantPage {
 
     // En mode développement : on suit l'avancement réel de l'agent
     // (statut + dernières étapes) plutôt que d'afficher un message figé.
-    if (this._devPollTimer) clearInterval(this._devPollTimer);
-    if (this.mode === 'development') {
-      const tick = async () => {
-        try {
-          const s = await getDevelopmentStatus();
-          this.devStatus = s;
-          this._renderDevStatus();
-          const text = this._devProgressText(s);
-          if (text && placeholder.content !== text) {
-            placeholder.content = text;
-            this._renderMessages();
-          }
-        } catch (e) {
-          // Statut momentanément indisponible : on conserve le texte courant.
-        }
-      };
-      this._devPollTimer = setInterval(tick, 2500);
-      tick();
-    }
+    if (this.mode === 'development') this._startDevPolling(placeholder);
+    else this._stopDevPolling();
 
     try {
       const payload = {
@@ -432,10 +423,7 @@ export class AIAssistantPage {
       });
     }
 
-    if (this._devPollTimer) {
-      clearInterval(this._devPollTimer);
-      this._devPollTimer = null;
-    }
+    this._stopDevPolling();
 
     this._renderMessages();
     this._renderConversationList();
@@ -481,7 +469,16 @@ export class AIAssistantPage {
     this._renderConversationList();
     this._renderMessages();
 
-    if (mode === 'development' && !this.devStatus) this._refreshDevStatus();
+    // Suivi en direct : on (re)démarre le polling en entrant en mode
+    // développement (reprise après fermeture/rafraîchissement de la page),
+    // il s'arrête tout seul quand plus rien n'est en cours.
+    if (mode === 'development') {
+      this._refreshDevStatus().then(() => {
+        if (this.mode === 'development') this._startDevPolling();
+      });
+    } else {
+      this._stopDevPolling();
+    }
   }
 
   _updateCurrentUsageDisplay() {
@@ -588,12 +585,71 @@ export class AIAssistantPage {
         </div>`;
     }
 
+    // Étapes en direct tant que l'exécution tourne (visible même après
+    // fermeture/rafraîchissement de la page : les steps sont persistés).
+    const exec = s.execution;
+    if (exec && (exec.status === 'running' || exec.status === 'pending')) {
+      const recent = (exec.steps || [])
+        .map((st) => this._devStepText(st))
+        .filter(Boolean)
+        .slice(-3);
+      if (recent.length) {
+        html += `<div class="ai-dev-live">${recent
+          .map((l) => `<div class="ai-dev-live-line">${escapeHtml(l)}</div>`)
+          .join('')}</div>`;
+      }
+    }
+
     box.innerHTML = html;
   }
 
   // ------------------------------------------------------------------ #
   // Avancement en direct de l'Agent Développement
   // ------------------------------------------------------------------ #
+
+  // Démarre le polling du statut de développement.
+  // - avec `placeholder` (message en cours d'envoi) : met à jour le texte du
+  //   message en direct jusqu'à la réponse, puis l'envoi arrête le polling ;
+  // - sans placeholder (retour sur la page / changement de mode) : affiche les
+  //   étapes dans le panneau de statut et s'arrête seul quand plus rien ne tourne.
+  _startDevPolling(placeholder = null) {
+    this._stopDevPolling();
+    const tick = async () => {
+      try {
+        const s = await getDevelopmentStatus();
+        this.devStatus = s;
+        this._renderDevStatus();
+        if (placeholder) {
+          const text = this._devProgressText(s);
+          if (text && placeholder.content !== text) {
+            placeholder.content = text;
+            this._renderMessages();
+          }
+        } else if (!this._devIsRunning(s)) {
+          this._stopDevPolling();
+        }
+      } catch (e) {
+        // Statut momentanément indisponible : on conserve l'état courant.
+      }
+    };
+    this._devPollTimer = setInterval(tick, 2500);
+    tick();
+  }
+
+  _stopDevPolling() {
+    if (this._devPollTimer) {
+      clearInterval(this._devPollTimer);
+      this._devPollTimer = null;
+    }
+  }
+
+  _devIsRunning(status) {
+    if (!status || status.unavailable) return false;
+    const exec = status.execution;
+    if (exec && (exec.status === 'running' || exec.status === 'pending')) return true;
+    const task = status.task;
+    return !!task && ACTIVE_TASK_STATUSES.includes(task.status);
+  }
 
   _devProgressText(status) {
     if (!status || status.unavailable) return null;
@@ -792,6 +848,8 @@ render() {
             ${this.canDeploy ? '<button type="button" class="btn btn-danger" data-action="deploy">🚀 Déployer</button>' : ''}
           </div>
 
+          <div class="ai-dev-status" data-dev-status ${this.mode === 'development' && this.canDevelop ? '' : 'hidden'}></div>
+
           <section class="ai-conversation-section">
             <div class="ai-messages" data-messages></div>
           </section>
@@ -916,10 +974,7 @@ render() {
   }
 
   destroy() {
-    if (this._devPollTimer) {
-      clearInterval(this._devPollTimer);
-      this._devPollTimer = null;
-    }
+    this._stopDevPolling();
     this.confirmDialog?.destroy();
     this.confirmDialog = null;
     if (this.element) this.element.remove();

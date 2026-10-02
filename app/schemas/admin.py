@@ -158,6 +158,14 @@ class AiSettingsResponse(BaseModel):
     ai_router_enabled: bool = True
     ai_router_prefer_free: bool = True
     ai_router_cooldown_seconds: float = 300.0
+    web_search_enabled: bool = True
+    web_search_provider: str = "brave"
+    web_search_max_results: int = 8
+    web_search_timeout_seconds: float = 15.0
+    web_search_fallback_enabled: bool = True
+    web_search_cache_enabled: bool = True
+    web_search_cache_ttl_seconds: int = 3600
+    web_search_api_key_configured: bool = False
     groq: AiProviderSettings = Field(default_factory=AiProviderSettings)
     gemini: AiProviderSettings = Field(default_factory=AiProviderSettings)
     openrouter: AiProviderSettings = Field(default_factory=AiProviderSettings)
@@ -181,6 +189,14 @@ class AiSettingsUpdate(BaseModel):
     ai_router_enabled: bool = Field(True, description="Activer/désactiver le routage intelligent des modèles")
     ai_router_prefer_free: bool = Field(True, description="Privilégier les modèles gratuits OpenCode")
     ai_router_cooldown_seconds: float = Field(300.0, gt=0, description="Cooldown par défaut en secondes entre les tentatives de modèle")
+    web_search_enabled: bool = Field(True, description="Activer la recherche web")
+    web_search_provider: str = Field("brave", pattern="^(brave|duckduckgo|serper)$", description="Provider de recherche (brave, duckduckgo, serper)")
+    web_search_max_results: int = Field(8, ge=1, le=15, description="Nombre max de résultats")
+    web_search_timeout_seconds: float = Field(15.0, gt=0, le=60, description="Timeout en secondes")
+    web_search_fallback_enabled: bool = Field(True, description="Activer le fallback automatique")
+    web_search_cache_enabled: bool = Field(True, description="Activer le cache de recherche")
+    web_search_cache_ttl_seconds: int = Field(3600, ge=60, description="TTL du cache en secondes")
+    web_search_api_key: Optional[str] = Field(None, max_length=500, description="Clé API Brave Search")
     groq: AiProviderSettingsUpdate = Field(default_factory=AiProviderSettingsUpdate)
     gemini: AiProviderSettingsUpdate = Field(default_factory=AiProviderSettingsUpdate)
     openrouter: AiProviderSettingsUpdate = Field(default_factory=AiProviderSettingsUpdate)

@@ -231,6 +231,14 @@ async def get_ai_settings(
         timeout_seconds=values["AI_TIMEOUT_SECONDS"],
         max_retries=values["AI_MAX_RETRIES"],
         retry_backoff_seconds=values["AI_RETRY_BACKOFF_SECONDS"],
+        web_search_enabled=values.get("WEB_SEARCH_ENABLED", True),
+        web_search_provider=values.get("WEB_SEARCH_PROVIDER", "brave"),
+        web_search_max_results=int(values.get("WEB_SEARCH_MAX_RESULTS", 8)),
+        web_search_timeout_seconds=float(values.get("WEB_SEARCH_TIMEOUT_SECONDS", 15.0)),
+        web_search_fallback_enabled=values.get("WEB_SEARCH_FALLBACK_ENABLED", True),
+        web_search_cache_enabled=values.get("WEB_SEARCH_CACHE_ENABLED", True),
+        web_search_cache_ttl_seconds=int(values.get("WEB_SEARCH_CACHE_TTL_SECONDS", 3600)),
+        web_search_api_key_configured=bool(values.get("WEB_SEARCH_API_KEY")),
         groq=_ai_provider_settings(values, "GROQ"),
         gemini=_ai_provider_settings(values, "GEMINI"),
         openrouter=_ai_provider_settings(values, "OPENROUTER"),
@@ -259,6 +267,13 @@ async def update_ai_settings(
         "ai_timeout_seconds": str(data.timeout_seconds),
         "ai_max_retries": str(data.max_retries),
         "ai_retry_backoff_seconds": str(data.retry_backoff_seconds),
+        "web_search_enabled": str(data.web_search_enabled).lower(),
+        "web_search_provider": data.web_search_provider,
+        "web_search_max_results": str(data.web_search_max_results),
+        "web_search_timeout_seconds": str(data.web_search_timeout_seconds),
+        "web_search_fallback_enabled": str(data.web_search_fallback_enabled).lower(),
+        "web_search_cache_enabled": str(data.web_search_cache_enabled).lower(),
+        "web_search_cache_ttl_seconds": str(data.web_search_cache_ttl_seconds),
     }
     providers: dict[str, AiProviderSettingsUpdate] = {
         "groq": data.groq,
@@ -271,6 +286,9 @@ async def update_ai_settings(
         values[f"{prefix}_model"] = provider.model
         if provider.api_key:
             values[f"{prefix}_api_key"] = provider.api_key
+
+    if data.web_search_api_key is not None:
+        values["web_search_api_key"] = data.web_search_api_key
 
     configs = await _get_administration_configs(db)
     for key, value in values.items():

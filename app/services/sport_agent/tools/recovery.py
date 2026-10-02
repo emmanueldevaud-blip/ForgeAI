@@ -20,6 +20,9 @@ async def get_sleep(ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
         "available": recovery.get("available"),
         "reason": recovery.get("reason"),
         "reference_day": recovery.get("reference_day"),
+        "sleep_available": recovery.get("sleep_available"),
+        "sleep_day": recovery.get("sleep_day"),
+        "sleep_unavailable_reason": recovery.get("sleep_unavailable_reason"),
         "latest": {key: value for key, value in latest.items() if "sleep" in key},
         "period_averages": {key: value for key, value in averages.items() if "sleep" in key},
     }

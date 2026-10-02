@@ -522,16 +522,33 @@ class SportService:
             (item for item in reversed(body_battery_items) if item.get("date") == today_iso), None
         )
 
+        # Garmin date le sommeil par le jour de réveil. Seules les valeurs du
+        # jour de référence décrivent la nuit écoulée : sans ce contrôle,
+        # l'IA recevrait le sommeil du jour précédent (non daté) et le
+        # présenterait comme la dernière nuit. Si la nuit n'est pas encore
+        # synchronisée, on l'annonce explicitement au lieu de retomber dessus.
+        sleep_items = series.get("sleep") or []
+        sleep_today = next(
+            (item for item in reversed(sleep_items) if item.get("date") == today_iso), None
+        )
+
         return {
             "available": True,
             "days_with_data": data["days_available"],
             "reference_day": data["period_end"].isoformat(),
             "body_battery_today": body_battery_today.get("last") if body_battery_today else None,
+            "sleep_available": sleep_today is not None,
+            "sleep_day": sleep_today.get("date") if sleep_today else None,
+            "sleep_unavailable_reason": (
+                None
+                if sleep_today is not None
+                else f"Sommeil de la nuit écoulée (jour {today_iso}) non synchronisé dans Garmin Connect."
+            ),
             "latest": {
                 "readiness_score": latest("readiness", "score"),
                 "readiness_status": latest("readiness", "status"),
-                "sleep_score": latest("sleep", "score"),
-                "sleep_total_minutes": latest("sleep", "total_minutes"),
+                "sleep_score": sleep_today.get("score") if sleep_today else None,
+                "sleep_total_minutes": sleep_today.get("total_minutes") if sleep_today else None,
                 "hrv_ms": latest("hrv", "value"),
                 "hrv_status": latest("hrv", "status"),
                 "resting_hr": latest("heart_rate", "resting"),

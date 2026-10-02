@@ -73,7 +73,7 @@ export class AdministrationPage {
     if (authStore.hasPermission('settings_view')) await this.smtpPage.initialize();
     this.tabs[6].component = this.smtpPage;
 
-    const { createAiSettingsPage } = await import('./AiSettingsPage.js?v=5');
+    const { createAiSettingsPage } = await import('./AiSettingsPage.js?v=6');
     this.aiPage = createAiSettingsPage();
     if (authStore.hasPermission('settings_view')) await this.aiPage.initialize();
     this.tabs[7].component = this.aiPage;

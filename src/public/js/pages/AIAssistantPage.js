@@ -245,13 +245,6 @@ export class AIAssistantPage {
             </svg>
           </div>
           <h3>Agent Développement</h3>
-          <p>Décrivez la demande : analyse, correction de bug, fonctionnalité, fichier à étudier…</p>
-          <div class="ai-suggestions">
-            <button class="ai-suggestion-btn" data-suggestion="Analyse le problème de la page Bâtiments.">Analyse un problème</button>
-            <button class="ai-suggestion-btn" data-suggestion="Corrige cette erreur.">Corrige une erreur</button>
-            <button class="ai-suggestion-btn" data-suggestion="Ajoute cette fonctionnalité.">Ajoute une fonctionnalité</button>
-            <button class="ai-suggestion-btn" data-suggestion="Analyse ce fichier.">Analyse un fichier</button>
-          </div>
         </div>
       `;
     }
@@ -267,13 +260,6 @@ export class AIAssistantPage {
           </svg>
         </div>
         <h3>Assistant IA ForgeAI</h3>
-        <p>Posez vos questions sur la maintenance, les équipements, ou tout autre sujet lié au module.</p>
-        <div class="ai-suggestions">
-          <button class="ai-suggestion-btn" data-suggestion="Résume les demandes de maintenance ouvertes">Demandes ouvertes</button>
-          <button class="ai-suggestion-btn" data-suggestion="Quels équipements sont en panne ?">Équipements en panne</button>
-          <button class="ai-suggestion-btn" data-suggestion="Liste les maintenances préventives à venir">Préventif à venir</button>
-          <button class="ai-suggestion-btn" data-suggestion="Quels sont les coûts de maintenance ce mois ?">Coûts du mois</button>
-        </div>
       </div>
     `;
   }

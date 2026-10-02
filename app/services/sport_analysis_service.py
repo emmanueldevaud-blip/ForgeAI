@@ -695,7 +695,8 @@ async def _dispatch_analysis(
     """Réveil de l'Agent Sport, avec repli obligatoire sur le job historique.
 
     Le job historique n'est court-circuité que si l'agent a effectivement
-    produit au moins une analyse : dans tous les autres cas (drapeau éteint,
+    traité le déclencheur (même si aucune nouvelle analyse n'a été créée,
+    car elle existait déjà). Dans tous les autres cas (drapeau éteint,
     agent en échec, en repli ou sans résultat) il s'exécute comme par le passé.
     """
     if agent_turn:
@@ -708,15 +709,16 @@ async def _dispatch_analysis(
         except Exception:
             logger.exception("[SPORT-ANALYSIS] Échec Agent Sport %s (user %s)", trigger, user.id)
         created = int((outcome or {}).get("created_analyses") or 0)
-        # ``budget_exhausted`` est un état terminal valide : l'agent a produit
-        # ce qu'il pouvait produire avant son budget d'étapes.
-        if (outcome or {}).get("status") in ("completed", "budget_exhausted") and created > 0:
+        status = (outcome or {}).get("status")
+        # L'agent a traité le déclencheur (même si 0 analyse créée car déjà existante) :
+        # on ne doit PAS tomber dans le fallback legacy.
+        if status in ("completed", "budget_exhausted"):
             stats[stat_key] += created
             return 0
         logger.warning(
             "[SPORT-ANALYSIS] Agent %s status=%s (created=%d) → repli historique (user %s)",
             trigger,
-            (outcome or {}).get("status", "exception"),
+            status,
             created,
             user.id,
         )

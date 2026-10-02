@@ -771,6 +771,26 @@ async def ai_chat(
         "development" if development_allowed else ("sport" if sport_allowed else "maintenance")
     )
 
+    # Sélection explicite de l'agent via le sélecteur : elle prime sur la
+    # détection par mots-clés. "Automatique" conserve le comportement par défaut.
+    requested_agent = (data.agent or "").strip()
+    force_sport_agent = requested_agent == "Coach sportif"
+    force_general_agent = requested_agent == "Assistant général"
+    force_development_agent = requested_agent == "Agent Développement"
+
+    if force_sport_agent:
+        development_explicit = False
+        development_allowed = False
+        sport_allowed = await RBACService(db).user_has_permission(current_user, "sport.access")
+    elif force_general_agent:
+        sport_allowed = False
+        development_explicit = False
+        development_allowed = False
+    elif force_development_agent:
+        sport_allowed = False
+        development_explicit = False
+        development_allowed = await RBACService(db).user_has_permission(current_user, "development.execute")
+
     if data.conversation_id:
         result = await db.execute(
             select(AIConversation).where(
@@ -836,7 +856,7 @@ async def ai_chat(
             )
 
     # Agent Développement : uniquement en mode explicite (module="development")
-    if ai_text is None and development_allowed and development_explicit:
+    if ai_text is None and development_allowed and (development_explicit or force_development_agent):
         try:
             from app.services.development_agent.service import run_development_trigger
             from app.core.config import get_settings

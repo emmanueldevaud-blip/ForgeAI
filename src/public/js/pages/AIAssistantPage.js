@@ -69,6 +69,7 @@ export class AIAssistantPage {
     };
     this.devStatus = null;
     this.devAgentEnabled = null;
+    this._devPollTimer = null;
     this.canDevelop = false;
     this.canCommit = false;
     this.canDeploy = false;
@@ -352,8 +353,37 @@ export class AIAssistantPage {
     state.messages.push({ role: 'user', content: message, created_at: new Date().toISOString() });
     this._renderMessages();
 
-    state.messages.push({ role: 'assistant', content: 'Réflexion en cours...', created_at: new Date().toISOString() });
+    const placeholder = {
+      role: 'assistant',
+      content: this.mode === 'development'
+        ? '🚀 Agent Développement : démarrage…'
+        : 'Réflexion en cours...',
+      created_at: new Date().toISOString(),
+    };
+    state.messages.push(placeholder);
     this._renderMessages();
+
+    // En mode développement : on suit l'avancement réel de l'agent
+    // (statut + dernières étapes) plutôt que d'afficher un message figé.
+    if (this._devPollTimer) clearInterval(this._devPollTimer);
+    if (this.mode === 'development') {
+      const tick = async () => {
+        try {
+          const s = await getDevelopmentStatus();
+          this.devStatus = s;
+          this._renderDevStatus();
+          const text = this._devProgressText(s);
+          if (text && placeholder.content !== text) {
+            placeholder.content = text;
+            this._renderMessages();
+          }
+        } catch (e) {
+          // Statut momentanément indisponible : on conserve le texte courant.
+        }
+      };
+      this._devPollTimer = setInterval(tick, 2500);
+      tick();
+    }
 
     try {
       const payload = {
@@ -400,6 +430,11 @@ export class AIAssistantPage {
         content: this._errorText(e, 'Désolé, une erreur est survenue. Veuillez réessayer.'),
         created_at: new Date().toISOString(),
       });
+    }
+
+    if (this._devPollTimer) {
+      clearInterval(this._devPollTimer);
+      this._devPollTimer = null;
     }
 
     this._renderMessages();
@@ -554,6 +589,50 @@ export class AIAssistantPage {
     }
 
     box.innerHTML = html;
+  }
+
+  // ------------------------------------------------------------------ #
+  // Avancement en direct de l'Agent Développement
+  // ------------------------------------------------------------------ #
+
+  _devProgressText(status) {
+    if (!status || status.unavailable) return null;
+    const task = status.task;
+    const exec = status.execution;
+    const taskLabel = task ? (TASK_STATUS_LABELS[task.status] || task.status) : 'Analyse…';
+    const lines = [`🛠 Agent Développement — ${taskLabel}`];
+
+    const steps = (exec && exec.steps) || [];
+    const recent = steps
+      .slice(-3)
+      .map((s) => this._devStepText(s))
+      .filter(Boolean);
+    for (const line of recent) lines.push(line);
+
+    if (exec && exec.step_count > 1) lines.push(`Étape ${exec.step_count}`);
+    return lines.join('\n');
+  }
+
+  _devStepText(step) {
+    if (!step) return null;
+    switch (step.phase) {
+      case 'observe':
+        return '👁 Observation du dépôt…';
+      case 'timeout':
+        return '⏳ Délai dépassé';
+      case 'budget':
+        return '⛔ Budget d\'étapes épuisé';
+      case 'tool_call': {
+        const mark = step.ok === false ? '✗' : '✓';
+        const args = step.args ? ` — ${step.args}` : '';
+        const err = step.error ? ` (${String(step.error).slice(0, 120)})` : '';
+        return `🔧 ${mark} ${step.tool || 'outil'}${args}${err}`;
+      }
+      default:
+        if (step.summary) return String(step.summary).slice(0, 200);
+        if (step.type) return `Décision : ${step.type}`;
+        return null;
+    }
   }
 
   // ------------------------------------------------------------------ #
@@ -837,6 +916,10 @@ render() {
   }
 
   destroy() {
+    if (this._devPollTimer) {
+      clearInterval(this._devPollTimer);
+      this._devPollTimer = null;
+    }
     this.confirmDialog?.destroy();
     this.confirmDialog = null;
     if (this.element) this.element.remove();

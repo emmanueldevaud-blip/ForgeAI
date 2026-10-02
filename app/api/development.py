@@ -11,12 +11,13 @@ from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import require_permission
 from app.core.config import get_settings
 from app.db.session import get_db
-from app.models.development import DevelopmentTask
+from app.models.development import DevelopmentAgentExecution, DevelopmentTask
 from app.models.user import User
 from app.services.development_agent.service import DevelopmentService
 from app.services.development_agent.tool_registry import ToolContext, ToolResult
@@ -61,6 +62,48 @@ def _task_payload(task: DevelopmentTask) -> dict:
     }
 
 
+def _step_payload(step: dict) -> dict:
+    """Étape d'exécution en format compact pour l'affichage en direct."""
+    out: dict = {
+        "phase": step.get("phase"),
+        "step": step.get("step"),
+        "timestamp": step.get("timestamp"),
+    }
+    if step.get("type"):
+        out["type"] = step.get("type")
+    if step.get("reason"):
+        out["reason"] = step.get("reason")
+    if step.get("elapsed_seconds") is not None:
+        out["elapsed_seconds"] = step.get("elapsed_seconds")
+    summary = step.get("summary") or step.get("answer")
+    if summary:
+        out["summary"] = str(summary)[:200]
+    tool = step.get("tool")
+    if isinstance(tool, dict):
+        out["tool"] = tool.get("name")
+        out["ok"] = tool.get("ok")
+        if tool.get("error"):
+            out["error"] = str(tool.get("error"))[:200]
+        arguments = tool.get("arguments")
+        if isinstance(arguments, dict):
+            hints = [str(v) for v in arguments.values() if isinstance(v, (str, int, float)) and str(v).strip()]
+            if hints:
+                out["args"] = " ".join(hints)[:160]
+    return out
+
+
+def _execution_payload(execution: DevelopmentAgentExecution) -> dict:
+    steps = execution.steps_json or []
+    return {
+        "id": execution.id,
+        "status": execution.status,
+        "step_count": execution.step_count,
+        "started_at": _iso(execution.started_at),
+        "finished_at": _iso(execution.finished_at),
+        "steps": [_step_payload(s) for s in steps[-10:]],
+    }
+
+
 def _tool_response(result: ToolResult) -> dict:
     if not result.ok:
         if result.requires_confirmation:
@@ -86,9 +129,22 @@ async def development_status(
 ) -> dict:
     git = await get_repository_status(_tool_context(db, current_user), {})
     tasks = await DevelopmentService(db, current_user).list_tasks(limit=1)
+    task = tasks[0] if tasks else None
+    execution = None
+    if task is not None:
+        result = await db.execute(
+            select(DevelopmentAgentExecution)
+            .where(DevelopmentAgentExecution.task_id == task.id)
+            .order_by(DevelopmentAgentExecution.id.desc())
+            .limit(1)
+        )
+        row = result.scalars().first()
+        if row is not None:
+            execution = _execution_payload(row)
     return {
         "git": git,
-        "task": _task_payload(tasks[0]) if tasks else None,
+        "task": _task_payload(task) if task is not None else None,
+        "execution": execution,
     }
 
 

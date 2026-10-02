@@ -95,7 +95,7 @@ class DevelopmentOrchestrator:
         status = "completed"
         for step in range(1, self.max_steps + 1):
             if time.monotonic() > self.deadline:
-                self._record("timeout", step, elapsed_seconds=round(time.monotonic() - self.started, 1))
+                await self._record("timeout", step, elapsed_seconds=round(time.monotonic() - self.started, 1))
                 return "timeout"
 
             self.step_count = step
@@ -112,7 +112,7 @@ class DevelopmentOrchestrator:
             if not follow_up:
                 break
         else:
-            self._record("budget", self.step_count, reason="max_steps_atteint")
+            await self._record("budget", self.step_count, reason="max_steps_atteint")
             status = "budget_exhausted"
         return status
 
@@ -155,7 +155,7 @@ class DevelopmentOrchestrator:
             "test_results": task.test_results,
         }
 
-        self._record("observe", 0, brief=brief)
+        await self._record("observe", 0, brief=brief)
         logger.info("[DEV-AGENT] task=%s observe branch=%s files=%d",
                     task.id, task.branch or "master", len(task.modified_files))
         return brief
@@ -211,7 +211,7 @@ class DevelopmentOrchestrator:
             arguments=arguments,
             error=result.error,
         )
-        self._record("tool_call", self.step_count, tool=record.as_dict())
+        await self._record("tool_call", self.step_count, tool=record.as_dict())
 
         if result.ok:
             return result.data
@@ -317,7 +317,18 @@ class DevelopmentOrchestrator:
             return final_decision
         return True
 
-    def _record(self, phase: str, step: int, **kwargs) -> None:
+    async def _record(self, phase: str, step: int, **kwargs) -> None:
         entry = {"phase": phase, "step": step, "timestamp": datetime.now(timezone.utc).isoformat(), **kwargs}
-        self.ctx.execution.steps_json.append(entry)
+        # Réassignation obligatoire : SQLAlchemy ne détecte pas l'append
+        # in-place sur une colonne JSON.
+        steps = list(self.ctx.execution.steps_json or [])
+        steps.append(entry)
+        self.ctx.execution.steps_json = steps
+        self.ctx.execution.step_count = step
+        # Persistance immédiate : l'assistant affiche l'avancement en direct
+        # pendant que l'agent tourne (requêtes /development/status concurrentes).
+        try:
+            await self.ctx.db.commit()
+        except Exception:
+            logger.warning("[DEV-AGENT] task=%s step persist failed", self.ctx.task.id, exc_info=True)
         logger.debug("[DEV-AGENT] task=%s step=%d phase=%s", self.ctx.task.id, step, phase)

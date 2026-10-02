@@ -539,12 +539,7 @@ export class BuildingsPage {
 
     const count = this.element.querySelector('.users-count');
     if (count) {
-      const labels = {
-        sites: 'site',
-        buildings: 'bâtiment',
-        rooms: 'local',
-      };
-      count.textContent = `${this.total} ${labels[this.currentView]}${this.total > 1 ? 's' : ''}`;
+      count.textContent = this._getCountText();
     }
   }
 

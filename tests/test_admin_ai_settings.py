@@ -191,7 +191,9 @@ async def test_gateway_uses_key_saved_via_settings(client, admin_headers):
 
 
 async def test_secret_fields_are_declared():
-    assert SECRET_FIELDS == frozenset({"GROQ_API_KEY", "GEMINI_API_KEY", "OPENROUTER_API_KEY"})
+    assert SECRET_FIELDS == frozenset(
+        {"GROQ_API_KEY", "GEMINI_API_KEY", "OPENROUTER_API_KEY", "WEB_SEARCH_API_KEY"}
+    )
 
 
 # ============================================================

@@ -325,7 +325,7 @@ def test_resolve_model_priority():
     assert resolve_model(settings, "groq", "general", "explicit-model") == "explicit-model"
     # Catalogue par task_type sans override
     settings_no_override = make_settings()
-    assert resolve_model(settings_no_override, "gemini", "reasoning", "auto") == "gemini-2.5-flash"
+    assert resolve_model(settings_no_override, "gemini", "reasoning", "auto") == "gemini-3.8-flash"
     assert resolve_model(settings_no_override, "openrouter", "coding", None) == (
         "qwen/qwen-2.5-coder-32b-instruct"
     )

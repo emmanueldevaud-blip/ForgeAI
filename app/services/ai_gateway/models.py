@@ -13,22 +13,22 @@ DEFAULT_TASK_TYPE = "general"
 MODEL_CATALOG: dict[str, dict[str, str]] = {
     "general": {
         "groq": "openai/gpt-oss-120b",
-        "gemini": "gemini-2.0-flash",
+        "gemini": "gemini-3.8-flash",
         "openrouter": "openai/gpt-4o-mini",
     },
     "fast": {
         "groq": "openai/gpt-oss-20b",
-        "gemini": "gemini-2.0-flash",
+        "gemini": "gemini-3.8-flash",
         "openrouter": "openai/gpt-4o-mini",
     },
     "reasoning": {
         "groq": "openai/gpt-oss-120b",
-        "gemini": "gemini-2.5-flash",
+        "gemini": "gemini-3.8-flash",
         "openrouter": "anthropic/claude-3.5-sonnet",
     },
     "coding": {
         "groq": "qwen/qwen3.8-27b",
-        "gemini": "gemini-2.0-flash",
+        "gemini": "gemini-3.8-flash",
         "openrouter": "qwen/qwen-2.5-coder-32b-instruct",
     },
 }

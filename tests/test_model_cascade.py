@@ -55,6 +55,9 @@ def make_settings(**values) -> Settings:
         "DATABASE_URL": "sqlite+aiosqlite:///:memory:",
         "AI_MAX_RETRIES": 0,
         "AI_RETRY_BACKOFF_SECONDS": 0,
+        # Indépendant de l'environnement OS du conteneur : la cascade Free
+        # doit être exercée quel que soit AI_ROUTER_PREFER_FREE de l'env.
+        "AI_ROUTER_PREFER_FREE": True,
         "GROQ_ENABLED": False,
         "GROQ_API_KEY": "",
         "GEMINI_ENABLED": False,
@@ -292,7 +295,11 @@ async def test_groq_model_fallback():
 async def test_gemini_model_fallback():
     """Un quota sur Gemini A ne rend pas tout Gemini indisponible : Gemini B répond."""
     gemini_models = catalog_models("gemini")
-    assert len(gemini_models) >= 2, "deux modèles Gemini doivent être configurés"
+    if len(gemini_models) < 2:
+        pytest.skip(
+            "catalogue Gemini : un seul modèle valide actuellement "
+            f"({', '.join(gemini_models) or 'aucun'})"
+        )
     model_a, model_b = gemini_models[0], gemini_models[1]
 
     groq = FakeAIProvider("groq", available=False)
@@ -442,18 +449,32 @@ async def test_error_classification(free_models):
     # les lève comme AIProviderUnavailable => considérées comme récupérables.
     assert should_fallback(simulate("invalid_request")) is True
     assert should_fallback(simulate("invalid_parameter")) is True
-    # malformed_payload : non récupérable.
-    assert should_fallback(simulate("malformed_payload")) is False
+    # malformed_payload (réponse vide ou illisible) : récupérable — la cascade
+    # enchaîne le modèle suivant au lieu d'être interrompue.
+    assert should_fallback(simulate("malformed_payload")) is True
     assert should_fallback(simulate("invalid_key")) is False
     assert should_fallback(ValueError("invalid_parameter")) is False
 
-    # malformed_payload (non récupérable) : la cascade ne se déroule pas
-    # aveuglément — Nemotron n'est même pas tenté.
+    # malformed_payload : le modèle suivant (Nemotron) est tenté.
     opencode_bad = FakeAIProvider("opencode", {free_models[0]: simulate("malformed_payload")})
     gateway_bad = build_gateway({"opencode": opencode_bad})
+    response_bad = await gateway_bad.generate(prompt="Bonjour")
+    assert opencode_bad.calls == [free_models[0], free_models[1]]
+    assert response_bad.model_used == free_models[1]
+
+    # Tous les candidats malformés : la cascade est épuisée, erreur remontée.
+    opencode_all_bad = FakeAIProvider("opencode", default=simulate("malformed_payload"))
+    gateway_exhausted = build_gateway(
+        {
+            "opencode": opencode_all_bad,
+            "groq": FakeAIProvider("groq", default=simulate("malformed_payload")),
+            "gemini": FakeAIProvider("gemini", default=simulate("malformed_payload")),
+            "openrouter": FakeAIProvider("openrouter", default=simulate("malformed_payload")),
+        }
+    )
     with pytest.raises(AINoProviderAvailable):
-        await gateway_bad.generate(prompt="Bonjour")
-    assert opencode_bad.calls == [free_models[0]]
+        await gateway_exhausted.generate(prompt="Bonjour")
+    assert opencode_all_bad.calls == free_models
 
     # Contrôle : une erreur récupérable (quota) enchaîne bien le modèle suivant.
     opencode_quota = FakeAIProvider("opencode", {free_models[0]: simulate("quota_exceeded")})

@@ -63,8 +63,8 @@ from app.services.ai_gateway.config_store import (
     AI_SETTINGS_FIELDS,
     SECRET_FIELDS,
     apply_from_db,
-    convert_value,
     db_key,
+    effective_value,
     load_overrides,
 )
 
@@ -197,11 +197,8 @@ def _effective_ai_values(overrides: dict[str, str]) -> dict:
     by_key = {db_key(field): field for field in AI_SETTINGS_FIELDS}
     for key, raw in overrides.items():
         field = by_key.get(key)
-        if field is not None and raw is not None:
-            try:
-                values[field] = convert_value(field, raw)
-            except (ValueError, TypeError):
-                continue
+        if field is not None:
+            values[field] = effective_value(field, raw, values[field])
     return values
 
 

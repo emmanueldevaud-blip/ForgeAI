@@ -90,6 +90,22 @@ async def load_overrides(
     return {config.key: config.value for config in result.scalars().all() if config.value is not None}
 
 
+def effective_value(field: str, raw: str | None, current):
+    """Valeur effective d'un champ après overlay DB.
+
+    Une valeur vide (hors champs secrets) signifie « non renseignée » : elle
+    ne doit pas écraser la valeur d'environnement ou le défaut du champ.
+    """
+    if raw is None:
+        return current
+    if raw == "" and field not in SECRET_FIELDS:
+        return current
+    try:
+        return convert_value(field, raw)
+    except (ValueError, TypeError):
+        return current
+
+
 def apply_overrides(
     settings: Settings,
     overrides: dict[str, str],
@@ -99,12 +115,9 @@ def apply_overrides(
     by_key = {db_key(field): field for field in fields}
     for key, raw in overrides.items():
         field = by_key.get(key)
-        if field is None or raw is None:
+        if field is None:
             continue
-        try:
-            setattr(settings, field, convert_value(field, raw))
-        except (ValueError, TypeError):
-            continue
+        setattr(settings, field, effective_value(field, raw, getattr(settings, field)))
 
 
 async def apply_from_db(
@@ -115,3 +128,6 @@ async def apply_from_db(
     """Recharge l'overlay DB sur l'instance Settings partagée (runtime)."""
     overrides = await load_overrides(db, fields=fields, module_code=module_code)
     apply_overrides(get_settings(), overrides, fields=fields)
+    # Invalider le cache du gateway pour qu'il recrée l'instance avec les nouvelles settings
+    from app.services.ai_gateway.gateway import get_ai_gateway
+    get_ai_gateway.cache_clear()

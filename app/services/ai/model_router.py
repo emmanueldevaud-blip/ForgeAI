@@ -153,6 +153,9 @@ FALLBACK_TRIGGERING_ERRORS = frozenset(
         "AIQuotaExceeded",
         "AIProviderUnavailable",
         "AIRequestTimeout",
+        # Réponse vide ou illisible (tronquée par max_tokens, contenu absent…) :
+        # on tente le candidat suivant au lieu d'interrompre toute la cascade.
+        "AIInvalidResponse",
     }
 )
 
@@ -160,7 +163,8 @@ FALLBACK_TRIGGERING_ERRORS = frozenset(
 def should_fallback(error: AIGatewayError) -> bool:
     """Détermine si une erreur doit déclencher un changement de modèle.
 
-    Returns True pour les erreurs transitoires (quota, rate limit, indisponibilité).
+    Returns True pour les erreurs transitoires (quota, rate limit,
+    indisponibilité, réponse invalide).
     Returns False pour les erreurs applicatives ou de programmation.
     """
     if not isinstance(error, AIGatewayError):

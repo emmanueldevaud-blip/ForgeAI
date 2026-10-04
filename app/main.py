@@ -9,7 +9,7 @@ from fastapi.staticfiles import StaticFiles
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 
-from app.api import auth, audit, buildings, dashboard, development, domotique, equipment, housing, maintenance, modules, admin, volunteer, sport, administrative, agenda, notifications
+from app.api import auth, audit, buildings, dashboard, development, domotique, equipment, housing, maintenance, modules, admin, volunteer, sport, administrative, agenda, notifications, photos
 from app.core.config import get_settings
 from app.core.limiter import limiter
 from app.db.session import close_db, init_db
@@ -19,6 +19,7 @@ from app.services.dashboard import register_dashboard_widgets
 from app.services.domotique.engine import domotique_loop
 from app.services.domotique.seed import seed_domotique
 from app.services.notifications.config_store import apply_vapid_from_db
+from app.services.photo.service import PhotoServiceError
 from app.services.rbac import seed_default_rbac
 
 settings = get_settings()
@@ -26,11 +27,12 @@ garmin_sync_task = None
 ad_sync_task = None
 sport_analysis_task = None
 domotique_task = None
+photo_job_task = None
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global garmin_sync_task, ad_sync_task, domotique_task, sport_analysis_task
+    global garmin_sync_task, ad_sync_task, domotique_task, sport_analysis_task, photo_job_task
     await init_db()
     register_all_modules()
     register_dashboard_widgets()
@@ -45,7 +47,15 @@ async def lifespan(app: FastAPI):
     ad_sync_task = asyncio.create_task(_ad_sync_loop())
     sport_analysis_task = asyncio.create_task(_sport_analysis_loop())
     domotique_task = asyncio.create_task(domotique_loop())
+    if settings.PHOTO_ENABLED:
+        photo_job_task = asyncio.create_task(_photo_job_loop())
     yield
+    if photo_job_task:
+        photo_job_task.cancel()
+        try:
+            await photo_job_task
+        except asyncio.CancelledError:
+            pass
     if domotique_task:
         domotique_task.cancel()
         try:
@@ -154,6 +164,30 @@ async def _sport_analysis_loop() -> None:
         await asyncio.sleep(60)
 
 
+async def _photo_job_loop() -> None:
+    """Consomme la file des tâches photos (ingest, analyse IA, ...).
+
+    V3 : après chaque tour, le scan périodique du stockage (si
+    ``PHOTO_NAS_SCAN_ENABLED``) est mis en file s'il est dû — jamais
+    exécuté ici en synchrone."""
+    from app.db.session import get_db
+    from app.services.photo.jobs import process_photo_jobs
+    from app.services.photo.scan import maybe_schedule_scan
+
+    while True:
+        try:
+            async for db in get_db():
+                await process_photo_jobs(db)
+                await maybe_schedule_scan(db)
+                break
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            # Une erreur de job ne doit jamais tuer l'application.
+            print(f"[PHOTO-JOBS] Boucle en échec: {exc}")
+        await asyncio.sleep(settings.PHOTO_JOB_POLL_SECONDS)
+
+
 async def _sync_module_statuses(db):
     from sqlalchemy import select
     from app.models.module import Module as ModuleModel
@@ -193,8 +227,22 @@ app = FastAPI(
     redoc_url="/redoc" if settings.DEBUG else None,
 )
 
+# Fallback: ensure modules are registered even if lifespan doesn't run
+@app.on_event("startup")
+async def _ensure_modules_registered():
+    from app.modules import register_all_modules, module_registry
+    if not module_registry._modules:
+        register_all_modules()
+
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+
+async def _photo_service_error_handler(request: Request, exc: PhotoServiceError) -> JSONResponse:
+    return JSONResponse(status_code=exc.status_code, content={"detail": exc.message})
+
+
+app.add_exception_handler(PhotoServiceError, _photo_service_error_handler)
 
 app.add_middleware(
     CORSMiddleware,
@@ -253,6 +301,7 @@ app.include_router(domotique.router)
 app.include_router(notifications.router)
 app.include_router(administrative.router)
 app.include_router(agenda.router)
+app.include_router(photos.router)
 
 frontend_path = os.path.join(os.path.dirname(__file__), "..", "src", "public")
 SPA_INDEX = None

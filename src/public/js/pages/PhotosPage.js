@@ -796,7 +796,6 @@ export class PhotosPage {
         img.addEventListener('error', () => tile.classList.add('is-nothumb'), { once: true });
       }
     });
-    });
     grid.querySelectorAll('[data-fav]').forEach((btn) => {
       btn.addEventListener('click', async (event) => {
         event.stopPropagation();

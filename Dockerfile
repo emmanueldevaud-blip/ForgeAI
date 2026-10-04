@@ -12,6 +12,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     pkg-config \
     git \
     openssh-client \
+    ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 
 COPY pyproject.toml .

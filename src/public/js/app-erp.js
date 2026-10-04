@@ -31,6 +31,7 @@ import { createSportGoalsPage } from './pages/SportGoalsPage.js?v=1';
 import { createAgendaPage } from './pages/AgendaPage.js?v=24';
 import { createDomotiquePage } from './pages/DomotiquePage.js?v=8';
 import { createDomotiqueConfigPage } from './pages/DomotiqueConfigPage.js?v=8';
+import { createPhotosPage } from './pages/PhotosPage.js?v=5';
 
 const moduleRoutes = [
   'dashboard',
@@ -79,6 +80,7 @@ let sportGoalsPage = null;
 let agendaPage = null;
 let domotiquePage = null;
 let domotiqueConfigPage = null;
+let photosPage = null;
 
 async function initializeApp() {
   const app = document.getElementById('app');
@@ -229,7 +231,22 @@ async function initializeApp() {
     }, { requiresAuth: true, permissions: ['agenda.access'] })
     .addRoute('/volunteers', async (route) => {
       await showVolunteersPage(route);
-    }, { requiresAuth: true, permissions: ['volunteers.view'] });
+    }, { requiresAuth: true, permissions: ['volunteers.view'] })
+    .addRoute('/photos', async (route) => {
+      await showPhotosPage(route);
+    }, { requiresAuth: true, permissions: ['photos.view'] })
+    .addRoute('/photos/albums', async (route) => {
+      await showPhotosPage(route);
+    }, { requiresAuth: true, permissions: ['photos.view'] })
+    .addRoute('/photos/people', async (route) => {
+      await showPhotosPage(route);
+    }, { requiresAuth: true, permissions: ['photos.view'] })
+    .addRoute('/photos/places', async (route) => {
+      await showPhotosPage(route);
+    }, { requiresAuth: true, permissions: ['photos.view'] })
+    .addRoute('/photos/favorites', async (route) => {
+      await showPhotosPage(route);
+    }, { requiresAuth: true, permissions: ['photos.view'] });
 
   const moduleRoutePermissions = {
     cleaning: ['cleaning.view'],
@@ -864,6 +881,37 @@ async function showHousingPage(route) {
     appShell.showContent(content);
   } catch (error) {
     console.error('Erreur affichage hébergements:', error);
+    appShell.showError(error);
+  }
+}
+
+async function ensurePhotosPage() {
+  if (!photosPage) {
+    photosPage = createPhotosPage(router);
+    await photosPage.initialize();
+  }
+  return photosPage;
+}
+
+const PHOTO_VIEWS = {
+  '/photos': 'all',
+  '/photos/albums': 'albums',
+  '/photos/people': 'people',
+  '/photos/places': 'places',
+  '/photos/favorites': 'favorites',
+};
+
+async function showPhotosPage(route) {
+  if (!appShell) return;
+  appShell.showLoading();
+  try {
+    const page = await ensurePhotosPage();
+    page.setView(PHOTO_VIEWS[route.path] || 'all');
+    const content = page.render();
+    appShell.showContent(content);
+    page.loadData();
+  } catch (error) {
+    console.error('Erreur affichage photos:', error);
     appShell.showError(error);
   }
 }

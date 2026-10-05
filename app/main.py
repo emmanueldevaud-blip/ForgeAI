@@ -29,12 +29,16 @@ sport_analysis_task = None
 domotique_task = None
 photo_job_task = None
 
+# Register modules immediately at import time to ensure they are available
+# regardless of lifespan/startup handler execution
+register_all_modules()
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global garmin_sync_task, ad_sync_task, domotique_task, sport_analysis_task, photo_job_task
     await init_db()
-    register_all_modules()
+    # register_all_modules() called at import time above
     register_dashboard_widgets()
     from app.db.session import get_db_context
     async with get_db_context() as db:

@@ -767,3 +767,8 @@ class VolunteersModule(BaseModule):
 
     async def upgrade(self, db, from_version: str):
         return True
+
+# Register all modules at import time to ensure they are available
+# regardless of lifespan/startup handler execution
+from app.modules import register_all_modules
+register_all_modules()

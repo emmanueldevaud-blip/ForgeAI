@@ -31,9 +31,12 @@ photo_job_task = None
 
 # Register modules immediately at import time to ensure they are available
 # regardless of lifespan/startup handler execution
-print(">>> REGISTERING MODULES AT IMPORT TIME <<<")
+import sys
+sys.stderr.write(">>> REGISTERING MODULES AT IMPORT TIME <<<\n")
+sys.stderr.flush()
 register_all_modules()
-print(">>> MODULES REGISTERED <<<")
+sys.stderr.write(">>> MODULES REGISTERED <<<\n")
+sys.stderr.flush()
 
 
 @asynccontextmanager

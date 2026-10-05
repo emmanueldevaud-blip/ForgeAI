@@ -137,6 +137,60 @@ class Settings(BaseSettings):
     NOTIFICATION_VAPID_PRIVATE_KEY: str = ""
     NOTIFICATION_VAPID_SUBJECT: str = ""
 
+    # Photos (gestionnaire de photos personuelles auto-heberge)
+    PHOTO_ENABLED: bool = True
+    PHOTO_STORAGE_PATH: str = "data/photos"
+    # Vide = sous-dossier "thumbs" dans PHOTO_STORAGE_PATH.
+    PHOTO_THUMBNAIL_PATH: str = ""
+    PHOTO_MAX_UPLOAD_SIZE: int = 50 * 1024 * 1024  # octets
+    # Largeurs des miniatures (px), de la plus petite a la plus grande.
+    PHOTO_THUMBNAIL_SIZES: str = "tiny:96,small:256,medium:640,large:1280,preview:2048"
+    # File de taches d'arriere-plan (ingest, analyse IA, ...).
+    PHOTO_BACKGROUND_JOBS: bool = True
+    PHOTO_JOB_POLL_SECONDS: float = 2.0
+    PHOTO_JOB_BATCH: int = 8
+    PHOTO_JOB_MAX_ATTEMPTS: int = 3
+    # Analyse IA (classification / tags). "metadata" = analyseur local,
+    # les analyseurs visuels (local/LLM) sont ajoutables sans changer le pipeline.
+    PHOTO_ANALYSIS_ENABLED: bool = True
+    PHOTO_ANALYZER: str = "metadata"
+    # Score de qualite (nettetee / exposition / cadrage) ajoute au resultat
+    # de l'analyse, calcule sur une miniature (jamais sur l'original).
+    PHOTO_QUALITY_ENABLED: bool = True
+    # Embedding image pour « photos similaires » : provider local par defaut,
+    # aucun appel réseau. Le vecteur est stocké en JSON dans la base.
+    PHOTO_EMBEDDING_ENABLED: bool = True
+    PHOTO_EMBEDDING_PROVIDER: str = "local_grid"
+    # Miniature utilisée pour l'analyse et l'embedding (performance).
+    PHOTO_ANALYSIS_THUMB_SIZE: str = "medium"
+    # Detection de visages (local-first : heuristique locale sans modele).
+    # Desactive, la detection et le regroupement ne s'executent pas.
+    PHOTO_FACE_ENABLED: bool = True
+    # Détecteur de visages : "local_heuristic" (Pillow, aucun réseau) —
+    # un moteur réel pourra être ajouté au registre sans toucher au pipeline.
+    PHOTO_FACE_DETECTOR: str = "local_heuristic"
+    # Regroupement automatique des visages en groupes anonymes (« Personne N »).
+    PHOTO_FACE_GROUPING_ENABLED: bool = True
+    # Similarité cosinus minimale pour rejoindre un groupe anonyme existant
+    # / pour fusionner deux groupes anonymes (seuil plus exigeant).
+    PHOTO_FACE_GROUP_THRESHOLD: float = 0.90
+    PHOTO_FACE_GROUP_MERGE_THRESHOLD: float = 0.97
+    # Recherche naturelle assistee par l'AI Gateway (retombe sur l'heuristique).
+    PHOTO_AI_SEARCH_ENABLED: bool = True
+    # Resolution des lieux via une API externe (opt-in, resultats caches en base).
+    PHOTO_GEOCODING_ENABLED: bool = False
+    # V3 — Stockage des originaux : "local" (volume applicatif) ou "nas"
+    # (repertoire monte, ex. /mnt/synology/photos). Les miniatures et les
+    # versions retouchees restent toujours locales.
+    PHOTO_STORAGE_BACKEND: str = "local"
+    # Racine des originaux NAS (chemin deja monte par le systeme — ForgeAI
+    # n'ouvre aucune connexion SMB/NFS). Ignore si PHOTO_STORAGE_BACKEND=local.
+    PHOTO_NAS_PATH: str = ""
+    # Scan automatique (en arriere-plan) du repertoire NAS.
+    PHOTO_NAS_SCAN_ENABLED: bool = False
+    # Intervalle minimal entre deux scans automatiques.
+    PHOTO_NAS_SCAN_INTERVAL_SECONDS: int = 300
+
     @property
     def ad_url(self) -> str:
         protocol = "ldaps" if self.AD_USE_SSL else "ldap"

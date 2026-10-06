@@ -78,6 +78,7 @@ from app.models import (
     ADSyncLog,
     ADSyncStatus,
     Group,
+    GroupGroup,
     GroupRole,
     Occupant,
     Role,
@@ -88,6 +89,21 @@ from app.models import (
 from app.services.audit import AuditService, get_audit_service
 
 settings = get_settings()
+
+# Sentinel : "description non fournie" (ne pas écraser la valeur existante).
+_DESCRIPTION_UNSET = object()
+
+
+def _group_description(entry) -> str | None:
+    """Lit l'attribut LDAP `description` d'une entrée groupe (ldap3 ou fake)."""
+    attr = getattr(entry, "description", None)
+    if attr is None:
+        return None
+    values = getattr(attr, "values", None)
+    if values is not None:
+        return str(values[0]) if values else None
+    value = getattr(attr, "value", attr)
+    return str(value) if value not in (None, "") else None
 
 
 class DatabaseADService:
@@ -336,7 +352,12 @@ class DatabaseADService:
             code = f"ad_{base[:45]}_{suffix}"[:50]
         return code
 
-    async def _ensure_ad_groups(self, group_dns: list[str], config: ADConfig) -> dict[str, Group]:
+    async def _ensure_ad_groups(
+        self,
+        group_dns: list[str],
+        config: ADConfig,
+        description: object = _DESCRIPTION_UNSET,
+    ) -> dict[str, Group]:
         """Upsert only AD-owned groups; local groups are never repurposed."""
         groups: dict[str, Group] = {}
         for group_dn in dict.fromkeys(group_dns):
@@ -349,6 +370,7 @@ class DatabaseADService:
                 group = Group(
                     code=await self._unique_ad_group_code(group_cn),
                     name=group_cn,
+                    description=None if description is _DESCRIPTION_UNSET else description,  # type: ignore[arg-type]
                     ad_dn=group_dn,
                     ad_config_id=config.id,
                     source="ad",
@@ -358,6 +380,8 @@ class DatabaseADService:
                 await self.db.flush()
             else:
                 group.name = group_cn
+                if description is not _DESCRIPTION_UNSET:
+                    group.description = description  # type: ignore[assignment]
                 group.ad_config_id = config.id
                 group.source = "ad"
                 group.is_active = True
@@ -384,6 +408,131 @@ class DatabaseADService:
                     )
                 )
         return groups
+
+    async def _sync_group_hierarchy(self, group_member_dns: dict[str, set[str]]) -> None:
+        """Remplace les liens parent/enfant des groupes trouvés dans ce run.
+
+        Seuls les liens où les deux extrémités sont des groupes connus
+        (DN résolu vers un groupe de la base) sont conservés.
+        """
+        if not group_member_dns:
+            return
+        result = await self.db.execute(select(Group.id, Group.ad_dn))
+        dn_to_id = {
+            str(dn).casefold(): group_id
+            for group_id, dn in result.all()
+            if dn
+        }
+
+        synced_parent_ids: set[int] = set()
+        desired: set[tuple[int, int]] = set()
+        for parent_dn, member_dns in group_member_dns.items():
+            parent_id = dn_to_id.get(parent_dn.casefold())
+            if parent_id is None:
+                continue
+            synced_parent_ids.add(parent_id)
+            for member_dn in member_dns:
+                child_id = dn_to_id.get(member_dn.casefold())
+                if child_id is None or child_id == parent_id:
+                    continue
+                desired.add((parent_id, child_id))
+
+        if not synced_parent_ids:
+            return
+        await self.db.execute(
+            delete(GroupGroup).where(GroupGroup.parent_group_id.in_(synced_parent_ids))
+        )
+        for parent_id, child_id in sorted(desired):
+            self.db.add(GroupGroup(parent_group_id=parent_id, child_group_id=child_id))
+
+    async def sync_group_roles_from_mappings(self, config: ADConfig) -> None:
+        """Sync GroupRole links from AD group mappings.
+        
+        Called after mapping create/update/delete to immediately reflect
+        changes in the roles' groups without waiting for full AD sync.
+        """
+        await self.db.refresh(config, ["group_mappings"])
+        
+        for mapping in config.group_mappings:
+            if not mapping.is_active:
+                continue
+            
+            # Find the group in database by CN or DN
+            query = select(Group).where(
+                Group.ad_config_id == config.id,
+                Group.source == "ad",
+            )
+            if mapping.ad_group_dn:
+                query = query.where(Group.ad_dn == mapping.ad_group_dn)
+            else:
+                query = query.where(Group.name == mapping.ad_group_cn)
+            
+            result = await self.db.execute(query)
+            group = result.scalar_one_or_none()
+            
+            if group is None:
+                continue
+            
+            # Find the role
+            role_result = await self.db.execute(
+                select(Role).where(Role.code == mapping.role_code)
+            )
+            role = role_result.scalar_one_or_none()
+            
+            if role is None:
+                continue
+            
+            # Create GroupRole if not exists
+            gr_result = await self.db.execute(
+                select(GroupRole).where(
+                    GroupRole.group_id == group.id,
+                    GroupRole.role_id == role.id
+                )
+            )
+            if gr_result.scalar_one_or_none() is None:
+                self.db.add(GroupRole(group_id=group.id, role_id=role.id))
+        
+        # Remove stale GroupRole entries for inactive/deleted mappings
+        active_role_codes_per_group: dict[int, set[int]] = {}
+        for mapping in config.group_mappings:
+            if not mapping.is_active:
+                continue
+            
+            query = select(Group).where(
+                Group.ad_config_id == config.id,
+                Group.source == "ad",
+            )
+            if mapping.ad_group_dn:
+                query = query.where(Group.ad_dn == mapping.ad_group_dn)
+            else:
+                query = query.where(Group.name == mapping.ad_group_cn)
+            
+            result = await self.db.execute(query)
+            group = result.scalar_one_or_none()
+            
+            if group is None:
+                continue
+            
+            role_result = await self.db.execute(
+                select(Role).where(Role.code == mapping.role_code)
+            )
+            role = role_result.scalar_one_or_none()
+            
+            if role is None:
+                continue
+            
+            if group.id not in active_role_codes_per_group:
+                active_role_codes_per_group[group.id] = set()
+            active_role_codes_per_group[group.id].add(role.id)
+        
+        for group_id, active_role_ids in active_role_codes_per_group.items():
+            if active_role_ids:
+                await self.db.execute(
+                    delete(GroupRole).where(
+                        GroupRole.group_id == group_id,
+                        ~GroupRole.role_id.in_(active_role_ids),
+                    )
+                )
 
     async def _sync_user_ad_groups(self, user: User, group_dns: list[str], config: ADConfig) -> None:
         groups = await self._ensure_ad_groups(group_dns, config)
@@ -443,6 +592,8 @@ class DatabaseADService:
             # utilisateurs membres de ces groupes.  Sinon on bascule sur le
             # comportement historique (tous les utilisateurs du user_dn).
             filtered_member_dns: set[str] = set()
+            # parent_dn -> DN des membres (utilisateurs ET groupes) de ce groupe
+            group_member_dns: dict[str, set[str]] = {}
             group_phase = bool(config.group_search_filter and config.group_search_base)
 
             if group_phase:
@@ -451,7 +602,7 @@ class DatabaseADService:
                     search_base=config.group_search_base,
                     search_filter=config.group_search_filter,
                     search_scope=SUBTREE,
-                    attributes=["cn", "distinguishedName", "member"],
+                    attributes=["cn", "distinguishedName", "member", "description"],
                     paged_size=config.page_size,
                 )
 
@@ -465,7 +616,9 @@ class DatabaseADService:
                     # Upsert du groupe
                     result = await self.db.execute(select(Group.id).where(Group.ad_dn == group_dn))
                     existed = result.scalar_one_or_none() is not None
-                    await self._ensure_ad_groups([group_dn], config)
+                    await self._ensure_ad_groups(
+                        [group_dn], config, description=_group_description(g_entry)
+                    )
                     if existed:
                         groups_updated += 1
                     else:
@@ -473,9 +626,10 @@ class DatabaseADService:
 
                     # Collecte des DN membres
                     members = getattr(g_entry, "member", None)
-                    if members:
-                        for member_dn in members:
-                            filtered_member_dns.add(str(member_dn))
+                    member_dns = {str(member_dn) for member_dn in members} if members else set()
+                    group_member_dns[group_dn] = member_dns
+                    for member_dn in member_dns:
+                        filtered_member_dns.add(member_dn)
 
                 # Nettoyage des groupes absents de l'AD
                 if found_group_dns:
@@ -492,6 +646,9 @@ class DatabaseADService:
                         groups_deleted += 1
                     if groups_deleted:
                         print(f"[AD-SYNC] {groups_deleted} groupes AD supprimés (absents de l'AD)")
+
+                # Hiérarchie réelle : liens parent <-> sous-groupe (imbrication AD)
+                await self._sync_group_hierarchy(group_member_dns)
 
                 print(f"[AD-SYNC] Phase groupes : {groups_processed} groupes trouvés, "
                       f"{len(filtered_member_dns)} membres collectés")

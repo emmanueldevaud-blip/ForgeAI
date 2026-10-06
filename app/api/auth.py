@@ -949,6 +949,11 @@ async def create_ad_group_mapping(
     )
     await db.commit()
 
+    # Sync group roles immediately so the Roles page reflects the change
+    from app.services.ad import DatabaseADService
+    ad_service = DatabaseADService(db, current_user=current_user)
+    await ad_service.sync_group_roles_from_mappings(config)
+
     return ADGroupMappingResponse.model_validate(mapping)
 
 
@@ -1023,6 +1028,11 @@ async def update_ad_group_mapping(
     )
     await db.commit()
 
+    # Sync group roles immediately so the Roles page reflects the change
+    from app.services.ad import DatabaseADService
+    ad_service = DatabaseADService(db, current_user=current_user)
+    await ad_service.sync_group_roles_from_mappings(config)
+
     return ADGroupMappingResponse.model_validate(mapping)
 
 
@@ -1064,6 +1074,14 @@ async def delete_ad_group_mapping(
 
     await db.delete(mapping)
     await db.commit()
+
+    # Sync group roles immediately so the Roles page reflects the change
+    from app.services.ad import DatabaseADService
+    ad_service = DatabaseADService(db, current_user=current_user)
+    config = await ad_service.get_config_by_id(config_id)
+    if config:
+        await ad_service.sync_group_roles_from_mappings(config)
+
     return MessageResponse(message="Mapping de groupe AD supprimé")
 
 

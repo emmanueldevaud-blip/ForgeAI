@@ -451,6 +451,8 @@ export class RolesPage {
         this.selectedRole.id
       );
 
+      await this.loadRoles();
+
       this.showToast(
         'Permissions mises à jour',
         'success'

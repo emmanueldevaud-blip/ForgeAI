@@ -146,6 +146,19 @@ class GroupRole(Base):
         return f"<GroupRole(group_id={self.group_id}, role_id={self.role_id})>"
 
 
+class GroupGroup(Base):
+    """Imbrication réelle des groupes AD (parent -> sous-groupe membre)."""
+
+    __tablename__ = "group_groups"
+
+    parent_group_id: Mapped[int] = mapped_column(ForeignKey("groups.id", ondelete="CASCADE"), primary_key=True)
+    child_group_id: Mapped[int] = mapped_column(ForeignKey("groups.id", ondelete="CASCADE"), primary_key=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    def __repr__(self) -> str:
+        return f"<GroupGroup(parent_group_id={self.parent_group_id}, child_group_id={self.child_group_id})>"
+
+
 class UserRoleAssignment(Base):
     __tablename__ = "user_roles"
 

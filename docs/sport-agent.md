@@ -4,8 +4,10 @@
 > décide lui-même (via l'AI Gateway et un jeu d'outils contrôlés par RBAC), agit,
 > vérifie le résultat en base puis réévalue avant de conclure.
 >
-> **Désactivé par défaut** (`SPORT_AGENT_ENABLED=false`) : dans cet état, aucun
-> chemin existant n'est modifié, les jobs historiques tournent exactement comme avant.
+> **Activé par défaut** (`SPORT_AGENT_ENABLED=true`). Positionner la variable à
+> `false` pour retomber purement et simplement sur les jobs historiques (aucun
+> chemin existant n'est alors modifié). Une analyse non produite par l'agent est
+> toujours rattrapée par le job historique (`ensure_ready` du cycle).
 
 ---
 
@@ -96,10 +98,11 @@ Les erreurs sont interceptées : une exécution se termine toujours par une lign
 
 | Variable | Défaut | Rôle |
 |---|---|---|
-| `SPORT_AGENT_ENABLED` | `false` | **seul interrupteur** : off = jobs historiques inchangés |
+| `SPORT_AGENT_ENABLED` | `true` | **seul interrupteur** : off = jobs historiques inchangés |
 | `SPORT_AGENT_MAX_STEPS` | `5` | tours maximum de la boucle décisionnelle |
 | `SPORT_AGENT_MAX_TOOL_CALLS` | `16` | budget d'outils par exécution |
 | `SPORT_AGENT_TIMEOUT_SECONDS` | `60` | durée maximale d'une exécution |
+| `COACH_TIP_DAILY_LIMIT` | `2` | conseils ponctuels du coach par jour (`send_coach_tip`) |
 
 ---
 
@@ -229,11 +232,12 @@ Avec `SPORT_AGENT_ENABLED=true`, pour chaque athlète connecté à Garmin :
    * et aucun exécution pour ce déclencheur depuis
      `AGENT_TRIGGER_COOLDOWN_MINUTES` (30 min) — la boucle tourne toutes les minutes.
 2. **Repli obligatoire** : le job historique n'est court-circuité que si l'agent a
-   réellement créé au moins une analyse (`status` ∈ {`completed`,
-   `budget_exhausted`} **et** `created_analyses > 0`, analyses confirmées en base
-   par VERIFY). Dans tous les autres cas (drapeau éteint, `failed`, `fallback`,
-   `timeout`, `cooldown`, agent sans résultat), `analyze_morning` /
-   `analyze_evening` / `analyze_recent_activities` s'exécute comme par le passé.
+   terminé (`status` ∈ {`completed`, `budget_exhausted`}) **et** que l'analyse
+   attendue est confirmée en base (`ensure_ready` : `dedupe_key` du jour pour
+   matin/soir, plus aucune activité due pour `activity`). Dans tous les autres
+   cas (drapeau éteint, `failed`, `fallback`, `timeout`, `cooldown`, agent sans
+   résultat, analyse manquante), `analyze_morning` / `analyze_evening` /
+   `analyze_recent_activities` s'exécute comme par le passé.
 3. **Événements** : `training_missed` est évalué après le travail planifié et
    compté dans `stats["agent_events"]`.
 
@@ -263,17 +267,21 @@ conservée : rejouer le cycle ne duplique rien.
 
 ## Notifications
 
-* Analyse du matin/soir/sortie : mécanisme historique inchangé
-  (`notification_sent`, catégorie `sport_analysis`).
-* L'agent peut envoyer une notification via `send_notification`
+* **Toute analyse notifie** (matin, soir, sortie) : catégorie `sport_analysis`,
+  jobs historiques comme outils de l'agent (`generate_daily_analysis` /
+  `generate_activity_analysis` notifient systématiquement).
+* **Toute analyse est publiée** dans la conversation « Coach & Analyses » de
+  l'Assistant IA (`app/services/coach_feed.py`, module `coach`) — un seul
+  message par analyse, jamais de doublon.
+* **Conseils ponctuels du coach** : action `send_coach_tip` (catégorie
+  `coach_tip`, `data.url = "/ai"`), plafonnée à `COACH_TIP_DAILY_LIMIT` par
+  jour. Au-delà, l'outil refuse (`quota_conseils_atteint:<limite>`) et le conseil
+  n'est ni notifié ni publié.
+* L'agent peut envoyer une alerte via `send_notification`
   (catégorie `sport_agent`, `data.url = "/sport/analyses"`).
-* Sur `trigger=user_request`, `send_notification` est **ignoré**
-  (`skipped: reponse_conversationnelle`) : l'agent répond dans la conversation.
-* Un outil d'analyse accepte `notify=true` pour notifier explicitement :
-  **`notify` vaut désormais `false` par défaut** — une notification part parce
-  que l'agent l'a décidé, jamais parce qu'il a appelé l'outil. Les jobs
-  historiques (matin/soir/activités) gardent leur comportement `notify=True`
-  inchangé (`notification_sent = not notify`, aucun renvoi différé par le cycle).
+* Sur `trigger=user_request`, `send_notification` **et** `send_coach_tip` sont
+  **ignorés** (`skipped: reponse_conversationnelle`) : l'agent répond dans la
+  conversation.
 
 ---
 
@@ -326,7 +334,7 @@ aucun prompt ni donnée personnelle complète n'y est stocké.
     tests/test_maintenance_ai_chat.py -q
 ```
 
-`tests/test_sport_agent.py` (23 tests) couvre : traçabilité de l'exécution, budget
+`tests/test_sport_agent.py` (24 tests) couvre : traçabilité de l'exécution, budget
 d'étapes (statut `budget_exhausted`), refus RBAC sans interruption, absence de
 notification inutile, recommandation reliée à l'objectif, réévaluation
 (`superseded`), statuts réservés à l'utilisateur, réponse conversationnelle sans
@@ -335,8 +343,9 @@ court-circuit du job historique + cooldown, routage de l'Assistant IA (module
 déduit), drapeau éteint, déclencheur `activity`, réveil par événement
 (`objective_created` + cooldown), `training_missed` émis une seule fois, événements
 post-sync (`garmin_sync` + `training_completed`), objectif étranger refusé,
-anti-duplication, et analyse silencieuse par défaut (relevée par `notify=true`
-explicite).
+anti-duplication, analyse notifiée et publiée dans l'Assistant IA, quota
+quotidien des conseils ponctuels (`send_coach_tip`), et repli du cycle quand
+l'agent termine sans analyse (`ensure_ready`).
 
 Les exécutions de test branchent la **vraie** AI Gateway sur un fournisseur scripté :
 le protocole d'outils est exercé de bout en bout.

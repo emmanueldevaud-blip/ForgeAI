@@ -126,6 +126,7 @@ async def test_ai_chat_sport_question_uses_sport_context(client, admin_headers, 
 
     monkeypatch.setattr("app.api.maintenance._build_sport_context", fake_context)
     monkeypatch.setattr("app.api.maintenance.get_sport_ai_provider", lambda: FakeSportProvider())
+    monkeypatch.setattr("app.api.maintenance.agent_enabled", lambda: False)
 
     response = await client.post(
         "/maintenance/ai/chat",

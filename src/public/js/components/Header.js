@@ -1,9 +1,12 @@
+import { NotificationBell } from './NotificationBell.js?v=1';
+
 export class Header {
   constructor(options = {}) {
     this.onMenuClick = options.onMenuClick || (() => {});
     this.onSearch = options.onSearch || (() => {});
     this.onLogout = options.onLogout || (() => {});
     this.onProfileClick = options.onProfileClick || (() => {});
+    this.onNavigate = options.onNavigate || (() => {});
     this.user = null;
     this.pageTitle = '';
     this.breadcrumbs = [];
@@ -11,6 +14,7 @@ export class Header {
     this.showSearch = false;
     this.element = null;
     this.userMenuOpen = false;
+    this.notifications = null;
     this._boundHandleOutsideClick = this._handleOutsideClick.bind(this);
   }
 
@@ -179,6 +183,7 @@ export class Header {
         </div>
       </div>
       <div class="header-right">
+        <div class="header-notifications-slot"></div>
         <div class="header-user-menu"></div>
       </div>
     `;
@@ -202,12 +207,19 @@ export class Header {
       this.onSearch('');
     });
 
+    const bellSlot = this.element.querySelector('.header-notifications-slot');
+    if (bellSlot) {
+      this.notifications = new NotificationBell({ onNavigate: this.onNavigate }).mount(bellSlot);
+    }
+
     this._renderUserMenu();
     return this;
   }
 
   destroy() {
     document.removeEventListener('click', this._boundHandleOutsideClick);
+    this.notifications?.destroy();
+    this.notifications = null;
     if (this.element) {
       this.element.innerHTML = '';
     }

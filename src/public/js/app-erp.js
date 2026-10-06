@@ -1,6 +1,6 @@
 import { router, createAuthGuard, createNotFoundPage, createForbiddenPage } from './router/router.js';
 import { authStore } from './stores/auth.js';
-import { AppShell } from './components/AppShell.js?v=5';
+import { AppShell } from './components/AppShell.js?v=6';
 import { createModulePlaceholderPage } from './pages/ModulePlaceholder.js?v=3';
 import { createLoginPage } from './pages/LoginPage.js';
 import { createRegisterPage } from './pages/RegisterPage.js';
@@ -17,7 +17,7 @@ import { createMaintenanceProvidersPage } from './pages/MaintenanceProvidersPage
 import { createMaintenanceContractsPage } from './pages/MaintenanceContractsPage.js';
 import { createMaintenanceRefsPage } from './pages/MaintenanceRefsPage.js';
 import { createMaintenanceCalendarPage } from './pages/MaintenanceCalendarPage.js';
-import { createAIAssistantPage } from './pages/AIAssistantPage.js?v=25';
+import { createAIAssistantPage } from './pages/AIAssistantPage.js?v=26';
 import { createHousingPage } from './pages/HousingPage.js';
 import { createProfilePage } from './pages/ProfilePage.js?v=2';
 import { createCleaningVolunteersPage } from './pages/CleaningVolunteersPage.js?v=4';
@@ -28,10 +28,11 @@ import { createSportGarminPage } from './pages/SportGarminPage.js?v=5';
 import { createSportHealthPage } from './pages/SportHealthPage.js?v=1';
 import { createSportAnalysesPage } from './pages/SportAnalysesPage.js?v=1';
 import { createSportGoalsPage } from './pages/SportGoalsPage.js?v=1';
-import { createAgendaPage } from './pages/AgendaPage.js?v=24';
+import { createAgendaPage } from './pages/AgendaPage.js?v=38';
+import { createAgendaSettingsPage } from './pages/AgendaSettingsPage.js?v=3';
 import { createDomotiquePage } from './pages/DomotiquePage.js?v=8';
 import { createDomotiqueConfigPage } from './pages/DomotiqueConfigPage.js?v=8';
-import { createPhotosPage } from './pages/PhotosPage.js?v=5';
+import { createPhotosPage } from './pages/PhotosPage.js?v=6';
 
 const moduleRoutes = [
   'dashboard',
@@ -78,6 +79,7 @@ let sportHealthPage = null;
 let sportAnalysesPage = null;
 let sportGoalsPage = null;
 let agendaPage = null;
+let agendaSettingsPage = null;
 let domotiquePage = null;
 let domotiqueConfigPage = null;
 let photosPage = null;
@@ -229,6 +231,9 @@ async function initializeApp() {
     .addRoute('/agenda', async (route) => {
       await showAgendaPage(route);
     }, { requiresAuth: true, permissions: ['agenda.access'] })
+    .addRoute('/agenda/settings', async (route) => {
+      await showAgendaSettingsPage(route);
+    }, { requiresAuth: true, permissions: ['agenda.manage'] })
     .addRoute('/volunteers', async (route) => {
       await showVolunteersPage(route);
     }, { requiresAuth: true, permissions: ['volunteers.view'] })
@@ -528,6 +533,26 @@ async function showAgendaPage(route) {
     appShell.showContent(page.render());
   } catch (error) {
     console.error('Erreur affichage agenda:', error);
+    appShell.showError(error);
+  }
+}
+
+async function ensureAgendaSettingsPage() {
+  if (!agendaSettingsPage) {
+    agendaSettingsPage = createAgendaSettingsPage(router);
+  }
+  await agendaSettingsPage.initialize();
+  return agendaSettingsPage;
+}
+
+async function showAgendaSettingsPage(route) {
+  if (!appShell) return;
+  appShell.showLoading();
+  try {
+    const page = await ensureAgendaSettingsPage();
+    appShell.showContent(page.render());
+  } catch (error) {
+    console.error('Erreur affichage paramètres agenda:', error);
     appShell.showError(error);
   }
 }

@@ -57,6 +57,14 @@ const MODES = {
   },
 };
 
+// Libellés des modules de conversation affichés dans la liste de gauche.
+const MODULE_LABELS = {
+  coach: 'Coach & Analyses',
+  development: 'Développement',
+  maintenance: 'Maintenance',
+  sport: 'Sport',
+};
+
 export class AIAssistantPage {
   constructor(router) {
     this.router = router;
@@ -175,7 +183,7 @@ export class AIAssistantPage {
       <div class="conversation-item ${c.id === currentId ? 'conversation-item--active' : ''}" data-conv-id="${c.id}">
         <div class="conversation-content">
           <div class="conversation-title">${escapeHtml(c.title || 'Sans titre')}</div>
-          <div class="conversation-meta">${c.module || ''} - ${formatTime(c.created_at)}</div>
+          <div class="conversation-meta">${MODULE_LABELS[c.module] || c.module || ''} - ${formatTime(c.created_at)}</div>
         </div>
         <div class="conversation-delete-btn" data-conv-id="${c.id}" title="Supprimer">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -304,23 +312,30 @@ export class AIAssistantPage {
       return;
     }
 
-    container.innerHTML = state.messages.map(m => `
-      <div class="ai-message ai-message--${m.role}">
-        <div class="ai-message-avatar">
-          ${m.role === 'user' ? '👤' : '🤖'}
-        </div>
-        <div class="ai-message-content">
-          <div class="ai-message-text">${escapeHtml(m.content)}</div>
-          ${(m.model || m.actual_model) ? `
+    container.innerHTML = state.messages.map(m => {
+      // Messages publiés automatiquement par le coach (analyses, conseils).
+      const isCoach = m.role !== 'user' && m.model === 'coach';
+      const badge = isCoach
+        ? '<div class="ai-message-model"><span class="ai-message-agent">🏃 Coach sportif</span></div>'
+        : (m.model || m.actual_model ? `
             <div class="ai-message-model" title="Modèle utilisé pour cette réponse">
               ${m.actual_agent ? `<span class="ai-message-agent">${escapeHtml(m.actual_agent)}</span> · ` : ''}
               🧠 ${escapeHtml(m.actual_model || m.model)}
             </div>
-          ` : ''}
+          ` : '');
+      return `
+      <div class="ai-message ai-message--${m.role}">
+        <div class="ai-message-avatar">
+          ${m.role === 'user' ? '👤' : isCoach ? '🏃' : '🤖'}
+        </div>
+        <div class="ai-message-content">
+          <div class="ai-message-text">${escapeHtml(m.content)}</div>
+          ${badge}
           <div class="ai-message-time">${formatTime(m.created_at)}</div>
         </div>
       </div>
-    `).join('');
+    `;
+    }).join('');
 
     container.scrollTop = container.scrollHeight;
     this._updateModelBadge();

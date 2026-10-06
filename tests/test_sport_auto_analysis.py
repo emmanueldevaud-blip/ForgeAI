@@ -4,6 +4,7 @@ from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import select
 
+from app.models.maintenance import AIConversation, AIMessage
 from app.models.notification import Notification
 from app.models.sport import SportActivity, SportAnalysis, SportGarminConnection, SportHealthDaily
 from app.services.ai_gateway import AIGatewayError, ai_gateway
@@ -344,3 +345,38 @@ async def test_sport_analyses_endpoint_lists_analyses(client, admin_headers, db_
     async with AsyncClient(transport=ASGITransport(app=fastapi_app), base_url="http://test") as fresh:
         anonymous = await fresh.get(f"/sport/analyses/{row.id}")
     assert anonymous.status_code == 401
+
+
+async def test_analysis_is_published_to_assistant_feed(db_session, auth_user, monkeypatch):
+    """Chaque analyse atterrit dans la conversation « Coach & Analyses »."""
+    monkeypatch.setattr(ai_gateway, "generate", _fake_generate)
+    service = SportAnalysisService(db_session, auth_user)
+
+    created, row = await service.analyze_morning()
+    assert created is True
+
+    conversation = await db_session.scalar(
+        select(AIConversation).where(AIConversation.module == "coach")
+    )
+    assert conversation is not None
+    assert conversation.user_id == auth_user.id
+    assert conversation.title == "Coach & Analyses"
+
+    messages = (
+        await db_session.execute(
+            select(AIMessage).where(AIMessage.conversation_id == conversation.id)
+        )
+    ).scalars().all()
+    assert len(messages) == 1
+    assert messages[0].role == "assistant"
+    assert "Titre test" in messages[0].content
+
+    # Analyse du soir : un message de plus, aucun doublon du matin.
+    created_evening, _ = await service.analyze_evening()
+    assert created_evening is True
+    messages = (
+        await db_session.execute(
+            select(AIMessage).where(AIMessage.conversation_id == conversation.id)
+        )
+    ).scalars().all()
+    assert len(messages) == 2

@@ -37,7 +37,10 @@ _ACTION_TOOL = {
     "create_recommendation": "create_training_recommendation",
     "update_recommendation": "update_recommendation",
     "send_notification": "send_notification",
+    "send_coach_tip": "send_coach_tip",
 }
+# Actions sans effet pendant une conversation : la réponse est déjà affichée.
+_CONVERSATIONAL_SKIP = frozenset({"send_notification", "send_coach_tip"})
 
 
 def json_safe(value: Any) -> Any:
@@ -355,7 +358,9 @@ class AgentOrchestrator:
             entry: dict[str, Any] = {"type": action_type, "ok": False, "step": step}
             if action_type not in ACTION_TYPES:
                 entry["error"] = f"type_inconnu:{action_type or 'vide'}"
-            elif action_type == "send_notification" and self.ctx.trigger == "user_request":
+            elif action_type in _CONVERSATIONAL_SKIP and self.ctx.trigger == "user_request":
+                # En conversation, l'athlète a déjà la réponse sous les yeux :
+                # notification et conseil poussés seraient un doublon.
                 entry["skipped"] = "reponse_conversationnelle"
             else:
                 arguments = {key: value for key, value in raw.items() if key != "type"}
@@ -472,7 +477,7 @@ class AgentOrchestrator:
             row = await self.ctx.db.get(SportRecommendation, target_id)
             expected = (entry.get("result") or {}).get("status")
             return row is not None and (expected is None or row.status == expected)
-        if action_type == "send_notification":
+        if action_type in ("send_notification", "send_coach_tip"):
             row = await self.ctx.db.get(Notification, target_id)
             return row is not None and row.user_id == self.ctx.user.id
         return False
@@ -580,7 +585,7 @@ class AgentOrchestrator:
 def _target_id(action_type: str, result: ToolResult) -> int | None:
     if not result.ok or not isinstance(result.data, dict):
         return None
-    key = "notification_id" if action_type == "send_notification" else "id"
+    key = "notification_id" if action_type in ("send_notification", "send_coach_tip") else "id"
     value = result.data.get(key)
     if value is None and action_type == "create_recommendation":
         # Anti-duplication : rien n'est créé, la recommandation existante est

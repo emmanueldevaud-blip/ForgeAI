@@ -94,14 +94,17 @@ class Settings(BaseSettings):
     # (au plus tard) ; au dela elle est produite avec les donnees disponibles.
     SPORT_MORNING_ANALYSIS_DEADLINE: str = "10:00"
     SPORT_EVENING_ANALYSIS_ENABLED: bool = True
-    SPORT_EVENING_ANALYSIS_TIME: str = "20:30"
+    SPORT_EVENING_ANALYSIS_TIME: str = "20:00"
     SPORT_ACTIVITY_ANALYSIS_ENABLED: bool = True
     SPORT_ACTIVITY_ANALYSIS_DELAY_MINUTES: int = 15
     SPORT_ANALYSIS_TIMEZONE: str = "Europe/Paris"
 
+    # Conseils ponctuels du coach (hors analyses) : maximum par jour.
+    COACH_TIP_DAILY_LIMIT: int = 2
+
     # Agent Sport (orchestration autonome au-dessus des analyses existantes).
     # Desactiver pour retomber automatiquement sur les jobs historiques.
-    SPORT_AGENT_ENABLED: bool = False
+    SPORT_AGENT_ENABLED: bool = True
     SPORT_AGENT_MAX_STEPS: int = 5
     SPORT_AGENT_MAX_TOOL_CALLS: int = 16
     SPORT_AGENT_TIMEOUT_SECONDS: int = 60

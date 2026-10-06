@@ -1,10 +1,9 @@
 import { Sidebar } from './Sidebar.js?v=2';
-import { Header } from './Header.js';
+import { Header } from './Header.js?v=2';
 import { MainContent } from './MainContent.js';
 import { MobileSidebar } from './MobileSidebar.js?v=3';
 import { authStore } from '../stores/auth.js';
 import { modulesApi } from '../services/api.js';
-import { markAllNotificationsRead } from '../services/notificationsApi.js?v=2';
 
 export class AppShell {
   constructor(router) {
@@ -64,6 +63,7 @@ export class AppShell {
       onSearch: (query) => this._handleSearch(query),
       onLogout: () => this._handleLogout(),
       onProfileClick: () => this._handleProfileClick(),
+      onNavigate: (path) => this.router.navigate(path),
     }).mount(headerEl);
 
     this.mainContent = new MainContent().mount(mainContentEl);
@@ -85,8 +85,8 @@ export class AppShell {
       if (becameAuthenticated) this._syncNotificationBadge();
     });
 
-    /* Retour au premier plan : les notifications sont considerees comme lues,
-       la pastille de l'icone est effacee. */
+    /* Retour au premier plan : la pastille des notifications est resynchronisee
+       avec le serveur (les notifications non lues restent visibles). */
     document.addEventListener('visibilitychange', () => {
       if (document.visibilityState === 'visible' && authStore.authenticated) {
         this._syncNotificationBadge();
@@ -121,21 +121,11 @@ export class AppShell {
     }
   }
 
-  /* Marque toutes les notifications comme lues puis efface la pastille de
-     l'icone d'accueil. Best-effort : un echec ne bloque jamais l'ouverture. */
+  /* Resynchronise la pastille de notifications avec le serveur. Les
+     notifications restent non lues jusqu'a ce que l'utilisateur les ouvre
+     (panneau de la cloche du header). Best-effort. */
   async _syncNotificationBadge() {
-    try {
-      await markAllNotificationsRead();
-    } catch (error) {
-      return;
-    }
-    if ('setAppBadge' in navigator) {
-      try {
-        await navigator.clearAppBadge();
-      } catch (error) {
-        /* ignore */
-      }
-    }
+    await this.header?.notifications?.refresh();
   }
 
   _updatePageTitle(route) {

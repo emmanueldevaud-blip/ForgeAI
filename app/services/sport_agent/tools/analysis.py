@@ -15,7 +15,8 @@ async def generate_daily_analysis(ctx: ToolContext, args: dict[str, Any]) -> dic
     kind = str(args.get("kind") or "").strip().lower()
     if kind not in _DAILY_KINDS:
         raise ValueError(f"kind_invalide:{kind or 'vide'}")
-    notify = bool(args.get("notify", False))
+    # Chaque analyse notifie : règle commune au job historique et à l'agent.
+    notify = True
     service = SportAnalysisService(ctx.db, ctx.user)
     created, analysis = (
         await service.analyze_morning(notify=notify)
@@ -34,7 +35,7 @@ async def generate_daily_analysis(ctx: ToolContext, args: dict[str, Any]) -> dic
 async def generate_activity_analysis(ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
     """Produit le débrief d'une activité si il n'existe pas encore."""
     activity_id = int(args.get("activity_id") or 0)
-    notify = bool(args.get("notify", False))
+    notify = True
     service = SportAnalysisService(ctx.db, ctx.user)
     created, analysis = await service.analyze_activity(activity_id, notify=notify)
     return {
@@ -50,14 +51,13 @@ SPECS: list[ToolSpec] = [
     ToolSpec(
         name="generate_daily_analysis",
         description=(
-            "Génère l'analyse du matin ou du soir (idempotente : une seule par jour). "
-            "Par défaut aucune notification ne part : l'agent doit décider explicitement de notifier en passant notify=true."
+            "Génère l'analyse du matin ou du soir (idempotente : une seule par jour) "
+            "et notifie l'utilisateur."
         ),
         input_schema={
             "type": "object",
             "properties": {
                 "kind": {"type": "string", "description": "morning | evening"},
-                "notify": {"type": "boolean", "description": "Envoyer la notification (défaut false : décision explicite de l'agent)"},
             },
             "required": ["kind"],
         },

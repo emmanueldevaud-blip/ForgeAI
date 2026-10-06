@@ -39,6 +39,7 @@ from app.models.sport import (
     SportHealthDaily,
 )
 from app.models.user import User
+from app.services import coach_feed
 from app.services.ai_gateway import AIGatewayError, ai_gateway
 from app.services.notification import NotificationService
 from app.services.sport import SportService
@@ -217,6 +218,15 @@ def _shorten_notification(text: str, max_lines: int = 4, limit: int = 300) -> st
         filtered = lines
     short = "\n".join(filtered[:max_lines])
     return short if len(short) <= limit else short[: limit - 1] + "…"
+
+
+def _feed_sections(text: str) -> str:
+    """Sections Markdown rendues lisibles en texte simple (assistant IA)."""
+    lines = []
+    for line in (text or "").splitlines():
+        stripped = line.strip()
+        lines.append(f"— {stripped[3:].strip()} —" if stripped.startswith("## ") else line)
+    return "\n".join(lines).strip()
 
 
 class SportAnalysisService:
@@ -538,7 +548,25 @@ class SportAnalysisService:
         await self.db.commit()
         if notify:
             await self._notify(athlete, analysis, analysis_type)
+        await self._publish(athlete, analysis)
         return True, analysis
+
+    async def _publish(self, athlete: SportAthlete, analysis: SportAnalysis) -> None:
+        """Publie l'analyse dans la conversation « Coach & Analyses » de l'assistant."""
+        if not athlete.user_id:
+            return
+        if self.current_user.id != athlete.user_id:
+            return
+        title = (analysis.title or "").strip()
+        parts = [
+            part
+            for part in ((analysis.summary or "").strip(), _feed_sections(analysis.content or ""))
+            if part
+        ]
+        if not parts and not title:
+            return
+        text = f"{title}\n\n" + "\n\n".join(parts) if title and parts else (title or "\n\n".join(parts))
+        await coach_feed.publish(self.db, self.current_user, content=text, model="coach")
 
     async def _notify(self, athlete: SportAthlete, analysis: SportAnalysis, analysis_type: str) -> None:
         if analysis.notification_sent or not athlete.user_id:
@@ -642,15 +670,30 @@ async def run_sport_analysis_cycle(db: AsyncSession, now: datetime | None = None
             continue
         service = SportAnalysisService(db, user)
         agent_on = bool(settings.SPORT_AGENT_ENABLED)
+        day_key = SportAnalysisService._local_today().isoformat()
         if morning_due and await _morning_ready(service, morning_deadline, local_time):
             agent_turn = agent_on and await _agent_due(db, athlete, "morning")
             stats["errors"] += await _dispatch_analysis(
-                db, user, "morning", stats, "morning", service.analyze_morning, agent_turn
+                db,
+                user,
+                "morning",
+                stats,
+                "morning",
+                service.analyze_morning,
+                agent_turn,
+                ensure_ready=lambda: _analysis_exists(db, athlete, f"morning:{day_key}"),
             )
         if evening_due:
             agent_turn = agent_on and await _agent_due(db, athlete, "evening")
             stats["errors"] += await _dispatch_analysis(
-                db, user, "evening", stats, "evening", service.analyze_evening, agent_turn
+                db,
+                user,
+                "evening",
+                stats,
+                "evening",
+                service.analyze_evening,
+                agent_turn,
+                ensure_ready=lambda: _analysis_exists(db, athlete, f"evening:{day_key}"),
             )
         if activity_due:
             payload: dict[str, Any] | None = None
@@ -669,6 +712,7 @@ async def run_sport_analysis_cycle(db: AsyncSession, now: datetime | None = None
                 lambda: service.analyze_recent_activities(now),
                 agent_turn,
                 payload,
+                ensure_ready=lambda: _activities_analyzed(db, athlete, service, now),
             )
         if agent_on:
             # Événement métier : une recommandation d'entraînement échue est
@@ -711,13 +755,16 @@ async def _dispatch_analysis(
     legacy_factory,
     agent_turn: bool,
     payload: dict[str, Any] | None = None,
+    ensure_ready=None,
 ) -> int:
     """Réveil de l'Agent Sport, avec repli obligatoire sur le job historique.
 
     Le job historique n'est court-circuité que si l'agent a effectivement
     traité le déclencheur (même si aucune nouvelle analyse n'a été créée,
-    car elle existait déjà). Dans tous les autres cas (drapeau éteint,
-    agent en échec, en repli ou sans résultat) il s'exécute comme par le passé.
+    car elle existait déjà) ET que l'analyse attendue est bien en base
+    (``ensure_ready``). Dans tous les autres cas (drapeau éteint, agent en
+    échec, en repli, sans résultat ou analyse manquante) il s'exécute comme
+    par le passé : le modèle ne peut pas décider de supprimer une analyse.
     """
     if agent_turn:
         outcome: dict[str, Any] | None = None
@@ -731,17 +778,34 @@ async def _dispatch_analysis(
         created = int((outcome or {}).get("created_analyses") or 0)
         status = (outcome or {}).get("status")
         # L'agent a traité le déclencheur (même si 0 analyse créée car déjà existante) :
-        # on ne doit PAS tomber dans le fallback legacy.
+        # on ne doit PAS tomber dans le fallback legacy, sauf si l'analyse attendue
+        # n'est pas en base.
         if status in ("completed", "budget_exhausted"):
-            stats[stat_key] += created
-            return 0
-        logger.warning(
-            "[SPORT-ANALYSIS] Agent %s status=%s (created=%d) → repli historique (user %s)",
-            trigger,
-            status,
-            created,
-            user.id,
-        )
+            ready = True
+            if ensure_ready is not None:
+                try:
+                    ready = bool(await ensure_ready())
+                except Exception:
+                    logger.exception(
+                        "[SPORT-ANALYSIS] Vérification analyse %s impossible", trigger
+                    )
+                    ready = False
+            if ready:
+                stats[stat_key] += created
+                return 0
+            logger.warning(
+                "[SPORT-ANALYSIS] Agent %s terminé sans analyse en base → repli historique (user %s)",
+                trigger,
+                user.id,
+            )
+        else:
+            logger.warning(
+                "[SPORT-ANALYSIS] Agent %s status=%s (created=%d) → repli historique (user %s)",
+                trigger,
+                status,
+                created,
+                user.id,
+            )
     try:
         result = await legacy_factory()
     except Exception:
@@ -754,19 +818,23 @@ async def _dispatch_analysis(
     return 0
 
 
+async def _analysis_exists(db: AsyncSession, athlete: SportAthlete, dedupe_key: str) -> bool:
+    existing = await db.scalar(
+        select(SportAnalysis.id).where(
+            SportAnalysis.athlete_id == athlete.id,
+            SportAnalysis.dedupe_key == dedupe_key,
+        )
+    )
+    return existing is not None
+
+
 async def _agent_due(db: AsyncSession, athlete: SportAthlete, kind: str) -> bool:
     """L'agent planifié (matin/soir) ne se réveille que s'il reste une analyse
     à produire et qu'il n'a pas déjà tourné pour ce déclencheur."""
     if await _agent_cooldown(db, athlete, kind, datetime.now(timezone.utc)):
         return False
     dedupe_key = f"{kind}:{SportAnalysisService._local_today().isoformat()}"
-    existing = await db.scalar(
-        select(SportAnalysis.id).where(
-            SportAnalysis.athlete_id == athlete.id,
-            SportAnalysis.dedupe_key == dedupe_key
-        )
-    )
-    return existing is None
+    return not await _analysis_exists(db, athlete, dedupe_key)
 
 
 async def _agent_cooldown(db: AsyncSession, athlete: SportAthlete, trigger: str, now: datetime) -> bool:
@@ -800,6 +868,13 @@ async def _pending_activity_ids(
         ).scalars()
     )
     return [activity_id for activity_id in ids if activity_id not in analyzed]
+
+
+async def _activities_analyzed(
+    db: AsyncSession, athlete: SportAthlete, service: SportAnalysisService, now: datetime
+) -> bool:
+    """Vrai si toutes les activités dues ont bien été analysées (garde du repli)."""
+    return not await _pending_activity_ids(db, athlete, service, now)
 
 
 async def _morning_ready(

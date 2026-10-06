@@ -562,9 +562,10 @@ async def test_ai_chat_routes_sport_question_to_agent(client, admin_headers, db_
 # --------------------------------------------------------------------------- #
 
 
-async def test_agent_stays_disabled_without_feature_flag(db_session, admin_user):
-    # SPORT_AGENT_ENABLED est False par défaut : le réveil est refusé avant
-    # toute création d'exécution.
+async def test_agent_stays_disabled_when_feature_flag_off(db_session, admin_user, monkeypatch):
+    # Drapeau éteint (les jobs historiques prennent alors le relais) : le
+    # réveil est refusé avant toute création d'exécution.
+    monkeypatch.setattr(get_settings(), "SPORT_AGENT_ENABLED", False)
     outcome = await run_agent_trigger(db_session, admin_user, "morning")
 
     assert outcome["status"] == "disabled"
@@ -824,18 +825,20 @@ async def test_create_recommendation_detects_duplicate(db_session, admin_user, m
 
 
 # --------------------------------------------------------------------------- #
-# 21. Analyse silencieuse par défaut + vérification en base
+# 21. Analyse toujours notifiée + publiée dans l'assistant + vérifiée en base
 # --------------------------------------------------------------------------- #
 
 
-async def test_generate_analysis_is_silent_by_default_and_verified(db_session, admin_user, monkeypatch):
+async def test_generate_analysis_notifies_and_publishes_to_assistant(
+    db_session, admin_user, monkeypatch
+):
     enable_agent(monkeypatch)
     await _athlete_with_garmin(db_session, admin_user)
 
     def agent_fn(messages):
         if not is_tool_round(messages):
             return tool_calls(("generate_daily_analysis", {"kind": "morning"}))
-        return final(summary="Analyse du matin produite en silence")
+        return final(summary="Analyse du matin produite")
 
     use_gateway(monkeypatch, responder_for(agent_fn))
 
@@ -852,24 +855,46 @@ async def test_generate_analysis_is_silent_by_default_and_verified(db_session, a
 
     analyses = (await db_session.execute(select(SportAnalysis))).scalars().all()
     assert len(analyses) == 1
-    # notify absent (défaut false) : aucune notification envoyée ; l'analyse est
-    # marquée « traitée » pour que le cycle ne la notifie pas à retardement.
+    # Chaque analyse notifie l'utilisateur (contrat matin / soir / sortie).
     assert analyses[0].notification_sent is True
     notifications = (await db_session.execute(select(Notification))).scalars().all()
-    assert notifications == []
+    assert len(notifications) == 1
+    assert notifications[0].category == "sport_analysis"
 
-    # Deuxième réveil : notify=true explicite → notification réellement envoyée.
+    # L'analyse est publiée dans la conversation « Coach & Analyses ».
+    conversation = await db_session.scalar(
+        select(AIConversation).where(AIConversation.module == "coach")
+    )
+    assert conversation is not None
+    assert conversation.user_id == admin_user.id
+    feed = (
+        await db_session.execute(
+            select(AIMessage).where(AIMessage.conversation_id == conversation.id)
+        )
+    ).scalars().all()
+    assert len(feed) == 1
+    assert feed[0].role == "assistant"
+    assert "Analyse du matin" in feed[0].content
+
+    # Deuxième réveil (soir) : nouvelle analyse → nouvelle notification,
+    # toujours un seul message par analyse dans l'assistant.
     def agent_fn_evening(messages):
         if not is_tool_round(messages):
-            return tool_calls(("generate_daily_analysis", {"kind": "evening", "notify": True}))
+            return tool_calls(("generate_daily_analysis", {"kind": "evening"}))
         return final(summary="Analyse du soir notifiée")
 
     use_gateway(monkeypatch, responder_for(agent_fn_evening))
     outcome_evening = await run_agent_trigger(db_session, admin_user, "evening")
     assert outcome_evening["status"] == "completed"
     notifications = (await db_session.execute(select(Notification))).scalars().all()
-    assert len(notifications) == 1
-    assert notifications[0].category == "sport_analysis"
+    assert len(notifications) == 2
+    assert {item.category for item in notifications} == {"sport_analysis"}
+    feed = (
+        await db_session.execute(
+            select(AIMessage).where(AIMessage.conversation_id == conversation.id)
+        )
+    ).scalars().all()
+    assert len(feed) == 2
 
 
 # --------------------------------------------------------------------------- #
@@ -935,3 +960,65 @@ async def test_create_recommendation_expires_stale_before_duplicate(db_session, 
 
     rows = (await db_session.execute(select(SportRecommendation))).scalars().all()
     assert sorted(row.status for row in rows) == ["expired", "pending"]
+
+
+# --------------------------------------------------------------------------- #
+# 24. Conseils ponctuels du coach : plafond quotidien + publication assistant
+# --------------------------------------------------------------------------- #
+
+
+async def test_coach_tip_respects_daily_limit_and_reaches_assistant(
+    db_session, admin_user, monkeypatch
+):
+    enable_agent(monkeypatch)
+    await _athlete_with_garmin(db_session, admin_user)
+
+    def agent_fn(messages):
+        return final(
+            summary="Conseil personnalisé",
+            actions=[
+                {
+                    "type": "send_coach_tip",
+                    "title": "Hydratation",
+                    "message": "Bois 500 ml d'eau dans la journée.",
+                }
+            ],
+        )
+
+    use_gateway(monkeypatch, responder_for(agent_fn))
+
+    action_outcomes = []
+    for _ in range(3):
+        outcome = await run_agent_trigger(db_session, admin_user, "morning")
+        execution = await db_session.get(SportAgentExecution, outcome["execution_id"])
+        action_outcomes.append(execution.result_json["actions"][0])
+
+    limit = get_settings().COACH_TIP_DAILY_LIMIT
+    assert limit == 2
+    assert action_outcomes[0]["ok"] is True
+    assert action_outcomes[1]["ok"] is True
+    # Troisième conseil du jour : refusé par le quota.
+    assert action_outcomes[2]["ok"] is False
+    assert "quota_conseils_atteint" in (action_outcomes[2].get("error") or "")
+
+    tips = [
+        item
+        for item in (await db_session.execute(select(Notification))).scalars().all()
+        if item.category == "coach_tip"
+    ]
+    assert len(tips) == limit
+    assert tips[0].data_json.get("url") == "/ai"
+
+    # Chaque conseil envoyé est publié dans la conversation de l'assistant.
+    conversation = await db_session.scalar(
+        select(AIConversation).where(AIConversation.module == "coach")
+    )
+    assert conversation is not None
+    feed = (
+        await db_session.execute(
+            select(AIMessage).where(AIMessage.conversation_id == conversation.id)
+        )
+    ).scalars().all()
+    assert len(feed) == limit
+    assert all(item.role == "assistant" for item in feed)
+    assert "Hydratation" in feed[0].content

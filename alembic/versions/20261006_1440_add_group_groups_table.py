@@ -1,7 +1,7 @@
 """add group_groups table for AD group hierarchy
 
 Revision ID: 20261006_1440
-Revises: 20261006_0037
+Revises: 20260908_0002
 Create Date: 2026-10-06 14:40:00.000000
 
 """
@@ -11,7 +11,7 @@ from sqlalchemy.dialects import mysql
 
 # revision identifiers, used by Alembic.
 revision = '20261006_1440'
-down_revision = '20261006_0037'
+down_revision = '20260908_0002'
 branch_labels = None
 depends_on = None
 

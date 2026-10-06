@@ -189,6 +189,7 @@ class AgentOrchestrator:
                     "target_value": goal.target_value,
                     "unit": goal.unit,
                     "target_date": goal.target_date.isoformat() if goal.target_date else None,
+                    "metadata": goal.metadata_json,
                 }
                 for goal in goals
             ],

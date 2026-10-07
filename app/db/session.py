@@ -2,6 +2,11 @@ from contextlib import asynccontextmanager
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase
+from sqlalchemy.util._concurrency_py3k import greenlet_spawn
+
+# Initialiser le contexte greenlet DÈS l'import pour éviter MissingGreenlet
+# lors du premier checkout de connexion (asyncmy fait un ping interne).
+greenlet_spawn(lambda: None)
 
 from app.core.config import get_settings
 
@@ -11,7 +16,7 @@ engine = create_async_engine(
     settings.DATABASE_URL.replace("mysql+pymysql://", "mysql+asyncmy://").replace("mysql://", "mysql+asyncmy://"),
     pool_size=settings.DATABASE_POOL_SIZE,
     max_overflow=settings.DATABASE_MAX_OVERFLOW,
-    pool_pre_ping=True,
+    pool_pre_ping=False,
     pool_recycle=1800,
     echo=False,
 )

@@ -70,7 +70,7 @@ export class AiSettingsPage {
         status.textContent = configured
           ? '✓ Clé enregistrée (masquée pour sécurité)'
           : 'Aucune clé enregistrée';
-        status.style.color = configured ? 'var(--color-success)' : '';
+        status.classList.toggle('text-success', configured);
       }
     });
     // Web Search (Brave)
@@ -86,7 +86,7 @@ export class AiSettingsPage {
       wsStatus.textContent = wsConfigured
         ? '✓ Clé enregistrée (masquée pour sécurité)'
         : 'Aucune clé enregistrée';
-      wsStatus.style.color = wsConfigured ? 'var(--color-success)' : '';
+      wsStatus.classList.toggle('text-success', wsConfigured);
     }
   }
 
@@ -132,6 +132,9 @@ export class AiSettingsPage {
 
     form.addEventListener('submit', async (event) => {
       event.preventDefault();
+      const submitBtn = form.querySelector('[type="submit"]');
+      if (submitBtn?.disabled) return;
+      if (submitBtn) submitBtn.disabled = true;
       const providerPayload = (prefix) => ({
         enabled: form.elements[`${prefix}_enabled`].checked,
         api_key: form.elements[`${prefix}_api_key`].value,
@@ -174,6 +177,8 @@ export class AiSettingsPage {
           ? detail.map((item) => item?.msg || JSON.stringify(item)).join(' — ')
           : detail;
         this._setMessage(detailText || error.message || 'Erreur lors de l\'enregistrement.');
+      } finally {
+        if (submitBtn) submitBtn.disabled = false;
       }
     });
   }
@@ -234,11 +239,11 @@ export class AiSettingsPage {
                 <input name="ai_router_prefer_free" type="checkbox"> Préférer les modèles gratuits
               </label>
             </div>
-<div class="form-row">
-            ${this._label('Cooldown par défaut (secondes)', 'Durée d’attente avant de réessayer un modèle après un échec (quota dépassé, timeout, etc.).',
-              `<input name="ai_router_cooldown_seconds" type="number" min="0" max="600" step="30" value="300">`)}
-            <label></label>
-          </div>
+            <div class="form-row">
+              ${this._label('Cooldown par défaut (secondes)', 'Durée d’attente avant de réessayer un modèle après un échec (quota dépassé, timeout, etc.).',
+                `<input name="ai_router_cooldown_seconds" type="number" min="0" max="600" step="30" value="300">`)}
+              <label></label>
+            </div>
         </div>
       </div>
 

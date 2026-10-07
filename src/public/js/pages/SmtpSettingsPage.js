@@ -40,9 +40,9 @@ export class SmtpSettingsPage {
             <button class="btn btn-primary" type="submit">Enregistrer</button>
             <span data-smtp-message role="status"></span>
           </div>
-          <div class="form-row" style="margin-top:1.5rem;padding-top:1rem;border-top:1px solid var(--color-border-light);">
+          <div class="form-row form-row--test">
             <label><span>Destinataire du test</span><input name="test_recipient" type="email" required maxlength="255"></label>
-            <div style="display:flex;align-items:end;"><button class="btn btn-secondary" type="button" data-smtp-test>Tester l’envoi</button></div>
+            <div class="form-row__action"><button class="btn btn-secondary" type="button" data-smtp-test>Tester l'envoi</button></div>
           </div>
         </form>
       </div>
@@ -61,6 +61,9 @@ export class SmtpSettingsPage {
 
     form.addEventListener('submit', async (event) => {
       event.preventDefault();
+      const submitBtn = form.querySelector('[type="submit"]');
+      if (submitBtn?.disabled) return;
+      if (submitBtn) submitBtn.disabled = true;
       const data = Object.fromEntries(new FormData(form).entries());
       data.port = Number(data.port);
       data.use_tls = form.elements.use_tls.checked;
@@ -71,10 +74,14 @@ export class SmtpSettingsPage {
         this.element.querySelector('[data-smtp-message]').textContent = 'Paramètres enregistrés.';
       } catch (error) {
         this.element.querySelector('[data-smtp-message]').textContent = error.message || 'Erreur lors de l’enregistrement.';
+      } finally {
+        if (submitBtn) submitBtn.disabled = false;
       }
     });
 
     this.element.querySelector('[data-smtp-test]').addEventListener('click', async () => {
+      const testBtn = this.element.querySelector('[data-smtp-test]');
+      if (testBtn.disabled) return;
       const recipient = form.elements.test_recipient.value.trim();
       const message = this.element.querySelector('[data-smtp-message]');
       if (!form.elements.host.value || !form.elements.from_email.value) {
@@ -82,12 +89,15 @@ export class SmtpSettingsPage {
         return;
       }
       if (!form.elements.test_recipient.reportValidity()) return;
+      testBtn.disabled = true;
       message.textContent = 'Test en cours...';
       try {
         const result = await testSmtpSettings(recipient);
         message.textContent = result.message || 'E-mail de test envoyé.';
       } catch (error) {
         message.textContent = error.data?.detail || error.message || 'Échec du test SMTP.';
+      } finally {
+        testBtn.disabled = false;
       }
     });
     return this.element;

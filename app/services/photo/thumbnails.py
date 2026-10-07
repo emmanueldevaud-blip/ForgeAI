@@ -24,11 +24,16 @@ import shutil
 import subprocess
 from pathlib import Path
 
-from PIL import Image, ImageOps, ImageStat
+from PIL import Image, ImageFile, ImageOps, ImageStat
 
 from app.core.config import get_settings
 
 logger = logging.getLogger(__name__)
+
+# Certains JPEG d'import sont tronqués en fin de flux (« broken data stream »)
+# : le décodage tolère les données manquantes pour produire une miniature.
+# L'original reste intact et non modifié.
+ImageFile.LOAD_TRUNCATED_IMAGES = True
 
 DEFAULT_QUALITY = 80
 

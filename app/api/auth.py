@@ -969,6 +969,10 @@ async def update_ad_group_mapping(
     from sqlalchemy.exc import IntegrityError
     audit = await get_audit_service(db)
 
+    config = await db.get(ADConfig, config_id)
+    if not config:
+        raise HTTPException(status_code=404, detail="Configuration AD non trouvée")
+
     result = await db.execute(
         select(ADGroupMapping).where(
             ADGroupMapping.id == mapping_id,
@@ -1072,12 +1076,17 @@ async def delete_ad_group_mapping(
         status="success",
     )
 
+    from app.services.ad import DatabaseADService
+    ad_service = DatabaseADService(db, current_user=current_user)
+
+    # Retirer le lien groupe↔rôle accordé par ce mapping avant sa suppression,
+    # sinon il resterait dans group_roles malgré la disparition du mapping.
+    await ad_service.remove_mapping_link(mapping, config_id)
+
     await db.delete(mapping)
     await db.commit()
 
     # Sync group roles immediately so the Roles page reflects the change
-    from app.services.ad import DatabaseADService
-    ad_service = DatabaseADService(db, current_user=current_user)
     config = await ad_service.get_config_by_id(config_id)
     if config:
         await ad_service.sync_group_roles_from_mappings(config)

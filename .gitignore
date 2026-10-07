@@ -52,6 +52,9 @@ logs/
 *.sqlite
 *.sqlite3
 
+# Stockage local des photos (module Photos)
+data/
+
 # Docker
 .docker/
 .aider*

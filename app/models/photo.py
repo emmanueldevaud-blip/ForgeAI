@@ -13,6 +13,7 @@ from uuid import uuid4
 
 from sqlalchemy import (
     JSON,
+    BigInteger,
     Boolean,
     DateTime,
     Float,
@@ -51,7 +52,8 @@ class Photo(Base):
         String(20), default="local", server_default="local", nullable=False
     )
     mime_type: Mapped[str] = mapped_column(String(100), nullable=False)
-    byte_size: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    # BigInteger : une vidéo peut dépasser 2 Go (max INT = 2 147 483 647).
+    byte_size: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
     width: Mapped[int | None] = mapped_column(Integer, nullable=True)
     height: Mapped[int | None] = mapped_column(Integer, nullable=True)
     # Clé de tri / regroupement : EXIF DateTimeOriginal, sinon date du fichier,

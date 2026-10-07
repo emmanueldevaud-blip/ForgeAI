@@ -75,6 +75,7 @@ from sqlalchemy.orm import selectinload
 from app.core.config import get_settings
 from app.models import (
     ADConfig,
+    ADGroupMapping,
     ADSyncLog,
     ADSyncStatus,
     Group,
@@ -445,6 +446,46 @@ class DatabaseADService:
         for parent_id, child_id in sorted(desired):
             self.db.add(GroupGroup(parent_group_id=parent_id, child_group_id=child_id))
 
+    async def _group_for_mapping(self, mapping: ADGroupMapping, config_id: int) -> Group | None:
+        """Groupe AD local ciblé par un mapping (DN d'abord, sinon CN)."""
+        query = select(Group).where(
+            Group.ad_config_id == config_id,
+            Group.source == "ad",
+        )
+        if mapping.ad_group_dn:
+            query = query.where(Group.ad_dn == mapping.ad_group_dn)
+        else:
+            query = query.where(Group.name == mapping.ad_group_cn)
+
+        result = await self.db.execute(query)
+        return result.scalar_one_or_none()
+
+    async def remove_mapping_link(self, mapping: ADGroupMapping, config_id: int) -> None:
+        """Retire le lien groupe↔rôle accordé par un mapping désactivé ou supprimé.
+
+        Sans ce retrait, le lien ``group_roles`` persiste : la colonne
+        « Groupes » des rôles continue d'afficher le groupe alors que le
+        mapping n'est plus actif.
+        """
+        group = await self._group_for_mapping(mapping, config_id)
+        if group is None:
+            return
+
+        role = (
+            await self.db.execute(
+                select(Role).where(Role.code == mapping.role_code)
+            )
+        ).scalar_one_or_none()
+        if role is None:
+            return
+
+        await self.db.execute(
+            delete(GroupRole).where(
+                GroupRole.group_id == group.id,
+                GroupRole.role_id == role.id,
+            )
+        )
+
     async def sync_group_roles_from_mappings(self, config: ADConfig) -> None:
         """Sync GroupRole links from AD group mappings.
         
@@ -455,21 +496,12 @@ class DatabaseADService:
         
         for mapping in config.group_mappings:
             if not mapping.is_active:
+                # Un mapping désactivé doit retirer son lien, même s'il
+                # était le seul mapping du groupe.
+                await self.remove_mapping_link(mapping, config.id)
                 continue
-            
-            # Find the group in database by CN or DN
-            query = select(Group).where(
-                Group.ad_config_id == config.id,
-                Group.source == "ad",
-            )
-            if mapping.ad_group_dn:
-                query = query.where(Group.ad_dn == mapping.ad_group_dn)
-            else:
-                query = query.where(Group.name == mapping.ad_group_cn)
-            
-            result = await self.db.execute(query)
-            group = result.scalar_one_or_none()
-            
+
+            group = await self._group_for_mapping(mapping, config.id)
             if group is None:
                 continue
             
@@ -498,18 +530,7 @@ class DatabaseADService:
             if not mapping.is_active:
                 continue
             
-            query = select(Group).where(
-                Group.ad_config_id == config.id,
-                Group.source == "ad",
-            )
-            if mapping.ad_group_dn:
-                query = query.where(Group.ad_dn == mapping.ad_group_dn)
-            else:
-                query = query.where(Group.name == mapping.ad_group_cn)
-            
-            result = await self.db.execute(query)
-            group = result.scalar_one_or_none()
-            
+            group = await self._group_for_mapping(mapping, config.id)
             if group is None:
                 continue
             

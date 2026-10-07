@@ -28,11 +28,11 @@ import { createSportGarminPage } from './pages/SportGarminPage.js?v=5';
 import { createSportHealthPage } from './pages/SportHealthPage.js?v=1';
 import { createSportAnalysesPage } from './pages/SportAnalysesPage.js?v=1';
 import { createSportGoalsPage } from './pages/SportGoalsPage.js?v=1';
-import { createAgendaPage } from './pages/AgendaPage.js?v=38';
+import { createAgendaPage } from './pages/AgendaPage.js?v=40';
 import { createAgendaSettingsPage } from './pages/AgendaSettingsPage.js?v=3';
 import { createDomotiquePage } from './pages/DomotiquePage.js?v=8';
 import { createDomotiqueConfigPage } from './pages/DomotiqueConfigPage.js?v=8';
-import { createPhotosPage } from './pages/PhotosPage.js?v=6';
+import { createPhotosPage } from './pages/PhotosPage.js?v=8';
 
 const moduleRoutes = [
   'dashboard',
@@ -52,6 +52,7 @@ const moduleRoutes = [
   'reports',
   'administration',
   'administratif',
+  'photos',
 ];
 
 let appShell = null;
@@ -231,6 +232,9 @@ async function initializeApp() {
     .addRoute('/agenda', async (route) => {
       await showAgendaPage(route);
     }, { requiresAuth: true, permissions: ['agenda.access'] })
+    .addRoute('/agenda/inscriptions', async (route) => {
+      await showAgendaPage(route);
+    }, { requiresAuth: true, permissions: ['agenda.access'] })
     .addRoute('/agenda/settings', async (route) => {
       await showAgendaSettingsPage(route);
     }, { requiresAuth: true, permissions: ['agenda.manage'] })
@@ -251,7 +255,10 @@ async function initializeApp() {
     }, { requiresAuth: true, permissions: ['photos.view'] })
     .addRoute('/photos/favorites', async (route) => {
       await showPhotosPage(route);
-    }, { requiresAuth: true, permissions: ['photos.view'] });
+    }, { requiresAuth: true, permissions: ['photos.view'] })
+    .addRoute('/photos/trash', async (route) => {
+      await showPhotosPage(route);
+    }, { requiresAuth: true, permissions: ['photos.delete'] });
 
   const moduleRoutePermissions = {
     cleaning: ['cleaning.view'],
@@ -264,6 +271,7 @@ async function initializeApp() {
     suppliers: ['suppliers.view'],
     documents: ['documents.view'],
     reports: ['reports.view'],
+    photos: ['photos.delete'],
   };
 
   moduleRoutes.forEach(module => {
@@ -276,9 +284,9 @@ async function initializeApp() {
   });
 
   router
-    .addRoute('/403', () => {
-      showForbiddenPage();
-    })
+    .addRoute('/photos', async (route) => {
+      await showPhotosPage(route);
+    }, { requiresAuth: true, permissions: ['photos.delete'] })
     .addRoute('/404', () => {
       showNotFoundPage();
     })
@@ -924,6 +932,7 @@ const PHOTO_VIEWS = {
   '/photos/people': 'people',
   '/photos/places': 'places',
   '/photos/favorites': 'favorites',
+  '/photos/trash': 'trash',
 };
 
 async function showPhotosPage(route) {

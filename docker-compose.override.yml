@@ -5,3 +5,8 @@ services:
     environment:
       - DOMOTIQUE_POLL_INTERVAL_S=0
       - DOMOTIQUE_ENABLED=false
+      - PHOTO_STORAGE_BACKEND=nas
+      - PHOTO_NAS_PATH=/mnt/synology-medias/PHOTOS
+      - PHOTO_NAS_SCAN_ENABLED=false
+    volumes:
+      - /mnt/synology-medias/PHOTOS:/mnt/synology-medias/PHOTOS

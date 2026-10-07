@@ -79,7 +79,7 @@ export class ConfirmDialog {
           </label>
         ` : ''}
       </div>
-      <div class="form-actions">
+      <div class="modal-footer">
         <button type="button" class="btn btn-secondary" data-action="cancel">${this._escapeHtml(cancelText)}</button>
         <button type="button" class="btn ${variantClasses[variant] || 'btn-primary'}" data-action="confirm"${requireCheckbox ? ' disabled' : ''}>${this._escapeHtml(confirmText)}</button>
       </div>

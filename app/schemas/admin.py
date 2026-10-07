@@ -328,7 +328,8 @@ class RoleUpdate(BaseModel):
 class GroupSummaryResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
-    id: int
+    # None lorsqu'un mapping AD pointe vers un groupe absent localement.
+    id: Optional[int] = None
     code: str
     name: str
     source: str

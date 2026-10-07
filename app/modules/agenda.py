@@ -27,13 +27,30 @@ class AgendaModule(BaseModule):
             "icon": self.info.icon,
             "route": self.info.route_path,
             "order": self.info.order,
-            "children": [{
-                "code": "agenda-planning",
-                "name": "Présences",
-                "icon": "calendar-check",
-                "route": "/agenda",
-                "order": 0,
-            }],
+            "children": [
+                {
+                    "code": "agenda-mine",
+                    "name": "Ma présence",
+                    "icon": "user",
+                    "route": "/agenda?tab=mine",
+                    "order": 0,
+                },
+                {
+                    "code": "agenda-inscriptions",
+                    "name": "Inscriptions",
+                    "icon": "calendar-check",
+                    "route": "/agenda?tab=inscriptions",
+                    "order": 1,
+                },
+                {
+                    "code": "agenda-settings",
+                    "name": "Paramètres",
+                    "icon": "settings",
+                    "route": "/agenda?tab=settings",
+                    "order": 2,
+                    "required_permissions": ["agenda.manage"],
+                },
+            ],
         }]
 
     async def install(self, db) -> bool:

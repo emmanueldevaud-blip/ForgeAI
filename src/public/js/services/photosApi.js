@@ -208,3 +208,13 @@ export async function rebuildThumbnails(limit = 200) {
   const qs = buildQuery({ limit });
   return photosApi.post(`/thumbnails/rebuild?${qs}`);
 }
+
+// --------------------------------- Corbeille
+
+export async function emptyTrash() {
+  return photosApi.delete('/trash');
+}
+
+export async function hardDeletePhoto(photoId) {
+  return photosApi.delete(`/trash/${photoId}`);
+}

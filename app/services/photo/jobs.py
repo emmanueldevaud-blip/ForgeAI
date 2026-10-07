@@ -467,30 +467,48 @@ async def process_photo_jobs(
         )
         if claim.rowcount == 0:
             continue
+        # Le claim (status='running' + attempts+1) est commité AVANT
+        # l'exécution : sinon un handler qui casse la transaction (flush ou
+        # commit en échec) l'annule avec, les tentatives ne sont jamais
+        # persistées et le même job est rejoué indéfiniment.
+        await db.commit()
 
         handler = HANDLERS.get(job.type)
+        # Identifiants lus AVANT l'exécution : un handler dont le flush casse
+        # la transaction expire les instances, leur accès lèverait alors
+        # PendingRollbackError avant même le rollback.
+        job_id = job.id
+        job_type = job.type
+        photo_id = job.photo_id
+        payload = job.payload_json or {}
         photo = None
-        if job.photo_id:
-            photo = await db.get(Photo, job.photo_id)
+        if photo_id:
+            photo = await db.get(Photo, photo_id)
         try:
             if handler is None:
-                raise PhotoJobError(f"Type de job inconnu: {job.type}")
-            await handler(db, photo, job.payload_json or {})
+                raise PhotoJobError(f"Type de job inconnu: {job_type}")
+            await handler(db, photo, payload)
             job.status = "done"
             job.finished_at = _utcnow()
             job.error = None
         except Exception as exc:  # noqa: BLE001 - un job en échec ne tue pas la boucle
+            # La session peut être en échec (flush/commit annulé) : on repart
+            # d'un état propre pour que l'état du job soit bien persisté.
+            await db.rollback()
+            job = await db.get(PhotoJob, job_id, populate_existing=True) or job
             job.error = f"{type(exc).__name__}: {exc}"
             if job.attempts >= job.max_attempts:
                 job.status = "failed"
                 job.finished_at = _utcnow()
-                if photo is not None and job.type == "ingest":
+                if photo is not None and job_type == "ingest":
+                    # ``photo`` est expiré après rollback : rechargement explicite.
+                    photo = await db.get(Photo, photo_id, populate_existing=True)
                     photo.status = "failed"
                     photo.error = job.error
                 logger.warning(
                     "[PHOTO-JOBS] job=%s photo=%s échec définitif: %s",
-                    job.type,
-                    job.photo_id,
+                    job_type,
+                    photo_id,
                     job.error,
                 )
             else:
@@ -499,7 +517,7 @@ async def process_photo_jobs(
                 job.available_at = _utcnow() + timedelta(seconds=30 * job.attempts)
                 logger.warning(
                     "[PHOTO-JOBS] job=%s tentative %s/%s: %s",
-                    job.type,
+                    job_type,
                     job.attempts,
                     job.max_attempts,
                     job.error,

@@ -153,3 +153,65 @@ class TestRoleCrud:
             json={"permission_ids": []},
         )
         assert put_resp.status_code == 400
+
+    @pytest.mark.asyncio
+    async def test_groups_column_reflects_active_ad_mappings(
+        self, client, admin_headers
+    ):
+        """GET /admin/users/roles shows active AD mappings in the groups
+        column even when the mapped AD group does not exist locally."""
+        create_role = await client.post(
+            "/admin/users/roles",
+            headers=admin_headers,
+            json={"name": "AD Mapped Role"},
+        )
+        assert create_role.status_code == 201
+        role_code = create_role.json()["code"]
+
+        config_resp = await client.post(
+            "/auth/ad-configs",
+            headers=admin_headers,
+            json={
+                "name": "Roles Mappings Config",
+                "server": "ad.example.com",
+                "port": 636,
+                "base_dn": "DC=example,DC=com",
+                "bind_user": "CN=svc,OU=Service,DC=example,DC=com",
+                "bind_password": "pwd",
+            },
+        )
+        assert config_resp.status_code == 201, config_resp.text
+        config_id = config_resp.json()["id"]
+
+        mapping_resp = await client.post(
+            f"/auth/ad-configs/{config_id}/mappings",
+            headers=admin_headers,
+            json={
+                "ad_group_cn": "GG_NO_LOCAL_GROUP",
+                "role_code": role_code,
+            },
+        )
+        assert mapping_resp.status_code == 201, mapping_resp.text
+
+        roles_resp = await client.get(
+            "/admin/users/roles?page_size=100",
+            headers=admin_headers,
+        )
+        assert roles_resp.status_code == 200
+        role = next(
+            (
+                r
+                for r in roles_resp.json()["roles"]
+                if r["code"] == role_code
+            ),
+            None,
+        )
+        assert role is not None
+        badge = next(
+            (g for g in role["groups"] if g["name"] == "GG_NO_LOCAL_GROUP"),
+            None,
+        )
+        assert badge is not None, (
+            "le mapping AD actif doit apparaitre dans la colonne Groupes"
+        )
+        assert badge["source"] == "ad"

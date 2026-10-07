@@ -47,12 +47,50 @@ class AgendaDayResponse(BaseModel):
     integrated: List[AgendaPresenceItem] = []
 
 
+class AgendaPlanningGroup(BaseModel):
+    id: int
+    name: str
+    description: Optional[str] = None
+    depth: int = 0
+    parent_id: Optional[int] = None
+
+
+class AgendaPlanningPerson(BaseModel):
+    person_id: int
+    name: str
+    group_id: Optional[int] = None
+    last_name: Optional[str] = None
+    first_name: Optional[str] = None
+
+
 class AgendaPlanningResponse(BaseModel):
     view: Literal["week", "month"]
     start_date: date
     end_date: date
     rooms: List[AgendaRoomResponse] = []
     days: List[AgendaDayResponse] = []
+    planning_groups: List[AgendaPlanningGroup] = []
+    planning_people: List[AgendaPlanningPerson] = []
+
+
+class AgendaSettingsResponse(BaseModel):
+    planning_group_ids: List[int] = []
+
+
+class AgendaSettingsUpdate(BaseModel):
+    planning_group_ids: List[int] = []
+
+
+class AgendaGroupOption(BaseModel):
+    id: int
+    name: str
+    description: Optional[str] = None
+    source: str = "local"
+    user_count: int = 0
+
+
+class AgendaGroupListResponse(BaseModel):
+    groups: List[AgendaGroupOption] = []
 
 
 class AgendaPresenceUpsert(BaseModel):

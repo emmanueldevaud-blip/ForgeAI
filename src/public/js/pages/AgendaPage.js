@@ -100,14 +100,27 @@ export class AgendaPage {
     this.openRoom = null;
     this.editCell = null;
     this.addPersonOpen = false;
+    this.searchQuery = '';
+    this.activeTab = 'mine'; // 'mine' or 'inscriptions'
+    this.personWeekModal = null; // { personKey, person }
     this._authUnsubscribe = null;
   }
 
   async initialize() {
+    // Déterminer l'onglet actif selon la route
+    this.activeTab = this._getTabFromPath();
     await this.loadPlanning();
     if (!this._authUnsubscribe) {
       this._authUnsubscribe = authStore.subscribe(() => this.renderState());
     }
+  }
+
+  _getTabFromPath() {
+    // Utilise l'URL complète (avec query params) pour détecter l'onglet
+    const url = new URL(window.location.href);
+    const tab = url.searchParams.get('tab');
+    if (tab === 'inscriptions' || tab === 'settings') return tab;
+    return url.pathname.includes('/inscriptions') ? 'inscriptions' : 'mine';
   }
 
   async loadPlanning() {
@@ -153,10 +166,13 @@ export class AgendaPage {
 
   renderState() {
     if (!this.element) return;
+    // Mettre à jour l'onglet actif selon l'URL courante (navigation onglets)
+    this.activeTab = this._getTabFromPath();
+
     if (this.error) {
       this.element.innerHTML = `
         <div class="page-header">
-          <div class="page-header-left"><h1>Agenda</h1><p class="page-subtitle">Présences dans les locaux Bureau.</p></div>
+          <div class="page-header-left"><h1>Ma présence</h1><p class="page-subtitle">Présences dans les locaux Bureau.</p></div>
         </div>
         <div class="card" role="alert">
           <div class="card-body agenda-empty">
@@ -175,13 +191,22 @@ export class AgendaPage {
     const canManage = authStore.hasPermission('agenda.manage');
     const freeDate = this._defaultFreeDate(days);
 
+    const isMineTab = this.activeTab === 'mine';
+    const isInscriptionsTab = this.activeTab === 'inscriptions';
+    const isSettingsTab = this.activeTab === 'settings';
+
     this.element.innerHTML = `
       <div class="page-header agenda-header">
         <div class="page-header-left">
-          <h1>Agenda</h1>
-          <p class="page-subtitle">Vos présences, le planning par bureau${canManage ? ' et les inscriptions libres' : ''}.</p>
+          <h1>Ma présence</h1>
+          <p class="page-subtitle">${isMineTab ? 'Vos présences personnelles.' : 'Planning par bureau et inscriptions libres.'}</p>
         </div>
         <div class="page-header-right agenda-toolbar">
+          <div class="agenda-tabs" role="tablist" aria-label="Onglets Agenda">
+            <button role="tab" class="btn btn-sm ${isMineTab ? 'btn-primary' : 'btn-secondary'}" data-tab="mine" aria-selected="${isMineTab}" aria-controls="panel-mine">Ma présence</button>
+            <button role="tab" class="btn btn-sm ${isInscriptionsTab ? 'btn-primary' : 'btn-secondary'}" data-tab="inscriptions" aria-selected="${isInscriptionsTab}" aria-controls="panel-inscriptions">Inscriptions</button>
+            ${canManage ? `<button role="tab" class="btn btn-sm ${isSettingsTab ? 'btn-primary' : 'btn-secondary'}" data-tab="settings" aria-selected="${isSettingsTab}" aria-controls="panel-settings">Paramètres</button>` : ''}
+          </div>
           <div class="agenda-nav" role="group" aria-label="Navigation">
             <button class="btn btn-secondary btn-sm" data-nav="prev" aria-label="Période précédente">‹</button>
             <button class="btn btn-secondary btn-sm" data-nav="today">Aujourd’hui</button>
@@ -192,35 +217,22 @@ export class AgendaPage {
               <button class="btn btn-sm ${this.view === value ? 'btn-primary' : 'btn-secondary'}" data-view="${value}" aria-pressed="${this.view === value}">${label}</button>
             `).join('')}
           </div>
+          ${isInscriptionsTab ? `
+          <div class="agenda-search-wrap" style="margin-left:auto; min-width:200px;">
+            <label for="agenda-search" class="visually-hidden">Filtrer par nom</label>
+            <input type="search" id="agenda-search" class="agenda-search" placeholder="Filtrer par nom..." value="${escapeHtml(this.searchQuery)}" aria-label="Filtrer par nom" style="min-width:150px; flex:1;">
+          </div>` : ''}
         </div>
       </div>
 
       ${rooms.length === 0 ? this._noRoomsHtml() : `
-        <section class="card agenda-section agenda-section--mine" aria-labelledby="agenda-mine-title">
-          <header class="agenda-section-header">
-            <div>
-              <h2 id="agenda-mine-title">Ma présence</h2>
-            </div>
-          </header>
-          <div class="card-body agenda-section-body">
+        <div role="tabpanel" id="panel-mine" aria-labelledby="tab-mine" ${isMineTab ? '' : 'hidden'}>
+          <div class="agenda-mine-grid-wrapper">
             ${this._mineGridHtml(rooms)}
           </div>
-        </section>
+        </div>
 
-        <section class="agenda-section agenda-section--planning" aria-labelledby="agenda-planning-title">
-          <header class="agenda-section-header agenda-section-header--plain">
-            <div>
-              <h2 id="agenda-planning-title">Planning par bureau</h2>
-              <p class="agenda-section-desc">Une ligne par personne, colonne par jour et par demi-journée. Cliquez sur une case pour gérer l’inscription, sur un jour pour voir le détail.</p>
-            </div>
-            <div class="agenda-planning-toolbar">
-              <div class="agenda-period-label">${escapeHtml(this._periodLabel())}</div>
-              ${canManage ? `
-                <button type="button" class="btn btn-primary btn-sm" data-action="add-person-to-planning" aria-label="Ajouter une personne au planning">
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
-                  Ajouter une personne
-                </button>` : ''}
-          </header>
+        <div role="tabpanel" id="panel-inscriptions" aria-labelledby="tab-inscriptions" ${isInscriptionsTab ? '' : 'hidden'}>
           <section class="card agenda-card" aria-label="Planning des présences">
             ${this._planningBody(days)}
           </section>
@@ -230,25 +242,40 @@ export class AgendaPage {
             <span class="agenda-legend-item"><span class="agenda-dot agenda-dot--cleaning"></span> volontaire</span>
             <span class="agenda-legend-item"><span class="agenda-dot agenda-dot--occupant"></span> occupation</span>
           </section>
-        </section>
+
+          ${canManage ? `
+          <section class="card agenda-section agenda-section--free" aria-labelledby="agenda-free-title">
+            <header class="agenda-section-header">
+              <div>
+                <h2 id="agenda-free-title">Inscriptions</h2>
+              </div>
+            </header>
+            <div class="card-body agenda-section-body">
+              ${this._freeFormHtml(rooms, freeDate)}
+            </div>
+          </section>` : ''}
+        </div>
 
         ${canManage ? `
-        <section class="card agenda-section agenda-section--free" aria-labelledby="agenda-free-title">
-          <header class="agenda-section-header">
-            <div>
-              <h2 id="agenda-free-title">Inscriptions libres</h2>
-              <p class="agenda-section-desc">Ajoutez une personne sans compte utilisateur (visiteur, intervenant…).</p>
+        <div role="tabpanel" id="panel-settings" aria-labelledby="tab-settings" ${isSettingsTab ? '' : 'hidden'}>
+          <section class="card agenda-section" aria-labelledby="agenda-settings-title">
+            <header class="agenda-section-header">
+              <div>
+                <h2 id="agenda-settings-title">Paramètres</h2>
+                <p class="agenda-section-desc">Configuration du planning par bureau.</p>
+              </div>
+            </header>
+            <div class="card-body">
+              <div id="agenda-settings-content"></div>
             </div>
-          </header>
-          <div class="card-body agenda-section-body">
-            ${this._freeFormHtml(rooms, freeDate)}
-          </div>
-        </section>` : ''}
+          </section>
+        </div>` : ''}
       `}
 
       ${this.openDay ? this._dayPanelHtml(rooms) : ''}
       ${this.editCell ? this._cellEditorHtml(rooms) : ''}
       ${this.addPersonOpen ? this._addPersonModalHtml() : ''}
+      ${this.personWeekModal ? this._personWeekModalHtml(rooms) : ''}
     `;
 
     this._bindCommon();
@@ -260,6 +287,8 @@ export class AgendaPage {
     if (this.openDay) this._bindDayPanel();
     if (this.editCell) this._bindCellEditor();
     if (this.addPersonOpen) this._bindAddPersonModal();
+    if (this.personWeekModal) this._bindPersonWeekModal();
+    if (isSettingsTab && canManage) this._initSettingsTab();
   }
 
   _noRoomsHtml() {
@@ -327,6 +356,28 @@ export class AgendaPage {
   }
 
   _mineGridHtml(rooms) {
+    // Ordre personnalisé : CEBAZAT, RIOM, PUTEAUX
+    const roomOrder = ['CEBAZAT', 'RIOM', 'PUTEAUX'];
+    const sortedRooms = [...rooms].sort((a, b) => {
+      const aIdx = roomOrder.findIndex(o => a.name?.toUpperCase().includes(o) || a.building_name?.toUpperCase().includes(o));
+      const bIdx = roomOrder.findIndex(o => b.name?.toUpperCase().includes(o) || b.building_name?.toUpperCase().includes(o));
+      if (aIdx !== -1 && bIdx !== -1) return aIdx - bIdx;
+      if (aIdx !== -1) return -1;
+      if (bIdx !== -1) return 1;
+      return (a.name || '').localeCompare(b.name || '');
+    });
+
+    // Dédupliquer par nom court (ex: CEBAZAT, RIOM, PUTEAUX)
+    const seen = new Set();
+    const uniqueRooms = [];
+    for (const room of sortedRooms) {
+      const shortName = this._getShortRoomName(room.building_name || room.name);
+      if (!seen.has(shortName)) {
+        seen.add(shortName);
+        uniqueRooms.push(room);
+      }
+    }
+
     const dates = this._mineGridDates();
     const today = toISODate(new Date());
     const hasMine = dates.some(iso => this._minePresenceForDate(iso));
@@ -342,7 +393,7 @@ export class AgendaPage {
       <div class="agenda-mine-scroll">
         <div class="agenda-mine-matrix ${isMonth ? 'agenda-mine-matrix--month' : ''}" style="--mine-days: ${dates.length}">
           <div class="agenda-mine-matrix-head">
-            <span class="agenda-mine-matrix-corner">Local</span>
+            <span class="agenda-mine-matrix-corner">BUREAUX</span>
             <span class="agenda-mine-matrix-option">Option</span>
             ${dates.map(iso => {
               const date = parseISODate(iso);
@@ -354,10 +405,10 @@ export class AgendaPage {
             }).join('')}
             <span class="agenda-mine-matrix-actions-head"></span>
           </div>
-          ${rooms.map((room, roomIndex) => rowDefs.map((row, rowIndex) => `
+          ${uniqueRooms.map((room, roomIndex) => rowDefs.map((row, rowIndex) => `
             <div class="agenda-mine-matrix-row ${rowIndex === 0 ? 'is-room-start' : ''} ${rowIndex === rowDefs.length - 1 ? 'is-room-end' : ''} ${row.sectionBreak ? 'is-section-break' : ''} ${roomIndex > 0 && rowIndex === 0 ? 'is-room-separator' : ''}">
               ${rowIndex === 0
-                ? `<span class="agenda-mine-matrix-room${roomIndex > 0 ? ' is-not-first' : ''}">${escapeHtml(room.name)}${room.building_name ? `<small>${escapeHtml(room.building_name)}</small>` : ''}</span>`
+                ? `<span class="agenda-mine-matrix-room${roomIndex > 0 ? ' is-not-first' : ''}">${escapeHtml(this._getShortRoomName(room.name))}</span>`
                 : ''}
               <span class="agenda-mine-matrix-label">${row.label}</span>
               ${dates.map(iso => {
@@ -453,7 +504,12 @@ export class AgendaPage {
 
   _planningBody(days) {
     const dates = this._mineGridDates();
-    const people = this._peopleList();
+    let people = this._peopleList();
+    // Filtre par nom
+    if (this.searchQuery) {
+      const q = this.searchQuery.toLowerCase();
+      people = people.filter(p => p.name.toLowerCase().includes(q));
+    }
     const dayByIso = new Map(days.map(day => [day.date, day]));
     const today = toISODate(new Date());
     const isMonth = this.view === 'month';
@@ -467,30 +523,39 @@ export class AgendaPage {
       <thead>
         <tr>
           <th class="agenda-room-head agenda-corner" rowspan="2" scope="col">Personne</th>
-          ${dates.map(iso => {
+          ${dates.map((iso, di) => {
             const dayDate = parseISODate(iso);
             const known = dayByIso.has(iso);
-            return `<th class="agenda-day-head ${iso === today ? 'is-today' : ''}" colspan="2" scope="col" ${known ? `data-day="${iso}"` : ''} title="${escapeHtml(formatDayLabel(iso))}">
+            return `<th class="agenda-day-head ${iso === today ? 'is-today' : ''} ${di === dates.length - 1 ? 'agenda-day-last' : ''}" colspan="2" scope="col" ${known ? `data-day="${iso}"` : ''} title="${escapeHtml(formatDayLabel(iso))}">
               <span class="agenda-day-name">${DAY_LABELS_SHORT[(dayDate.getDay() + 6) % 7]}</span>
               <span class="agenda-day-num">${dayDate.getDate()}</span>
             </th>`;
           }).join('')}
         </tr>
         <tr>
-          ${dates.map(() => '<th class="agenda-half-subhead" scope="col">Matin</th><th class="agenda-half-subhead" scope="col">Après-midi</th>').join('')}
+          ${dates.map(() => '<th class="agenda-half-subhead" scope="col">Matin</th><th class="agenda-half-subhead agenda-half-last" scope="col">Après-midi</th>').join('')}
         </tr>
       </thead>`;
 
-    const rows = people.map(person => `
-      <tr>
-        <th class="agenda-room-head agenda-person-head" scope="row" title="${escapeHtml(SOURCE_BADGES[person.type] || person.type)}">
+    const sections = this._planningSections(people);
+    const totalColumns = 1 + dates.length * 2;
+    const rows = sections.map((section, idx) => `
+      <tr class="agenda-group-row agenda-section-${idx % 2 === 0 ? 'even' : 'odd'}">
+        <th class="agenda-group-head" colspan="${totalColumns}" scope="colgroup" style="--agenda-group-depth: ${section.depth}">
+          <span class="agenda-group-label">${escapeHtml(section.label)}</span>
+          <span class="agenda-group-count">${section.people.length}</span>
+        </th>
+      </tr>
+      ${section.people.map(person => `
+      <tr class="agenda-section-${idx % 2 === 0 ? 'even' : 'odd'} agenda-person-row" data-person-key="${escapeHtml(person.key)}" style="cursor: pointer;">
+        <th class="agenda-room-head agenda-person-head" scope="row" title="${escapeHtml(person.meta)}">
           <span class="agenda-room-name">${escapeHtml(person.name)}${person.isMine ? ' (moi)' : ''}</span>
-          <span class="agenda-room-meta">${escapeHtml(SOURCE_BADGES[person.type] || person.type)}</span>
+          <span class="agenda-room-meta">${escapeHtml(person.meta)}</span>
         </th>
         ${dates.map(iso => ['morning', 'afternoon']
           .map(half => this._personCellHtml(person, iso, half, canManage, isMonth))
           .join('')).join('')}
-      </tr>`).join('');
+      </tr>`).join('')}`).join('');
 
     return `
       <div class="agenda-scroll">
@@ -499,6 +564,40 @@ export class AgendaPage {
           <tbody>${rows}</tbody>
         </table>
       </div>`;
+  }
+
+  // Catégories du planning : groupes dans l'ordre reçu (arbre puis
+  // alphabétique), libellé = description du groupe, puis "Autres".
+  _planningSections(people) {
+    const groups = this.data?.planning_groups || [];
+    const byGroup = new Map();
+    for (const person of people) {
+      if (person.groupId == null) continue;
+      if (!byGroup.has(person.groupId)) byGroup.set(person.groupId, []);
+      byGroup.get(person.groupId).push(person);
+    }
+
+    const sections = [];
+    const handled = new Set();
+    for (const group of groups) {
+      if (handled.has(group.id)) continue;
+      handled.add(group.id);
+      const members = byGroup.get(group.id);
+      if (!members || !members.length) continue;
+      byGroup.delete(group.id);
+      sections.push({
+        label: group.description || group.name,
+        depth: group.depth || 0,
+        people: members,
+      });
+    }
+
+    // Personnes sans groupe ou dont le groupe n'est plus cochée.
+    const others = people.filter(person => person.groupId == null || byGroup.has(person.groupId));
+    if (others.length) {
+      sections.push({ label: 'Autres', depth: 0, people: others });
+    }
+    return sections;
   }
 
   _personCellHtml(person, iso, half, canManage, isMonth) {
@@ -533,25 +632,57 @@ export class AgendaPage {
   }
 
   _peopleList() {
-    const byNormName = new Map();
+    const byKey = new Map();
+    const usersByCanon = new Map();
+    // Clé de nom fusionnable : sans accents ni casse, mots triés, pour que
+    // "Prénom Nom" (présences utilisateur) et "NOM Prénom" (occupation,
+    // volontariat, groupes) désignent la même personne.
+    const canonName = name => String(name ?? '')
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase()
+      .split(/[^\p{L}\p{N}]+/u)
+      .filter(Boolean)
+      .sort()
+      .join(' ');
+    const nameKey = name => canonName(name) || this._normalizePersonName(name);
+    // Une seule ligne par personne : les utilisateurs sont rapprochés par
+    // identifiant, les autres types (occupation, volontariat, externe) par
+    // nom fusionnable.
+    const personKey = (type, personId, name) =>
+      type === 'user' && personId != null
+        ? `user:${personId}`
+        : `name:${nameKey(name)}`;
+    const rememberUser = (row, name) => {
+      const canon = canonName(name);
+      if (canon && !usersByCanon.has(canon)) usersByCanon.set(canon, row);
+    };
     const ensure = (type, personId, name, isMine, date, roomId, period, presence) => {
-      const norm = this._normalizePersonName(name);
-      const existing = byNormName.get(norm);
+      const key = personKey(type, personId, name);
+      const existing = byKey.get(key);
       if (existing) {
         existing.presences.push({ date, roomId, period, presence });
         if (isMine) existing.isMine = true;
         existing.sourceTypes.add(type);
         return;
       }
-      byNormName.set(norm, {
-        normName: norm,
+      // Parse "Prénom Nom" -> lastName, firstName
+      const parts = name.trim().split(/\s+/);
+      const firstName = parts.length > 1 ? parts.slice(0, -1).join(' ') : '';
+      const lastName = parts.length > 0 ? parts[parts.length - 1] : name;
+      const row = {
+        normName: canonName(name),
         displayName: name,
         type: type === 'user' ? 'user' : type,
         personId: personId ?? null,
         isMine: isMine || false,
+        lastName,
+        firstName,
         sourceTypes: new Set([type]),
         presences: [{ date, roomId, period, presence }],
-      });
+      };
+      byKey.set(key, row);
+      if (row.type === 'user' && row.personId != null) rememberUser(row, name);
     };
     for (const day of this.data?.days || []) {
       for (const counter of day.rooms || []) {
@@ -565,14 +696,65 @@ export class AgendaPage {
           day.date, presence.room_id ?? null, presence.period || 'full', presence);
       }
     }
-    const people = [...byNormName.values()]
-      .sort((a, b) => a.displayName.localeCompare(b.displayName, 'fr'))
+    // Membres des groupes cochés dans les paramètres du module : lignes
+    // affichées même sans présence renseignée, rattachées à leur catégorie.
+    const currentUserId = authStore.currentUser?.id;
+    for (const member of this.data?.planning_people || []) {
+      const groupId = member.group_id ?? null;
+      const key = personKey('user', member.person_id, member.name);
+      const existing = byKey.get(key);
+      if (existing) {
+        // Une seule ligne par personne : rattachée au premier groupe.
+        if (existing.groupId == null && groupId != null) existing.groupId = groupId;
+        // Mettre à jour lastName/firstName avec les valeurs fiables du backend
+        if (member.last_name != null) existing.lastName = member.last_name;
+        if (member.first_name != null) existing.firstName = member.first_name;
+        if (member.name) existing.displayName = member.name;
+        if (member.person_id === currentUserId) existing.isMine = true;
+        continue;
+      }
+      const row = {
+        normName: canonName(member.name),
+        displayName: member.name,
+        type: 'user',
+        personId: member.person_id ?? null,
+        isMine: member.person_id === currentUserId,
+        groupId,
+        lastName: member.last_name ?? '',
+        firstName: member.first_name ?? '',
+        sourceTypes: new Set(['group']),
+        presences: [],
+      };
+      byKey.set(key, row);
+      rememberUser(row, member.name);
+    }
+    // Doublons de nom/prénom : les lignes d'occupation, de volontariat ou
+    // externes portant le même nom qu'un utilisateur sont fusionnées dans sa
+    // ligne (les présences suivent la personne, pas la catégorie d'origine).
+    for (const [key, row] of [...byKey.entries()]) {
+      if (key.startsWith('user:')) continue;
+      const target = usersByCanon.get(row.normName);
+      if (!target || target === row) continue;
+      target.presences.push(...row.presences);
+      if (row.isMine) target.isMine = true;
+      for (const source of row.sourceTypes) target.sourceTypes.add(source);
+      if (target.groupId == null && row.groupId != null) target.groupId = row.groupId;
+      byKey.delete(key);
+    }
+    const people = [...byKey.values()]
+      .sort((a, b) => {
+        const lnA = (a.lastName || '').localeCompare(b.lastName || '', 'fr');
+        if (lnA !== 0) return lnA;
+        return (a.firstName || '').localeCompare(b.firstName || '', 'fr');
+      })
       .map(p => ({
         key: `${p.type}:${p.personId ?? p.displayName}`,
         name: p.displayName,
         type: p.type,
         personId: p.personId,
         isMine: p.isMine,
+        groupId: p.groupId ?? null,
+        meta: p.presences.length ? (SOURCE_BADGES[p.type] || p.type) : 'groupe',
         sourceTypes: p.sourceTypes,
         presences: p.presences,
       }));
@@ -581,6 +763,13 @@ export class AgendaPage {
 
   _normalizePersonName(name) {
     return String(name ?? '').toLowerCase().trim().replace(/\s+/g, ' ');
+  }
+
+  _getShortRoomName(name) {
+    if (!name) return '';
+    // Prendre seulement la première partie avant " - " ou le premier mot
+    const parts = name.split(' - ');
+    return parts[0].trim().split(/\s+/)[0];
   }
 
   _presenceCovering(person, iso, half) {
@@ -829,6 +1018,230 @@ export class AgendaPage {
     if (!person || !this.editCell) return null;
     const { date, half } = this.editCell;
     return { person, date, half, entry: this._presenceCovering(person, date, half) };
+  }
+
+  _personWeekModalHtml(rooms) {
+    const { person } = this.personWeekModal;
+    const dates = this._mineGridDates();
+    const today = toISODate(new Date());
+    const canManage = authStore.hasPermission('agenda.manage');
+    const editable = this._canEditPerson(person, canManage);
+
+    // Récupérer les présences actuelles de cette personne pour la semaine
+    const presencesByDate = {};
+    for (const day of this.data?.days || []) {
+      for (const counter of day.rooms || []) {
+        for (const p of counter.presences || []) {
+          const pKey = p.person_type === 'user' && p.person_id != null
+            ? `user:${p.person_id}`
+            : `name:${this._normalizePersonName(p.person_name)}`;
+          if (pKey === person.key) {
+            if (!presencesByDate[day.date]) presencesByDate[day.date] = [];
+            presencesByDate[day.date].push({ ...p, roomId: counter.room_id, roomName: counter.name || '' });
+          }
+        }
+      }
+      for (const p of day.integrated || []) {
+        const pKey = p.person_type === 'user' && p.person_id != null
+          ? `user:${p.person_id}`
+          : `name:${this._normalizePersonName(p.person_name)}`;
+        if (pKey === person.key) {
+          if (!presencesByDate[day.date]) presencesByDate[day.date] = [];
+          presencesByDate[day.date].push({ ...p, roomId: p.room_id, roomName: '' });
+        }
+      }
+    }
+
+    return `
+      <div class="modal-overlay open agenda-person-week-overlay" data-action="close-person-week">
+        <div class="modal open agenda-person-week-modal" role="dialog" aria-modal="true" aria-label="Planning de ${escapeHtml(person.name)}">
+          <div class="modal-content agenda-person-week-content">
+            <div class="modal-header agenda-person-week-header">
+              <div class="agenda-person-week-header-text">
+                <span class="agenda-eyebrow">PLANNING SEMAINE</span>
+                <h2>${escapeHtml(person.name)}</h2>
+                <p class="agenda-person-week-meta">${escapeHtml(person.meta)}</p>
+              </div>
+              <button type="button" class="modal-close" data-action="close-person-week" aria-label="Fermer">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+              </button>
+            </div>
+            <div class="modal-body agenda-person-week-body">
+              ${editable ? `
+                <div class="agenda-person-week-grid" style="--week-days: ${dates.length}">
+                  <div class="agenda-person-week-head">
+                    <span class="agenda-person-week-corner">Local</span>
+                    <span class="agenda-person-week-option">Option</span>
+                    ${dates.map(iso => {
+                      const date = parseISODate(iso);
+                      return `
+                        <span class="agenda-person-week-day ${iso === today ? 'is-today' : ''}">
+                          <span class="agenda-person-week-day-name">${DAY_LABELS_SHORT[date.getDay() === 0 ? 6 : date.getDay() - 1]}</span>
+                          <span class="agenda-person-week-day-num">${date.getDate()}</span>
+                        </span>`;
+                    }).join('')}
+                  </div>
+                  ${rooms.map((room, roomIndex) => `
+                    <div class="agenda-person-week-room-row ${roomIndex === 0 ? 'is-first' : ''}">
+                      <span class="agenda-person-week-room">${escapeHtml(room.name)}${room.building_name ? `<small>${escapeHtml(room.building_name)}</small>` : ''}</span>
+                      ${['morning', 'meal', 'afternoon'].map((field, fieldIndex) => {
+                        const fieldLabels = { morning: 'Matin', meal: 'Repas', afternoon: 'Après-midi' };
+                        const dayPresences = dates.map(iso => {
+                          const dayData = presencesByDate[iso] || [];
+                          const roomPresence = dayData.find(p => p.roomId === room.id);
+                          const period = roomPresence?.period || 'full';
+                          let on = false;
+                          let enabled = !!roomPresence;
+                          if (field === 'morning') on = period === 'morning' || period === 'full';
+                          else if (field === 'afternoon') on = period === 'afternoon' || period === 'full';
+                          else if (field === 'meal') on = roomPresence?.needs_meal === true;
+                          const inMonth = (this.data?.days || []).some(d => d.date === iso);
+                          if (!inMonth) enabled = false;
+                          return `
+                            <button type="button" class="agenda-person-week-cell ${on ? 'is-on' : ''} ${field === 'meal' ? 'agenda-person-week-cell--meal' : ''} ${!enabled ? 'disabled' : ''}"
+                              data-week-person="${escapeHtml(person.key)}" data-week-date="${iso}" data-week-room="${room.id}" data-week-field="${field}"
+                              aria-pressed="${on}" ${enabled ? '' : 'disabled'}
+                              aria-label="${fieldLabels[field]} — ${escapeHtml(formatDayLabel(iso))} — ${escapeHtml(room.name)}"
+                              title="${enabled ? fieldLabels[field] : 'Hors période'}"></button>`;
+                        }).join('');
+                        return `
+                          <div class="agenda-person-week-field-row ${fieldIndex === 1 ? 'is-meal-row' : ''}">
+                            <span class="agenda-person-week-field-label">${fieldLabels[field]}</span>
+                            ${dayPresences}
+                          </div>`;
+                      }).join('')}
+                    </div>
+                  `).join('')}
+                </div>
+              ` : `
+                <p class="agenda-none">Lecture seule : vous n'avez pas la permission de modifier cette personne.</p>
+              `}
+            </div>
+            <div class="modal-footer agenda-person-week-footer">
+              <button class="btn btn-secondary" type="button" data-action="close-person-week">Fermer</button>
+            </div>
+          </div>
+        </div>
+      </div>`;
+  }
+
+  _bindPersonWeekModal() {
+    const overlay = this.element.querySelector('.agenda-person-week-overlay');
+    overlay?.addEventListener('click', event => {
+      if (event.target === overlay) {
+        this.personWeekModal = null;
+        this.renderState();
+      }
+    });
+    this.element.querySelectorAll('[data-action="close-person-week"]').forEach(el => {
+      el.addEventListener('click', () => {
+        this.personWeekModal = null;
+        this.renderState();
+      });
+    });
+    // Gestion des clics sur les cellules (toggle matin/après-midi/repas)
+    this.element.querySelectorAll('[data-week-person]').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        if (btn.disabled) return;
+        const personKey = btn.dataset.weekPerson;
+        const date = btn.dataset.weekDate;
+        const roomId = Number(btn.dataset.weekRoom);
+        const field = btn.dataset.weekField;
+        const person = this._peopleList().find(p => p.key === personKey);
+        if (!person) return;
+
+        // Trouver la présence existante pour ce jour/local
+        const dayData = (this.data?.days || []).find(d => d.date === date);
+        let existingPresence = null;
+        if (dayData) {
+          for (const counter of dayData.rooms || []) {
+            if (counter.room_id === roomId) {
+              const p = (counter.presences || []).find(pres => {
+                const pKey = pres.person_type === 'user' && pres.person_id != null
+                  ? `user:${pres.person_id}`
+                  : `name:${this._normalizePersonName(pres.person_name)}`;
+                return pKey === personKey;
+              });
+              if (p) existingPresence = p;
+              break;
+            }
+          }
+          if (!existingPresence) {
+            for (const p of dayData.integrated || []) {
+              const pKey = p.person_type === 'user' && p.person_id != null
+                ? `user:${p.person_id}`
+                : `name:${this._normalizePersonName(p.person_name)}`;
+              if (pKey === personKey && p.room_id === roomId) {
+                existingPresence = p;
+                break;
+              }
+            }
+          }
+        }
+
+        try {
+          if (field === 'meal') {
+            // Toggle repas
+            if (existingPresence && existingPresence.presence?.id != null) {
+              await updatePresence(existingPresence.presence.id, { needs_meal: !existingPresence.needs_meal });
+            } else if (existingPresence && existingPresence.presence?.id == null) {
+              // Présence dérivée (occupation) -> créer une inscription
+              await createExternalPresence({
+                presence_date: date,
+                room_id: roomId,
+                external_name: person.name,
+                needs_workstation: existingPresence.needs_workstation || false,
+                needs_meal: true,
+                period: 'full',
+              });
+            }
+          } else {
+            // Toggle matin/après-midi
+            const isOn = btn.classList.contains('is-on');
+            if (isOn) {
+              // Retirer la présence pour cette demi-journée
+              if (existingPresence && existingPresence.presence?.id != null) {
+                const period = existingPresence.period || 'full';
+                if (period === 'full') {
+                  // Passer à l'autre demi-journée
+                  const otherHalf = field === 'morning' ? 'afternoon' : 'morning';
+                  await updatePresence(existingPresence.presence.id, { period: otherHalf });
+                } else if (period === field) {
+                  // Retirer complètement
+                  if (person.type === 'user' && person.isMine) {
+                    await upsertMyPresence({ presence_date: date, room_id: roomId, is_present: false });
+                  } else {
+                    await deletePresence(existingPresence.presence.id);
+                  }
+                }
+              } else if (existingPresence && existingPresence.presence?.id == null) {
+                // Présence dérivée -> ne rien faire (pas de présence à modifier)
+              }
+            } else {
+              // Ajouter la présence pour cette demi-journée
+              if (existingPresence && existingPresence.presence?.id != null) {
+                const period = existingPresence.period || 'full';
+                if (period === 'full') {
+                  // Déjà full, rien à faire
+                } else if (period !== field) {
+                  // Étendre à full
+                  await updatePresence(existingPresence.presence.id, { period: 'full' });
+                }
+              } else {
+                // Créer nouvelle présence
+                await this._createPersonPresence(person, { date, roomId, half: field, needsWorkstation: false, needsMeal: false });
+              }
+            }
+          }
+          await this.loadPlanning();
+          this.renderState();
+          this._toast('Planning mis à jour', 'success');
+        } catch (error) {
+          console.error('[agenda] person week modal error:', error);
+          this._toast(error.message || 'Erreur', 'error');
+        }
+      });
+    });
   }
 
   async _createPersonPresence(person, { date, roomId, half, needsWorkstation, needsMeal }) {
@@ -1203,6 +1616,21 @@ export class AgendaPage {
     }
   }
 
+  async _initSettingsTab() {
+    const container = this.element.querySelector('#agenda-settings-content');
+    if (!container) return;
+    try {
+      const { createAgendaSettingsPage } = await import('../pages/AgendaSettingsPage.js?v=3');
+      const settingsPage = createAgendaSettingsPage(this.router);
+      await settingsPage.initialize();
+      container.innerHTML = '';
+      container.appendChild(settingsPage.render());
+    } catch (error) {
+      console.error('[agenda] Erreur initialisation paramètres:', error);
+      container.innerHTML = '<p class="agenda-none">Erreur de chargement des paramètres</p>';
+    }
+  }
+
   _bindCommon() {
     this.element.querySelector('[data-action="retry"]')?.addEventListener('click', async () => {
       await this.loadPlanning();
@@ -1310,7 +1738,8 @@ export class AgendaPage {
       });
     });
     this.element.querySelectorAll('[data-cell-person]').forEach(btn => {
-      btn.addEventListener('click', () => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
         if (btn.disabled) return;
         this.editCell = {
           key: btn.dataset.cellPerson,
@@ -1320,9 +1749,45 @@ export class AgendaPage {
         this.renderState();
       });
     });
+    // Clic sur une ligne de personne -> ouvrir modal semaine
+    this.element.querySelectorAll('.agenda-person-row').forEach(row => {
+      row.addEventListener('click', (e) => {
+        // Ne pas déclencher si on clique sur un bouton dans la ligne
+        if (e.target.closest('button')) return;
+        const personKey = row.dataset.personKey;
+        if (personKey) {
+          const person = this._peopleList().find(p => p.key === personKey);
+          if (person) {
+            this.personWeekModal = { personKey, person };
+            this.renderState();
+          }
+        }
+      });
+    });
     this.element.querySelector('[data-action="add-person-to-planning"]')?.addEventListener('click', () => {
       this.addPersonOpen = true;
       this.renderState();
+    });
+    // Onglets
+    this.element.querySelectorAll('[data-tab]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const tab = btn.dataset.tab;
+        if (tab !== this.activeTab) {
+          this.activeTab = tab;
+          const newPath = tab === 'inscriptions' ? '/agenda/inscriptions' : (tab === 'settings' ? '/agenda/settings' : '/agenda');
+          this.router.navigate(newPath);
+        }
+      });
+    });
+    // Recherche
+    const searchInput = this.element.querySelector('.agenda-search');
+    searchInput?.addEventListener('input', (e) => {
+      this.searchQuery = e.target.value;
+      this.renderState();
+    });
+    searchInput?.addEventListener('keydown', (e) => {
+      // Empêcher la soumission du formulaire si dans un form
+      if (e.key === 'Enter') e.preventDefault();
     });
   }
 

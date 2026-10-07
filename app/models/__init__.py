@@ -25,6 +25,7 @@ from app.models.maintenance import (
 )
 from app.models.rbac import (
     Group,
+    GroupGroup,
     GroupRole,
     Permission,
     PermissionModel,
@@ -36,6 +37,21 @@ from app.models.rbac import (
 from app.models.user import User, UserRole
 from app.models.volunteer import Volunteer
 from app.models.notification import Notification, NotificationPushSubscription
+from app.models.photo import (
+    Photo,
+    PhotoAlbum,
+    PhotoAlbumItem,
+    PhotoAnalysis,
+    PhotoEdit,
+    PhotoFace,
+    PhotoJob,
+    PhotoPerson,
+    PhotoPlace,
+    PhotoScanRun,
+    PhotoTag,
+    PhotoTagLink,
+    PhotoThumbnail,
+)
 from app.models.sport import (SportActivity, SportActivityAnalysis, SportAgentExecution, SportAnalysis, SportAthlete, SportAthleteObservation,
                                SportCoachConversation, SportCoachMessage, SportGarminConnection,
                                SportGarminSyncLog, SportGoal, SportHealthDaily, SportRecommendation, SportTrackPoint)
@@ -67,6 +83,7 @@ __all__ = [
     "Equipment",
     "EquipmentType",
     "Group",
+    "GroupGroup",
     "GroupRole",
     "Housing",
     "HousingStatusHistory",
@@ -96,6 +113,19 @@ __all__ = [
     "EmailLog",
     "Permission",
     "PermissionModel",
+    "Photo",
+    "PhotoAlbum",
+    "PhotoAlbumItem",
+    "PhotoAnalysis",
+    "PhotoEdit",
+    "PhotoFace",
+    "PhotoJob",
+    "PhotoPerson",
+    "PhotoPlace",
+    "PhotoScanRun",
+    "PhotoTag",
+    "PhotoTagLink",
+    "PhotoThumbnail",
     "Role",
     "RolePermission",
     "Room",

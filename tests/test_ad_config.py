@@ -158,3 +158,94 @@ async def test_create_ad_config_persists_group_search_filter(client, admin_heade
     get_resp = await client.get(f"/auth/ad-configs/{data['id']}", headers=admin_headers)
     assert get_resp.status_code == 200
     assert get_resp.json()["group_search_filter"] == custom_filter
+
+
+@pytest.mark.asyncio
+async def test_mapping_link_removed_on_disable_and_delete(client, admin_headers, db_session):
+    """Désactiver ou supprimer un mapping retire le lien group_roles."""
+    from sqlalchemy import select
+
+    from app.models.rbac import Group, GroupRole
+
+    role_resp = await client.post(
+        "/admin/users/roles",
+        headers=admin_headers,
+        json={"name": "Mapping Link Role"},
+    )
+    assert role_resp.status_code == 201
+    role_code = role_resp.json()["code"]
+
+    config_resp = await client.post(
+        "/auth/ad-configs",
+        headers=admin_headers,
+        json={
+            "name": "Config Link Cleanup",
+            "is_default": False,
+            "server": "ad.example.com",
+            "port": 636,
+            "base_dn": "DC=example,DC=com",
+            "bind_user": "CN=svc,DC=example,DC=com",
+            "bind_password": "pwd",
+        },
+    )
+    assert config_resp.status_code == 201, config_resp.text
+    config_id = config_resp.json()["id"]
+
+    group_dn = "CN=GG_LINK_CLEANUP,OU=Groups,DC=example,DC=com"
+    group = Group(
+        code="ad_gg_link_cleanup",
+        name="GG_LINK_CLEANUP",
+        ad_dn=group_dn,
+        ad_config_id=config_id,
+        source="ad",
+        is_active=True,
+    )
+    db_session.add(group)
+    await db_session.commit()
+    await db_session.refresh(group)
+    group_id = group.id
+
+    async def link_exists():
+        result = await db_session.execute(
+            select(GroupRole).where(GroupRole.group_id == group_id)
+        )
+        return result.scalar_one_or_none() is not None
+
+    mapping_resp = await client.post(
+        f"/auth/ad-configs/{config_id}/mappings",
+        headers=admin_headers,
+        json={
+            "ad_group_cn": "GG_LINK_CLEANUP",
+            "ad_group_dn": group_dn,
+            "role_code": role_code,
+        },
+    )
+    assert mapping_resp.status_code == 201, mapping_resp.text
+    mapping_id = mapping_resp.json()["id"]
+    assert await link_exists(), "un mapping actif doit créer le lien group_roles"
+
+    # Désactivation : le seul mapping du groupe ne doit plus accorder le rôle.
+    patch_resp = await client.patch(
+        f"/auth/ad-configs/{config_id}/mappings/{mapping_id}",
+        headers=admin_headers,
+        json={"is_active": False},
+    )
+    assert patch_resp.status_code == 200, patch_resp.text
+    assert not await link_exists(), "un mapping désactivé doit retirer son lien"
+
+    # Réactivation : le lien revient.
+    patch_resp = await client.patch(
+        f"/auth/ad-configs/{config_id}/mappings/{mapping_id}",
+        headers=admin_headers,
+        json={"is_active": True},
+    )
+    assert patch_resp.status_code == 200, patch_resp.text
+    assert await link_exists(), "un mapping réactivé doit recréer son lien"
+
+    # Suppression : le lien ne doit pas survivre au mapping.
+    del_resp = await client.delete(
+        f"/auth/ad-configs/{config_id}/mappings/{mapping_id}",
+        headers=admin_headers,
+    )
+    assert del_resp.status_code == 200, del_resp.text
+    assert not await link_exists(), "supprimer un mapping doit retirer son lien"

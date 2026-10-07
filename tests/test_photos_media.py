@@ -38,6 +38,15 @@ from app.services.photo.metadata import MetadataError
 pytestmark = pytest.mark.asyncio
 
 
+@pytest.fixture(autouse=True)
+def reset_photo_storage():
+    """Reset the photo storage singleton to pick up the test's PHOTO_STORAGE_PATH."""
+    import app.services.photo.storage as storage_mod
+    storage_mod._storage = None
+    yield
+    storage_mod._storage = None
+
+
 # ================================ Helpers ================================
 
 def make_heic_bytes(width=120, height=80, color=(30, 90, 160)) -> bytes:
@@ -146,7 +155,9 @@ async def _create_video_photo(db_session, filename="VID.mov", mime_type="video/q
     from app.services.photo.storage import get_photo_storage
 
     storage = get_photo_storage()
-    rel = storage.save_original(1, uuid.uuid4().hex, f".{filename.split('.')[-1]}", b"fake-video-content")
+    # Save a fake video file that's actually readable
+    fake_content = b"fake-video-content-for-testing"
+    rel = storage.save_original(1, uuid.uuid4().hex, f".{filename.split('.')[-1]}", fake_content)
 
     photo = Photo(
         owner_id=1,
@@ -155,7 +166,7 @@ async def _create_video_photo(db_session, filename="VID.mov", mime_type="video/q
         storage_path=rel,
         storage_backend="local",
         mime_type=mime_type,
-        byte_size=100,
+        byte_size=len(fake_content),
         content_hash="fakehash",
         taken_at=datetime.now(UTC),
         status="pending",

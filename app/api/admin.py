@@ -9,6 +9,7 @@ from sqlalchemy.orm import selectinload
 
 from app.api.deps import require_permission
 from app.db.session import get_db
+from app.models.ad_integration import ADGroupMapping
 from app.models.module import Module, ModuleConfig
 from app.models.rbac import Group, PermissionModel
 from app.models.user import User, UserRole
@@ -27,6 +28,7 @@ from app.schemas.admin import (
     GroupListParams,
     GroupListResponse,
     GroupResponse,
+    GroupSummaryResponse,
     GroupUpdate,
     GroupUserAssign,
     GroupRoleAssign,
@@ -944,6 +946,40 @@ async def list_roles(
         )
         for role in roles
     ]
+
+    # La colonne « Groupes » reflète aussi les mappings AD actifs de
+    # l'onglet Active Directory, y compris lorsqu'un groupe AD n'existe
+    # pas (encore) en base : sans cela, un mapping vers un groupe
+    # absent resterait invisible côté Rôles.
+    active_mappings = (
+        await db.execute(
+            select(ADGroupMapping).where(
+                ADGroupMapping.is_active.is_(True)
+            )
+        )
+    ).scalars().all()
+
+    mapped_names: dict[str, list[str]] = {}
+    for mapping in active_mappings:
+        mapped_names.setdefault(mapping.role_code, []).append(
+            mapping.ad_group_cn
+        )
+
+    for role_response in role_responses:
+        shown = {group.name for group in role_response.groups}
+        for group_name in mapped_names.get(role_response.code, []):
+            if group_name in shown:
+                continue
+            role_response.groups.append(
+                GroupSummaryResponse(
+                    id=None,
+                    code=group_name,
+                    name=group_name,
+                    source="ad",
+                    is_active=True,
+                )
+            )
+            shown.add(group_name)
 
     total_pages = (
         (total + params.page_size - 1)

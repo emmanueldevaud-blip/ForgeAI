@@ -5,6 +5,23 @@ import os
 # Le comportement du quota est vérifié dans tests/test_security_fixes.py.
 os.environ["RATE_LIMIT_ENABLED"] = "false"
 
+# Module Photos : stockage dans un dossier temporaire de session, jobs
+# d'arrière-plan traités explicitement par les tests (pas de boucle ni de
+# BackgroundTasks qui ouvrirait une session hors du conteneur de test).
+import tempfile
+
+os.environ.setdefault(
+    "PHOTO_STORAGE_PATH", tempfile.mkdtemp(prefix="forgeai-photos-test-")
+)
+os.environ["PHOTO_BACKGROUND_JOBS"] = "false"
+os.environ["PHOTO_AI_SEARCH_ENABLED"] = "false"
+
+# Backend des originaux : les tests ne doivent jamais dépendre de
+# PHOTO_STORAGE_BACKEND du .env local (nas en dev). Les tests qui
+# veulent le NAS le configurent explicitement (configure_storage).
+# Une variable d'environnement réelle prime sur le .env de pydantic.
+os.environ["PHOTO_STORAGE_BACKEND"] = "local"
+
 import pytest
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import select

@@ -10,11 +10,15 @@ from sqlalchemy.orm import selectinload
 from app.models.agenda import AgendaPresence
 from app.models.buildings import Building, Room, UsageType
 from app.models.housing import Cleaning, Occupancy, Occupant
+from app.models.module import Module
+from app.models.rbac import Group, GroupGroup, UserGroup
 from app.models.user import User
 from app.models.volunteer import Volunteer
 from app.schemas.agenda import (
     AgendaDayResponse,
     AgendaExternalPresenceCreate,
+    AgendaPlanningGroup,
+    AgendaPlanningPerson,
     AgendaPlanningResponse,
     AgendaPresenceItem,
     AgendaPresenceResponse,
@@ -26,6 +30,18 @@ from app.schemas.agenda import (
 BUREAU_USAGE_CODES = ("BUREAUX", "BUREAU")
 CLEANING_ACTIVE_STATUSES = ("planned", "in_progress", "to_check", "checked", "completed")
 OCCUPANCY_PRESENT_STATUSES = ("confirmed", "in_progress")
+
+# Ordre d'affichage souhaité pour les groupes du planning.
+# Les groupes racines sont triés selon cette liste ; les groupes absents
+# de la liste sont placés après, dans leur ordre de sauvegarde.
+PLANNING_GROUP_ORDER = [
+    "structure",
+    "ede",
+    "jwcad",
+    "intendance",
+    "maintenance",
+    "autres",
+]
 
 
 def _periods_overlap(left: str, right: str) -> bool:
@@ -111,6 +127,148 @@ class AgendaService:
             select(Room.id, Room.workstation_capacity).where(Room.id.in_(room_ids))
         )
         return {row[0]: row[1] or 0 for row in result.all()}
+
+    async def _get_planning_group_ids(self) -> List[int]:
+        """Retrieve planning_group_ids from module settings."""
+        result = await self.db.execute(
+            select(Module).where(Module.code == "agenda")
+        )
+        module = result.scalar_one_or_none()
+        if not module:
+            return []
+        return (module.settings or {}).get("planning_group_ids", [])
+
+    async def _get_planning_groups(self) -> List[AgendaPlanningGroup]:
+        """Fetch selected groups ordered by tree (parent before child)."""
+        group_ids = await self._get_planning_group_ids()
+        if not group_ids:
+            return []
+
+        # Fetch all selected groups
+        result = await self.db.execute(
+            select(Group).where(Group.id.in_(group_ids))
+        )
+        groups = {g.id: g for g in result.scalars().all()}
+
+        # Fetch parent-child relationships among selected groups
+        gg_result = await self.db.execute(
+            select(GroupGroup).where(
+                GroupGroup.parent_group_id.in_(group_ids),
+                GroupGroup.child_group_id.in_(group_ids),
+            )
+        )
+        relationships = gg_result.scalars().all()
+
+        # Build children map: parent_id -> [child_id, ...]
+        children: Dict[int, List[int]] = defaultdict(list)
+        has_parent: set[int] = set()
+        for rel in relationships:
+            children[rel.parent_group_id].append(rel.child_group_id)
+            has_parent.add(rel.child_group_id)
+
+        # Find roots: groups without a parent among selected groups
+        roots = [gid for gid in group_ids if gid not in has_parent]
+
+        # Sort roots by preferred display order (Structure, EDE, JWCAD, ...)
+        def _preferred_key(gid: int) -> tuple[int, str]:
+            g = groups[gid]
+            label = (g.description or g.name or "").lower()
+            for idx, preferred in enumerate(PLANNING_GROUP_ORDER):
+                if preferred in label:
+                    return (idx, label)
+            return (len(PLANNING_GROUP_ORDER), label)
+
+        roots.sort(key=_preferred_key)
+
+        # DFS to order groups (parent before children)
+        ordered: List[tuple[int, int, Optional[int]]] = []  # (group_id, depth, parent_id)
+        visited: set[int] = set()
+
+        def dfs(gid: int, depth: int, parent_id: Optional[int]) -> None:
+            if gid in visited or gid not in groups:
+                return
+            visited.add(gid)
+            ordered.append((gid, depth, parent_id))
+            for child_id in children.get(gid, []):
+                dfs(child_id, depth + 1, gid)
+
+        for root_id in roots:
+            dfs(root_id, 0, None)
+
+        # Add any remaining groups not reached by DFS (no relationships)
+        for gid in group_ids:
+            if gid not in visited and gid in groups:
+                dfs(gid, 0, None)
+
+        return [
+            AgendaPlanningGroup(
+                id=gid,
+                name=groups[gid].name,
+                description=groups[gid].description,
+                depth=depth,
+                parent_id=parent_id,
+            )
+            for gid, depth, parent_id in ordered
+        ]
+
+    async def _get_planning_people(self) -> List[AgendaPlanningPerson]:
+        """Fetch members of selected groups with group assignment."""
+        planning_groups = await self._get_planning_groups()
+        if not planning_groups:
+            return []
+
+        group_ids = [g.id for g in planning_groups]
+        group_id_set = set(group_ids)
+
+        # Map: group_id -> position in ordered list (for first-group assignment)
+        group_order: Dict[int, int] = {gid: idx for idx, gid in enumerate(group_ids)}
+
+        # Fetch user-group memberships for selected groups
+        ug_result = await self.db.execute(
+            select(UserGroup).where(UserGroup.group_id.in_(group_ids))
+        )
+        memberships = ug_result.scalars().all()
+
+        # Group users by user_id -> set of group_ids
+        user_groups: Dict[int, set[int]] = defaultdict(set)
+        for m in memberships:
+            user_groups[m.user_id].add(m.group_id)
+
+        if not user_groups:
+            return []
+
+        # Fetch users
+        user_ids = list(user_groups.keys())
+        u_result = await self.db.execute(
+            select(User).where(User.id.in_(user_ids))
+        )
+        users = {u.id: u for u in u_result.scalars().all()}
+
+        # Build people list: one row per person, assigned to first group in order
+        people: List[AgendaPlanningPerson] = []
+        for user_id, user in users.items():
+            user_group_ids = user_groups.get(user_id, set())
+            # Find the first group in the ordered list
+            assigned_group_id = min(user_group_ids, key=lambda gid: group_order.get(gid, float('inf')))
+            # Format name: "NOM Prénom" (last name uppercase, first name)
+            last_name = user.last_name or ""
+            first_name = user.first_name or ""
+            display_name = f"{last_name.upper()} {first_name}".strip()
+            if not display_name:
+                display_name = user.full_name or user.username
+            people.append(
+                AgendaPlanningPerson(
+                    person_id=user_id,
+                    name=display_name,
+                    group_id=assigned_group_id,
+                    last_name=user.last_name,
+                    first_name=user.first_name,
+                )
+            )
+
+        # Sort by last name then first name
+        people.sort(key=lambda p: ((p.last_name or "").lower(), (p.first_name or "").lower()))
+        return people
 
     # ------------------------------------------------------------
     # Planning
@@ -290,12 +448,17 @@ class AgendaService:
                 )
             )
 
+        planning_groups = await self._get_planning_groups()
+        planning_people = await self._get_planning_people()
+
         return AgendaPlanningResponse(
             view=view,  # type: ignore[arg-type]
             start_date=start,
             end_date=end,
             rooms=rooms,
             days=days,
+            planning_groups=planning_groups,
+            planning_people=planning_people,
         )
 
     async def _cleaning_people(self, start: date, end: date) -> Dict[date, List[AgendaPresenceItem]]:

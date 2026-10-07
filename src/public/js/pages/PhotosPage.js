@@ -8,9 +8,11 @@ import {
   deletePhoto,
   deletePerson,
   editFileUrl,
+  emptyTrash,
   faceCropUrl,
   getPhoto,
   getStorageStatus,
+  hardDeletePhoto,
   listAlbums,
   listPeople,
   listPersonFaces,
@@ -22,7 +24,6 @@ import {
   removePhotoTag,
   reindexPhoto,
   rebuildThumbnails,
-  revertPhoto,
   restorePhoto,
   searchPhotos,
   setPersonCover,
@@ -32,10 +33,27 @@ import {
   updatePerson,
   updatePhoto,
   uploadPhotos,
-} from '../services/photosApi.js?v=4';
+} from '../services/photosApi.js?v=5';
 import { authStore } from '../stores/auth.js';
 
 const PAGE_SIZE = 60;
+
+function dbg(...args) {
+  console.debug('[PHOTOS]', ...args);
+}
+
+// Décrit l'élément qui porte réellement le scroll vertical.
+function describeScroller() {
+  const candidates = [document.scrollingElement, ...document.querySelectorAll('*')];
+  for (const el of candidates) {
+    const style = getComputedStyle(el);
+    if ((style.overflowY === 'auto' || style.overflowY === 'scroll')
+      && el.scrollHeight > el.clientHeight + 50) {
+      return `${el.tagName.toLowerCase()}.${String(el.className || '').split(' ')[0]}`;
+    }
+  }
+  return 'window';
+}
 
 // Suggestions de « Recherche intelligente » (recherche en langage naturel).
 const PHOTO_SEARCH_SUGGESTIONS = [
@@ -137,6 +155,9 @@ export class PhotosPage {
 
   async loadData() {
     this._stopPolling();
+    this._onScroll = this._onScroll.bind(this);
+    window.addEventListener('scroll', this._onScroll, { passive: true });
+    dbg('loadData view=', this.view, 'scrollContainer=', describeScroller());
     try {
       if (this.view === 'albums') {
         await this._loadAlbums();
@@ -147,6 +168,8 @@ export class PhotosPage {
       } else if (this.view === 'places') {
         await this._loadPlaces();
         this._renderCards();
+      } else if (this.view === 'trash') {
+        await this._loadTrash();
       }
       if (this.filter && this.filter.type === 'person') {
         await this._loadPersonFaces();
@@ -162,6 +185,21 @@ export class PhotosPage {
     }
   }
 
+  _onScroll() {
+    const docHeight = document.documentElement.scrollHeight;
+    const scrollPos = window.scrollY + window.innerHeight;
+    const threshold = docHeight - 300;
+    const nearBottom = scrollPos >= threshold;
+    dbg('scroll photos=', this.photos.length, 'loading=', this.loading,
+      'hasMore=', this.hasMore, 'docHeight=', docHeight, 'scrollPos=', scrollPos,
+      'threshold=', threshold, 'nearBottom=', nearBottom);
+    if (this.loading) return;
+    if (nearBottom) {
+      dbg('scroll → loadMore');
+      this._loadMore();
+    }
+  }
+
   destroy() {
     this._stopPolling();
     if (this.observer) {
@@ -171,6 +209,10 @@ export class PhotosPage {
     if (this._onKeydown) {
       document.removeEventListener('keydown', this._onKeydown);
       this._onKeydown = null;
+    }
+    if (this._onScroll) {
+      window.removeEventListener('scroll', this._onScroll);
+      this._onScroll = null;
     }
     if (this.element) this.element.remove();
     this.element = null;
@@ -191,6 +233,13 @@ export class PhotosPage {
   async _loadPlaces() {
     const result = await listPlaces();
     this.places = result.items || [];
+  }
+
+  async _loadTrash() {
+    this.photos = [];
+    this.cursor = null;
+    this.hasMore = true;
+    await this._loadMore();
   }
 
   async _loadPersonFaces() {
@@ -307,6 +356,7 @@ export class PhotosPage {
     const params = { page_size: PAGE_SIZE };
     if (cursor) params.cursor = cursor;
     if (this.view === 'favorites') params.favorite = true;
+    if (this.view === 'trash') params.include_deleted = true;
     if (this.filter) {
       if (this.filter.type === 'album') params.album_id = this.filter.id;
       if (this.filter.type === 'person') params.person_id = this.filter.id;
@@ -316,6 +366,7 @@ export class PhotosPage {
   }
 
   async _resetGrid() {
+    dbg('resetGrid (cursor reset) photos=', this.photos.length, 'cursor=', this.cursor);
     this.photos = [];
     this.cursor = null;
     this.hasMore = true;
@@ -324,7 +375,12 @@ export class PhotosPage {
   }
 
   async _loadMore() {
-    if (this.loading || !this.hasMore) return;
+    dbg('loadMore START photos=', this.photos.length, 'loading=', this.loading,
+      'hasMore=', this.hasMore, 'nextCursor=', this.cursor);
+    if (this.loading || !this.hasMore) {
+      dbg('loadMore skipped (loading=', this.loading, 'hasMore=', this.hasMore, ')');
+      return;
+    }
     this.loading = true;
     try {
       let result;
@@ -337,9 +393,13 @@ export class PhotosPage {
       this.photos = this.photos.concat(items);
       this.cursor = result.next_cursor || null;
       this.hasMore = Boolean(this.cursor);
+      dbg('API returned', items.length, 'total photos=', this.photos.length,
+        'newCursor=', this.cursor, 'hasMore AFTER=', this.hasMore);
       this._renderGrid();
+      this._observeSentinel();
       this._schedulePolling();
     } catch (error) {
+      dbg('loadMore ERROR', error && error.message);
       this._toast(error.message || 'Erreur de chargement', 'error');
     } finally {
       this.loading = false;
@@ -350,20 +410,55 @@ export class PhotosPage {
 
   _schedulePolling() {
     this._stopPolling();
+    // L'analyse IA « pending » peut rester en file d'attente des heures (jobs
+    // d'arrière-plan) : elle ne doit pas maintenir un rafraîchissement
+    // permanent de la grille. Seul un traitement réellement en cours
+    // (import / génération de miniatures / analyse lancée) déclenche le poll.
     const hasPending = this.photos.some(
       (p) => p.status === 'pending'
         || p.status === 'processing'
-        || p.analysis_status === 'pending'
         || p.analysis_status === 'running',
     );
     if (!hasPending) return;
     this.pollHandle = setTimeout(async () => {
       try {
-        const scrollY = window.scrollY;
-        await this._resetGrid();
-        window.scrollTo(0, scrollY);
+        await this._refreshStatuses();
       } catch { /* le prochain cycle réessaiera */ }
     }, 3000);
+  }
+
+  // Rafraîchit les statuts des photos déjà chargées sans reconstituer la
+  // grille : le scroll et les miniatures en cours de chargement sont conservés.
+  async _refreshStatuses() {
+    const pageSize = Math.min(Math.max(this.photos.length, PAGE_SIZE), 500);
+    const params = { ...this._listParams(), page_size: pageSize };
+    const result = this.searchQuery
+      ? await searchPhotos(this.searchQuery, params)
+      : await listPhotos(params);
+    const fresh = result.items || [];
+    const freshById = new Map(fresh.map((p) => [p.id, p]));
+    const loadedIds = new Set(this.photos.map((p) => p.id));
+    if (fresh.some((p) => !loadedIds.has(p.id))) {
+      // Une photo est entrée en tête de liste : reconstruction complète.
+      dbg('refreshStatuses → resetGrid (nouvelle photo en tête)');
+      await this._resetGrid();
+      return;
+    }
+    let changed = false;
+    for (const photo of this.photos) {
+      const next = freshById.get(photo.id);
+      if (!next) continue;
+      if (next.status !== photo.status
+        || next.analysis_status !== photo.analysis_status
+        || next.is_favorite !== photo.is_favorite) {
+        photo.status = next.status;
+        photo.analysis_status = next.analysis_status;
+        photo.is_favorite = next.is_favorite;
+        changed = true;
+      }
+    }
+    if (changed) this._renderGrid();
+    this._schedulePolling();
   }
 
   _stopPolling() {
@@ -383,6 +478,7 @@ export class PhotosPage {
       albums: 'Albums',
       people: 'Personnes',
       places: 'Lieux',
+      trash: 'Corbeille',
     }[this.view] || 'Photos';
   }
 
@@ -393,6 +489,7 @@ export class PhotosPage {
       albums: 'Regrouper vos photos en albums',
       people: 'Personnes reconnues dans vos photos',
       places: 'Lieux extraits des données GPS',
+      trash: 'Photos supprimées (restaurer ou supprimer définitivement)',
     }[this.view] || '';
   }
 
@@ -411,10 +508,12 @@ export class PhotosPage {
       && this._can('photos.upload');
     const showCreate = ['albums', 'people'].includes(this.view);
     const showStorage = this._can('photos.view');
+    const showTrash = this.view === 'trash' && this._can('photos.delete');
     container.innerHTML = `
       ${showUpload ? '<button type="button" class="btn btn-primary" data-action="upload">Importer</button>' : ''}
       ${showCreate ? '<button type="button" class="btn btn-primary" data-action="create">Créer</button>' : ''}
       ${showStorage ? '<button type="button" class="btn btn-secondary" data-action="storage">Stockage</button>' : ''}
+      ${showTrash ? '<button type="button" class="btn btn-danger" data-action="empty-trash">Vider la corbeille</button>' : ''}
       <input type="file" accept="image/*" multiple data-upload-input hidden>
     `;
     if (showUpload) {
@@ -441,6 +540,18 @@ export class PhotosPage {
       container.querySelector('[data-action="create"]').addEventListener('click', () => {
         if (this.view === 'albums') this._createAlbum();
         else this._createPerson();
+      });
+    }
+    if (showTrash) {
+      container.querySelector('[data-action="empty-trash"]').addEventListener('click', async () => {
+        if (!confirm('Supprimer définitivement TOUTES les photos de la corbeille ? Cette action est irréversible.')) return;
+        try {
+          const count = await emptyTrash();
+          this._toast(`${count} photo(s) supprimée(s) définitivement`);
+          await this._resetGrid();
+        } catch (error) {
+          this._toast(error.message || 'Erreur', 'error');
+        }
       });
     }
     if (showStorage) {
@@ -604,12 +715,18 @@ export class PhotosPage {
 
   _observeSentinel() {
     const sentinel = this.element.querySelector('[data-sentinel]');
-    if (!sentinel) return;
+    if (!sentinel) {
+      dbg('observeSentinel: sentinel ABSENT');
+      return;
+    }
     if (this.observer) this.observer.disconnect();
     this.observer = new IntersectionObserver((entries) => {
+      entries.forEach((e) => dbg('sentinel intersecting=', e.isIntersecting,
+        'photos=', this.photos.length, 'hasMore=', this.hasMore, 'loading=', this.loading));
       if (entries.some((e) => e.isIntersecting)) this._loadMore();
-    }, { rootMargin: '600px' });
+    }, { rootMargin: '10000px' });
     this.observer.observe(sentinel);
+    dbg('observeSentinel: observer créé photos=', this.photos.length);
   }
 
   _renderCards() {
@@ -764,6 +881,7 @@ export class PhotosPage {
     if (!grid) return;
     if (count) count.textContent = this.photos.length ? `${this.photos.length} photo(s)` : '';
     if (empty) empty.hidden = this.photos.length > 0 || this.loading;
+    const isTrash = this.view === 'trash';
 
     grid.innerHTML = this.photos.map((photo) => {
       const title = photo.title || photo.original_filename;
@@ -779,8 +897,13 @@ export class PhotosPage {
           ${analyzing ? '<span class="photos-tile-ai" title="Analyse IA en cours"></span>' : ''}
           ${analysisFailed ? '<span class="photos-tile-ai is-error" title="Analyse IA en échec"></span>' : ''}
           ${isVideo ? '<span class="photos-tile-video" title="Vidéo">▶</span>' : ''}
-          <button type="button" class="photos-tile-fav ${photo.is_favorite ? 'is-on' : ''}"
-                  data-fav="${photo.id}" title="Favori">★</button>
+          ${isTrash ? `
+            <button type="button" class="photos-tile-restore" data-restore="${photo.id}" title="Restaurer">↩</button>
+            <button type="button" class="photos-tile-trash" data-trash="${photo.id}" title="Supprimer définitivement">🗑</button>
+          ` : `
+            <button type="button" class="photos-tile-fav ${photo.is_favorite ? 'is-on' : ''}"
+                    data-fav="${photo.id}" title="Favori">★</button>
+          `}
           <span class="photos-tile-title">${this._esc(title)}</span>
         </div>`;
     }).join('');
@@ -788,6 +911,8 @@ export class PhotosPage {
     grid.querySelectorAll('[data-photo]').forEach((tile) => {
       tile.addEventListener('click', (event) => {
         if (event.target.closest('[data-fav]')) return;
+        if (event.target.closest('[data-restore]')) return;
+        if (event.target.closest('[data-trash]')) return;
         this._openLightbox(Number(tile.dataset.photo));
       });
       // Miniature échouée : marquer la tuile pour affichage dégradé (CSS)
@@ -796,21 +921,54 @@ export class PhotosPage {
         img.addEventListener('error', () => tile.classList.add('is-nothumb'), { once: true });
       }
     });
-    grid.querySelectorAll('[data-fav]').forEach((btn) => {
-      btn.addEventListener('click', async (event) => {
-        event.stopPropagation();
-        if (!this._can('photos.update')) return;
-        const id = Number(btn.dataset.fav);
-        const photo = this.photos.find((p) => p.id === id);
-        try {
-          await updatePhoto(id, { is_favorite: !photo.is_favorite });
-          photo.is_favorite = !photo.is_favorite;
-          btn.classList.toggle('is-on', photo.is_favorite);
-        } catch (error) {
-          this._toast(error.message || 'Erreur', 'error');
-        }
+    if (!isTrash) {
+      grid.querySelectorAll('[data-fav]').forEach((btn) => {
+        btn.addEventListener('click', async (event) => {
+          event.stopPropagation();
+          if (!this._can('photos.update')) return;
+          const id = Number(btn.dataset.fav);
+          const photo = this.photos.find((p) => p.id === id);
+          try {
+            await updatePhoto(id, { is_favorite: !photo.is_favorite });
+            photo.is_favorite = !photo.is_favorite;
+            btn.classList.toggle('is-on', photo.is_favorite);
+          } catch (error) {
+            this._toast(error.message || 'Erreur', 'error');
+          }
+        });
       });
-    });
+    } else {
+      // Corbeille : restaurer / supprimer définitivement
+      grid.querySelectorAll('[data-restore]').forEach((btn) => {
+        btn.addEventListener('click', async (event) => {
+          event.stopPropagation();
+          if (!this._can('photos.delete')) return;
+          const id = Number(btn.dataset.restore);
+          try {
+            await restorePhoto(id);
+            this._toast('Photo restaurée');
+            await this._resetGrid();
+          } catch (error) {
+            this._toast(error.message || 'Erreur', 'error');
+          }
+        });
+      });
+      grid.querySelectorAll('[data-trash]').forEach((btn) => {
+        btn.addEventListener('click', async (event) => {
+          event.stopPropagation();
+          if (!this._can('photos.delete')) return;
+          const id = Number(btn.dataset.trash);
+          if (!confirm('Supprimer définitivement cette photo ? L\'original NAS, les miniatures et retouches seront effacés.')) return;
+          try {
+            await hardDeletePhoto(id);
+            this._toast('Photo supprimée définitivement');
+            await this._resetGrid();
+          } catch (error) {
+            this._toast(error.message || 'Erreur', 'error');
+          }
+        });
+      });
+    }
     this._observeSentinel();
   }
 

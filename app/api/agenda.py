@@ -3,17 +3,24 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_db, require_permission
+from app.models.module import Module
+from app.models.rbac import Group, UserGroup
 from app.models.user import User
 from app.schemas.agenda import (
     AgendaAutoAssignRequest,
     AgendaAutoAssignResponse,
     AgendaExternalPresenceCreate,
+    AgendaGroupListResponse,
+    AgendaGroupOption,
     AgendaPlanningResponse,
     AgendaPresenceResponse,
     AgendaPresenceUpsert,
+    AgendaSettingsResponse,
+    AgendaSettingsUpdate,
     AgendaUserResponse,
 )
 from app.services.agenda import AgendaService
@@ -37,6 +44,60 @@ async def get_agenda_service(
     return AgendaService(db, current_user)
 
 
+async def _get_agenda_settings(db: AsyncSession) -> list[int]:
+    """Retrieve planning_group_ids from module settings."""
+    result = await db.execute(
+        select(Module.settings).where(Module.code == "agenda")
+    )
+    row = result.scalar_one_or_none()
+    if not row:
+        return []
+    return row.get("planning_group_ids", [])
+
+
+async def _save_agenda_settings(db: AsyncSession, group_ids: list[int]) -> list[int]:
+    """Save planning_group_ids to module settings after dedup and validation."""
+    # Dedup while preserving order
+    seen: set[int] = set()
+    unique_ids: list[int] = []
+    for gid in group_ids:
+        if gid not in seen:
+            seen.add(gid)
+            unique_ids.append(gid)
+
+    # Validate: keep only existing groups
+    if unique_ids:
+        result = await db.execute(
+            select(Group.id).where(Group.id.in_(unique_ids))
+        )
+        valid_ids = set(result.scalars().all())
+        unique_ids = [gid for gid in unique_ids if gid in valid_ids]
+
+    # Update or create module settings
+    module_result = await db.execute(
+        select(Module).where(Module.code == "agenda")
+    )
+    module = module_result.scalar_one_or_none()
+    if not module:
+        module = Module(
+            code="agenda",
+            name="Agenda",
+            status="active",
+            settings={},
+        )
+        db.add(module)
+        await db.flush()
+
+    if module.settings is None:
+        module.settings = {}
+    new_settings = dict(module.settings)
+    new_settings["planning_group_ids"] = unique_ids
+    module.settings = new_settings
+    await db.commit()
+
+    return unique_ids
+
+
 @router.get("/planning", response_model=AgendaPlanningResponse)
 async def get_planning(
     view: str = Query("week", pattern="^(week|month)$"),
@@ -47,6 +108,61 @@ async def get_planning(
         return await service.get_planning(view, anchor or date.today())
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+
+
+@router.get("/settings", response_model=AgendaSettingsResponse)
+async def get_settings(
+    current_user: User = Depends(require_permission("agenda.manage")),
+    db: AsyncSession = Depends(get_db),
+):
+    group_ids = await _get_agenda_settings(db)
+    return AgendaSettingsResponse(planning_group_ids=group_ids)
+
+
+@router.put("/settings", response_model=AgendaSettingsResponse)
+async def update_settings(
+    payload: AgendaSettingsUpdate,
+    current_user: User = Depends(require_permission("agenda.manage")),
+    db: AsyncSession = Depends(get_db),
+):
+    saved_ids = await _save_agenda_settings(db, payload.planning_group_ids)
+    return AgendaSettingsResponse(planning_group_ids=saved_ids)
+
+
+@router.get("/groups", response_model=AgendaGroupListResponse)
+async def list_groups(
+    current_user: User = Depends(require_permission("agenda.manage")),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(
+        select(Group).where(Group.is_active.is_(True)).order_by(Group.name)
+    )
+    groups = result.scalars().all()
+    if not groups:
+        return AgendaGroupListResponse(groups=[])
+
+    group_ids = [g.id for g in groups]
+    # Count members per group
+    from sqlalchemy import func as sa_func
+    count_result = await db.execute(
+        select(UserGroup.group_id, sa_func.count(UserGroup.user_id))
+        .where(UserGroup.group_id.in_(group_ids))
+        .group_by(UserGroup.group_id)
+    )
+    counts = dict(count_result.all())
+
+    return AgendaGroupListResponse(
+        groups=[
+            AgendaGroupOption(
+                id=g.id,
+                name=g.name,
+                description=g.description,
+                source=g.source,
+                user_count=counts.get(g.id, 0),
+            )
+            for g in groups
+        ]
+    )
 
 
 @router.get("/users", response_model=list[AgendaUserResponse])

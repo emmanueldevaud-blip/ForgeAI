@@ -126,6 +126,8 @@ _MORNING_INSTRUCTION = (
     "- Ne recopie JAMAIS un autre chiffre du contexte (HRV, éveil, pas, stress...) comme Body Battery.\n"
     "- Toute donnée latest est datée : si elle ne provient pas de la nuit écoulée ou d'aujourd'hui, "
     "précise de quel jour elle vient au lieu de la présenter comme actuelle."
+    "STRUCTURE CONTENT (5 sections MARKDOWN, dans l'ordre, séparées par ligne vide) : "
+    "## Résumé / ## Points remarquables / ## Charge et récupération / ## Comparaison avec l'historique / ## Conseil pour la suite"
 )
 
 _EVENING_INSTRUCTION = (

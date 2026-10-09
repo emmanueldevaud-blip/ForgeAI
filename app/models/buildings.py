@@ -138,6 +138,7 @@ class Room(Base):
     usage_type: Mapped[Optional["UsageType"]] = relationship("UsageType", back_populates="rooms")
     equipments: Mapped[list["Equipment"]] = relationship("Equipment", back_populates="room")
     housings: Mapped[list["Housing"]] = relationship("Housing", back_populates="room")
+    it_assets: Mapped[list["ITAsset"]] = relationship("ITAsset", back_populates="room")
 
     __table_args__ = (
         UniqueConstraint("building_id", "reference", name="uq_room_building_reference"),

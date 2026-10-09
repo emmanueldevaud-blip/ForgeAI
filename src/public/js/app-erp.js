@@ -32,7 +32,7 @@ import { createAgendaPage } from './pages/AgendaPage.js?v=54';
 import { createAgendaSettingsPage } from './pages/AgendaSettingsPage.js?v=3';
 import { createDomotiquePage } from './pages/DomotiquePage.js?v=8';
 import { createDomotiqueConfigPage } from './pages/DomotiqueConfigPage.js?v=8';
-import { createPhotosPage } from './pages/PhotosPage.js?v=14';
+import { createITAssetPage } from './pages/ITAssetPage.js';
 
 const moduleRoutes = [
   'dashboard',
@@ -53,6 +53,7 @@ const moduleRoutes = [
   'administration',
   'administratif',
   'photos',
+  'it_assets',
 ];
 
 let appShell = null;
@@ -258,9 +259,11 @@ async function initializeApp() {
     }, { requiresAuth: true, permissions: ['photos.view'] })
     .addRoute('/photos/trash', async (route) => {
       await showPhotosPage(route);
-    }, { requiresAuth: true, permissions: ['photos.delete'] });
-
-  const moduleRoutePermissions = {
+    }, { requiresAuth: true, permissions: ['photos.delete'] })
+    .addRoute('/it-assets', async (route) => {
+      await showITAssetPage(route);
+    }, { requiresAuth: true, permissions: ['it_asset.view'] })
+    .addRoute('/404', () => {
     cleaning: ['cleaning.view'],
     people: ['people.view'],
     studies: ['studies.view'],
@@ -272,16 +275,23 @@ async function initializeApp() {
     documents: ['documents.view'],
     reports: ['reports.view'],
     photos: ['photos.delete'],
+    it_assets: ['it_asset.view'],
   };
 
   moduleRoutes.forEach(module => {
     if (module === 'dashboard' || module === 'administration' || module === 'administratif'
       || module === 'buildings' || module === 'equipment' || module === 'sport'
       || module === 'housing' || module === 'maintenance') return;
-    router.addRoute(`/${module}`, async (route) => {
+    if (explicitModuleRoutes.includes(module)) return;
+  
+  router.addRoute(`/${module}`, async (route) => {
       await showModulePage(route);
     }, { requiresAuth: true, permissions: moduleRoutePermissions[module] || [] });
   });
+  
+  // Modules with explicit routes (registered above) - skip in module loop
+  const explicitModuleRoutes = ['dashboard', 'administration', 'administratif',
+    'buildings', 'equipment', 'sport', 'housing', 'maintenance', 'it_assets'];
 
   router
     .addRoute('/photos', async (route) => {
@@ -308,6 +318,7 @@ async function initializeApp() {
     await ensureBuildingRefsPage();
     await ensureEquipmentPage();
     await ensureEquipmentRefsPage();
+    await ensureITAssetPage();
     if (initialPath === '/') {
       router.navigate('/dashboard', { replace: true });
     }
@@ -376,6 +387,14 @@ async function ensureEquipmentRefsPage() {
     await equipmentRefsPage.initialize();
   }
   return equipmentRefsPage;
+}
+
+async function ensureITAssetPage() {
+  if (!itAssetPage) {
+    itAssetPage = createITAssetPage(router);
+    await itAssetPage.initialize();
+  }
+  return itAssetPage;
 }
 
 async function ensureMaintenanceRequestsPage() {

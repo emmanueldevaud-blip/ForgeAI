@@ -4,6 +4,19 @@ from app.models.agenda import AgendaPresence
 from app.models.audit import AuditLog
 from app.models.buildings import Building, Room, RoomType, Site, UsageType
 from app.models.equipment import Equipment, EquipmentType
+from app.models.it_asset import (
+    ITAsset,
+    ITAssetType,
+    ITAssetStatus,
+    DiscoverySource,
+    NetworkRange,
+    DiscoveryLog,
+    AssetObservation,
+    ITAlert,
+    ITAlertType,
+    ITAlertSeverity,
+    ITAssetHistory,
+)
 from app.models.housing import Housing, Occupant, Occupancy, OccupancyStatusHistory, HousingStatusHistory, Unavailability, Cleaning, CleaningInvitationLog, EmailTemplate, EmailTemplateAttachment, EmailLog
 from app.models.module import Module, ModuleConfig, ModuleStatus
 from app.models.maintenance import (
@@ -170,4 +183,15 @@ __all__ = [
     "DomotiquePhase",
     "DomotiqueCycle",
     "DomotiqueEvent",
+    "ITAsset",
+    "ITAssetType",
+    "ITAssetStatus",
+    "DiscoverySource",
+    "NetworkRange",
+    "DiscoveryLog",
+    "AssetObservation",
+    "ITAlert",
+    "ITAlertType",
+    "ITAlertSeverity",
+    "ITAssetHistory",
 ]

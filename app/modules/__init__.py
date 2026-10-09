@@ -670,6 +670,77 @@ class EquipmentModule(BaseModule):
         return True
 
 
+class ITAssetModule(BaseModule):
+    def __init__(self):
+        super().__init__(ModuleInfo(
+            code="it_asset",
+            name="Parc Informatique",
+            description="Gestion du parc informatique et supervision réseau",
+            icon="server",
+            order=45,
+            status=ModuleStatus.ACTIVE,
+            version="1.0.0",
+            route_path="/it-assets",
+            component_path="ITAsset",
+            required_permissions=["it_asset.view"],
+            is_core=False,
+        ))
+
+    def get_navigation_items(self, user_permissions: list[str]):
+        permissions = user_permissions or []
+        if "*" not in permissions and "it_asset.view" not in permissions:
+            return []
+
+        children = [
+            {
+                "code": "it-asset-list",
+                "name": "Inventaire",
+                "icon": "server",
+                "route": "/it-assets",
+                "order": 0,
+            },
+            {
+                "code": "it-asset-discovery",
+                "name": "Découverte",
+                "icon": "search",
+                "route": "/it-assets/discovery",
+                "order": 1,
+            },
+            {
+                "code": "it-asset-alerts",
+                "name": "Alertes",
+                "icon": "alert-triangle",
+                "route": "/it-assets/alerts",
+                "order": 2,
+            },
+            {
+                "code": "it-asset-network-ranges",
+                "name": "Plages Réseau",
+                "icon": "globe",
+                "route": "/it-assets/network-ranges",
+                "order": 3,
+            },
+        ]
+
+        return [{
+            "code": self.info.code,
+            "name": self.info.name,
+            "icon": self.info.icon,
+            "route": self.info.route_path,
+            "order": self.info.order,
+            "children": children,
+        }]
+
+    async def install(self, db):
+        return True
+
+    async def uninstall(self, db):
+        return True
+
+    async def upgrade(self, db, from_version: str):
+        return True
+
+
 class AIModule(BaseModule):
     def __init__(self):
         super().__init__(ModuleInfo(
@@ -716,6 +787,7 @@ def register_all_modules():
         GestionBureauxModule(),
         BuildingsModule(),
         EquipmentModule(),
+        ITAssetModule(),
         HousingModule(),
         MaintenanceModule(),
         AgendaModule(),

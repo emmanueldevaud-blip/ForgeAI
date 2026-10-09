@@ -9,7 +9,7 @@ from fastapi.staticfiles import StaticFiles
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 
-from app.api import auth, audit, buildings, dashboard, development, domotique, equipment, housing, maintenance, modules, admin, volunteer, sport, administrative, agenda, notifications, photos
+from app.api import auth, audit, buildings, dashboard, development, domotique, equipment, housing, it_asset, maintenance, modules, admin, volunteer, sport, administrative, agenda, notifications, photos
 from app.core.config import get_settings
 from app.core.limiter import limiter
 from app.db.session import close_db, init_db
@@ -58,6 +58,7 @@ async def lifespan(app: FastAPI):
     domotique_task = asyncio.create_task(domotique_loop())
     if settings.PHOTO_ENABLED:
         photo_job_task = asyncio.create_task(_photo_job_loop())
+    monitoring_task = asyncio.create_task(_monitoring_loop())
     yield
     if photo_job_task:
         photo_job_task.cancel()
@@ -87,6 +88,12 @@ async def lifespan(app: FastAPI):
         garmin_sync_task.cancel()
         try:
             await garmin_sync_task
+        except asyncio.CancelledError:
+            pass
+    if monitoring_task:
+        monitoring_task.cancel()
+        try:
+            await monitoring_task
         except asyncio.CancelledError:
             pass
     await close_db()
@@ -197,6 +204,23 @@ async def _photo_job_loop() -> None:
         await asyncio.sleep(settings.PHOTO_JOB_POLL_SECONDS)
 
 
+async def _monitoring_loop() -> None:
+    """Boucle de supervision périodique des assets IT."""
+    from app.db.session import get_db
+    from app.services.it_asset import AssetMonitoringService
+
+    while True:
+        try:
+            async for db in get_db():
+                await AssetMonitoringService(db).check_all_assets()
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            # Erreur de surveillance ne doit pas tuer l'application.
+            print(f"[MONITORING] Boucle en échec: {exc}")
+        await asyncio.sleep(300)  # Tous les 5 minutes
+
+
 async def _sync_module_statuses(db):
     from sqlalchemy import select
     from app.models.module import Module as ModuleModel
@@ -301,6 +325,7 @@ app.include_router(audit.router)
 app.include_router(buildings.router)
 app.include_router(dashboard.router)
 app.include_router(equipment.router)
+app.include_router(it_asset.router)
 app.include_router(housing.router)
 app.include_router(maintenance.router)
 app.include_router(development.router)

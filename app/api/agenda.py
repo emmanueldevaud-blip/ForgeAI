@@ -32,6 +32,7 @@ router = APIRouter(prefix="/agenda", tags=["agenda"])
 class AgendaPresenceUpdate(BaseModel):
     needs_workstation: Optional[bool] = None
     needs_meal: Optional[bool] = None
+    is_remote: Optional[bool] = None
     is_present: Optional[bool] = None
     period: Optional[str] = None
     room_id: Optional[int] = None
@@ -244,6 +245,7 @@ async def update_presence(
             presence_id,
             needs_workstation=payload.needs_workstation,
             needs_meal=payload.needs_meal,
+            is_remote=payload.is_remote,
             is_present=payload.is_present,
             period=payload.period,
             room_id=payload.room_id,

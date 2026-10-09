@@ -81,13 +81,6 @@ function weekdaysOfAnchor(anchor) {
   return days;
 }
 
-function periodsOverlap(left, right) {
-  const a = left || 'full';
-  const b = right || 'full';
-  if (a === 'full' || b === 'full') return true;
-  return a === b;
-}
-
 export class AgendaPage {
   constructor(router) {
     this.router = router;
@@ -279,6 +272,7 @@ export class AgendaPage {
     `;
 
     this._bindCommon();
+    this._injectCounterRows(rooms);
     if (rooms.length) {
       this._bindMineForm();
       this._bindPlanning();
@@ -289,6 +283,192 @@ export class AgendaPage {
     if (this.addPersonOpen) this._bindAddPersonModal();
     if (this.personWeekModal) this._bindPersonWeekModal();
     if (isSettingsTab && canManage) this._initSettingsTab();
+  }
+
+  // Injecte les lignes de compteurs (Prés / Repas / Postes) avant chaque local dans la matrice "Ma présence"
+  _injectCounterRows(rooms) {
+    if (!this.data?.days?.length) return;
+    const matrix = this.element.querySelector('.agenda-mine-matrix');
+    if (!matrix) return;
+
+    const dates = this._mineGridDates();
+    const roomRows = matrix.querySelectorAll('.agenda-mine-matrix-row.is-room-start');
+    const uniqueRooms = this._sortedUniqueRooms(rooms);
+
+    // Compteurs par local/jour
+    const roomDayCounts = {};
+    for (const day of this.data.days) {
+      for (const room of day.rooms || []) {
+        const key = `${day.date}|${room.room_id}`;
+        const presences = room.presences || [];
+        roomDayCounts[key] = {
+          present: presences.filter(p => p.is_present).length,
+          meals: presences.filter(p => p.needs_meal).length,
+          desks: presences.filter(p => p.needs_workstation).length,
+        };
+      }
+    }
+
+    // Pour chaque local, insérer la ligne de compteurs avant la première ligne du local
+    roomRows.forEach((row, index) => {
+      if (index >= uniqueRooms.length) return;
+      const room = uniqueRooms[index];
+      const cells = dates.map(iso => {
+        const counts = roomDayCounts[`${iso}|${room.id}`] || { present: 0, meals: 0, desks: 0 };
+        return '<span class="agenda-mine-counter" title="Présents: ' + counts.present + ' — Repas: ' + counts.meals + ' — Postes: ' + counts.desks + '">' + counts.present + ' / ' + counts.meals + ' / ' + counts.desks + '</span>';
+      }).join('');
+
+      const counterRow = document.createElement('div');
+      counterRow.className = 'agenda-mine-matrix-row agenda-mine-counter-row' + (index === 0 ? ' is-room-start' : '') + (index > 0 ? ' is-room-separator' : '');
+      counterRow.innerHTML =
+        '<span class="agenda-mine-matrix-room' + (index > 0 ? ' is-not-first' : '') + '">' + this._getShortRoomName(room.name) + '</span>' +
+        '<span class="agenda-mine-matrix-label agenda-mine-counter-label">Prés / Repas / Postes</span>' +
+        cells +
+        '<span class="agenda-mine-matrix-spacer"></span>';
+
+      // Insérer avant la première ligne du local
+      row.parentNode.insertBefore(counterRow, row);
+    });
+
+    // Mettre à jour la variable CSS pour le nombre de lignes par local (+1 pour la ligne de compteurs)
+    const rowDefs = this._weekRowDefs();
+    matrix.style.setProperty('--mine-room-rows', rowDefs.length + 1);
+  }
+
+// Lignes communes à la matrice « Ma présence » et au modal planning semaine.
+  _weekRowDefs() {
+    return [
+      { field: 'morning', label: 'Matin', bulk: true },
+      { field: 'afternoon', label: 'Après-midi', bulk: true },
+      { field: 'meal', label: 'Repas', bulk: false, sectionBreak: true },
+      { field: 'desk', label: 'Poste', bulk: false },
+    ];
+  }
+
+  // Ordre personnalisé des locaux + déduplication par nom court.
+  _sortedUniqueRooms(rooms) {
+    const roomOrder = ['CEBAZAT', 'RIOM', 'PUTEAUX'];
+    const sortedRooms = [...rooms].sort((a, b) => {
+      const aIdx = roomOrder.findIndex(o => a.name?.toUpperCase().includes(o) || a.building_name?.toUpperCase().includes(o));
+      const bIdx = roomOrder.findIndex(o => b.name?.toUpperCase().includes(o) || b.building_name?.toUpperCase().includes(o));
+      if (aIdx !== -1 && bIdx !== -1) return aIdx - bIdx;
+      if (aIdx !== -1) return -1;
+      if (bIdx !== -1) return 1;
+      return (a.name || '').localeCompare(b.name || '');
+    });
+
+    // Dédupliquer par nom court (ex: CEBAZAT, RIOM, PUTEAUX)
+    const seen = new Set();
+    const uniqueRooms = [];
+    for (const room of sortedRooms) {
+      const shortName = this._getShortRoomName(room.building_name || room.name);
+      if (!seen.has(shortName)) {
+        seen.add(shortName);
+        uniqueRooms.push(room);
+      }
+    }
+    return uniqueRooms;
+  }
+
+  // Présence existante d'une personne pour un jour/local donné.
+  _findPersonPresence(personKey, date, roomId) {
+    const dayData = (this.data?.days || []).find(d => d.date === date);
+    if (!dayData) return null;
+    for (const counter of dayData.rooms || []) {
+      if (String(counter.room_id) !== String(roomId)) continue;
+      const p = (counter.presences || []).find(pres => this._presencePersonKey(pres) === personKey);
+      if (p) return p;
+      break;
+    }
+    for (const p of dayData.integrated || []) {
+      if (String(p.room_id) === String(roomId) && this._presencePersonKey(p) === personKey) return p;
+    }
+    return null;
+  }
+
+  // Brouillon local du modal : état souhaité par jour/local, sans appel API.
+  // La clé `${iso}|remote` porte la ligne « Télétravail » (sans local).
+  _buildPersonWeekDraft(personKey) {
+    const draft = {};
+    const rooms = this.data?.rooms || [];
+    for (const iso of this._mineGridDates()) {
+      const day = (this.data?.days || []).find(d => d.date === iso);
+      const remote = (day?.remote || []).find(p => this._presencePersonKey(p) === personKey);
+      const remotePeriod = remote ? (remote.period || 'full') : null;
+      draft[`${iso}|remote`] = {
+        morning: remotePeriod === 'morning' || remotePeriod === 'full',
+        afternoon: remotePeriod === 'afternoon' || remotePeriod === 'full',
+      };
+      for (const room of rooms) {
+        const presence = this._findPersonPresence(personKey, iso, room.id);
+        const period = presence ? (presence.period || 'full') : null;
+        draft[`${iso}|${room.id}`] = {
+          morning: period === 'morning' || period === 'full',
+          afternoon: period === 'afternoon' || period === 'full',
+          meal: !!presence?.needs_meal,
+          desk: !!presence?.needs_workstation,
+        };
+      }
+    }
+    return draft;
+  }
+
+  _presencePersonKey(presence) {
+    return presence.person_type === 'user' && presence.person_id != null
+      ? `user:${presence.person_id}`
+      : `name:${this._normalizePersonName(presence.person_name)}`;
+  }
+
+  // État d'une case du modal : coché / cliquable / infobulle.
+  _weekCellState({ iso, roomId, field, flags, half }) {
+    const labels = { morning: 'Matin', afternoon: 'Après-midi', meal: 'Repas', desk: 'Poste', remote: 'Télétravail' };
+    const inMonth = (this.data?.days || []).some(d => d.date === iso);
+    const presence = this._findPersonPresence(this.personWeekModal?.personKey, iso, roomId);
+    const past = iso < toISODate(new Date());
+    const willHavePresence = !!flags.morning || !!flags.afternoon;
+
+    if (!inMonth) return { on: false, enabled: false, title: 'Hors mois affiché' };
+    if (presence && presence.id == null) return { on: false, enabled: false, title: 'Occupation en cours — non modifiable' };
+
+    if (field === 'morning' || field === 'afternoon') {
+      const on = !!flags[field];
+      if (past && !on) return { on, enabled: false, title: 'Date dépassée — inscription impossible' };
+      if (past) return { on, enabled: true, title: 'Date dépassée — cliquez pour annuler l’inscription' };
+      return { on, enabled: true, title: labels[field] };
+    }
+
+    // Télétravail : présence sans local, inscription possible comme sur site
+    // (le serveur retire automatiquement la présence locale qui chevauche).
+    if (field === 'remote') {
+      const person = this.personWeekModal?.person;
+      if (!person || person.type !== 'user' || person.personId == null) {
+        return { on: false, enabled: false, title: 'Télétravail réservé aux utilisateurs' };
+      }
+      const on = !!flags.remote;
+      const halfLabel = half === 'afternoon' ? 'après-midi' : 'matin';
+      if (past && !on) return { on, enabled: false, title: 'Date dépassée — inscription impossible' };
+      if (past) return { on, enabled: true, title: 'Date dépassée — cliquez pour annuler le télétravail' };
+      return { on, enabled: true, title: `Télétravail ${halfLabel}` };
+    }
+
+    // Repas / poste : cliquables dès que la personne sera présente ce jour-là
+    // (la présence locale suffit ; en télétravail il n'y a pas de présence locale).
+    const title = field === 'desk' ? 'Poste de travail' : 'Repas';
+    if (field === 'meal' && this._mealTakenElsewhere(iso, roomId)) {
+      return { on: false, enabled: false, title: 'Repas déjà sélectionné dans un autre local' };
+    }
+    return {
+      on: willHavePresence && !!flags[field],
+      enabled: willHavePresence,
+      title: willHavePresence ? title : 'Sélectionnez d’abord une présence ce jour-là',
+    };
+  }
+
+  // Un seul repas par jour dans le brouillon du modal planning semaine.
+  _mealTakenElsewhere(iso, roomId) {
+    const draft = this.personWeekModal?.draft || {};
+    return (this.data?.rooms || []).some(room =>
+      String(room.id) !== String(roomId) && draft[`${iso}|${room.id}`]?.meal);
   }
 
   _noRoomsHtml() {
@@ -331,6 +511,21 @@ export class AgendaPage {
     return this._myPresence(day);
   }
 
+  _mineRemoteForDate(iso) {
+    const day = (this.data?.days || []).find(d => d.date === iso);
+    if (!day) return null;
+    return (day.remote || []).find(p => p.is_mine && p.person_type === 'user') || null;
+  }
+
+  // Un seul repas par jour : vrai si un autre local a déjà le repas ce jour-là.
+  _otherMealOnDay(iso, roomId) {
+    const day = (this.data?.days || []).find(d => d.date === iso);
+    if (!day) return false;
+    return (day.rooms || []).some(room =>
+      String(room.room_id) !== String(roomId) &&
+      (room.presences || []).some(p => p.is_mine && p.person_type === 'user' && p.needs_meal));
+  }
+
   _otherMineOnDay(iso, roomId) {
     const day = (this.data?.days || []).find(d => d.date === iso);
     if (!day) return [];
@@ -343,11 +538,10 @@ export class AgendaPage {
     return others;
   }
 
+  // Règle « un seul repas par jour » : l'autre local n'est pas concerné par le
+  // retrait automatique (le serveur le gère), seul le repas en double est refusé.
   _conflictMessage(iso, roomId, period, needsMeal) {
     for (const other of this._otherMineOnDay(iso, roomId)) {
-      if (periodsOverlap(period, other.period || 'full')) {
-        return 'Vous êtes déjà inscrit dans un autre local pour la même période';
-      }
       if (needsMeal && other.needs_meal) {
         return 'Repas déjà sélectionné dans un autre local';
       }
@@ -444,6 +638,40 @@ export class AgendaPage {
                 : '<span class="agenda-mine-matrix-spacer"></span>'}
             </div>
           `).join('')).join('')}
+          <div class="agenda-mine-matrix-row is-room-start is-room-end is-room-separator">
+            <span class="agenda-mine-matrix-room agenda-mine-matrix-room--remote is-not-first">TÉLÉTRAVAIL</span>
+            <span class="agenda-mine-matrix-label">Présence</span>
+            ${dates.map(iso => {
+              const inMonth = (this.data?.days || []).some(d => d.date === iso);
+              const mine = this._mineRemoteForDate(iso);
+              const period = mine ? (mine.period || 'full') : null;
+              const past = iso < today;
+              const halves = ['morning', 'afternoon'].map(half => {
+                const on = inMonth && (period === 'full' || period === half);
+                let enabled = inMonth;
+                let title = half === 'morning' ? 'Télétravail le matin' : 'Télétravail l\u2019après-midi';
+                if (!inMonth) title = 'Hors mois affiché';
+                else if (past && !on) {
+                  enabled = false;
+                  title = 'Date dépassée — inscription impossible';
+                } else if (past) title = 'Date dépassée — cliquez pour annuler le télétravail';
+                const halfLabel = half === 'morning' ? 'matin' : 'après-midi';
+                return `
+                  <button type="button" class="agenda-mine-cell agenda-mine-cell--remote ${on ? 'is-on' : ''} agenda-mine-cell--half"
+                    data-mine-toggle="remote" data-half="${half}" data-date="${iso}"
+                    aria-pressed="${on}" ${enabled ? '' : 'disabled'}
+                    aria-label="Télétravail ${halfLabel} — ${escapeHtml(formatDayLabel(iso))}"
+                    title="${escapeHtml(title)}"></button>`;
+              }).join('');
+              const tags = ['morning', 'afternoon'].map(half => `
+                <span class="agenda-mine-cell-tag">${isMonth ? (half === 'morning' ? 'M' : 'A') : (half === 'morning' ? 'Matin' : 'Après-midi')}</span>`).join('');
+              return `<span class="agenda-mine-cell-group" role="group" aria-label="Télétravail — ${escapeHtml(formatDayLabel(iso))}">
+                <span class="agenda-mine-cell-tags" aria-hidden="true">${tags}</span>
+                <span class="agenda-mine-cell-halves">${halves}</span>
+              </span>`;
+            }).join('')}
+            <span class="agenda-mine-matrix-spacer"></span>
+          </div>
         </div>
       </div>
       <div class="agenda-mine-footer">
@@ -519,6 +747,20 @@ export class AgendaPage {
       return '<div class="card-body agenda-empty"><p class="agenda-none">Aucune inscription sur cette période.</p></div>';
     }
 
+    // Compteurs par local/jour pour la ligne de résumé (Repas / Postes / Présents)
+    const roomDayCounts = {};
+    for (const day of days) {
+      for (const room of day.rooms || []) {
+        const key = `${day.date}|${room.room_id}`;
+        const presences = room.presences || [];
+        roomDayCounts[key] = {
+          present: presences.filter(p => p.is_present).length,
+          meals: presences.filter(p => p.needs_meal).length,
+          desks: presences.filter(p => p.needs_workstation).length,
+        };
+      }
+    }
+
     const head = `
       <thead>
         <tr>
@@ -526,19 +768,44 @@ export class AgendaPage {
           ${dates.map((iso, di) => {
             const dayDate = parseISODate(iso);
             const known = dayByIso.has(iso);
-            return `<th class="agenda-day-head ${iso === today ? 'is-today' : ''} ${di === dates.length - 1 ? 'agenda-day-last' : ''}" colspan="2" scope="col" ${known ? `data-day="${iso}"` : ''} title="${escapeHtml(formatDayLabel(iso))}">
+            return `<th class="agenda-day-head ${iso === today ? 'is-today' : ''} ${di === 0 ? 'agenda-day-first' : ''} ${di === dates.length - 1 ? 'agenda-day-last' : ''}" colspan="2" scope="col" ${known ? `data-day="${iso}"` : ''} title="${escapeHtml(formatDayLabel(iso))}">
               <span class="agenda-day-name">${DAY_LABELS_SHORT[(dayDate.getDay() + 6) % 7]}</span>
               <span class="agenda-day-num">${dayDate.getDate()}</span>
             </th>`;
           }).join('')}
         </tr>
         <tr>
-          ${dates.map(() => '<th class="agenda-half-subhead" scope="col">Matin</th><th class="agenda-half-subhead agenda-half-last" scope="col">Après-midi</th>').join('')}
+          ${dates.map((iso, di) => `<th class="agenda-half-subhead ${di === 0 ? 'agenda-half-first' : ''}" scope="col">Matin</th><th class="agenda-half-subhead agenda-half-last" scope="col">Après-midi</th>`).join('')}
         </tr>
       </thead>`;
 
     const sections = this._planningSections(people);
     const totalColumns = 1 + dates.length * 2;
+
+    // Génère les lignes de compteurs pour une section (un local = une ligne de compteurs)
+    const counterRowHtml = (sectionPeople, dates, roomDayCounts) => {
+      // Les roomId sont portés par les presences de chaque personne.
+      const roomIds = [];
+      for (const person of sectionPeople) {
+        for (const entry of person.presences || []) {
+          if (entry.roomId == null) continue;
+          if (!roomIds.some(id => String(id) === String(entry.roomId))) roomIds.push(entry.roomId);
+        }
+      }
+      return roomIds.map(roomId => {
+        const room = this._roomById(roomId);
+        const cells = dates.map(iso => {
+          const counts = roomDayCounts[`${iso}|${roomId}`] || { present: 0, meals: 0, desks: 0 };
+          return `<td class="agenda-planning-counter" colspan="2" title="Présents: ${counts.present} — Repas: ${counts.meals} — Postes: ${counts.desks}">${counts.present} / ${counts.meals} / ${counts.desks}</td>`;
+        }).join('');
+        return `
+          <tr class="agenda-planning-counter-row">
+            <th class="agenda-planning-counter-label">Prés / Repas / Postes${room ? ` — ${escapeHtml(this._getShortRoomName(room.name))}` : ''}</th>
+            ${cells}
+          </tr>`;
+      }).join('');
+    };
+
     const rows = sections.map((section, idx) => `
       <tr class="agenda-group-row agenda-section-${idx % 2 === 0 ? 'even' : 'odd'}">
         <th class="agenda-group-head" colspan="${totalColumns}" scope="colgroup" style="--agenda-group-depth: ${section.depth}">
@@ -546,14 +813,15 @@ export class AgendaPage {
           <span class="agenda-group-count">${section.people.length}</span>
         </th>
       </tr>
+      ${counterRowHtml(section.people, dates, roomDayCounts)}
       ${section.people.map(person => `
       <tr class="agenda-section-${idx % 2 === 0 ? 'even' : 'odd'} agenda-person-row" data-person-key="${escapeHtml(person.key)}" style="cursor: pointer;">
         <th class="agenda-room-head agenda-person-head" scope="row" title="${escapeHtml(person.meta)}">
           <span class="agenda-room-name">${escapeHtml(person.name)}${person.isMine ? ' (moi)' : ''}</span>
           <span class="agenda-room-meta">${escapeHtml(person.meta)}</span>
         </th>
-        ${dates.map(iso => ['morning', 'afternoon']
-          .map(half => this._personCellHtml(person, iso, half, canManage, isMonth))
+        ${dates.map((iso, dayIndex) => ['morning', 'afternoon']
+          .map(half => this._personCellHtml(person, iso, half, canManage, isMonth, dayIndex))
           .join('')).join('')}
       </tr>`).join('')}`).join('');
 
@@ -600,7 +868,7 @@ export class AgendaPage {
     return sections;
   }
 
-  _personCellHtml(person, iso, half, canManage, isMonth) {
+  _personCellHtml(person, iso, half, canManage, isMonth, dayIndex) {
     const inPeriod = (this.data?.days || []).some(day => day.date === iso);
     const editable = inPeriod && this._canEditPerson(person, canManage);
     const entry = this._presenceCovering(person, iso, half);
@@ -618,16 +886,14 @@ export class AgendaPage {
       details.push(`Inscrire ${person.name} — ${formatDayLabel(iso)} · ${halfLabel}`);
     }
     return `
-      <td class="agenda-cell ${entry ? 'has-presence' : ''}">
-        <button type="button" class="agenda-cell-btn agenda-people-cell ${entry ? 'has-presence' : 'is-empty'} ${isMonth ? 'is-compact' : ''}"
-          ${editable ? '' : 'disabled'}
-          data-cell-person="${escapeHtml(person.key)}" data-cell-date="${iso}" data-cell-half="${half}"
+      <td class="agenda-cell agenda-cell--${half} ${dayIndex === 0 ? 'agenda-cell--day-first ' : ''}${entry ? 'has-presence' : ''}">
+        <span class="agenda-cell-btn agenda-people-cell ${entry ? 'has-presence' : 'is-empty'} ${isMonth ? 'is-compact' : ''}"
           title="${escapeHtml(details.join(' · '))}"
           aria-label="${escapeHtml(details.join(' · ') || `${person.name} — ${formatDayLabel(iso)} · ${halfLabel}`)}">
           ${entry
             ? `<span class="agenda-people-cell-room">${escapeHtml(label)}</span>${entry.presence.needs_meal ? '<span class="agenda-people-cell-flag">repas</span>' : ''}${entry.presence.needs_workstation ? '<span class="agenda-people-cell-flag">poste</span>' : ''}`
-            : (editable ? '<span class="agenda-people-cell-flag is-add">+</span>' : '')}
-        </button>
+            : ''}
+        </span>
       </td>`;
   }
 
@@ -1026,31 +1292,90 @@ export class AgendaPage {
     const today = toISODate(new Date());
     const canManage = authStore.hasPermission('agenda.manage');
     const editable = this._canEditPerson(person, canManage);
+    const uniqueRooms = this._sortedUniqueRooms(rooms);
+    const isMonth = this.view === 'month';
+    const canRemote = person.type === 'user' && person.personId != null;
+    // Brouillon : état souhaité par jour/local (dont la ligne « Télétravail »).
+    const draft = this._buildPersonWeekDraft(person.key);
+    this.personWeekModal.draft = draft;
+    // Même structure que Ma présence, avec un « Tout » aussi sur la ligne Poste.
+    const rowDefs = this._weekRowDefs().map(row => ({ ...row, bulk: row.field !== 'meal' }));
 
-    // Récupérer les présences actuelles de cette personne pour la semaine
-    const presencesByDate = {};
-    for (const day of this.data?.days || []) {
-      for (const counter of day.rooms || []) {
-        for (const p of counter.presences || []) {
-          const pKey = p.person_type === 'user' && p.person_id != null
-            ? `user:${p.person_id}`
-            : `name:${this._normalizePersonName(p.person_name)}`;
-          if (pKey === person.key) {
-            if (!presencesByDate[day.date]) presencesByDate[day.date] = [];
-            presencesByDate[day.date].push({ ...p, roomId: counter.room_id, roomName: counter.name || '' });
-          }
-        }
-      }
-      for (const p of day.integrated || []) {
-        const pKey = p.person_type === 'user' && p.person_id != null
-          ? `user:${p.person_id}`
-          : `name:${this._normalizePersonName(p.person_name)}`;
-        if (pKey === person.key) {
-          if (!presencesByDate[day.date]) presencesByDate[day.date] = [];
-          presencesByDate[day.date].push({ ...p, roomId: p.room_id, roomName: '' });
-        }
-      }
-    }
+    const grid = editable ? `
+      <div class="agenda-mine-scroll">
+        <div class="agenda-mine-matrix ${isMonth ? 'agenda-mine-matrix--month' : ''}" style="--mine-days: ${dates.length}; --mine-room-rows: ${rowDefs.length}">
+          <div class="agenda-mine-matrix-head">
+            <span class="agenda-mine-matrix-corner">BUREAUX</span>
+            <span class="agenda-mine-matrix-option">Option</span>
+            ${dates.map(iso => {
+              const date = parseISODate(iso);
+              return `
+                <span class="agenda-mine-matrix-day ${iso === today ? 'is-today' : ''}">
+                  <span class="agenda-mine-day-name">${DAY_LABELS_SHORT[date.getDay() === 0 ? 6 : date.getDay() - 1]}</span>
+                  <span class="agenda-mine-day-num">${date.getDate()}</span>
+                </span>`;
+            }).join('')}
+            <span class="agenda-mine-matrix-actions-head"></span>
+          </div>
+          ${uniqueRooms.map((room, roomIndex) => rowDefs.map((row, rowIndex) => `
+            <div class="agenda-mine-matrix-row ${rowIndex === 0 ? 'is-room-start' : ''} ${rowIndex === rowDefs.length - 1 ? 'is-room-end' : ''} ${row.sectionBreak ? 'is-section-break' : ''} ${roomIndex > 0 && rowIndex === 0 ? 'is-room-separator' : ''}">
+              ${rowIndex === 0
+                ? `<span class="agenda-mine-matrix-room${roomIndex > 0 ? ' is-not-first' : ''}">${escapeHtml(this._getShortRoomName(room.name))}</span>`
+                : ''}
+              <span class="agenda-mine-matrix-label">${row.label}</span>
+              ${dates.map(iso => {
+                const state = this._weekCellState({
+                  iso,
+                  roomId: room.id,
+                  field: row.field,
+                  flags: draft[`${iso}|${room.id}`] || {},
+                });
+                return `
+                  <button type="button" class="agenda-mine-cell ${state.on ? 'is-on' : ''} ${row.field === 'desk' ? 'agenda-mine-cell--desk' : ''} ${row.field === 'meal' ? 'agenda-mine-cell--meal' : ''}"
+                    data-week-person="${escapeHtml(person.key)}" data-week-date="${iso}" data-week-room="${room.id}" data-week-field="${row.field}"
+                    aria-pressed="${state.on}" ${state.enabled ? '' : 'disabled'}
+                    aria-label="${row.label} — ${escapeHtml(formatDayLabel(iso))} — ${escapeHtml(room.name)}"
+                    title="${escapeHtml(state.title)}"></button>`;
+              }).join('')}
+              ${row.bulk
+                ? `<button type="button" class="btn btn-secondary btn-sm agenda-mine-bulk" data-week-bulk="${row.field}" data-week-room="${room.id}">Tout</button>`
+                : '<span class="agenda-mine-matrix-spacer"></span>'}
+            </div>
+          `).join('')).join('')}
+          <div class="agenda-mine-matrix-row is-room-start is-room-end is-room-separator">
+            <span class="agenda-mine-matrix-room agenda-mine-matrix-room--remote is-not-first">TÉLÉTRAVAIL</span>
+            <span class="agenda-mine-matrix-label">Présence</span>
+            ${dates.map(iso => {
+              const remoteFlags = draft[`${iso}|remote`] || { morning: false, afternoon: false };
+              const halves = ['morning', 'afternoon'].map(half => {
+                const state = this._weekCellState({
+                  iso,
+                  roomId: 'remote',
+                  field: 'remote',
+                  flags: { remote: !!remoteFlags[half] },
+                  half,
+                });
+                const enabled = state.enabled && canRemote;
+                const halfLabel = half === 'morning' ? 'matin' : 'après-midi';
+                return `
+                  <button type="button" class="agenda-mine-cell agenda-mine-cell--remote ${state.on ? 'is-on' : ''} agenda-mine-cell--half"
+                    data-week-person="${escapeHtml(person.key)}" data-week-date="${iso}" data-week-room="remote" data-week-field="remote" data-week-half="${half}"
+                    aria-pressed="${state.on}" ${enabled ? '' : 'disabled'}
+                    aria-label="Télétravail ${halfLabel} — ${escapeHtml(formatDayLabel(iso))}"
+                    title="${escapeHtml(state.title)}"></button>`;
+              }).join('');
+              const tags = ['morning', 'afternoon'].map(half => `
+                <span class="agenda-mine-cell-tag">${isMonth ? (half === 'morning' ? 'M' : 'A') : (half === 'morning' ? 'Matin' : 'Après-midi')}</span>`).join('');
+              return `<span class="agenda-mine-cell-group" role="group" aria-label="Télétravail — ${escapeHtml(formatDayLabel(iso))}">
+                <span class="agenda-mine-cell-tags" aria-hidden="true">${tags}</span>
+                <span class="agenda-mine-cell-halves">${halves}</span>
+              </span>`;
+            }).join('')}
+            <span class="agenda-mine-matrix-spacer"></span>
+          </div>
+        </div>
+      </div>` : `
+      <p class="agenda-none">Lecture seule : vous n'avez pas la permission de modifier cette personne.</p>`;
 
     return `
       <div class="modal-overlay open agenda-person-week-overlay" data-action="close-person-week">
@@ -1067,55 +1392,7 @@ export class AgendaPage {
               </button>
             </div>
             <div class="modal-body agenda-person-week-body">
-              ${editable ? `
-                <div class="agenda-person-week-grid" style="--week-days: ${dates.length}">
-                  <div class="agenda-person-week-head">
-                    <span class="agenda-person-week-corner">Local</span>
-                    <span class="agenda-person-week-option">Option</span>
-                    ${dates.map(iso => {
-                      const date = parseISODate(iso);
-                      return `
-                        <span class="agenda-person-week-day ${iso === today ? 'is-today' : ''}">
-                          <span class="agenda-person-week-day-name">${DAY_LABELS_SHORT[date.getDay() === 0 ? 6 : date.getDay() - 1]}</span>
-                          <span class="agenda-person-week-day-num">${date.getDate()}</span>
-                        </span>`;
-                    }).join('')}
-                  </div>
-                  ${rooms.map((room, roomIndex) => `
-                    <div class="agenda-person-week-room-row ${roomIndex === 0 ? 'is-first' : ''}">
-                      <span class="agenda-person-week-room">${escapeHtml(room.name)}${room.building_name ? `<small>${escapeHtml(room.building_name)}</small>` : ''}</span>
-                      ${['morning', 'meal', 'afternoon'].map((field, fieldIndex) => {
-                        const fieldLabels = { morning: 'Matin', meal: 'Repas', afternoon: 'Après-midi' };
-                        const dayPresences = dates.map(iso => {
-                          const dayData = presencesByDate[iso] || [];
-                          const roomPresence = dayData.find(p => p.roomId === room.id);
-                          const period = roomPresence?.period || 'full';
-                          let on = false;
-                          let enabled = !!roomPresence;
-                          if (field === 'morning') on = period === 'morning' || period === 'full';
-                          else if (field === 'afternoon') on = period === 'afternoon' || period === 'full';
-                          else if (field === 'meal') on = roomPresence?.needs_meal === true;
-                          const inMonth = (this.data?.days || []).some(d => d.date === iso);
-                          if (!inMonth) enabled = false;
-                          return `
-                            <button type="button" class="agenda-person-week-cell ${on ? 'is-on' : ''} ${field === 'meal' ? 'agenda-person-week-cell--meal' : ''} ${!enabled ? 'disabled' : ''}"
-                              data-week-person="${escapeHtml(person.key)}" data-week-date="${iso}" data-week-room="${room.id}" data-week-field="${field}"
-                              aria-pressed="${on}" ${enabled ? '' : 'disabled'}
-                              aria-label="${fieldLabels[field]} — ${escapeHtml(formatDayLabel(iso))} — ${escapeHtml(room.name)}"
-                              title="${enabled ? fieldLabels[field] : 'Hors période'}"></button>`;
-                        }).join('');
-                        return `
-                          <div class="agenda-person-week-field-row ${fieldIndex === 1 ? 'is-meal-row' : ''}">
-                            <span class="agenda-person-week-field-label">${fieldLabels[field]}</span>
-                            ${dayPresences}
-                          </div>`;
-                      }).join('')}
-                    </div>
-                  `).join('')}
-                </div>
-              ` : `
-                <p class="agenda-none">Lecture seule : vous n'avez pas la permission de modifier cette personne.</p>
-              `}
+              ${grid}
             </div>
             <div class="modal-footer agenda-person-week-footer">
               <button class="btn btn-secondary" type="button" data-action="close-person-week">Fermer</button>
@@ -1133,7 +1410,8 @@ export class AgendaPage {
         this.renderState();
       }
     });
-    this.element.querySelectorAll('[data-action="close-person-week"]').forEach(el => {
+    // L'overlay a déjà son propre écouteur (clic sur le fond uniquement).
+    this.element.querySelectorAll('button[data-action="close-person-week"]').forEach(el => {
       el.addEventListener('click', () => {
         this.personWeekModal = null;
         this.renderState();
@@ -1179,12 +1457,25 @@ export class AgendaPage {
           }
         }
 
+        // Ligne « Télétravail » : présence sans local, portée par day.remote
+        let existingRemote = null;
+        if (dayData && field === 'remote') {
+          existingRemote = (dayData.remote || []).find(p => this._presencePersonKey(p) === personKey) || null;
+        }
+
         try {
-          if (field === 'meal') {
+          if (field === 'remote') {
+            await this._togglePersonRemote({
+              person,
+              date,
+              half: btn.dataset.weekHalf,
+              remote: existingRemote,
+            });
+          } else if (field === 'meal') {
             // Toggle repas
-            if (existingPresence && existingPresence.presence?.id != null) {
-              await updatePresence(existingPresence.presence.id, { needs_meal: !existingPresence.needs_meal });
-            } else if (existingPresence && existingPresence.presence?.id == null) {
+            if (existingPresence && existingPresence.id != null) {
+              await updatePresence(existingPresence.id, { needs_meal: !existingPresence.needs_meal });
+            } else if (existingPresence && existingPresence.id == null) {
               // Présence dérivée (occupation) -> créer une inscription
               await createExternalPresence({
                 presence_date: date,
@@ -1195,37 +1486,43 @@ export class AgendaPage {
                 period: 'full',
               });
             }
+          } else if (field === 'desk') {
+            // Toggle poste de travail (uniquement sur une présence réelle)
+            const isOn = btn.classList.contains('is-on');
+            if (existingPresence && existingPresence.id != null) {
+              await updatePresence(existingPresence.id, { needs_workstation: !isOn });
+            }
           } else {
             // Toggle matin/après-midi
             const isOn = btn.classList.contains('is-on');
             if (isOn) {
               // Retirer la présence pour cette demi-journée
-              if (existingPresence && existingPresence.presence?.id != null) {
+              if (existingPresence && existingPresence.id != null) {
                 const period = existingPresence.period || 'full';
                 if (period === 'full') {
                   // Passer à l'autre demi-journée
                   const otherHalf = field === 'morning' ? 'afternoon' : 'morning';
-                  await updatePresence(existingPresence.presence.id, { period: otherHalf });
+                  await updatePresence(existingPresence.id, { period: otherHalf });
                 } else if (period === field) {
                   // Retirer complètement
                   if (person.type === 'user' && person.isMine) {
                     await upsertMyPresence({ presence_date: date, room_id: roomId, is_present: false });
                   } else {
-                    await deletePresence(existingPresence.presence.id);
+                    await deletePresence(existingPresence.id);
                   }
                 }
-              } else if (existingPresence && existingPresence.presence?.id == null) {
+              } else if (existingPresence && existingPresence.id == null) {
                 // Présence dérivée -> ne rien faire (pas de présence à modifier)
               }
             } else {
               // Ajouter la présence pour cette demi-journée
-              if (existingPresence && existingPresence.presence?.id != null) {
+              if (existingPresence && existingPresence.id != null) {
                 const period = existingPresence.period || 'full';
                 if (period === 'full') {
                   // Déjà full, rien à faire
                 } else if (period !== field) {
                   // Étendre à full
-                  await updatePresence(existingPresence.presence.id, { period: 'full' });
+                  await updatePresence(existingPresence.id, { period: 'full' });
                 }
               } else {
                 // Créer nouvelle présence
@@ -1242,6 +1539,58 @@ export class AgendaPage {
         }
       });
     });
+
+    // Boutons « Tout » (matin / après-midi / poste) du modal planning semaine.
+    this.element.querySelectorAll('[data-week-bulk]').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        if (btn.disabled) return;
+        btn.disabled = true;
+        try {
+          await this._bulkPersonWeekHalf({
+            person: this.personWeekModal?.person,
+            roomId: Number(btn.dataset.weekRoom),
+            field: btn.dataset.weekBulk,
+          });
+        } finally {
+          btn.disabled = false;
+        }
+      });
+    });
+  }
+
+  // « Tout » dans le modal planning semaine : coche une ligne sur tous les jours ouvrables.
+  async _bulkPersonWeekHalf({ person, roomId, field }) {
+    if (!person || !roomId) return;
+    const todayIso = toISODate(new Date());
+    const dates = this._mineGridDates().filter(iso => {
+      if (iso < todayIso) return false;
+      const weekday = parseISODate(iso).getDay();
+      return weekday >= 1 && weekday <= 5;
+    });
+    try {
+      for (const date of dates) {
+        const existing = this._findPersonPresence(person.key, date, roomId);
+        if (field === 'desk') {
+          if (existing && existing.id != null && !existing.needs_workstation) {
+            await updatePresence(existing.id, { needs_workstation: true });
+          }
+          continue;
+        }
+        if (existing && existing.id != null) {
+          const period = existing.period || 'full';
+          if (period === 'full' || period === field) continue;
+          await updatePresence(existing.id, { period: 'full' });
+        } else if (!existing) {
+          await this._createPersonPresence(person, { date, roomId, half: field, needsWorkstation: false, needsMeal: false });
+        }
+      }
+      await this.loadPlanning();
+      this.renderState();
+      this._toast(field === 'desk' ? 'Postes sélectionnés' : (field === 'morning' ? 'Matin sélectionné' : 'Après-midi sélectionné'), 'success');
+    } catch (error) {
+      console.error('[agenda] person week bulk error:', error);
+      this._toast(error.message || 'Erreur', 'error');
+    }
   }
 
   async _createPersonPresence(person, { date, roomId, half, needsWorkstation, needsMeal }) {
@@ -1265,6 +1614,38 @@ export class AgendaPage {
       period: half,
       user_id: person.personId,
     });
+  }
+
+  // Télétravail d'une autre personne (modal planning semaine).
+  async _togglePersonRemote({ person, date, half, remote }) {
+    if (!half) return;
+    if (person.type !== 'user' || person.personId == null) {
+      throw new Error('Télétravail réservé aux personnes inscrites');
+    }
+    const period = remote ? (remote.period || 'full') : null;
+    const on = period === 'full' || period === half;
+    const otherHalf = half === 'morning' ? 'afternoon' : 'morning';
+    const payload = {
+      presence_date: date,
+      is_remote: true,
+      period: half,
+      user_id: person.personId,
+    };
+    if (!remote) {
+      if (date < toISODate(new Date())) {
+        throw new Error('Impossible de s’inscrire pour une date passée');
+      }
+      await upsertMyPresence({ ...payload, is_present: true });
+    } else if (!on) {
+      // L'autre moitié est déjà en télétravail : compléter la journée
+      await updatePresence(remote.id, { period: 'full' });
+    } else if (period === 'full') {
+      // Journée complète : on la réduit à l'autre moitié
+      await updatePresence(remote.id, { period: otherHalf });
+    } else {
+      // Dernière demi-journée retirée
+      await upsertMyPresence({ ...payload, is_present: false });
+    }
   }
 
   async _saveCellEditor() {
@@ -1465,7 +1846,53 @@ export class AgendaPage {
     }
   }
 
-  async _toggleMineCell({ roomId, date, field }) {
+  // Télétravail : présence sans local, gérée demi-journée par demi-journée.
+  async _toggleMineRemote({ date, half }) {
+    if (!half) return false;
+    const remote = this._mineRemoteForDate(date);
+    const period = remote ? (remote.period || 'full') : null;
+    const on = period === 'full' || period === half;
+    const otherHalf = half === 'morning' ? 'afternoon' : 'morning';
+    try {
+      if (!remote) {
+        if (date < toISODate(new Date())) {
+          this._toast('Impossible de vous inscrire pour une date passée', 'error');
+          return false;
+        }
+        await upsertMyPresence({
+          presence_date: date,
+          is_remote: true,
+          is_present: true,
+          period: half,
+        });
+      } else if (on) {
+        if (period === 'full') {
+          // Journée complète : on la réduit à l'autre moitié
+          await updatePresence(remote.id, { period: otherHalf });
+        } else {
+          // Dernière demi-journée retirée
+          await upsertMyPresence({
+            presence_date: date,
+            is_remote: true,
+            is_present: false,
+            period: half,
+          });
+        }
+      } else {
+        // L'autre moitié est déjà en télétravail : compléter la journée
+        await updatePresence(remote.id, { period: 'full' });
+      }
+      await this.loadPlanning();
+      this.renderState();
+      return true;
+    } catch (error) {
+      this._toast(error.message || 'Erreur', 'error');
+      return false;
+    }
+  }
+
+  async _toggleMineCell({ roomId, date, field, half }) {
+    if (field === 'remote') return this._toggleMineRemote({ date, half });
     const mine = this._minePresenceForDate(date, roomId);
 
     let morning = false;
@@ -1673,6 +2100,7 @@ export class AgendaPage {
             roomId: Number(btn.dataset.roomId),
             date: btn.dataset.date,
             field: btn.dataset.mineToggle,
+            half: btn.dataset.half,
           });
         } finally {
           btn.disabled = false;

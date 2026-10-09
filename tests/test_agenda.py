@@ -138,7 +138,9 @@ async def test_agenda_planning_and_presence_flow(client, admin_headers):
 
 
 @pytest.mark.asyncio
-async def test_agenda_split_presence_two_rooms(client, admin_headers):
+async def test_agenda_second_local_replaces_first(client, admin_headers):
+    """Un seul local par demi-journée : même période dans un autre local → retrait.
+    Demi-journée opposée → autorisée (les deux cohabitent)."""
     room_a, room_b = await _setup_bureau_rooms(
         client, admin_headers, names=("Bureau A", "Bureau B")
     )
@@ -159,6 +161,7 @@ async def test_agenda_split_presence_two_rooms(client, admin_headers):
     assert morning.json()["room_id"] == room_a
     assert morning.json()["period"] == "morning"
 
+    # Après-midi dans l'autre local : AUTORISÉE (demi-journée différente)
     afternoon = await client.post(
         "/agenda/presences",
         json={
@@ -180,12 +183,46 @@ async def test_agenda_split_presence_two_rooms(client, admin_headers):
     day = next(d for d in planning.json()["days"] if d["date"] == presence_date)
     room_a_day = next(r for r in day["rooms"] if r["room_id"] == room_a)
     room_b_day = next(r for r in day["rooms"] if r["room_id"] == room_b)
+    # Les deux locaux cohabitent : matin dans A, après-midi dans B
+    assert room_a_day["present_count"] == 1
     assert any(p["is_mine"] and p["period"] == "morning" for p in room_a_day["presences"])
+    assert room_b_day["present_count"] == 1
     assert any(p["is_mine"] and p["period"] == "afternoon" for p in room_b_day["presences"])
+    assert day["total_present"] == 2
+
+    # Mais si on remet un matin dans B : le matin de A est retiré
+    morning_b = await client.post(
+        "/agenda/presences",
+        json={
+            "presence_date": presence_date,
+            "room_id": room_b,
+            "is_present": True,
+            "period": "morning",
+        },
+        headers=admin_headers,
+    )
+    assert morning_b.status_code == 200, morning_b.text
+
+    planning = await client.get(
+        f"/agenda/planning?view=week&anchor={presence_date}",
+        headers=admin_headers,
+    )
+    day = next(d for d in planning.json()["days"] if d["date"] == presence_date)
+    room_a_day = next(r for r in day["rooms"] if r["room_id"] == room_a)
+    room_b_day = next(r for r in day["rooms"] if r["room_id"] == room_b)
+    assert room_a_day["present_count"] == 0
+    assert room_a_day["presences"] == []
+    # B: période mise à jour à "matin" (une seule ligne par local)
+    assert room_b_day["present_count"] == 1
+    mine_b = next(p for p in room_b_day["presences"] if p["is_mine"])
+    assert mine_b["period"] == "morning"
+    assert day["total_present"] == 1
 
 
 @pytest.mark.asyncio
 async def test_agenda_conflict_rules(client, admin_headers):
+    """Un seul local par demi-journée : même période dans un autre local → retrait auto.
+    Demi-journée opposée dans un autre local → autorisée (les deux cohabitent)."""
     room_a, room_b = await _setup_bureau_rooms(
         client, admin_headers, names=("Conf A", "Conf B")
     )
@@ -203,7 +240,7 @@ async def test_agenda_conflict_rules(client, admin_headers):
     )
     assert morning.status_code == 200, morning.text
 
-    # Same period in another room is forbidden
+    # Même période dans un autre local : le premier est retiré automatiquement
     morning_b = await client.post(
         "/agenda/presences",
         json={
@@ -211,43 +248,55 @@ async def test_agenda_conflict_rules(client, admin_headers):
             "room_id": room_b,
             "is_present": True,
             "period": "morning",
-        },
-        headers=admin_headers,
-    )
-    assert morning_b.status_code == 409, morning_b.text
-
-    # Opposite half-day is allowed
-    afternoon_b = await client.post(
-        "/agenda/presences",
-        json={
-            "presence_date": presence_date,
-            "room_id": room_b,
-            "is_present": True,
-            "period": "afternoon",
             "needs_meal": True,
             "needs_workstation": True,
         },
         headers=admin_headers,
     )
-    assert afternoon_b.status_code == 200, afternoon_b.text
+    assert morning_b.status_code == 200, morning_b.text
 
-    # Meal already used in room B
-    meal_a = await client.post(
+    planning = await client.get(
+        f"/agenda/planning?view=week&anchor={presence_date}", headers=admin_headers
+    )
+    assert planning.status_code == 200, planning.text
+    day = next(d for d in planning.json()["days"] if d["date"] == presence_date)
+    room_day_a = next(r for r in day["rooms"] if r["room_id"] == room_a)
+    room_day_b = next(r for r in day["rooms"] if r["room_id"] == room_b)
+    assert room_day_a["present_count"] == 0, room_day_a
+    assert room_day_a["presences"] == []
+    assert room_day_b["present_count"] == 1, room_day_b
+    mine_b = next(p for p in room_day_b["presences"] if p["is_mine"])
+    assert mine_b["period"] == "morning"
+    assert mine_b["needs_meal"] is True
+    assert mine_b["needs_workstation"] is True
+    assert day["total_present"] == 1
+
+    # Demi-journée opposée dans un autre local : AUTORISÉE (les deux restent)
+    afternoon_c = await client.post(
         "/agenda/presences",
         json={
             "presence_date": presence_date,
-            "room_id": room_a,
+            "room_id": room_a,  # retour dans A, mais après-midi
             "is_present": True,
-            "period": "morning",
-            "needs_meal": True,
+            "period": "afternoon",
         },
         headers=admin_headers,
     )
-    assert meal_a.status_code == 409, meal_a.text
+    assert afternoon_c.status_code == 200, afternoon_c.text
 
-    # Workstation in both rooms is allowed (update room A)
+    planning = await client.get(
+        f"/agenda/planning?view=week&anchor={presence_date}", headers=admin_headers
+    )
+    day = next(d for d in planning.json()["days"] if d["date"] == presence_date)
+    room_day_b = next(r for r in day["rooms"] if r["room_id"] == room_b)
+    room_day_a = next(r for r in day["rooms"] if r["room_id"] == room_a)
+    assert room_day_b["present_count"] == 1, room_day_b  # matin dans B toujours là
+    assert room_day_a["present_count"] == 1, room_day_a  # après-midi dans A ajouté
+    assert day["total_present"] == 2
+
+    # Le poste reste modifiable sur la présence active
     desk_a = await client.patch(
-        f"/agenda/presences/{morning.json()['id']}",
+        f"/agenda/presences/{afternoon_c.json()['id']}",
         json={"needs_workstation": True},
         headers=admin_headers,
     )
@@ -680,3 +729,194 @@ async def test_agenda_occupancy_not_double_counted(client, admin_headers, db_ses
     assert room_day["present_count"] == 1, room_day
     assert [p["person_type"] for p in room_day["presences"]] == ["user"]
     assert not any(p["person_type"] == "occupant" for p in day["integrated"])
+
+
+
+@pytest.mark.asyncio
+async def test_remote_presence_is_row_without_room(client, admin_headers):
+    """Télétravail : ligne sans local, comptée dans le jour mais pas dans les locaux."""
+    room_id = await _setup_bureau_room(client, admin_headers, name="Télétravail Bureau")
+    presence_date = _next_weekday(date.today()).isoformat()
+
+    created = await client.post(
+        "/agenda/presences",
+        json={
+            "presence_date": presence_date,
+            "room_id": room_id,  # ignoré en télétravail
+            "is_present": True,
+            "period": "full",
+            "is_remote": True,
+            "needs_workstation": True,
+            "needs_meal": True,
+        },
+        headers=admin_headers,
+    )
+    assert created.status_code == 200, created.text
+    body = created.json()
+    assert body["is_remote"] is True
+    assert body["room_id"] is None
+    assert body["needs_workstation"] is False
+    assert body["needs_meal"] is False
+    presence_id = body["id"]
+
+    planning = await client.get(
+        f"/agenda/planning?view=week&anchor={presence_date}", headers=admin_headers
+    )
+    assert planning.status_code == 200, planning.text
+    day = next(d for d in planning.json()["days"] if d["date"] == presence_date)
+    # Compté dans le total du jour, sans poste
+    assert day["total_present"] == 1, day
+    assert day["total_workstations"] == 0
+    # Pas de présence dans le local, compteurs locaux à zéro
+    room_day = next(r for r in day["rooms"] if r["room_id"] == room_id)
+    assert room_day["present_count"] == 0
+    assert room_day["workstation_count"] == 0
+    assert room_day["presences"] == []
+    # Ligne télétravail présente
+    remote = next(p for p in day["remote"] if p["is_mine"])
+    assert remote["is_remote"] is True
+    assert remote["room_id"] is None
+    assert remote["period"] == "full"
+
+    # PATCH télétravail : force poste/repas à False
+    patched = await client.patch(
+        f"/agenda/presences/{presence_id}",
+        json={"is_remote": True, "needs_workstation": True, "needs_meal": True},
+        headers=admin_headers,
+    )
+    assert patched.status_code == 200, patched.text
+    assert patched.json()["is_remote"] is True
+    assert patched.json()["room_id"] is None
+    assert patched.json()["needs_workstation"] is False
+    assert patched.json()["needs_meal"] is False
+
+
+@pytest.mark.asyncio
+async def test_remote_half_day_excludes_local_half(client, admin_headers):
+    """Télétravail matin : la présence locale est réduite à l'après-midi (repas gardé)."""
+    room_id = await _setup_bureau_room(client, admin_headers, name="Bureau Exclu")
+    presence_date = _next_weekday(date.today()).isoformat()
+
+    local = await client.post(
+        "/agenda/presences",
+        json={
+            "presence_date": presence_date,
+            "room_id": room_id,
+            "is_present": True,
+            "period": "full",
+            "needs_workstation": True,
+            "needs_meal": True,
+        },
+        headers=admin_headers,
+    )
+    assert local.status_code == 200, local.text
+
+    remote = await client.post(
+        "/agenda/presences",
+        json={
+            "presence_date": presence_date,
+            "room_id": None,
+            "is_present": True,
+            "period": "morning",
+            "is_remote": True,
+        },
+        headers=admin_headers,
+    )
+    assert remote.status_code == 200, remote.text
+    assert remote.json()["period"] == "morning"
+    assert remote.json()["room_id"] is None
+
+    planning = await client.get(
+        f"/agenda/planning?view=week&anchor={presence_date}", headers=admin_headers
+    )
+    day = next(d for d in planning.json()["days"] if d["date"] == presence_date)
+    room_day = next(r for r in day["rooms"] if r["room_id"] == room_id)
+    # La présence locale n'est pas perdue : réduite à l'après-midi, repas gardé
+    assert room_day["present_count"] == 1
+    mine = next(p for p in room_day["presences"] if p["is_mine"])
+    assert mine["period"] == "afternoon"
+    assert mine["needs_meal"] is True
+    assert mine["needs_workstation"] is True
+    remote_mine = next(p for p in day["remote"] if p["is_mine"])
+    assert remote_mine["period"] == "morning"
+    assert day["total_present"] == 2
+
+    # Télétravail journée entière : la présence locale est retirée
+    full = await client.post(
+        "/agenda/presences",
+        json={
+            "presence_date": presence_date,
+            "room_id": None,
+            "is_present": True,
+            "period": "full",
+            "is_remote": True,
+        },
+        headers=admin_headers,
+    )
+    assert full.status_code == 200, full.text
+
+    planning = await client.get(
+        f"/agenda/planning?view=week&anchor={presence_date}", headers=admin_headers
+    )
+    day = next(d for d in planning.json()["days"] if d["date"] == presence_date)
+    room_day = next(r for r in day["rooms"] if r["room_id"] == room_id)
+    assert room_day["present_count"] == 0
+    assert room_day["presences"] == []
+    remote_mine = next(p for p in day["remote"] if p["is_mine"])
+    assert remote_mine["period"] == "full"
+    assert day["total_present"] == 1
+
+
+@pytest.mark.asyncio
+async def test_local_presence_removes_overlapping_remote(client, admin_headers):
+    """Case locale cochée : le télétravail de la même demi-journée est retiré."""
+    room_id = await _setup_bureau_room(client, admin_headers, name="Bureau Local")
+    presence_date = _next_weekday(date.today()).isoformat()
+
+    remote = await client.post(
+        "/agenda/presences",
+        json={
+            "presence_date": presence_date,
+            "room_id": None,
+            "is_present": True,
+            "period": "full",
+            "is_remote": True,
+        },
+        headers=admin_headers,
+    )
+    assert remote.status_code == 200, remote.text
+    remote_id = remote.json()["id"]
+
+    local = await client.post(
+        "/agenda/presences",
+        json={
+            "presence_date": presence_date,
+            "room_id": room_id,
+            "is_present": True,
+            "period": "morning",
+        },
+        headers=admin_headers,
+    )
+    assert local.status_code == 200, local.text
+    assert local.json()["period"] == "morning"
+
+    planning = await client.get(
+        f"/agenda/planning?view=week&anchor={presence_date}", headers=admin_headers
+    )
+    day = next(d for d in planning.json()["days"] if d["date"] == presence_date)
+    # Retrait automatique : le télétravail est réduit à l'après-midi
+    remote_mine = next(p for p in day["remote"] if p["is_mine"])
+    assert remote_mine["period"] == "afternoon"
+    room_day = next(r for r in day["rooms"] if r["room_id"] == room_id)
+    assert room_day["present_count"] == 1
+    mine = next(p for p in room_day["presences"] if p["is_mine"])
+    assert mine["period"] == "morning"
+    assert day["total_present"] == 2
+
+    # Une ligne télétravail (sans local) ne peut pas redevenir locale
+    back = await client.patch(
+        f"/agenda/presences/{remote_id}",
+        json={"is_remote": False},
+        headers=admin_headers,
+    )
+    assert back.status_code == 409, back.text

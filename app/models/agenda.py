@@ -22,8 +22,9 @@ class AgendaPresence(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     presence_date: Mapped[date] = mapped_column(Date, nullable=False, index=True)
-    room_id: Mapped[int] = mapped_column(
-        ForeignKey("rooms.id", ondelete="CASCADE"), nullable=False, index=True
+    # NULL = télétravail : présence sans local (invariant : room_id NULL <=> is_remote).
+    room_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("rooms.id", ondelete="CASCADE"), nullable=True, index=True
     )
     user_id: Mapped[Optional[int]] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True
@@ -36,6 +37,10 @@ class AgendaPresence(Base):
     is_present: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     needs_workstation: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     needs_meal: Mapped[bool] = mapped_column(
+        Boolean, default=False, nullable=False, server_default=false()
+    )
+    # Télétravail : présence hors local (room_id NULL), sans poste ni repas.
+    is_remote: Mapped[bool] = mapped_column(
         Boolean, default=False, nullable=False, server_default=false()
     )
     # full = journée entière | morning = matin | afternoon = après-midi
@@ -52,7 +57,7 @@ class AgendaPresence(Base):
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
     )
 
-    room: Mapped["Room"] = relationship("Room")
+    room: Mapped[Optional["Room"]] = relationship("Room")
     user: Mapped[Optional["User"]] = relationship("User", foreign_keys=[user_id])
 
     __table_args__ = (

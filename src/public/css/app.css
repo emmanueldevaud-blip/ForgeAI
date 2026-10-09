@@ -5351,18 +5351,27 @@
 .agenda-mine-matrix-day .agenda-mine-day-num { color: var(--color-text-primary); font-size: var(--font-size-base); font-weight: var(--font-weight-semibold); }
 .agenda-mine-matrix-day.is-today .agenda-mine-day-num { color: var(--color-primary-dark); }
 .agenda-mine-matrix-row { display: contents; }
-.agenda-mine-matrix-room { grid-row: span 4; display: flex; flex-direction: column; justify-content: center; gap: 2px; padding: var(--spacing-2) var(--spacing-3); background: var(--color-bg-secondary); color: var(--color-text-primary); font-size: var(--font-size-sm); font-weight: var(--font-weight-semibold); position: sticky; left: 0; z-index: 2; box-shadow: 1px 0 0 var(--color-border-light); }
+/* Ligne de compteurs (Prés / Repas / Postes) au-dessus de chaque local */
+.agenda-mine-counter-row { display: grid; grid-template-columns: var(--mine-room-col) var(--mine-option-col) repeat(var(--mine-days, 5), minmax(52px, 1fr)) minmax(56px, auto); gap: 1px; background: var(--color-bg-secondary); }
+.agenda-mine-counter-row.is-room-separator { border-top: 3px solid var(--color-border-dark); }
+.agenda-mine-counter { display: flex; align-items: center; justify-content: center; padding: var(--spacing-1) var(--spacing-2); font-size: var(--font-size-xs); font-weight: var(--font-weight-medium); color: var(--color-text-secondary); background: var(--color-surface-raised); border-left: 1px solid var(--color-border-light); white-space: nowrap; }
+/* La cellule de local est portée par la ligne de compteurs (elle spanne tout le bloc : compteurs + lignes) */
+.agenda-mine-counter-row + .agenda-mine-matrix-row > .agenda-mine-matrix-room { display: none; }
+.agenda-mine-matrix-row { display: contents; }
+.agenda-mine-matrix-room { grid-row: span var(--mine-room-rows, 5); display: flex; flex-direction: column; justify-content: center; gap: 2px; padding: var(--spacing-2) var(--spacing-3); background: var(--color-bg-secondary); color: var(--color-text-primary); font-size: var(--font-size-sm); font-weight: var(--font-weight-semibold); position: sticky; left: 0; z-index: 2; box-shadow: 1px 0 0 var(--color-border-light); }
 .agenda-mine-matrix-room.is-not-first { border-top: 3px solid var(--color-border-dark); background: var(--color-primary-light); color: var(--color-primary-dark); }
 .agenda-mine-matrix-room small { color: var(--color-text-tertiary); font-size: var(--font-size-xs); font-weight: var(--font-normal); }
 .agenda-mine-matrix-room.is-not-first small { color: var(--color-primary-dark); }
 .agenda-mine-matrix-label { display: flex; align-items: center; padding: var(--spacing-2) var(--spacing-3); background: var(--color-surface-raised); color: var(--color-text-secondary); font-size: var(--font-size-xs); font-weight: var(--font-weight-medium); position: sticky; left: var(--mine-room-col); z-index: 2; box-shadow: 1px 0 0 var(--color-border-light); }
 .agenda-mine-matrix-row.is-room-start .agenda-mine-matrix-label { box-shadow: inset 0 1px 0 var(--color-border-light); }
 .agenda-mine-matrix-row.is-room-separator .agenda-mine-matrix-label,
+.agenda-mine-matrix-row.is-room-separator .agenda-mine-cell-group,
 .agenda-mine-matrix-row.is-room-separator .agenda-mine-cell,
 .agenda-mine-matrix-row.is-room-separator .agenda-mine-bulk,
 .agenda-mine-matrix-row.is-room-separator .agenda-mine-matrix-spacer { border-top: 3px solid var(--color-border-dark); }
 .agenda-mine-matrix-spacer { background: var(--color-surface-raised); }
 .agenda-mine-matrix-row.is-section-break .agenda-mine-matrix-label,
+.agenda-mine-matrix-row.is-section-break .agenda-mine-cell-group,
 .agenda-mine-matrix-row.is-section-break .agenda-mine-cell,
 .agenda-mine-matrix-row.is-section-break .agenda-mine-bulk,
 .agenda-mine-matrix-row.is-section-break .agenda-mine-matrix-spacer { border-top: 2px solid var(--color-border-medium); }
@@ -5374,6 +5383,25 @@
 .agenda-mine-cell--desk.is-on::after { content: '✓'; color: var(--color-primary-dark); }
 .agenda-mine-cell--meal.is-on { background: var(--color-warning-light); box-shadow: inset 0 0 0 2px var(--color-warning); }
 .agenda-mine-cell--meal.is-on::after { content: '✓'; color: var(--color-warning-hover); }
+.agenda-mine-cell--remote.is-on { background: var(--color-info-light); box-shadow: inset 0 0 0 2px var(--color-info); }
+.agenda-mine-cell--remote.is-on::after { content: '✓'; color: var(--color-info-hover); }
+/* Ligne unique « Télétravail » : bandeau d'étiquettes (Matin / Après-midi)
+   au-dessus des deux moitiés cliquables, sans local. Hauteur de rangée
+   identique aux autres lignes de la matrice. */
+.agenda-mine-matrix-room--remote { grid-row: span 1; }
+.agenda-mine-cell-group { display: flex; flex-direction: column; min-height: 44px; background: var(--color-surface-raised); overflow: hidden; }
+.agenda-mine-cell-tags { display: flex; flex: 0 0 auto; height: 15px; align-items: center; }
+.agenda-mine-cell-tag { flex: 1 1 50%; min-width: 0; text-align: center; font-size: 10px; font-weight: var(--font-weight-semibold); line-height: 1; color: var(--color-text-secondary); white-space: nowrap; overflow: hidden; pointer-events: none; }
+.agenda-mine-cell-halves { display: flex; flex: 1 1 auto; min-height: 0; }
+.agenda-mine-cell-group .agenda-mine-cell { flex: 1 1 50%; min-width: 0; min-height: 0; }
+.agenda-mine-cell-halves .agenda-mine-cell + .agenda-mine-cell { border-left: 1px solid var(--color-border-medium); }
+/* La bordure de séparation porte sur le groupe entier, pas sur ses moitiés. */
+.agenda-mine-matrix-row.is-room-separator .agenda-mine-cell-group .agenda-mine-cell,
+.agenda-mine-matrix-row.is-section-break .agenda-mine-cell-group .agenda-mine-cell { border-top: 0; }
+.agenda-mine-matrix--month .agenda-mine-cell-group { min-height: 36px; }
+.agenda-mine-matrix--month .agenda-mine-cell-tags { height: 12px; }
+.agenda-mine-matrix--month .agenda-mine-cell-tag { font-size: 9px; }
+.agenda-mine-matrix--month .agenda-mine-cell-group .agenda-mine-cell::after { font-size: 10px; }
 .agenda-mine-cell:disabled { opacity: .45; cursor: not-allowed; }
 .agenda-mine-bulk { align-self: center; justify-self: center; margin: 4px; min-height: 32px; }
 .agenda-mine-footer { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--spacing-3); margin-top: var(--spacing-4); }
@@ -5421,6 +5449,35 @@
 .agenda-table--people .agenda-room-head { position: sticky; left: 0; z-index: 2; min-width: 160px; max-width: 240px; box-shadow: 1px 0 0 var(--color-border-light); }
 .agenda-table--people thead .agenda-room-head { z-index: 4; }
 .agenda-table--people td { padding: 2px; }
+/* Ligne de compteurs planning (Prés / Repas / Postes) */
+.agenda-planning-counter-row { background: var(--color-bg-secondary); border-top: 1px solid var(--color-border-light); }
+.agenda-planning-counter-row th.agenda-planning-counter-label {
+  background: var(--color-bg-secondary);
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-medium);
+  padding: var(--spacing-1) var(--spacing-2);
+  text-align: right;
+  white-space: nowrap;
+  border-right: 1px solid var(--color-border-light);
+}
+.agenda-planning-counter-row td.agenda-planning-counter {
+  background: var(--color-surface-raised);
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-medium);
+  text-align: center;
+  padding: var(--spacing-1) var(--spacing-2);
+  white-space: nowrap;
+}
+.agenda-table--people td { padding: 2px; }
+/* Séparateur vertical entre chaque jour */
+.agenda-table--people .agenda-day-head:not(.agenda-day-first),
+.agenda-table--people .agenda-half-subhead:not(.agenda-half-first):not(.agenda-half-last),
+.agenda-table--people .agenda-cell--morning:not(.agenda-cell--day-first) { border-left: 1px solid var(--color-border-medium); }
+/* Bordure fine entre matin et après-midi */
+.agenda-table--people .agenda-half-subhead.agenda-half-last,
+.agenda-table--people .agenda-cell--afternoon { border-left: 1px solid var(--color-border-light); }
 .agenda-person-head { vertical-align: middle; }
 .agenda-people-cell { min-width: 68px; min-height: 34px; flex-direction: row; justify-content: center; gap: var(--spacing-1); padding: var(--spacing-1); }
 .agenda-people-cell-room { display: block; max-width: 96px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--font-size-xs); font-weight: var(--font-weight-medium); }
@@ -5459,6 +5516,9 @@
 .agenda-badge--cleaning { background: var(--color-info-light); color: var(--color-info-hover); }
 .agenda-badge--occupant { background: var(--color-warning-light); color: var(--color-warning-hover); }
 .agenda-badge--desk, .agenda-badge--user, .agenda-badge--external { background: var(--color-primary-light); color: var(--color-primary-dark); }
+.agenda-badge--remote { background: var(--color-info-light); color: var(--color-info-hover); }
+.agenda-people-cell-flag--remote { color: var(--color-info-hover); }
+.agenda-check.is-disabled { opacity: .5; }
 .agenda-integrated { padding: var(--spacing-4); border-top: 1px solid var(--color-border-light); background: var(--color-bg-secondary); }
 .agenda-integrated h3 { margin: 0 0 var(--spacing-3); color: var(--color-text-primary); font-size: var(--font-size-sm); }
 .agenda-integrated-list { display: flex; flex-wrap: wrap; gap: var(--spacing-2); }
@@ -5497,6 +5557,15 @@
 .agenda-room-block h3 { margin: 0; color: var(--color-text-primary); font-size: var(--font-size-base); }
 .agenda-room-block h3 .agenda-room-building { display: block; color: var(--color-text-tertiary); font-size: var(--font-size-xs); font-weight: var(--font-weight-normal); }
 .agenda-room-block.is-selected { border-color: var(--color-primary); }
+/* Bloc « Télétravail » du détail du jour (présences sans local). */
+.agenda-remote-block { border-left: 3px solid var(--color-info); }
+
+/* Modal planning semaine — grille Local / Option / Jours */
+.agenda-person-week-header-text { min-width: 0; }
+.agenda-person-week-meta { margin: var(--spacing-1) 0 0; color: var(--color-text-tertiary); font-size: var(--font-size-sm); }
+.agenda-person-week-body { overflow-x: auto; }
+.agenda-person-week-content { width: min(920px, 94%); }
+
 .agenda-room-stats { color: var(--color-text-tertiary); font-size: var(--font-size-sm); }
 .agenda-people { display: flex; flex-wrap: wrap; gap: var(--spacing-2); margin: 0; padding: 0; list-style: none; }
 .agenda-person { display: inline-flex; align-items: center; gap: var(--spacing-2); max-width: 100%; padding: var(--spacing-1) var(--spacing-2); border: 1px solid var(--color-border-light); border-radius: var(--radius-full); background: var(--color-bg-secondary); color: var(--color-text-primary); font-size: var(--font-size-sm); }

@@ -293,7 +293,12 @@ class AgendaService:
             AgendaPresence.is_present.is_(True),
         )
         if room_ids:
-            presences_stmt = presences_stmt.where(AgendaPresence.room_id.in_(room_ids))
+            presences_stmt = presences_stmt.where(
+                or_(
+                    AgendaPresence.room_id.in_(room_ids),
+                    AgendaPresence.room_id.is_(None),
+                )
+            )
         presences_stmt = presences_stmt.options(selectinload(AgendaPresence.user))
         presences = (await self.db.execute(presences_stmt)).scalars().all()
 
@@ -386,16 +391,9 @@ class AgendaService:
             }
             total_present = 0
             total_workstations = 0
+            remote_items: List[AgendaPresenceItem] = []
 
             for p in by_day.get(day, []):
-                counter = room_counters.get(p.room_id)
-                if counter is None:
-                    continue
-                counter.present_count += 1
-                total_present += 1
-                if p.needs_workstation:
-                    counter.workstation_count += 1
-                    total_workstations += 1
                 if p.user_id:
                     user = users.get(p.user_id)
                     name = user.full_name if user else f"Utilisateur #{p.user_id}"
@@ -405,21 +403,35 @@ class AgendaService:
                     name = p.external_name or " externe"
                     person_type = "external"
                     person_id = None
-                counter.presences.append(
-                    AgendaPresenceItem(
-                        id=p.id,
-                        person_type=person_type,
-                        person_id=person_id,
-                        person_name=name,
-                        room_id=p.room_id,
-                        needs_workstation=p.needs_workstation,
-                        needs_meal=p.needs_meal,
-                        source=p.source,
-                        is_mine=bool(p.user_id and p.user_id == self.current_user.id),
-                        origin_ref=p.source_ref,
-                        period=p.period or "full",
-                    )
+                item = AgendaPresenceItem(
+                    id=p.id,
+                    person_type=person_type,
+                    person_id=person_id,
+                    person_name=name,
+                    room_id=p.room_id,
+                    needs_workstation=p.needs_workstation,
+                    needs_meal=p.needs_meal,
+                    is_remote=p.is_remote,
+                    source=p.source,
+                    is_mine=bool(p.user_id and p.user_id == self.current_user.id),
+                    origin_ref=p.source_ref,
+                    period=p.period or "full",
                 )
+                if p.room_id is None:
+                    # Télétravail : compté dans le total du jour,
+                    # jamais dans les compteurs de local.
+                    remote_items.append(item)
+                    total_present += 1
+                    continue
+                counter = room_counters.get(p.room_id)
+                if counter is None:
+                    continue
+                counter.present_count += 1
+                total_present += 1
+                if p.needs_workstation:
+                    counter.workstation_count += 1
+                    total_workstations += 1
+                counter.presences.append(item)
 
             integrated: List[AgendaPresenceItem] = []
             for item in cleaning_people.get(day, []):
@@ -444,6 +456,7 @@ class AgendaService:
                     total_present=total_present,
                     total_workstations=total_workstations,
                     rooms=[room_counters[r.id] for r in rooms],
+                    remote=remote_items,
                     integrated=integrated,
                 )
             )
@@ -576,11 +589,20 @@ class AgendaService:
         if owner_id != self.current_user.id and not await self.db.get(User, owner_id):
             raise LookupError("Utilisateur introuvable")
 
+        # Un télétravail ne consomme ni poste de travail ni repas et n'a
+        # aucun local (invariant : room_id NULL <=> is_remote = 1).
+        is_remote = bool(payload.is_remote)
+        room_id = None if is_remote else payload.room_id
+        if not is_remote and room_id is None:
+            raise ValueError("Local requis pour une présence sur site")
+        needs_workstation = False if is_remote else payload.needs_workstation
+        needs_meal = False if is_remote else payload.needs_meal
+
         if not payload.is_present:
             # "Absent" = hide own presence but keep the row as a manual decision
             # (the auto-assign will never recreate a day that already has a row)
             existing = await self._find_own_presence(
-                payload.presence_date, payload.room_id, user_id=owner_id
+                payload.presence_date, room_id, user_id=owner_id
             )
             if existing:
                 if existing.is_present:
@@ -591,53 +613,72 @@ class AgendaService:
             return AgendaPresenceResponse(
                 id=0,
                 presence_date=payload.presence_date,
-                room_id=payload.room_id,
+                room_id=room_id,
                 user_id=owner_id,
                 external_name=None,
                 source="user",
                 is_present=False,
-                needs_workstation=payload.needs_workstation,
-                needs_meal=payload.needs_meal,
+                needs_workstation=needs_workstation,
+                needs_meal=needs_meal,
+                is_remote=is_remote,
                 period=payload.period,
                 created_by=self.current_user.id,
                 created_at=datetime.utcnow(),
                 updated_at=datetime.utcnow(),
             )
 
-        await self._ensure_room_exists(payload.room_id)
+        if not is_remote:
+            await self._ensure_room_exists(room_id)
         if payload.presence_date < date.today():
             raise ValueError("Impossible de s'inscrire pour une date passée")
-        await self._assert_own_day_allowed(
-            payload.presence_date,
-            payload.room_id,
-            period=payload.period,
-            needs_meal=payload.needs_meal,
-            user_id=owner_id,
-        )
+        if not is_remote:
+            # Un seul local par demi-journée : la présence dans un autre
+            # local qui chevauche cette période est retirée automatiquement.
+            await self._remove_other_locals(
+                payload.presence_date, owner_id, keep_room_id=room_id, period=payload.period
+            )
+            await self._assert_own_day_allowed(
+                payload.presence_date,
+                room_id,
+                period=payload.period,
+                needs_meal=needs_meal,
+                user_id=owner_id,
+            )
         existing = await self._find_own_presence(
-            payload.presence_date, payload.room_id, user_id=owner_id
+            payload.presence_date, room_id, user_id=owner_id
         )
 
         if existing:
-            existing.needs_workstation = payload.needs_workstation
-            existing.needs_meal = payload.needs_meal
+            existing.needs_workstation = needs_workstation
+            existing.needs_meal = needs_meal
+            existing.is_remote = is_remote
             existing.is_present = True
             existing.period = payload.period
             presence = existing
         else:
             presence = AgendaPresence(
                 presence_date=payload.presence_date,
-                room_id=payload.room_id,
+                room_id=room_id,
                 user_id=owner_id,
                 external_name=None,
                 source="user",
                 is_present=True,
-                needs_workstation=payload.needs_workstation,
-                needs_meal=payload.needs_meal,
+                needs_workstation=needs_workstation,
+                needs_meal=needs_meal,
+                is_remote=is_remote,
                 period=payload.period,
                 created_by=self.current_user.id,
             )
             self.db.add(presence)
+
+        # Exclusivité par demi-journée : la présence de l'autre nature qui
+        # chevauche cette période est rétrécie ou retirée automatiquement.
+        await self._resolve_half_day_overlap(
+            payload.presence_date,
+            owner_id,
+            keep_remote=is_remote,
+            period=payload.period,
+        )
 
         await self.db.commit()
         await self.db.refresh(presence)
@@ -765,6 +806,7 @@ class AgendaService:
         self, payload: AgendaExternalPresenceCreate
     ) -> AgendaPresenceResponse:
         await self._ensure_room_exists(payload.room_id)
+        # Les inscriptions libres sont toujours sur site (pas de télétravail).
         presence = AgendaPresence(
             presence_date=payload.presence_date,
             room_id=payload.room_id,
@@ -774,6 +816,7 @@ class AgendaService:
             is_present=True,
             needs_workstation=payload.needs_workstation,
             needs_meal=payload.needs_meal,
+            is_remote=False,
             period=payload.period,
             created_by=self.current_user.id,
         )
@@ -798,6 +841,7 @@ class AgendaService:
         *,
         needs_workstation: Optional[bool] = None,
         needs_meal: Optional[bool] = None,
+        is_remote: Optional[bool] = None,
         is_present: Optional[bool] = None,
         period: Optional[str] = None,
         room_id: Optional[int] = None,
@@ -805,10 +849,19 @@ class AgendaService:
         presence = await self.get_presence(presence_id)
         if not presence:
             raise LookupError("Présence introuvable")
+        # Un télétravail ne consomme ni poste de travail ni repas et n'a
+        # aucun local (invariant : room_id NULL <=> is_remote = 1).
+        next_remote = presence.is_remote if is_remote is None else bool(is_remote)
+        if next_remote:
+            needs_workstation = False
+            needs_meal = False
+            room_id = None
+        elif room_id is None and presence.room_id is None:
+            raise ValueError("Local requis pour une présence sur site")
         next_period = period if period is not None else presence.period
         next_meal = needs_meal if needs_meal is not None else presence.needs_meal
         next_room = room_id if room_id is not None else presence.room_id
-        if next_room != presence.room_id:
+        if next_room is not None and next_room != presence.room_id:
             await self._ensure_room_exists(next_room)
             if presence.user_id is not None:
                 clash = await self._find_own_presence(
@@ -816,7 +869,20 @@ class AgendaService:
                 )
                 if clash and clash.id != presence.id:
                     raise ValueError("Vous êtes déjà inscrit dans ce local ce jour-là")
-        if period is not None or needs_meal is not None or next_room != presence.room_id:
+        next_present = presence.is_present if is_present is None else is_present
+        if next_room is not None and next_present and presence.user_id is not None:
+            # Un seul local par demi-journée : l'autre local qui chevauche
+            # cette période est retiré automatiquement (jamais d'erreur).
+            await self._remove_other_locals(
+                presence.presence_date,
+                presence.user_id,
+                keep_room_id=next_room,
+                period=next_period,
+                exclude_presence_id=presence.id,
+            )
+        if next_room is not None and (
+            period is not None or needs_meal is not None or next_room != presence.room_id
+        ):
             await self._assert_own_day_allowed(
                 presence.presence_date,
                 next_room,
@@ -829,15 +895,97 @@ class AgendaService:
             presence.needs_workstation = needs_workstation
         if needs_meal is not None:
             presence.needs_meal = needs_meal
+        presence.is_remote = next_remote
         if is_present is not None:
             presence.is_present = is_present
         if period is not None:
             presence.period = period
         if next_room != presence.room_id:
             presence.room_id = next_room
+        # Exclusivité par demi-journée avec la présence de l'autre nature.
+        if next_present and presence.user_id is not None:
+            await self._resolve_half_day_overlap(
+                presence.presence_date,
+                presence.user_id,
+                keep_remote=next_remote,
+                period=next_period,
+            )
         await self.db.commit()
         await self.db.refresh(presence)
         return AgendaPresenceResponse.model_validate(presence)
+
+    async def _resolve_half_day_overlap(
+        self,
+        day: date,
+        owner_id: int,
+        *,
+        keep_remote: bool,
+        period: str,
+    ) -> None:
+        """Exclusivité par demi-journée entre télétravail et présence locale.
+
+        Les présences de l'autre nature qui chevauchent ``period`` sont
+        retirées automatiquement (jamais d'erreur) : une présence couvrant
+        toute la journée est réduite à l'autre moitié, sinon elle est
+        supprimée. Les drapeaux repas/poste d'une présence réduite sont
+        conservés tant qu'une présence locale subsiste.
+        """
+        stmt = select(AgendaPresence).where(
+            AgendaPresence.presence_date == day,
+            AgendaPresence.user_id == owner_id,
+            AgendaPresence.is_present.is_(True),
+        )
+        if keep_remote:
+            stmt = stmt.where(AgendaPresence.room_id.is_not(None))
+        else:
+            stmt = stmt.where(AgendaPresence.room_id.is_(None))
+        rows = (await self.db.execute(stmt)).scalars().all()
+        for row in rows:
+            if not _periods_overlap(period, row.period or "full"):
+                continue
+            if row.period == "full" and period != "full":
+                row.period = "morning" if period == "afternoon" else "afternoon"
+            else:
+                await self.db.delete(row)
+
+    async def _remove_other_locals(
+        self,
+        day: date,
+        owner_id: Optional[int],
+        *,
+        keep_room_id: int,
+        period: str,
+        exclude_presence_id: Optional[int] = None,
+    ) -> None:
+        """Un seul local par demi-journée.
+
+        Toute présence locale d'un autre local qui chevauche ``period``
+        est réduite ou retirée automatiquement (jamais d'erreur) :
+        - présence "full" → réduite à l'autre moitié
+        - présence même période → désactivée
+        Les lignes de télétravail (``room_id`` NULL) ne sont pas concernées.
+        """
+        if owner_id is None:
+            return
+        stmt = select(AgendaPresence).where(
+            AgendaPresence.presence_date == day,
+            AgendaPresence.user_id == owner_id,
+            AgendaPresence.room_id.is_not(None),
+            AgendaPresence.room_id != keep_room_id,
+            AgendaPresence.is_present.is_(True),
+        )
+        if exclude_presence_id is not None:
+            stmt = stmt.where(AgendaPresence.id != exclude_presence_id)
+        rows = (await self.db.execute(stmt)).scalars().all()
+        for row in rows:
+            if not _periods_overlap(period, row.period or "full"):
+                continue
+            if row.period == "full" and period != "full":
+                # Présence journée complète : on la réduit à l'autre moitié
+                row.period = "morning" if period == "afternoon" else "afternoon"
+            else:
+                # Chevauchement sur la même demi-journée : on retire
+                row.is_present = False
 
     async def _assert_own_day_allowed(
         self,
@@ -880,9 +1028,11 @@ class AgendaService:
         stmt = select(AgendaPresence).where(
             AgendaPresence.presence_date == day,
             AgendaPresence.user_id == owner_id,
+            # room_id None = ligne de télétravail (sans local).
+            AgendaPresence.room_id.is_(None)
+            if room_id is None
+            else AgendaPresence.room_id == room_id,
         )
-        if room_id is not None:
-            stmt = stmt.where(AgendaPresence.room_id == room_id)
         result = await self.db.execute(stmt)
         return result.scalar_one_or_none()
 

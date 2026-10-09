@@ -25,6 +25,7 @@ class AgendaPresenceItem(BaseModel):
     room_id: Optional[int] = None
     needs_workstation: bool = False
     needs_meal: bool = False
+    is_remote: bool = False
     source: str
     is_mine: bool = False
     origin_ref: Optional[str] = None
@@ -44,6 +45,9 @@ class AgendaDayResponse(BaseModel):
     total_present: int = 0
     total_workstations: int = 0
     rooms: List[AgendaRoomDayCounters] = []
+    # Présences en télétravail (sans local) : comptées dans total_present,
+    # jamais dans les compteurs de local.
+    remote: List[AgendaPresenceItem] = []
     integrated: List[AgendaPresenceItem] = []
 
 
@@ -95,10 +99,12 @@ class AgendaGroupListResponse(BaseModel):
 
 class AgendaPresenceUpsert(BaseModel):
     presence_date: date
-    room_id: int
+    # None + is_remote=True = télétravail (présence sans local).
+    room_id: Optional[int] = None
     is_present: bool = True
     needs_workstation: bool = False
     needs_meal: bool = False
+    is_remote: bool = False
     period: AgendaPeriod = "full"
     user_id: Optional[int] = None
 
@@ -141,7 +147,7 @@ class AgendaPresenceResponse(BaseModel):
 
     id: int
     presence_date: date
-    room_id: int
+    room_id: Optional[int] = None
     user_id: Optional[int] = None
     external_name: Optional[str] = None
     source: str
@@ -149,6 +155,7 @@ class AgendaPresenceResponse(BaseModel):
     is_present: bool
     needs_workstation: bool
     needs_meal: bool = False
+    is_remote: bool = False
     period: AgendaPeriod = "full"
     created_by: Optional[int] = None
     created_at: datetime

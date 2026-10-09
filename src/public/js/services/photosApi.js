@@ -19,6 +19,12 @@ export async function listPhotos(params = {}) {
   return photosApi.get(qs ? `?${qs}` : '');
 }
 
+// Agrégation chronologique (vues Mois / Années) : comptages + couverture.
+export async function getTimeline(params = {}) {
+  const qs = buildQuery(params);
+  return photosApi.get(`/timeline${qs ? `?${qs}` : ''}`);
+}
+
 export async function searchPhotos(q, params = {}) {
   const qs = buildQuery({ ...params, q });
   return photosApi.get(`/search?${qs}`);

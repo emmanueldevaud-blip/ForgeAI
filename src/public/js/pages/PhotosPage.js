@@ -12,6 +12,7 @@ import {
   faceCropUrl,
   getPhoto,
   getStorageStatus,
+  getTimeline,
   hardDeletePhoto,
   listAlbums,
   listPeople,
@@ -33,7 +34,7 @@ import {
   updatePerson,
   updatePhoto,
   uploadPhotos,
-} from '../services/photosApi.js?v=5';
+} from '../services/photosApi.js?v=6';
 import { authStore } from '../stores/auth.js';
 
 const PAGE_SIZE = 60;
@@ -86,6 +87,11 @@ export class PhotosPage {
     this.lightboxImageNonce = 0;
     this.selectedPhotos = new Set();  // IDs des photos sélectionnées
     this.multiSelectMode = false;
+    // Mode chronologique : 'days' (défaut) | 'months' | 'years'.
+    this.timeline = 'days';
+    this.periodGroups = [];
+    this.periodTotal = 0;
+    this._lastDayKey = null;
   }
 
   // ------------------------------------------------------------- cycle de vie
@@ -105,6 +111,7 @@ export class PhotosPage {
   }
 
   render() {
+    this._bulkBound = false;
     this.element = document.createElement('div');
     this.element.className = 'page-content photos-page';
     this.element.innerHTML = `
@@ -133,6 +140,13 @@ export class PhotosPage {
           </select>
           <button type="button" class="btn btn-secondary btn-sm" data-action="clear-date" hidden>✕</button>
         </div>
+        ${this._isGridView() ? `
+        <div class="photos-timeline" data-timeline role="group" aria-label="Affichage chronologique">
+          <button type="button" data-tl="years">Années</button>
+          <button type="button" data-tl="months">Mois</button>
+          <button type="button" data-tl="days">Jours</button>
+        </div>
+        <button type="button" class="btn btn-secondary btn-sm" data-action="tl-back" hidden></button>` : ''}
         <span class="photos-count" data-count></span>
       </div>
 
@@ -171,6 +185,8 @@ export class PhotosPage {
 
     this._renderHeaderActions();
     this._bindToolbar();
+    this._syncTimelineUi();
+    this._syncDateSelects();
     this._bindLightbox();
     return this.element;
   }
@@ -407,6 +423,11 @@ export class PhotosPage {
     countEl.textContent = count > 0 ? `${count} photo(s) sélectionnée(s)` : '';
   }
 
+  _isPeriodView() {
+    // Vues agrégées (Mois / Années) : réservées à la grille photos.
+    return this._isGridView() && this.timeline !== 'days';
+  }
+
   async _resetGrid() {
     dbg('resetGrid (cursor reset) photos=', this.photos.length, 'cursor=', this.cursor);
     this.photos = [];
@@ -414,13 +435,44 @@ export class PhotosPage {
     this.hasMore = true;
     this.selectedPhotos.clear();
     this._updateBulkToolbar();
+    if (this._isPeriodView()) {
+      await this._loadPeriods();
+      return;
+    }
     this._renderGrid();
     await this._loadMore();
+  }
+
+  // Agrégations Mois/Années : une requête /photos/timeline, aucune photo
+  // chargée dans le navigateur.
+  async _loadPeriods() {
+    if (this.loading) return;
+    this.loading = true;
+    try {
+      const params = this._listParams();
+      delete params.page_size;
+      delete params.cursor;
+      params.interval = this.timeline === 'years' ? 'year' : 'month';
+      if (this.searchQuery) params.q = this.searchQuery;
+      const result = await getTimeline(params);
+      this.periodGroups = result.groups || [];
+      this.periodTotal = result.total || 0;
+      dbg('loadPeriods', params.interval, 'groupes=', this.periodGroups.length,
+        'total=', this.periodTotal);
+      this._renderGrid();
+      this._observeSentinel();
+    } catch (error) {
+      dbg('loadPeriods ERROR', error && error.message);
+      this._toast(error.message || 'Erreur de chargement', 'error');
+    } finally {
+      this.loading = false;
+    }
   }
 
   async _loadMore() {
     dbg('loadMore START photos=', this.photos.length, 'loading=', this.loading,
       'hasMore=', this.hasMore, 'nextCursor=', this.cursor);
+    if (this._isPeriodView()) return;
     if (this.loading || !this.hasMore) {
       dbg('loadMore skipped (loading=', this.loading, 'hasMore=', this.hasMore, ')');
       return;
@@ -434,12 +486,17 @@ export class PhotosPage {
         result = await listPhotos(this._listParams(this.cursor));
       }
       const items = result.items || [];
+      const prevCount = this.photos.length;
       this.photos = this.photos.concat(items);
       this.cursor = result.next_cursor || null;
       this.hasMore = Boolean(this.cursor);
       dbg('API returned', items.length, 'total photos=', this.photos.length,
         'newCursor=', this.cursor, 'hasMore AFTER=', this.hasMore);
-      this._renderGrid();
+      if (prevCount === 0) {
+        this._renderGrid();
+      } else {
+        this._appendTiles(prevCount);
+      }
       this._observeSentinel();
       this._schedulePolling();
     } catch (error) {
@@ -755,6 +812,13 @@ export class PhotosPage {
       });
     });
 
+    // Sélecteur chronologique Années | Mois | Jours
+    this.element.querySelectorAll('[data-tl]').forEach((btn) => {
+      btn.addEventListener('click', () => this._setTimeline(btn.dataset.tl));
+    });
+    const tlBack = this.element.querySelector('[data-action="tl-back"]');
+    if (tlBack) tlBack.addEventListener('click', () => this._timelineBack());
+
     // Date filter
     const yearSel = this.element.querySelector('[data-year]');
     const monthSel = this.element.querySelector('[data-month]');
@@ -1031,32 +1095,170 @@ export class PhotosPage {
     }
   }
 
-  _monthKey(photo) {
-    const d = photo.taken_at ? new Date(photo.taken_at) : null;
-    if (!d || isNaN(d.getTime())) return null;
-    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+  // Clé de groupe Jours : slice de la chaîne taken_at (heure locale naive,
+  // aucun passage par Date → aucun décalage UTC).
+  _dayKey(photo) {
+    if (!photo.taken_at) return null;
+    const s = String(photo.taken_at);
+    return s.length >= 10 ? s.slice(0, 10) : null;
   }
 
-  _monthLabel(photo) {
-    const d = photo.taken_at ? new Date(photo.taken_at) : null;
-    if (!d || isNaN(d.getTime())) return '';
-    return d.toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' });
+  _dayLabel(key) {
+    const parts = String(key).split('-');
+    const y = Number(parts[0]); const m = Number(parts[1]); const d = Number(parts[2]);
+    if (!Number.isFinite(y) || !Number.isFinite(m) || !Number.isFinite(d)) return key;
+    const date = new Date(y, m - 1, d);
+    const today = new Date(); today.setHours(0, 0, 0, 0);
+    const diffDays = Math.round((date - today) / 86400000);
+    if (diffDays === 0) return 'Aujourd\'hui';
+    if (diffDays === -1) return 'Hier';
+    const opts = { weekday: 'long', day: 'numeric', month: 'long' };
+    if (y !== today.getFullYear()) opts.year = 'numeric';
+    const label = date.toLocaleDateString('fr-FR', opts);
+    return label.charAt(0).toUpperCase() + label.slice(1);
+  }
+
+  _monthLabelFromKey(key) {
+    const parts = String(key).split('-');
+    const y = Number(parts[0]); const m = Number(parts[1]);
+    if (!Number.isFinite(y) || !Number.isFinite(m)) return key;
+    const label = new Date(y, m - 1, 1).toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' });
+    return label.charAt(0).toUpperCase() + label.slice(1);
+  }
+
+  // --- Portée chronologique (date_from / date_to réutilisés) ---------------
+
+  _clearScope() {
+    this.dateFrom = null;
+    this.dateTo = null;
+  }
+
+  _setScope(year, month) {
+    const y = Number(year);
+    if (month) {
+      const m = String(month).padStart(2, '0');
+      const lastDay = new Date(y, Number(month), 0).getDate();
+      this.dateFrom = `${y}-${m}-01`;
+      this.dateTo = `${y}-${m}-${lastDay}`;
+    } else {
+      this.dateFrom = `${y}-01-01`;
+      this.dateTo = `${y}-12-31`;
+    }
+  }
+
+  _scopeYear() {
+    return this.dateFrom ? Number(this.dateFrom.slice(0, 4)) : null;
+  }
+
+  _scopeIsFullYear() {
+    return Boolean(this.dateFrom && this.dateTo
+      && this.dateFrom.endsWith('-01-01')
+      && this.dateTo.endsWith('-12-31')
+      && this.dateFrom.slice(0, 4) === this.dateTo.slice(0, 4));
+  }
+
+  // --- Navigation Jours | Mois | Années ------------------------------------
+
+  async _setTimeline(mode) {
+    if (mode !== 'days' && mode !== 'months' && mode !== 'years') return;
+    if (mode === this.timeline) return;
+    if (mode === 'years') {
+      this._clearScope();
+    } else if (mode === 'months') {
+      // Mois sans portée annuelle → restreindre à l'année en cours de scope.
+      if (this.dateFrom && !this._scopeIsFullYear()) this._setScope(this._scopeYear());
+    }
+    this.timeline = mode;
+    this._syncTimelineUi();
+    this._syncDateSelects();
+    await this._resetGrid();
+  }
+
+  async _timelineBack() {
+    if (this.timeline === 'days') {
+      const year = this._scopeYear();
+      if (year) this._setScope(year);
+      this.timeline = 'months';
+    } else if (this.timeline === 'months') {
+      this._clearScope();
+      this.timeline = 'years';
+    } else {
+      return;
+    }
+    this._syncTimelineUi();
+    this._syncDateSelects();
+    await this._resetGrid();
+  }
+
+  async _openPeriod(key) {
+    if (this.timeline === 'years') {
+      this._setScope(Number(key));
+      this.timeline = 'months';
+    } else {
+      const parts = String(key).split('-').map(Number);
+      if (parts.length === 2 && Number.isFinite(parts[0]) && Number.isFinite(parts[1])) {
+        this._setScope(parts[0], parts[1]);
+      }
+      this.timeline = 'days';
+    }
+    this._syncTimelineUi();
+    this._syncDateSelects();
+    await this._resetGrid();
+  }
+
+  _syncTimelineUi() {
+    if (!this.element) return;
+    this.element.querySelectorAll('[data-tl]').forEach((btn) => {
+      const active = btn.dataset.tl === this.timeline;
+      btn.classList.toggle('is-active', active);
+      btn.setAttribute('aria-pressed', active ? 'true' : 'false');
+    });
+    const back = this.element.querySelector('[data-action="tl-back"]');
+    if (!back) return;
+    if (!this.dateFrom || this.timeline === 'years') {
+      back.hidden = true;
+      back.textContent = '';
+    } else if (this.timeline === 'months') {
+      back.hidden = false;
+      back.textContent = '← Années';
+    } else {
+      back.hidden = false;
+      back.textContent = '← Mois';
+    }
+  }
+
+  _syncDateSelects() {
+    if (!this.element) return;
+    const ySel = this.element.querySelector('[data-year]');
+    const mSel = this.element.querySelector('[data-month]');
+    const clearBtn = this.element.querySelector('[data-action="clear-date"]');
+    if (!ySel || !mSel) return;
+    const apply = () => {
+      if (!this.dateFrom) {
+        ySel.value = '';
+        mSel.value = '';
+        mSel.disabled = true;
+        if (clearBtn) clearBtn.hidden = true;
+        return;
+      }
+      const year = this.dateFrom.slice(0, 4);
+      ySel.value = year;
+      this._populateMonthSelect(mSel, year);
+      mSel.disabled = false;
+      const fullYear = this._scopeIsFullYear();
+      mSel.value = fullYear ? '' : this.dateFrom.slice(5, 7);
+      if (clearBtn) clearBtn.hidden = false;
+    };
+    apply();
+    this._populateYearSelect(ySel).then(apply).catch(() => {});
   }
 
   _populateYearSelect(select) {
-    if (select.dataset.populated) return;
-    fetch('/photos', { credentials: 'include' })
-      .then(r => r.json())
-      .then(data => {
-        const years = new Set();
-        (data.items || []).forEach(p => {
-          if (p.taken_at) {
-            const y = new Date(p.taken_at).getFullYear();
-            years.add(y);
-          }
-        });
-        const sorted = Array.from(years).sort((a, b) => b - a);
-        sorted.forEach(y => {
+    if (select.dataset.populated) return Promise.resolve();
+    return getTimeline({ interval: 'year' })
+      .then((result) => {
+        const years = (result.groups || []).map((g) => g.key);
+        years.forEach((y) => {
           const opt = document.createElement('option');
           opt.value = y;
           opt.textContent = y;
@@ -1084,6 +1286,40 @@ export class PhotosPage {
   }
 
   _renderGrid() {
+    if (this._isPeriodView()) {
+      this._renderPeriods();
+      return;
+    }
+    const grid = this.element.querySelector('[data-grid]');
+    const empty = this.element.querySelector('[data-empty]');
+    const count = this.element.querySelector('[data-count]');
+    if (!grid) return;
+    grid.className = 'photos-grid';
+    if (count) count.textContent = this.photos.length ? `${this.photos.length} photo(s)` : '';
+    if (empty) empty.hidden = this.photos.length > 0 || this.loading;
+    const isTrash = this.view === 'trash';
+
+    const fragments = [];
+    let currentDay = null;
+    this.photos.forEach((photo) => {
+      const dayKey = this._dayKey(photo);
+      if (dayKey !== currentDay) {
+        currentDay = dayKey;
+        if (dayKey) {
+          fragments.push(`<div class="photos-day" data-day="${dayKey}">${this._esc(this._dayLabel(dayKey))}</div>`);
+        }
+      }
+      fragments.push(this._tileHtml(photo, isTrash));
+    });
+    this._lastDayKey = currentDay;
+    grid.innerHTML = fragments.join('');
+    grid.querySelectorAll('[data-photo]').forEach((tile) => this._bindTile(tile, isTrash));
+    this._observeSentinel();
+  }
+
+  // Append incrémental (pagination Jours) : on n'ajoute que les nouvelles
+  // tuiles, sans reconstruire les N tuiles déjà affichées.
+  _appendTiles(fromIndex) {
     const grid = this.element.querySelector('[data-grid]');
     const empty = this.element.querySelector('[data-empty]');
     const count = this.element.querySelector('[data-count]');
@@ -1091,24 +1327,32 @@ export class PhotosPage {
     if (count) count.textContent = this.photos.length ? `${this.photos.length} photo(s)` : '';
     if (empty) empty.hidden = this.photos.length > 0 || this.loading;
     const isTrash = this.view === 'trash';
-
-    const fragments = [];
-    let currentMonth = null;
-    this.photos.forEach((photo) => {
-      const monthKey = this._monthKey(photo);
-      if (monthKey !== currentMonth) {
-        currentMonth = monthKey;
-        if (monthKey) {
-          fragments.push(`<div class="photos-month" data-month="${monthKey}">${this._esc(this._monthLabel(photo))}</div>`);
+    let html = '';
+    for (let i = fromIndex; i < this.photos.length; i++) {
+      const photo = this.photos[i];
+      const dayKey = this._dayKey(photo);
+      if (dayKey !== this._lastDayKey) {
+        this._lastDayKey = dayKey;
+        if (dayKey) {
+          html += `<div class="photos-day" data-day="${dayKey}">${this._esc(this._dayLabel(dayKey))}</div>`;
         }
       }
-      const title = photo.title || photo.original_filename;
-      const pending = photo.status !== 'ready';
-      const analyzing = photo.analysis_status === 'pending' || photo.analysis_status === 'running';
-      const analysisFailed = photo.analysis_status === 'failed';
-      const isVideo = photo.mime_type?.startsWith('video/');
-      const isSelected = this.selectedPhotos.has(photo.id);
-      fragments.push(`
+      html += this._tileHtml(photo, isTrash);
+    }
+    if (!html) return;
+    grid.insertAdjacentHTML('beforeend', html);
+    const tiles = grid.querySelectorAll('[data-photo]');
+    for (let i = fromIndex; i < tiles.length; i++) this._bindTile(tiles[i], isTrash);
+  }
+
+  _tileHtml(photo, isTrash) {
+    const title = photo.title || photo.original_filename;
+    const pending = photo.status !== 'ready';
+    const analyzing = photo.analysis_status === 'pending' || photo.analysis_status === 'running';
+    const analysisFailed = photo.analysis_status === 'failed';
+    const isVideo = photo.mime_type?.startsWith('video/');
+    const isSelected = this.selectedPhotos.has(photo.id);
+    return `
         <div class="photos-tile ${pending ? 'is-pending' : ''}${isVideo ? ' is-video' : ''}${isSelected ? ' selected' : ''}" data-photo="${photo.id}" title="${this._esc(title)}">
           <label class="photos-tile-checkbox" title="Sélectionner">
             <input type="checkbox" data-photo-id="${photo.id}" ${isSelected ? 'checked' : ''}>
@@ -1126,72 +1370,96 @@ export class PhotosPage {
             <button type="button" class="photos-tile-fav ${photo.is_favorite ? 'is-on' : ''}"
                     data-fav="${photo.id}" title="Favori">★</button>
           `}
-        </div>`);
-    });
-    grid.innerHTML = fragments.join('');
+        </div>`;
+  }
 
-    grid.querySelectorAll('[data-photo]').forEach((tile) => {
-      tile.addEventListener('click', (event) => {
-        if (event.target.closest('[data-fav]')) return;
-        if (event.target.closest('[data-restore]')) return;
-        if (event.target.closest('[data-trash]')) return;
-        if (event.target.closest('.photos-tile-checkbox')) return;
-        this._openLightbox(Number(tile.dataset.photo));
+  _bindTile(tile, isTrash) {
+    tile.addEventListener('click', (event) => {
+      if (event.target.closest('[data-fav]')) return;
+      if (event.target.closest('[data-restore]')) return;
+      if (event.target.closest('[data-trash]')) return;
+      if (event.target.closest('.photos-tile-checkbox')) return;
+      this._openLightbox(Number(tile.dataset.photo));
+    });
+    const img = tile.querySelector('img');
+    if (img) {
+      img.addEventListener('error', () => tile.classList.add('is-nothumb'), { once: true });
+    }
+    if (!isTrash) {
+      const btn = tile.querySelector('[data-fav]');
+      if (btn) btn.addEventListener('click', async (event) => {
+        event.stopPropagation();
+        if (!this._can('photos.update')) return;
+        const id = Number(btn.dataset.fav);
+        const photo = this.photos.find((p) => p.id === id);
+        try {
+          await updatePhoto(id, { is_favorite: !photo.is_favorite });
+          photo.is_favorite = !photo.is_favorite;
+          btn.classList.toggle('is-on', photo.is_favorite);
+        } catch (error) {
+          this._toast(error.message || 'Erreur', 'error');
+        }
       });
-      // Miniature échouée : marquer la tuile pour affichage dégradé (CSS)
-      const img = tile.querySelector('img');
-      if (img) {
-        img.addEventListener('error', () => tile.classList.add('is-nothumb'), { once: true });
+      return;
+    }
+    const restoreBtn = tile.querySelector('[data-restore]');
+    if (restoreBtn) restoreBtn.addEventListener('click', async (event) => {
+      event.stopPropagation();
+      if (!this._can('photos.delete')) return;
+      const id = Number(restoreBtn.dataset.restore);
+      try {
+        await restorePhoto(id);
+        this._toast('Photo restaurée');
+        await this._resetGrid();
+      } catch (error) {
+        this._toast(error.message || 'Erreur', 'error');
       }
     });
-    if (!isTrash) {
-      grid.querySelectorAll('[data-fav]').forEach((btn) => {
-        btn.addEventListener('click', async (event) => {
-          event.stopPropagation();
-          if (!this._can('photos.update')) return;
-          const id = Number(btn.dataset.fav);
-          const photo = this.photos.find((p) => p.id === id);
-          try {
-            await updatePhoto(id, { is_favorite: !photo.is_favorite });
-            photo.is_favorite = !photo.is_favorite;
-            btn.classList.toggle('is-on', photo.is_favorite);
-          } catch (error) {
-            this._toast(error.message || 'Erreur', 'error');
-          }
-        });
-      });
-    } else {
-      // Corbeille : restaurer / supprimer définitivement
-      grid.querySelectorAll('[data-restore]').forEach((btn) => {
-        btn.addEventListener('click', async (event) => {
-          event.stopPropagation();
-          if (!this._can('photos.delete')) return;
-          const id = Number(btn.dataset.restore);
-          try {
-            await restorePhoto(id);
-            this._toast('Photo restaurée');
-            await this._resetGrid();
-          } catch (error) {
-            this._toast(error.message || 'Erreur', 'error');
-          }
-        });
-      });
-      grid.querySelectorAll('[data-trash]').forEach((btn) => {
-        btn.addEventListener('click', async (event) => {
-          event.stopPropagation();
-          if (!this._can('photos.delete')) return;
-          const id = Number(btn.dataset.trash);
-          if (!confirm('Supprimer définitivement cette photo ? L\'original NAS, les miniatures et retouches seront effacés.')) return;
-          try {
-            await hardDeletePhoto(id);
-            this._toast('Photo supprimée définitivement');
-            await this._resetGrid();
-          } catch (error) {
-            this._toast(error.message || 'Erreur', 'error');
-          }
-        });
-      });
-    }
+    const trashBtn = tile.querySelector('[data-trash]');
+    if (trashBtn) trashBtn.addEventListener('click', async (event) => {
+      event.stopPropagation();
+      if (!this._can('photos.delete')) return;
+      const id = Number(trashBtn.dataset.trash);
+      if (!confirm('Supprimer définitivement cette photo ? L\'original NAS, les miniatures et retouches seront effacés.')) return;
+      try {
+        await hardDeletePhoto(id);
+        this._toast('Photo supprimée définitivement');
+        await this._resetGrid();
+      } catch (error) {
+        this._toast(error.message || 'Erreur', 'error');
+      }
+    });
+  }
+
+  // Vues Mois / Années : cartes agrégées (couverture + titre + comptage).
+  _renderPeriods() {
+    const grid = this.element.querySelector('[data-grid]');
+    const empty = this.element.querySelector('[data-empty]');
+    const count = this.element.querySelector('[data-count]');
+    if (!grid) return;
+    grid.className = 'photos-grid photos-grid--periods';
+    if (count) count.textContent = this.periodTotal ? `${this.periodTotal} photo(s)` : '';
+    if (empty) empty.hidden = this.periodGroups.length > 0;
+    const isYears = this.timeline === 'years';
+    grid.innerHTML = this.periodGroups.map((group) => {
+      const label = isYears ? group.key : this._monthLabelFromKey(group.key);
+      const cover = group.cover_photo_id
+        ? `<img src="${photoFileUrl(group.cover_photo_id, 'medium')}" alt="" loading="lazy">`
+        : '<span class="photos-period-noimg">–</span>';
+      return `
+      <button type="button" class="photos-period" data-period="${this._esc(group.key)}">
+        <span class="photos-period-cover">${cover}</span>
+        <span class="photos-period-title">${this._esc(label)}</span>
+        <span class="photos-period-count">${group.count} photo(s)</span>
+      </button>`;
+    }).join('');
+    grid.querySelectorAll('[data-period]').forEach((card) => {
+      card.addEventListener('click', () => this._openPeriod(card.dataset.period));
+      const img = card.querySelector('img');
+      if (img) {
+        img.addEventListener('error', () => card.classList.add('is-nothumb'), { once: true });
+      }
+    });
     this._observeSentinel();
   }
 

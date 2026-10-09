@@ -419,6 +419,77 @@ class PhotoService:
             next_cursor = encode_cursor(getattr(last, sort_key), last.id)
         return items, total, next_cursor
 
+    async def timeline(
+        self,
+        params: PhotoListParams,
+        interval: str = "month",
+        q: str | None = None,
+    ) -> tuple[list[dict[str, Any]], int]:
+        """Agrégation chronologique pour les vues Mois / Années.
+
+        Deux requêtes SQL au total (comptages + vignette par groupe), jamais
+        une requête par groupe. ``taken_at`` est une date locale naïve (EXIF),
+        ``date_format`` groupe donc directement sur la date locale effective,
+        sans conversion UTC.
+        """
+        interval = interval if interval in ("month", "year") else "month"
+        period_expr = (
+            func.date_format(Photo.taken_at, "%Y")
+            if interval == "year"
+            else func.date_format(Photo.taken_at, "%Y-%m")
+        )
+        skip_owner = await self.can_manage_all()
+        extra_filters = None
+        if q:
+            extra_filters = await build_search_filters(self.db, self.current_user.id, q)
+
+        def _filtered(query):
+            query = self._apply_filters(query, params, skip_owner=skip_owner)
+            if extra_filters:
+                query = self._apply_nl_filters(query, extra_filters)
+            return query
+
+        count_rows = await self.db.execute(
+            _filtered(
+                select(period_expr.label("period"), func.count(Photo.id).label("cnt"))
+                .select_from(Photo)
+                .group_by(period_expr)
+            )
+        )
+        counts: dict[str, int] = {row.period: row.cnt for row in count_rows.all()}
+        total = sum(counts.values())
+        if not counts:
+            return [], 0
+
+        # Une photo représentative par groupe : la plus récente (fenêtre SQL,
+        # pas de sous-requête par ligne).
+        rn = (
+            func.row_number()
+            .over(
+                partition_by=period_expr,
+                order_by=[Photo.taken_at.desc(), Photo.id.desc()],
+            )
+            .label("rn")
+        )
+        inner = _filtered(
+            select(Photo.id.label("pid"), period_expr.label("period"), rn)
+            .select_from(Photo)
+        ).subquery()
+        cover_rows = await self.db.execute(
+            select(inner.c.period, inner.c.pid).where(inner.c.rn == 1)
+        )
+        covers = {row.period: row.pid for row in cover_rows.all()}
+
+        groups = [
+            {
+                "key": key,
+                "count": counts[key],
+                "cover_photo_id": covers.get(key),
+            }
+            for key in sorted(counts, reverse=True)
+        ]
+        return groups, total
+
     async def search_natural(self, query_text: str, params: PhotoListParams):
         filters = await build_search_filters(self.db, self.current_user.id, query_text)
         # La requête brute est déjà traduite en filtres : on n'applique pas
@@ -528,6 +599,49 @@ class PhotoService:
         await self.db.commit()
         await self.db.refresh(photo)
         return photo
+
+    async def empty_trash(self) -> int:
+        """Suppression définitive de toutes les photos en corbeille.
+
+        Pour chaque photo :
+        - original : supprimé (local + NAS si force=True)
+        - miniatures + versions : supprimées
+        - base : suppression en cascade (visages, tags, analyses, jobs, albums)
+        Retourne le nombre de photos purgées.
+        """
+        skip_owner = await self.can_manage_all()
+        params = PhotoListParams(trashed=True)
+        query = select(Photo).where(Photo.is_deleted.is_(True))
+        query = self._apply_filters(query, params, skip_owner=skip_owner)
+        result = await self.db.execute(query)
+        photos = result.scalars().all()
+        count = 0
+        for photo in photos:
+            force_nas = photo.storage_backend == "nas"
+            try:
+                self.storage.delete_original(photo.storage_path, backend=photo.storage_backend, force=force_nas)
+            except Exception:
+                pass
+            # miniatures + versions (stockage local)
+            try:
+                self.storage.delete_thumbnails(photo.id)
+                self.storage.delete_edits(photo.id)
+            except Exception:
+                pass
+            await self.db.delete(photo)
+            count += 1
+        if count:
+            await self.db.commit()
+        if self.audit and self.current_user and count:
+            await self.audit.log(
+                action="empty_trash",
+                module="photos",
+                user=self.current_user,
+                object_type="photo",
+                object_id="bulk",
+                object_repr=f"{count} photo(s)",
+            )
+        return count
 
     async def request_analysis(self, photo_id: int) -> PhotoJob:
         from app.services.photo.jobs import enqueue_job_unique

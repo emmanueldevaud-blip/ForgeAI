@@ -56,6 +56,8 @@ from app.schemas.photos import (
     PhotoTagListResponse,
     PhotoTagResponse,
     PhotoThumbnailRebuildResponse,
+    PhotoTimelineGroup,
+    PhotoTimelineResponse,
     PhotoUpdate,
     PhotoUploadResponse,
 )
@@ -212,6 +214,26 @@ async def search_photos(
         page_size=params.page_size,
         total_pages=total_pages,
         next_cursor=next_cursor,
+    )
+
+
+@router.get("/timeline", response_model=PhotoTimelineResponse)
+async def photos_timeline(
+    params: PhotoListParams = Depends(),
+    interval: str = Query("month", pattern="^(month|year)$"),
+    q: str | None = Query(None, max_length=500),
+    service: PhotoService = Depends(_service),
+):
+    """Comptages + vignette représentative par mois ou par année.
+
+    Agrégation SQL côté serveur : une seule passe, aucune requête par groupe,
+    aucun chargement des photos dans le navigateur.
+    """
+    groups, total = await service.timeline(params, interval=interval, q=q)
+    return PhotoTimelineResponse(
+        interval=interval,
+        groups=[PhotoTimelineGroup(**g) for g in groups],
+        total=total,
     )
 
 
@@ -779,6 +801,18 @@ async def update_photo(
         _raise_not_found()
 
 
+@router.delete("/trash", response_model=int)
+async def empty_trash(service: PhotoService = Depends(_delete_service)):
+    """Vide la corbeille : suppression définitive de toutes les photos supprimées.
+
+    - Original : effacé si stockage 'local' ; NAS conservé (règle V3)
+    - Miniatures + versions : effacées
+    - Base : suppression en cascade (visages, tags, analyses, jobs, albums)
+    Retourne le nombre de photos purgées.
+    """
+    return await service.empty_trash()
+
+
 @router.delete("/{photo_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_photo(
     photo_id: int,
@@ -786,14 +820,6 @@ async def delete_photo(
 ):
     try:
         await service.delete_photo(photo_id)
-    except PhotoNotFound:
-        _raise_not_found()
-
-
-@router.post("/{photo_id}/restore", response_model=PhotoResponse)
-async def restore_photo(photo_id: int, service: PhotoService = Depends(_write_service)):
-    try:
-        return await service.restore_photo(photo_id)
     except PhotoNotFound:
         _raise_not_found()
 

@@ -63,6 +63,11 @@
   display: none;
 }
 
+/* .btn pose display:inline-flex et écrase l'attribut [hidden] du navigateur */
+.btn[hidden] {
+  display: none;
+}
+
 .bulk-count {
   flex: 1 1 auto;
   margin-right: var(--spacing-4);
@@ -194,7 +199,7 @@
   gap: var(--spacing-3);
 }
 
-.photos-month {
+.photos-day {
   grid-column: 1 / -1;
   padding: var(--spacing-4) var(--spacing-2) var(--spacing-2);
   font-size: var(--font-size-lg, 1.125rem);
@@ -203,6 +208,98 @@
   text-transform: capitalize;
   border-bottom: 1px solid var(--color-border-light);
   margin-bottom: var(--spacing-2);
+}
+
+/* Sélecteur chronologique Années | Mois | Jours */
+.photos-timeline {
+  display: inline-flex;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+
+.photos-timeline button {
+  padding: 5px 12px;
+  font-size: var(--font-size-sm);
+  background: var(--color-bg);
+  color: var(--color-text-secondary);
+  border: none;
+  border-right: 1px solid var(--color-border);
+  cursor: pointer;
+}
+
+.photos-timeline button:last-child {
+  border-right: none;
+}
+
+.photos-timeline button:hover {
+  background: var(--color-bg-secondary);
+}
+
+.photos-timeline button.is-active {
+  background: var(--color-primary);
+  color: #fff;
+}
+
+/* Vues agrégées Mois / Années : cartes de période */
+.photos-grid--periods {
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+}
+
+.photos-period {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-2);
+  padding: 0;
+  background: none;
+  border: none;
+  text-align: left;
+  cursor: pointer;
+}
+
+.photos-period-cover {
+  display: block;
+  aspect-ratio: 4 / 3;
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-border-light);
+  transition: transform var(--transition-fast, 0.15s ease), box-shadow var(--transition-fast, 0.15s ease);
+}
+
+.photos-period:hover .photos-period-cover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-md, 0 4px 12px rgba(0, 0, 0, 0.12));
+}
+
+.photos-period-cover img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.photos-period.is-nothumb .photos-period-cover img {
+  opacity: 0.25;
+  filter: grayscale(1);
+}
+
+.photos-period-noimg {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: var(--color-text-secondary);
+}
+
+.photos-period-title {
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.photos-period-count {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
 }
 
 .photos-tile {
@@ -634,9 +731,13 @@
     gap: var(--spacing-2);
   }
 
-  .photos-month {
+  .photos-day {
     padding: var(--spacing-3) var(--spacing-2) var(--spacing-1);
     font-size: var(--font-size-md, 1rem);
+  }
+
+  .photos-timeline button {
+    padding: 5px 9px;
   }
 
   .photos-tile {

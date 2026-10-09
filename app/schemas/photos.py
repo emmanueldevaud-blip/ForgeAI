@@ -68,6 +68,20 @@ class PhotoListResponse(BaseModel):
     next_cursor: Optional[str] = None
 
 
+class PhotoTimelineGroup(BaseModel):
+    """Un groupe chronologique (mois « 2026-10 » ou année « 2026 »)."""
+
+    key: str
+    count: int
+    cover_photo_id: Optional[int] = None
+
+
+class PhotoTimelineResponse(BaseModel):
+    interval: str
+    groups: List[PhotoTimelineGroup] = []
+    total: int = 0
+
+
 class PhotoTagLinkResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

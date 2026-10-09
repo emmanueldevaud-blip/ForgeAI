@@ -108,8 +108,8 @@ class PhotoStorageBackend(ABC):
         """Écrit un original, retourne le chemin relatif."""
 
     @abstractmethod
-    def delete_original(self, rel: str) -> None:
-        """Suppression d'un original échoué — voir les implémentations."""
+    def delete_original(self, rel: str, force: bool = False) -> None:
+        """Suppression d'un original. ``force=True`` autorise la suppression sur NAS."""
 
     @abstractmethod
     def check(self) -> StorageStatus:
@@ -143,7 +143,7 @@ class LocalFilesystemStorage(PhotoStorageBackend):
         path.write_bytes(data)
         return rel
 
-    def delete_original(self, rel: str) -> None:
+    def delete_original(self, rel: str, force: bool = False) -> None:
         path = self.original_path(rel)
         if path.is_file():
             path.unlink()
@@ -201,13 +201,21 @@ class NasFilesystemStorage(PhotoStorageBackend):
             ) from exc
         return rel
 
-    def delete_original(self, rel: str) -> None:
-        # Règle V3 : jamais de suppression d'original NAS, même sur un
-        # échec d'import (l'écriture reste sur le volume NAS uniquement si
-        # elle a eu lieu ; on laisse l'original en place).
-        logger.warning(
-            "[PHOTO-STORAGE] suppression d'original NAS ignorée (rel=%s)", rel
-        )
+    def delete_original(self, rel: str, force: bool = False) -> None:
+        # Règle V3 : suppression NAS interdite sauf si force=True (ex: vider corbeille).
+        if not force:
+            logger.warning(
+                "[PHOTO-STORAGE] suppression d'original NAS ignorée (rel=%s)", rel
+            )
+            return
+        path = self.original_path(rel)
+        if path.is_file():
+            try:
+                path.unlink()
+                logger.info("[PHOTO-STORAGE] original NAS supprimé (rel=%s)", rel)
+            except OSError as exc:
+                logger.error("[PHOTO-STORAGE] échec suppression NAS (rel=%s): %s", rel, exc)
+                raise PhotoStorageError(f"Suppression NAS impossible: {exc}") from exc
 
     def check(self) -> StorageStatus:
         status = check_storage_root(self.nas_root, expect_mount=True)
@@ -329,8 +337,8 @@ class PhotoStorage:
     ) -> str:
         return self.backend(backend).save_original(owner_id, photo_uuid, ext, data)
 
-    def delete_original(self, rel: str, backend: str | None = None) -> None:
-        self.backend(backend).delete_original(rel)
+    def delete_original(self, rel: str, backend: str | None = None, force: bool = False) -> None:
+        self.backend(backend).delete_original(rel, force=force)
 
     # ------------------------------------------------------------ miniatures
     def thumbnail_rel(self, photo_id: int, size: str) -> str:

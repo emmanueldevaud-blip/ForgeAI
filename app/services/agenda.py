@@ -52,6 +52,17 @@ def _periods_overlap(left: str, right: str) -> bool:
     return left == right
 
 
+def _merge_periods(existing: str, new: str) -> str:
+    """Fusionne deux périodes : matin + après-midi = journée complète."""
+    existing = existing or "full"
+    new = new or "full"
+    if existing == "full" or new == "full":
+        return "full"
+    if existing != new:
+        return "full"
+    return existing
+
+
 
 def _week_bounds(anchor: date) -> tuple[date, date]:
     # Planning ouvré: lundi → vendredi (5 jours)
@@ -653,7 +664,7 @@ class AgendaService:
             existing.needs_meal = needs_meal
             existing.is_remote = is_remote
             existing.is_present = True
-            existing.period = payload.period
+            existing.period = _merge_periods(existing.period, payload.period)
             presence = existing
         else:
             presence = AgendaPresence(

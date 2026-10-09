@@ -5351,14 +5351,7 @@
 .agenda-mine-matrix-day .agenda-mine-day-num { color: var(--color-text-primary); font-size: var(--font-size-base); font-weight: var(--font-weight-semibold); }
 .agenda-mine-matrix-day.is-today .agenda-mine-day-num { color: var(--color-primary-dark); }
 .agenda-mine-matrix-row { display: contents; }
-/* Ligne de compteurs (Prés / Repas / Postes) au-dessus de chaque local */
-.agenda-mine-counter-row { display: grid; grid-template-columns: var(--mine-room-col) var(--mine-option-col) repeat(var(--mine-days, 5), minmax(52px, 1fr)) minmax(56px, auto); gap: 1px; background: var(--color-bg-secondary); }
-.agenda-mine-counter-row.is-room-separator { border-top: 3px solid var(--color-border-dark); }
-.agenda-mine-counter { display: flex; align-items: center; justify-content: center; padding: var(--spacing-1) var(--spacing-2); font-size: var(--font-size-xs); font-weight: var(--font-weight-medium); color: var(--color-text-secondary); background: var(--color-surface-raised); border-left: 1px solid var(--color-border-light); white-space: nowrap; }
-/* La cellule de local est portée par la ligne de compteurs (elle spanne tout le bloc : compteurs + lignes) */
-.agenda-mine-counter-row + .agenda-mine-matrix-row > .agenda-mine-matrix-room { display: none; }
-.agenda-mine-matrix-row { display: contents; }
-.agenda-mine-matrix-room { grid-row: span var(--mine-room-rows, 5); display: flex; flex-direction: column; justify-content: center; gap: 2px; padding: var(--spacing-2) var(--spacing-3); background: var(--color-bg-secondary); color: var(--color-text-primary); font-size: var(--font-size-sm); font-weight: var(--font-weight-semibold); position: sticky; left: 0; z-index: 2; box-shadow: 1px 0 0 var(--color-border-light); }
+.agenda-mine-matrix-room { grid-row: span var(--mine-room-rows, 4); display: flex; flex-direction: column; justify-content: center; gap: 2px; padding: var(--spacing-2) var(--spacing-3); background: var(--color-bg-secondary); color: var(--color-text-primary); font-size: var(--font-size-sm); font-weight: var(--font-weight-semibold); position: sticky; left: 0; z-index: 2; box-shadow: 1px 0 0 var(--color-border-light); }
 .agenda-mine-matrix-room.is-not-first { border-top: 3px solid var(--color-border-dark); background: var(--color-primary-light); color: var(--color-primary-dark); }
 .agenda-mine-matrix-room small { color: var(--color-text-tertiary); font-size: var(--font-size-xs); font-weight: var(--font-normal); }
 .agenda-mine-matrix-room.is-not-first small { color: var(--color-primary-dark); }

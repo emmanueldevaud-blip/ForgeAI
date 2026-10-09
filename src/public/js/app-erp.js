@@ -28,11 +28,11 @@ import { createSportGarminPage } from './pages/SportGarminPage.js?v=5';
 import { createSportHealthPage } from './pages/SportHealthPage.js?v=1';
 import { createSportAnalysesPage } from './pages/SportAnalysesPage.js?v=1';
 import { createSportGoalsPage } from './pages/SportGoalsPage.js?v=1';
-import { createAgendaPage } from './pages/AgendaPage.js?v=52';
+import { createAgendaPage } from './pages/AgendaPage.js?v=54';
 import { createAgendaSettingsPage } from './pages/AgendaSettingsPage.js?v=3';
 import { createDomotiquePage } from './pages/DomotiquePage.js?v=8';
 import { createDomotiqueConfigPage } from './pages/DomotiqueConfigPage.js?v=8';
-import { createPhotosPage } from './pages/PhotosPage.js?v=13';
+import { createPhotosPage } from './pages/PhotosPage.js?v=14';
 
 const moduleRoutes = [
   'dashboard',

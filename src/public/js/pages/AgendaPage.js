@@ -272,7 +272,6 @@ export class AgendaPage {
     `;
 
     this._bindCommon();
-    this._injectCounterRows(rooms);
     if (rooms.length) {
       this._bindMineForm();
       this._bindPlanning();
@@ -283,56 +282,6 @@ export class AgendaPage {
     if (this.addPersonOpen) this._bindAddPersonModal();
     if (this.personWeekModal) this._bindPersonWeekModal();
     if (isSettingsTab && canManage) this._initSettingsTab();
-  }
-
-  // Injecte les lignes de compteurs (Prés / Repas / Postes) avant chaque local dans la matrice "Ma présence"
-  _injectCounterRows(rooms) {
-    if (!this.data?.days?.length) return;
-    const matrix = this.element.querySelector('.agenda-mine-matrix');
-    if (!matrix) return;
-
-    const dates = this._mineGridDates();
-    const roomRows = matrix.querySelectorAll('.agenda-mine-matrix-row.is-room-start');
-    const uniqueRooms = this._sortedUniqueRooms(rooms);
-
-    // Compteurs par local/jour
-    const roomDayCounts = {};
-    for (const day of this.data.days) {
-      for (const room of day.rooms || []) {
-        const key = `${day.date}|${room.room_id}`;
-        const presences = room.presences || [];
-        roomDayCounts[key] = {
-          present: presences.filter(p => p.is_present).length,
-          meals: presences.filter(p => p.needs_meal).length,
-          desks: presences.filter(p => p.needs_workstation).length,
-        };
-      }
-    }
-
-    // Pour chaque local, insérer la ligne de compteurs avant la première ligne du local
-    roomRows.forEach((row, index) => {
-      if (index >= uniqueRooms.length) return;
-      const room = uniqueRooms[index];
-      const cells = dates.map(iso => {
-        const counts = roomDayCounts[`${iso}|${room.id}`] || { present: 0, meals: 0, desks: 0 };
-        return '<span class="agenda-mine-counter" title="Présents: ' + counts.present + ' — Repas: ' + counts.meals + ' — Postes: ' + counts.desks + '">' + counts.present + ' / ' + counts.meals + ' / ' + counts.desks + '</span>';
-      }).join('');
-
-      const counterRow = document.createElement('div');
-      counterRow.className = 'agenda-mine-matrix-row agenda-mine-counter-row' + (index === 0 ? ' is-room-start' : '') + (index > 0 ? ' is-room-separator' : '');
-      counterRow.innerHTML =
-        '<span class="agenda-mine-matrix-room' + (index > 0 ? ' is-not-first' : '') + '">' + this._getShortRoomName(room.name) + '</span>' +
-        '<span class="agenda-mine-matrix-label agenda-mine-counter-label">Prés / Repas / Postes</span>' +
-        cells +
-        '<span class="agenda-mine-matrix-spacer"></span>';
-
-      // Insérer avant la première ligne du local
-      row.parentNode.insertBefore(counterRow, row);
-    });
-
-    // Mettre à jour la variable CSS pour le nombre de lignes par local (+1 pour la ligne de compteurs)
-    const rowDefs = this._weekRowDefs();
-    matrix.style.setProperty('--mine-room-rows', rowDefs.length + 1);
   }
 
 // Lignes communes à la matrice « Ma présence » et au modal planning semaine.
@@ -585,7 +534,7 @@ export class AgendaPage {
     const isMonth = this.view === 'month';
     return `
       <div class="agenda-mine-scroll">
-        <div class="agenda-mine-matrix ${isMonth ? 'agenda-mine-matrix--month' : ''}" style="--mine-days: ${dates.length}">
+        <div class="agenda-mine-matrix ${isMonth ? 'agenda-mine-matrix--month' : ''}" style="--mine-days: ${dates.length}; --mine-room-rows: ${rowDefs.length}">
           <div class="agenda-mine-matrix-head">
             <span class="agenda-mine-matrix-corner">BUREAUX</span>
             <span class="agenda-mine-matrix-option">Option</span>

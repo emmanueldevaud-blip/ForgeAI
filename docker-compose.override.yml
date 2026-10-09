@@ -10,3 +10,4 @@ services:
       - PHOTO_NAS_SCAN_ENABLED=false
     volumes:
       - /mnt/synology-medias/PHOTOS:/mnt/synology-medias/PHOTOS
+      - ./data:/app/data

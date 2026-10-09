@@ -153,6 +153,11 @@ class Settings(BaseSettings):
     PHOTO_JOB_POLL_SECONDS: float = 2.0
     PHOTO_JOB_BATCH: int = 8
     PHOTO_JOB_MAX_ATTEMPTS: int = 3
+    # Scan NAS : réglages de performance (impact I/O et CPU).
+    PHOTO_SCAN_BATCH_SIZE: int = 100        # fichiers par lot SQL
+    PHOTO_SCAN_BATCH_DELAY_MS: int = 50     # pause entre lots (ms)
+    PHOTO_SCAN_ENABLED: bool = True         # scan auto périodique
+    PHOTO_SCAN_INTERVAL_HOURS: int = 24     # intervalle entre scans auto
     # Analyse IA (classification / tags). "metadata" = analyseur local,
     # les analyseurs visuels (local/LLM) sont ajoutables sans changer le pipeline.
     PHOTO_ANALYSIS_ENABLED: bool = True

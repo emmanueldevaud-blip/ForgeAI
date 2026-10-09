@@ -222,9 +222,11 @@ class PhotoService:
         return created, errors
 
     # --------------------------------------------------------------- lecture
-    def _apply_filters(self, query, params: PhotoListParams, owner_id: int | None = None):
-        filters = [self._owner_clause(owner_id)]
-        if not params.include_deleted:
+    def _apply_filters(self, query, params: PhotoListParams, owner_id: int | None = None, skip_owner: bool = False):
+        filters = [] if skip_owner else [self._owner_clause(owner_id)]
+        if params.trashed:
+            filters.append(Photo.is_deleted.is_(True))
+        elif not params.include_deleted:
             filters.append(Photo.is_deleted.is_(False))
         if params.favorite is not None:
             filters.append(Photo.is_favorite.is_(params.favorite))
@@ -357,7 +359,8 @@ class PhotoService:
         self, params: PhotoListParams, extra_filters: dict[str, Any] | None = None
     ) -> tuple[list[Photo], int, Optional[str]]:
         base = select(Photo)
-        base = self._apply_filters(base, params)
+        skip_owner = await self.can_manage_all()
+        base = self._apply_filters(base, params, skip_owner=skip_owner)
         if extra_filters:
             base = self._apply_nl_filters(base, extra_filters)
             if extra_filters.get("people_names"):

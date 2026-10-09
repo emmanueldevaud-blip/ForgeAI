@@ -54,13 +54,20 @@ class PhotosModule(BaseModule):
                 "route": "/photos/places",
                 "order": 3,
             },
-            {
-                "code": "photos-favorites",
-                "name": "Favoris",
-                "icon": "sparkles",
-                "route": "/photos/favorites",
-                "order": 4,
-            },
+{
+            "code": "photos-favorites",
+            "name": "Favoris",
+            "icon": "sparkles",
+            "route": "/photos/favorites",
+            "order": 4,
+        },
+        {
+            "code": "photos-trash",
+            "name": "Corbeille",
+            "icon": "trash",
+            "route": "/photos/trash",
+            "order": 5,
+        },
         ]
         return [{
             "code": self.info.code,

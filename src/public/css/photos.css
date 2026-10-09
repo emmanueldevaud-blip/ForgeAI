@@ -24,6 +24,23 @@
   margin-left: auto;
 }
 
+.photos-date-filter {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-2);
+}
+
+.photos-date-filter select {
+  min-width: 110px;
+}
+
+@media (max-width: 768px) {
+  .photos-date-filter select {
+    min-width: 90px;
+    font-size: var(--font-size-sm);
+  }
+}
+
 /* ------------------------------------------- recherche intelligente */
 
 .photos-smart {
@@ -62,6 +79,17 @@
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
   gap: var(--spacing-3);
+}
+
+.photos-month {
+  grid-column: 1 / -1;
+  padding: var(--spacing-4) var(--spacing-2) var(--spacing-2);
+  font-size: var(--font-size-lg, 1.125rem);
+  font-weight: 600;
+  color: var(--color-text-secondary);
+  text-transform: capitalize;
+  border-bottom: 1px solid var(--color-border-light);
+  margin-bottom: var(--spacing-2);
 }
 
 .photos-tile {
@@ -199,17 +227,7 @@
 }
 
 .photos-tile-title {
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  padding: 14px 8px 6px;
-  font-size: var(--font-size-xs, 0.75rem);
-  color: #fff;
-  background: linear-gradient(transparent, rgba(0, 0, 0, 0.65));
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  display: none;
 }
 
 .photos-sentinel {
@@ -490,7 +508,17 @@
   }
 
   .photos-grid {
-    grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+    gap: var(--spacing-2);
+  }
+
+  .photos-month {
+    padding: var(--spacing-3) var(--spacing-2) var(--spacing-1);
+    font-size: var(--font-size-md, 1rem);
+  }
+
+  .photos-tile {
+    aspect-ratio: 1;
   }
 }
 

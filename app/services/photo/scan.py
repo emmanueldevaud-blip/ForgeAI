@@ -24,6 +24,7 @@ Exécution : job ``scan_import`` (jamais bloquant dans la requête HTTP).
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 from datetime import datetime, timedelta
@@ -75,7 +76,12 @@ _MIME_BY_EXT = {
 VIDEO_EXTS = {".mov", ".mp4"}
 
 # Taille des lots (fichiers) pour les requêtes SQL groupées.
-BATCH_SIZE = 200
+def _scan_batch_size() -> int:
+    return get_settings().PHOTO_SCAN_BATCH_SIZE
+
+def _scan_batch_delay_ms() -> int:
+    return get_settings().PHOTO_SCAN_BATCH_DELAY_MS
+
 # Taille des pages pour la passe « fichiers manquants ».
 MISSING_PAGE = 500
 
@@ -335,6 +341,9 @@ async def run_scan(
         for dirpath, _dirnames, filenames in os.walk(root):
             for filename in sorted(filenames):
                 path = Path(dirpath) / filename
+                # Ignorer les dossiers internes Synology @eaDir (miniatures/métadonnées)
+                if '@eaDir' in path.parts:
+                    continue
                 if path.is_symlink():
                     # Jamais de symlink : évite de référencer (ou de lire)
                     # une cible hors de la racine de stockage.
@@ -347,7 +356,7 @@ async def run_scan(
                     continue
                 files_seen += 1
                 batch.append((path, rel))
-                if len(batch) >= BATCH_SIZE:
+                if len(batch) >= _scan_batch_size():
                     c, u = await _process_batch(
                         db,
                         owner_id=owner_id,
@@ -358,6 +367,10 @@ async def run_scan(
                     created += c
                     updated_paths += u
                     batch = []
+                    # Pause pour limiter l'impact I/O / CPU sur le NAS et le serveur
+                    delay = _scan_batch_delay_ms()
+                    if delay > 0:
+                        await asyncio.sleep(delay / 1000.0)
         if batch:
             c, u = await _process_batch(
                 db,
@@ -451,13 +464,13 @@ async def last_scan_run(db: AsyncSession, backend: str) -> PhotoScanRun | None:
 
 async def maybe_schedule_scan(db: AsyncSession) -> None:
     """Monitoring périodique (appelé par la boucle de jobs) : enfile un scan
-    si ``PHOTO_NAS_SCAN_ENABLED`` et si le dernier scan est trop ancien.
+    si ``PHOTO_SCAN_ENABLED`` et si le dernier scan est trop ancien.
 
     Le propriétaire du scan = celui du dernier scan (au premier scan
     manuel, pas d'attribution hasardeuse d'une photothèque à un utilisateur
     non déterminé)."""
     settings = get_settings()
-    if not settings.PHOTO_NAS_SCAN_ENABLED:
+    if not settings.PHOTO_SCAN_ENABLED:
         return
     backend_name = (settings.PHOTO_STORAGE_BACKEND or "local").strip()
 
@@ -468,9 +481,9 @@ async def maybe_schedule_scan(db: AsyncSession) -> None:
             backend_name,
         )
         return
-    interval = max(int(settings.PHOTO_NAS_SCAN_INTERVAL_SECONDS), 30)
+    interval_hours = max(int(settings.PHOTO_SCAN_INTERVAL_HOURS), 1)
     started = _naive(last.started_at)
-    if started and datetime.now() - started < timedelta(seconds=interval):
+    if started and datetime.now() - started < timedelta(hours=interval_hours):
         return
 
     existing = await find_active_job(db, type="scan_import", photo_id=None)

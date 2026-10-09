@@ -52,6 +52,7 @@ class PhotoListParams(BaseModel):
     date_from: Optional[date] = None
     date_to: Optional[date] = None
     include_deleted: bool = False
+    trashed: bool = False
     # Curseur opaque (tri taken_at décroissant) pour l'infinite scroll.
     cursor: Optional[str] = Field(None, max_length=200)
     sort_by: str = Field("taken_at", max_length=50)

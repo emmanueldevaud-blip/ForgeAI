@@ -74,6 +74,8 @@ export class PhotosPage {
     this.loading = false;
     this.filter = null;
     this.searchQuery = '';
+    this.dateFrom = null;
+    this.dateTo = null;
     this.albums = [];
     this.people = [];
     this.personFaces = [];
@@ -120,6 +122,15 @@ export class PhotosPage {
           <button type="button" class="btn btn-secondary" data-action="clear-filter">
             ${this._esc(this.filter.name)} ✕
           </button>` : ''}
+        <div class="photos-date-filter" data-date-filter>
+          <select class="form-control form-control-sm" data-year title="Année">
+            <option value="">Toutes les années</option>
+          </select>
+          <select class="form-control form-control-sm" data-month title="Mois" disabled>
+            <option value="">Tous les mois</option>
+          </select>
+          <button type="button" class="btn btn-secondary btn-sm" data-action="clear-date" hidden>✕</button>
+        </div>
         <span class="photos-count" data-count></span>
       </div>
 
@@ -356,7 +367,9 @@ export class PhotosPage {
     const params = { page_size: PAGE_SIZE };
     if (cursor) params.cursor = cursor;
     if (this.view === 'favorites') params.favorite = true;
-    if (this.view === 'trash') params.include_deleted = true;
+    if (this.view === 'trash') params.trashed = true;
+    if (this.dateFrom) params.date_from = this.dateFrom;
+    if (this.dateTo) params.date_to = this.dateTo;
     if (this.filter) {
       if (this.filter.type === 'album') params.album_id = this.filter.id;
       if (this.filter.type === 'person') params.person_id = this.filter.id;
@@ -710,6 +723,56 @@ export class PhotosPage {
         await this._resetGrid();
       });
     });
+
+    // Date filter
+    const yearSel = this.element.querySelector('[data-year]');
+    const monthSel = this.element.querySelector('[data-month]');
+    const clearDate = this.element.querySelector('[data-action="clear-date"]');
+    if (yearSel && monthSel && clearDate) {
+      this._populateYearSelect(yearSel);
+      yearSel.addEventListener('change', async () => {
+        const year = yearSel.value;
+        if (year) {
+          this._populateMonthSelect(monthSel, year);
+          monthSel.disabled = false;
+        } else {
+          monthSel.value = '';
+          monthSel.disabled = true;
+        }
+        this.dateFrom = year ? `${year}-01-01` : null;
+        this.dateTo = year ? `${year}-12-31` : null;
+        clearDate.hidden = !year;
+        await this._resetGrid();
+      });
+      monthSel.addEventListener('change', async () => {
+        const year = yearSel.value;
+        const month = monthSel.value;
+        if (year && month) {
+          const start = `${year}-${month.padStart(2, '0')}-01`;
+          const end = new Date(year, month, 0);
+          this.dateFrom = start;
+          this.dateTo = `${year}-${month.padStart(2, '0')}-${end.getDate()}`;
+        } else if (year) {
+          this.dateFrom = `${year}-01-01`;
+          this.dateTo = `${year}-12-31`;
+        } else {
+          this.dateFrom = null;
+          this.dateTo = null;
+        }
+        clearDate.hidden = !this.dateFrom;
+        await this._resetGrid();
+      });
+      clearDate.addEventListener('click', async () => {
+        yearSel.value = '';
+        monthSel.value = '';
+        monthSel.disabled = true;
+        this.dateFrom = null;
+        this.dateTo = null;
+        clearDate.hidden = true;
+        await this._resetGrid();
+      });
+    }
+
     this._observeSentinel();
   }
 
@@ -874,6 +937,58 @@ export class PhotosPage {
     }
   }
 
+  _monthKey(photo) {
+    const d = photo.taken_at ? new Date(photo.taken_at) : null;
+    if (!d || isNaN(d.getTime())) return null;
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+  }
+
+  _monthLabel(photo) {
+    const d = photo.taken_at ? new Date(photo.taken_at) : null;
+    if (!d || isNaN(d.getTime())) return '';
+    return d.toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' });
+  }
+
+  _populateYearSelect(select) {
+    if (select.dataset.populated) return;
+    fetch('/photos', { credentials: 'include' })
+      .then(r => r.json())
+      .then(data => {
+        const years = new Set();
+        (data.items || []).forEach(p => {
+          if (p.taken_at) {
+            const y = new Date(p.taken_at).getFullYear();
+            years.add(y);
+          }
+        });
+        const sorted = Array.from(years).sort((a, b) => b - a);
+        sorted.forEach(y => {
+          const opt = document.createElement('option');
+          opt.value = y;
+          opt.textContent = y;
+          select.appendChild(opt);
+        });
+        select.dataset.populated = '1';
+      })
+      .catch(() => {});
+  }
+
+  _populateMonthSelect(select, year) {
+    select.innerHTML = '<option value="">Tous les mois</option>';
+    const months = [
+      { v: '01', n: 'Janvier' }, { v: '02', n: 'Février' }, { v: '03', n: 'Mars' },
+      { v: '04', n: 'Avril' }, { v: '05', n: 'Mai' }, { v: '06', n: 'Juin' },
+      { v: '07', n: 'Juillet' }, { v: '08', n: 'Août' }, { v: '09', n: 'Septembre' },
+      { v: '10', n: 'Octobre' }, { v: '11', n: 'Novembre' }, { v: '12', n: 'Décembre' }
+    ];
+    months.forEach(m => {
+      const opt = document.createElement('option');
+      opt.value = m.v;
+      opt.textContent = m.n;
+      select.appendChild(opt);
+    });
+  }
+
   _renderGrid() {
     const grid = this.element.querySelector('[data-grid]');
     const empty = this.element.querySelector('[data-empty]');
@@ -883,15 +998,24 @@ export class PhotosPage {
     if (empty) empty.hidden = this.photos.length > 0 || this.loading;
     const isTrash = this.view === 'trash';
 
-    grid.innerHTML = this.photos.map((photo) => {
+    const fragments = [];
+    let currentMonth = null;
+    this.photos.forEach((photo) => {
+      const monthKey = this._monthKey(photo);
+      if (monthKey !== currentMonth) {
+        currentMonth = monthKey;
+        if (monthKey) {
+          fragments.push(`<div class="photos-month" data-month="${monthKey}">${this._esc(this._monthLabel(photo))}</div>`);
+        }
+      }
       const title = photo.title || photo.original_filename;
       const pending = photo.status !== 'ready';
       const analyzing = photo.analysis_status === 'pending' || photo.analysis_status === 'running';
       const analysisFailed = photo.analysis_status === 'failed';
       const isVideo = photo.mime_type?.startsWith('video/');
-      return `
+      fragments.push(`
         <div class="photos-tile ${pending ? 'is-pending' : ''}${isVideo ? ' is-video' : ''}" data-photo="${photo.id}" title="${this._esc(title)}">
-          <img src="${photoFileUrl(photo.id, 'tiny')}" alt="${this._esc(title)}" loading="lazy">
+          <img src="${photoFileUrl(photo.id, 'small')}" alt="${this._esc(title)}" loading="lazy">
           ${pending ? '<span class="photos-tile-status">…</span>' : ''}
           ${photo.status === 'failed' ? '<span class="photos-tile-status is-error">!</span>' : ''}
           ${analyzing ? '<span class="photos-tile-ai" title="Analyse IA en cours"></span>' : ''}
@@ -904,9 +1028,9 @@ export class PhotosPage {
             <button type="button" class="photos-tile-fav ${photo.is_favorite ? 'is-on' : ''}"
                     data-fav="${photo.id}" title="Favori">★</button>
           `}
-          <span class="photos-tile-title">${this._esc(title)}</span>
-        </div>`;
-    }).join('');
+        </div>`);
+    });
+    grid.innerHTML = fragments.join('');
 
     grid.querySelectorAll('[data-photo]').forEach((tile) => {
       tile.addEventListener('click', (event) => {

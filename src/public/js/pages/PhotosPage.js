@@ -84,6 +84,8 @@ export class PhotosPage {
     this.pollHandle = null;
     this.observer = null;
     this.lightboxImageNonce = 0;
+    this.selectedPhotos = new Set();  // IDs des photos sélectionnées
+    this.multiSelectMode = false;
   }
 
   // ------------------------------------------------------------- cycle de vie
@@ -134,6 +136,15 @@ export class PhotosPage {
         <span class="photos-count" data-count></span>
       </div>
 
+      <div class="photos-bulk-toolbar" data-bulk-toolbar hidden>
+        <span class="bulk-count" data-bulk-count></span>
+        <div class="bulk-actions">
+          <button type="button" class="btn btn-danger btn-sm" data-action="bulk-delete" title="Supprimer">🗑</button>
+          <button type="button" class="btn btn-secondary btn-sm" data-action="bulk-cancel">Annuler</button>
+          <button type="button" class="btn btn-secondary btn-sm" data-action="bulk-fav" title="Favori">★</button>
+        </div>
+      </div>
+
       ${this._isGridView() ? `
       <div class="photos-smart" data-smart>
         <span class="photos-smart-label">Recherche intelligente</span>
@@ -167,7 +178,10 @@ export class PhotosPage {
   async loadData() {
     this._stopPolling();
     this._onScroll = this._onScroll.bind(this);
-    window.addEventListener('scroll', this._onScroll, { passive: true });
+    // Le scroll vertical est porté par .main-content (layout à hauteur fixe),
+    // window ne scrolle plus : on s'abonne au conteneur réel.
+    this._scroller = document.querySelector('.main-content') || window;
+    this._scroller.addEventListener('scroll', this._onScroll, { passive: true });
     dbg('loadData view=', this.view, 'scrollContainer=', describeScroller());
     try {
       if (this.view === 'albums') {
@@ -197,8 +211,12 @@ export class PhotosPage {
   }
 
   _onScroll() {
-    const docHeight = document.documentElement.scrollHeight;
-    const scrollPos = window.scrollY + window.innerHeight;
+    const el = this._scroller;
+    const isWindow = !el || el === window;
+    const docHeight = isWindow ? document.documentElement.scrollHeight : el.scrollHeight;
+    const scrollPos = isWindow
+      ? window.scrollY + window.innerHeight
+      : el.scrollTop + el.clientHeight;
     const threshold = docHeight - 300;
     const nearBottom = scrollPos >= threshold;
     dbg('scroll photos=', this.photos.length, 'loading=', this.loading,
@@ -222,8 +240,10 @@ export class PhotosPage {
       this._onKeydown = null;
     }
     if (this._onScroll) {
-      window.removeEventListener('scroll', this._onScroll);
+      const el = this._scroller || window;
+      el.removeEventListener('scroll', this._onScroll);
       this._onScroll = null;
+      this._scroller = null;
     }
     if (this.element) this.element.remove();
     this.element = null;
@@ -378,11 +398,22 @@ export class PhotosPage {
     return params;
   }
 
+  _updateBulkToolbar() {
+    const toolbar = this.element.querySelector('[data-bulk-toolbar]');
+    const countEl = this.element.querySelector('[data-bulk-count]');
+    if (!toolbar || !countEl) return;
+    const count = this.selectedPhotos.size;
+    toolbar.hidden = count === 0;
+    countEl.textContent = count > 0 ? `${count} photo(s) sélectionnée(s)` : '';
+  }
+
   async _resetGrid() {
     dbg('resetGrid (cursor reset) photos=', this.photos.length, 'cursor=', this.cursor);
     this.photos = [];
     this.cursor = null;
     this.hasMore = true;
+    this.selectedPhotos.clear();
+    this._updateBulkToolbar();
     this._renderGrid();
     await this._loadMore();
   }
@@ -773,6 +804,69 @@ export class PhotosPage {
       });
     }
 
+    // Bulk actions toolbar
+    const bulkToolbar = this.element.querySelector('[data-bulk-toolbar]');
+    if (bulkToolbar) {
+      if (!this._bulkBound) {
+        this._bulkBound = true;
+        // Délégation : la grille est rendue après _bindToolbar()
+        this.element.addEventListener('change', (event) => {
+          const checkbox = event.target.closest?.('input[data-photo-id]');
+          if (!checkbox) return;
+          const id = Number(checkbox.dataset.photoId);
+          if (checkbox.checked) {
+            this.selectedPhotos.add(id);
+          } else {
+            this.selectedPhotos.delete(id);
+          }
+          const tile = checkbox.closest('[data-photo]');
+          if (tile) tile.classList.toggle('selected', checkbox.checked);
+          this._updateBulkToolbar();
+        });
+      }
+
+      // Bulk favorite
+      bulkToolbar.querySelector('[data-action="bulk-fav"]').addEventListener('click', async () => {
+        if (!this._can('photos.update') || this.selectedPhotos.size === 0) return;
+        const ids = Array.from(this.selectedPhotos);
+        for (const id of ids) {
+          const photo = this.photos.find((p) => p.id === id);
+          if (!photo || photo.is_favorite) continue;
+          try {
+            await updatePhoto(id, { is_favorite: true });
+            photo.is_favorite = true;
+          } catch { /* ignore individual errors */ }
+        }
+        this.selectedPhotos.clear();
+        this._updateBulkToolbar();
+        this._renderGrid();
+      });
+
+      // Bulk delete
+      bulkToolbar.querySelector('[data-action="bulk-delete"]').addEventListener('click', async () => {
+        if (!this._can('photos.delete') || this.selectedPhotos.size === 0) return;
+        const ids = Array.from(this.selectedPhotos);
+        if (!confirm(`Supprimer ${ids.length} photo(s) ?`)) return;
+        for (const id of ids) {
+          try {
+            await deletePhoto(id);
+          } catch { /* ignore */ }
+        }
+        this.selectedPhotos.clear();
+        this._updateBulkToolbar();
+        await this._resetGrid();
+      });
+
+      // Cancel selection
+      bulkToolbar.querySelector('[data-action="bulk-cancel"]').addEventListener('click', () => {
+        this.selectedPhotos.clear();
+        this._updateBulkToolbar();
+        this._renderGrid();
+      });
+
+      this._updateBulkToolbar();
+    }
+
     this._observeSentinel();
   }
 
@@ -1013,8 +1107,12 @@ export class PhotosPage {
       const analyzing = photo.analysis_status === 'pending' || photo.analysis_status === 'running';
       const analysisFailed = photo.analysis_status === 'failed';
       const isVideo = photo.mime_type?.startsWith('video/');
+      const isSelected = this.selectedPhotos.has(photo.id);
       fragments.push(`
-        <div class="photos-tile ${pending ? 'is-pending' : ''}${isVideo ? ' is-video' : ''}" data-photo="${photo.id}" title="${this._esc(title)}">
+        <div class="photos-tile ${pending ? 'is-pending' : ''}${isVideo ? ' is-video' : ''}${isSelected ? ' selected' : ''}" data-photo="${photo.id}" title="${this._esc(title)}">
+          <label class="photos-tile-checkbox" title="Sélectionner">
+            <input type="checkbox" data-photo-id="${photo.id}" ${isSelected ? 'checked' : ''}>
+          </label>
           <img src="${photoFileUrl(photo.id, 'small')}" alt="${this._esc(title)}" loading="lazy">
           ${pending ? '<span class="photos-tile-status">…</span>' : ''}
           ${photo.status === 'failed' ? '<span class="photos-tile-status is-error">!</span>' : ''}
@@ -1037,6 +1135,7 @@ export class PhotosPage {
         if (event.target.closest('[data-fav]')) return;
         if (event.target.closest('[data-restore]')) return;
         if (event.target.closest('[data-trash]')) return;
+        if (event.target.closest('.photos-tile-checkbox')) return;
         this._openLightbox(Number(tile.dataset.photo));
       });
       // Miniature échouée : marquer la tuile pour affichage dégradé (CSS)
@@ -1173,14 +1272,14 @@ export class PhotosPage {
       </p>
 
       <div class="photos-lightbox-actions">
-        <button type="button" class="btn btn-secondary btn-sm" data-action="lb-fav">
-          ${detail.is_favorite ? '★ Retirer des favoris' : '☆ Ajouter aux favoris'}
-        </button>
         ${this._can('photos.delete') ? '<button type="button" class="btn btn-danger btn-sm" data-action="lb-delete">Supprimer</button>' : ''}
         ${detail.is_deleted ? '<button type="button" class="btn btn-secondary btn-sm" data-action="lb-restore">Restaurer</button>' : ''}
         ${this._can('photos.analyze') ? '<button type="button" class="btn btn-secondary btn-sm" data-action="lb-analyze">Analyser</button>' : ''}
         ${this._can('photos.analyze') ? '<button type="button" class="btn btn-secondary btn-sm" data-action="lb-reindex">Ré-indexer</button>' : ''}
         ${this._can('photos.analyze') ? '<button type="button" class="btn btn-secondary btn-sm" data-action="lb-faces">Détecter visages</button>' : ''}
+        <button type="button" class="btn btn-secondary btn-sm photos-lightbox-fav" data-action="lb-fav">
+          ${detail.is_favorite ? '★ Retirer des favoris' : '☆ Ajouter aux favoris'}
+        </button>
       </div>
 
       ${this._can('photos.edit') ? `

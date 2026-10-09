@@ -5,8 +5,8 @@
   grid-template-areas:
     "sidebar header"
     "sidebar main";
-  min-height: 100vh;
-  min-height: 100dvh;
+  height: 100vh;
+  height: 100dvh;
   overflow: hidden;
   padding-top: env(safe-area-inset-top, 0px);
   padding-bottom: env(safe-area-inset-bottom, 0px);
@@ -721,6 +721,7 @@
   overflow-y: auto;
   background: var(--color-bg-secondary);
   min-height: calc(100vh - var(--header-height));
+  min-height: calc(100dvh - var(--header-height));
   scrollbar-gutter: stable;
 }
 

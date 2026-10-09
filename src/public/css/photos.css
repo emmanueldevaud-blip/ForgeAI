@@ -41,6 +41,119 @@
   }
 }
 
+/* ------------------------------------------- barre d'actions multiples */
+.photos-bulk-toolbar {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-2);
+  padding: var(--spacing-2) var(--spacing-3);
+  background: var(--color-warning-bg, #fff3cd);
+  border: 1px solid var(--color-warning-border, #ffecb5);
+  border-radius: var(--radius-md);
+  color: var(--color-warning-text, #856404);
+  font-size: var(--font-size-sm);
+  font-weight: 500;
+  position: sticky;
+  top: calc(-1 * var(--spacing-6));
+  z-index: var(--z-index-sticky);
+  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.10);
+}
+
+.photos-bulk-toolbar[hidden] {
+  display: none;
+}
+
+.bulk-count {
+  flex: 1 1 auto;
+  margin-right: var(--spacing-4);
+}
+
+.bulk-actions {
+  display: flex;
+  gap: var(--spacing-2);
+  margin-left: auto;
+}
+
+.photos-bulk-toolbar .btn {
+  flex-shrink: 0;
+}
+
+@media (max-width: 768px) {
+  .photos-bulk-toolbar {
+    flex-wrap: wrap;
+  }
+  .bulk-count {
+    width: 100%;
+    margin-bottom: var(--spacing-1);
+    margin-right: 0;
+  }
+  .bulk-actions {
+    width: 100%;
+    justify-content: space-between;
+    margin-left: 0;
+  }
+}
+
+/* ------------------------------------------- tuile sélectionnable */
+.photos-tile {
+  position: relative;
+  aspect-ratio: 1;
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-border-light);
+  cursor: pointer;
+  transition: transform var(--transition-fast, 0.15s ease), box-shadow var(--transition-fast, 0.15s ease);
+}
+
+.photos-tile.selected {
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 2px var(--color-primary);
+}
+
+.photos-tile .photos-tile-checkbox {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  z-index: 10;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 2px solid rgba(255,255,255,0.9);
+  background: rgba(0,0,0,0.3);
+  color: #fff;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  opacity: 0;
+  transform: scale(0.8);
+  transition: opacity var(--transition-fast), transform var(--transition-fast);
+}
+
+.photos-tile:hover .photos-tile-checkbox,
+.photos-tile.selected .photos-tile-checkbox {
+  opacity: 1;
+  transform: scale(1);
+}
+
+.photos-tile .photos-tile-checkbox::before {
+  content: '✓';
+  font-size: 12px;
+  font-weight: bold;
+  display: none;
+}
+
+.photos-tile.selected .photos-tile-checkbox::before {
+  display: block;
+}
+
+.photos-tile .photos-tile-checkbox input {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
 /* ------------------------------------------- recherche intelligente */
 
 .photos-smart {
@@ -177,6 +290,11 @@
 .photos-tile.is-video .photos-tile-video {
   left: 18px; /* décaler si IA aussi */
 }
+/* Étoile favori en haut à gauche : on décale les pastilles IA/vidéo si elle est allumée. */
+.photos-tile:has(.photos-tile-fav.is-on) .photos-tile-ai,
+.photos-tile:has(.photos-tile-fav.is-on) .photos-tile-video {
+  left: 38px;
+}
 
 /* Tuile sans miniature exploitable : griser l'image, afficher l'erreur. */
 .photos-tile.is-nothumb img {
@@ -203,7 +321,7 @@
 .photos-tile-fav {
   position: absolute;
   top: 6px;
-  right: 6px;
+  left: 6px;
   border: none;
   background: rgba(0, 0, 0, 0.45);
   color: #fff;
@@ -459,6 +577,10 @@
   display: flex;
   flex-wrap: wrap;
   gap: var(--spacing-2);
+}
+
+.photos-lightbox-fav {
+  margin-left: auto;
 }
 
 .photos-tags {

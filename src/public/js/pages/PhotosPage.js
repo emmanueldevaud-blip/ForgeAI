@@ -140,7 +140,7 @@ export class PhotosPage {
           </select>
           <button type="button" class="btn btn-secondary btn-sm" data-action="clear-date" hidden>✕</button>
         </div>
-        ${this._isGridView() ? `
+        ${this._isGridView() && !this.filter ? `
         <div class="photos-timeline" data-timeline role="group" aria-label="Affichage chronologique">
           <button type="button" data-tl="years">Années</button>
           <button type="button" data-tl="months">Mois</button>
@@ -424,8 +424,9 @@ export class PhotosPage {
   }
 
   _isPeriodView() {
-    // Vues agrégées (Mois / Années) : réservées à la grille photos.
-    return this._isGridView() && this.timeline !== 'days';
+    // Vues agrégées (Mois / Années) : réservées à la grille photos SANS filtre.
+    // Avec un filtre (album, personne, lieu, recherche), on force l'affichage Jours.
+    return this._isGridView() && !this.filter && this.timeline !== 'days';
   }
 
   async _resetGrid() {
@@ -788,6 +789,7 @@ export class PhotosPage {
             this.router.navigate('/photos');
             return;
           }
+          this.timeline = 'days';
           await this._resetGrid();
         }, 400);
       });
@@ -864,6 +866,7 @@ export class PhotosPage {
         this.dateFrom = null;
         this.dateTo = null;
         clearDate.hidden = true;
+        this.timeline = 'days';
         await this._resetGrid();
       });
     }
@@ -982,6 +985,7 @@ export class PhotosPage {
         card.querySelector('strong').addEventListener('click', () => {
           const album = this.albums.find((a) => a.id === Number(card.dataset.album));
           this.filter = { type: 'album', id: album.id, name: album.name };
+          this.timeline = 'days';
           this._rerender();
         });
       });
@@ -1032,6 +1036,7 @@ export class PhotosPage {
         card.querySelector('strong').addEventListener('click', () => {
           const person = this.people.find((p) => p.id === Number(card.dataset.person));
           this.filter = { type: 'person', id: person.id, name: person.name };
+          this.timeline = 'days';
           this._rerender();
         });
       });
@@ -1085,6 +1090,7 @@ export class PhotosPage {
           const place = this.places.find((p) => p.id === Number(card.dataset.place));
           const name = place.label || `${place.lat_cell}, ${place.lon_cell}`;
           this.filter = { type: 'place', id: place.id, name };
+          this.timeline = 'days';
           this._rerender();
         });
       });
@@ -1208,12 +1214,11 @@ export class PhotosPage {
 
   _syncTimelineUi() {
     if (!this.element) return;
-    this.element.querySelectorAll('[data-tl]').forEach((btn) => {
-      const active = btn.dataset.tl === this.timeline;
-      btn.classList.toggle('is-active', active);
-      btn.setAttribute('aria-pressed', active ? 'true' : 'false');
-    });
+    // Masquer le sélecteur chronologique si un filtre est actif
+    const tlContainer = this.element.querySelector('.photos-timeline');
     const back = this.element.querySelector('[data-action="tl-back"]');
+    if (tlContainer) tlContainer.hidden = Boolean(this.filter);
+    if (back) back.hidden = Boolean(this.filter) || !this.dateFrom || this.timeline === 'years';
     if (!back) return;
     if (!this.dateFrom || this.timeline === 'years') {
       back.hidden = true;
@@ -1225,6 +1230,11 @@ export class PhotosPage {
       back.hidden = false;
       back.textContent = '← Mois';
     }
+    this.element.querySelectorAll('[data-tl]').forEach((btn) => {
+      const active = btn.dataset.tl === this.timeline;
+      btn.classList.toggle('is-active', active);
+      btn.setAttribute('aria-pressed', active ? 'true' : 'false');
+    });
   }
 
   _syncDateSelects() {

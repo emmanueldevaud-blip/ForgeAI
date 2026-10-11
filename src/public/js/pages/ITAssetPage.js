@@ -50,18 +50,8 @@ export class ITAssetPage {
     this.discoveryLastScan = null;
     this.confirmDialog = new ConfirmDialog();
     this.table = null;
+    this.rangeTable = null;
     this._authUnsubscribe = null;
-  }
-
-  mount(container) {
-    if (!this.element) {
-      this.render();
-    }
-    container.innerHTML = '';
-    container.appendChild(this.element);
-    this._loadData();
-    this._authUnsubscribe = authStore.subscribe(() => this._updateButtonVisibility());
-    return this;
   }
 
   async initialize() {
@@ -180,28 +170,9 @@ export class ITAssetPage {
   }
 
   _renderTable() {
-    if (!this.table) {
-      this.table = new Table({
-        columns: [
-          { key: 'reference', label: 'Référence' },
-          { key: 'name', label: 'Nom' },
-          { key: 'asset_type', label: 'Type' },
-          { key: 'ip_address', label: 'Adresse IP' },
-          { key: 'mac_address', label: 'Adresse MAC' },
-          { key: 'serial_number', label: 'Série' },
-          { key: 'room_name', label: 'Salle' },
-          { key: 'status', label: 'Statut', render: (v) => `<span class="status-badge ${(v || '').toLowerCase()}">${v || ''}</span>` },
-        ],
-        actions: [
-          { key: 'view', label: 'Détails', icon: '👁', permission: 'it_asset.view' },
-          { key: 'delete', label: 'Supprimer', icon: '🗑', permission: 'it_asset.delete', variant: 'danger' },
-        ],
-        getItemId: (item) => item.id,
-        onAction: (action, item) => this._handleAction(action, item),
-        onSort: () => {},
-        emptyMessage: 'Aucun asset trouvé. Ajoutez un nouvel asset ou lancez une découverte réseau.',
-      });
-    }
+    if (!this.table || !this.element) return;
+    const container = this.element.querySelector('[data-table]');
+    if (!container) return;
     this.table.setData({
       items: this.assets,
       page: this.page,
@@ -209,14 +180,31 @@ export class ITAssetPage {
       total: this.assets.length,
       totalPages: Math.ceil(this.assets.length / this.pageSize) || 1,
     });
+    container.innerHTML = '';
+    container.appendChild(this.table.render());
+  }
+
+  _renderRangeTable() {
+    if (!this.rangeTable || !this.element) return;
+    const container = this.element.querySelector('[data-range-table]');
+    if (!container) return;
+    this.rangeTable.setData({
+      items: this.networkRanges,
+      page: 1,
+      pageSize: this.networkRanges.length || 20,
+      total: this.networkRanges.length,
+      totalPages: 1,
+    });
+    container.innerHTML = '';
+    container.appendChild(this.rangeTable.render());
   }
 
   _handleAction(action, item) {
     switch (action) {
       case 'view':
-        this.loadAssetDetails(item.id);
-        this.currentSection = 'list';
+        this.currentSection = 'asset-detail';
         this.render();
+        this.loadAssetDetails(item.id);
         break;
       case 'delete':
         this.confirmDialog.open({
@@ -229,6 +217,24 @@ export class ITAssetPage {
           }
         });
         break;
+    }
+  }
+
+  async _handleRangeAction(action, item) {
+    if (action === 'scan') {
+      this.loading = true;
+      this.render();
+      await scanNetworkRange(item.id);
+      await this.loadNetworkRanges();
+      this.discoveryLastScan = new Date().toLocaleString('fr-FR');
+      try {
+        const logs = await getDiscoveryLogs(item.id);
+        this.discoveryLogs = logs.items || [];
+      } catch (err) {
+        console.error('Error loading discovery logs:', err);
+      }
+      this.loading = false;
+      this.render();
     }
   }
 
@@ -251,6 +257,7 @@ export class ITAssetPage {
     this._bindEvents();
     this._updateButtonVisibility();
     this._renderTable();
+    this._renderRangeTable();
     return this.element;
   }
 
@@ -647,7 +654,13 @@ export class ITAssetPage {
     this.element.querySelectorAll('[data-section]').forEach(btn => {
       btn.addEventListener('click', () => {
         this.currentSection = btn.dataset.section;
-        this.render();
+        if (this.currentSection === 'list' && this.selectedAssetId) {
+          this.selectedAssetId = null;
+          this.selectedAssetName = null;
+          this.loadAssets();
+        } else {
+          this.render();
+        }
       });
     });
 

@@ -100,6 +100,7 @@ let agendaSettingsPage = null;
 let domotiquePage = null;
 let domotiqueConfigPage = null;
 let photosPage = null;
+let itAssetPage = null;
 
 async function initializeApp() {
   const app = document.getElementById('app');
@@ -963,6 +964,20 @@ async function showPhotosPage(route) {
     page.loadData();
   } catch (error) {
     console.error('Erreur affichage photos:', error);
+    appShell.showError(error);
+  }
+}
+
+async function showITAssetPage(route) {
+  if (!appShell) return;
+  appShell.showLoading();
+  try {
+    const page = await ensureITAssetPage();
+    const content = page.render();
+    appShell.showContent(content);
+    page.loadData();
+  } catch (error) {
+    console.error('Erreur affichage parc informatique:', error);
     appShell.showError(error);
   }
 }

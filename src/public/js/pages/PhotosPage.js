@@ -92,6 +92,9 @@ export class PhotosPage {
     this.periodGroups = [];
     this.periodTotal = 0;
     this._lastDayKey = null;
+    // Génération de chargement : invalide les réponses en vol lors d'un
+    // changement de vue/filtre (évite d'afficher l'ancienne liste).
+    this._loadSeq = 0;
   }
 
   // ------------------------------------------------------------- cycle de vie
@@ -108,6 +111,7 @@ export class PhotosPage {
     this.photos = [];
     this.cursor = null;
     this.hasMore = true;
+    this._loadSeq += 1;
   }
 
   render() {
@@ -286,6 +290,7 @@ export class PhotosPage {
     this.photos = [];
     this.cursor = null;
     this.hasMore = true;
+    this._loadSeq += 1;
     await this._loadMore();
   }
 
@@ -423,6 +428,13 @@ export class PhotosPage {
     countEl.textContent = count > 0 ? `${count} photo(s) sélectionnée(s)` : '';
   }
 
+  _isPhotoGalleryView() {
+    // Vues qui affichent la grille de photos (les vues cartes albums/
+    // personnes/lieux n'ont rien à faire dans _loadMore).
+    return this.view === 'all' || this.view === 'favorites'
+      || this.view === 'trash' || Boolean(this.filter);
+  }
+
   _isPeriodView() {
     // Vues agrégées (Mois / Années) : réservées à la grille photos SANS filtre.
     // Avec un filtre (album, personne, lieu, recherche), on force l'affichage Jours.
@@ -434,6 +446,7 @@ export class PhotosPage {
     this.photos = [];
     this.cursor = null;
     this.hasMore = true;
+    this._loadSeq += 1;
     this.selectedPhotos.clear();
     this._updateBulkToolbar();
     if (this._isPeriodView()) {
@@ -473,18 +486,24 @@ export class PhotosPage {
   async _loadMore() {
     dbg('loadMore START photos=', this.photos.length, 'loading=', this.loading,
       'hasMore=', this.hasMore, 'nextCursor=', this.cursor);
-    if (this._isPeriodView()) return;
+    if (!this._isPhotoGalleryView() || this._isPeriodView()) return;
     if (this.loading || !this.hasMore) {
       dbg('loadMore skipped (loading=', this.loading, 'hasMore=', this.hasMore, ')');
       return;
     }
     this.loading = true;
+    const seq = this._loadSeq;
     try {
       let result;
       if (this.searchQuery) {
         result = await searchPhotos(this.searchQuery, this._listParams(this.cursor));
       } else {
         result = await listPhotos(this._listParams(this.cursor));
+      }
+      if (seq !== this._loadSeq) {
+        // Changement de vue/filtre pendant la requête : réponse obsolète.
+        dbg('loadMore réponse obsolète (seq changé), ignorée');
+        return;
       }
       const items = result.items || [];
       const prevCount = this.photos.length;
@@ -504,7 +523,14 @@ export class PhotosPage {
       dbg('loadMore ERROR', error && error.message);
       this._toast(error.message || 'Erreur de chargement', 'error');
     } finally {
+      const stale = seq !== this._loadSeq;
       this.loading = false;
+      if (stale) {
+        // La vue a changé pendant la requête : la réponse a été ignorée et
+        // le chargement de la nouvelle vue a été sauté (loading=true).
+        dbg('loadMore stale → relance du chargement de la vue courante');
+        this._loadMore();
+      }
     }
   }
 

@@ -17,6 +17,11 @@ depends_on = None
 
 
 def upgrade() -> None:
+    # Idempotent : la table est déjà créée par 20261005_0036 sur l'autre branche
+    # (les deux branches sont fusionnées par 20261006_1445 / ba51ae6eea49).
+    bind = op.get_bind()
+    if sa.inspect(bind).has_table('group_groups'):
+        return
     op.create_table(
         'group_groups',
         sa.Column('parent_group_id', sa.Integer(), nullable=False),
@@ -32,5 +37,8 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    bind = op.get_bind()
+    if not sa.inspect(bind).has_table('group_groups'):
+        return
     op.drop_table('group_groups')
 

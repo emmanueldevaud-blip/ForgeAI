@@ -32,7 +32,7 @@ import { createAgendaPage } from './pages/AgendaPage.js?v=54';
 import { createAgendaSettingsPage } from './pages/AgendaSettingsPage.js?v=3';
 import { createDomotiquePage } from './pages/DomotiquePage.js?v=8';
 import { createDomotiqueConfigPage } from './pages/DomotiqueConfigPage.js?v=8';
-import { createITAssetPage } from './pages/ITAssetPage.js';
+import { createITAssetPage } from './pages/ITAssetPage.js?v=1';
 
 const moduleRoutes = [
   'dashboard',
@@ -55,6 +55,21 @@ const moduleRoutes = [
   'photos',
   'it_assets',
 ];
+
+const moduleRoutePermissions = {
+  cleaning: ['cleaning.view'],
+  people: ['people.view'],
+  studies: ['studies.view'],
+  surveys: ['surveys.view'],
+  quoting: ['quoting.view'],
+  inventory: ['inventory.view'],
+  purchasing: ['purchasing.view'],
+  suppliers: ['suppliers.view'],
+  documents: ['documents.view'],
+  reports: ['reports.view'],
+  photos: ['photos.delete'],
+  it_assets: ['it_asset.view'],
+};
 
 let appShell = null;
 let dashboardPage = null;
@@ -263,40 +278,23 @@ async function initializeApp() {
     .addRoute('/it-assets', async (route) => {
       await showITAssetPage(route);
     }, { requiresAuth: true, permissions: ['it_asset.view'] })
-    .addRoute('/404', () => {
-    cleaning: ['cleaning.view'],
-    people: ['people.view'],
-    studies: ['studies.view'],
-    surveys: ['surveys.view'],
-    quoting: ['quoting.view'],
-    inventory: ['inventory.view'],
-    purchasing: ['purchasing.view'],
-    suppliers: ['suppliers.view'],
-    documents: ['documents.view'],
-    reports: ['reports.view'],
-    photos: ['photos.delete'],
-    it_assets: ['it_asset.view'],
-  };
+
+  // Modules with explicit routes (registered above) - skip in module loop
+  const explicitModuleRoutes = ['dashboard', 'administration', 'administratif',
+    'buildings', 'equipment', 'sport', 'housing', 'maintenance', 'it_assets'];
 
   moduleRoutes.forEach(module => {
     if (module === 'dashboard' || module === 'administration' || module === 'administratif'
       || module === 'buildings' || module === 'equipment' || module === 'sport'
       || module === 'housing' || module === 'maintenance') return;
     if (explicitModuleRoutes.includes(module)) return;
-  
+
   router.addRoute(`/${module}`, async (route) => {
       await showModulePage(route);
     }, { requiresAuth: true, permissions: moduleRoutePermissions[module] || [] });
   });
-  
-  // Modules with explicit routes (registered above) - skip in module loop
-  const explicitModuleRoutes = ['dashboard', 'administration', 'administratif',
-    'buildings', 'equipment', 'sport', 'housing', 'maintenance', 'it_assets'];
 
   router
-    .addRoute('/photos', async (route) => {
-      await showPhotosPage(route);
-    }, { requiresAuth: true, permissions: ['photos.delete'] })
     .addRoute('/404', () => {
       showNotFoundPage();
     })

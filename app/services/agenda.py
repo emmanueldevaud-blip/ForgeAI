@@ -674,8 +674,9 @@ class AgendaService:
                 external_name=None,
                 source="user",
                 is_present=True,
-                needs_workstation=needs_workstation,
-                needs_meal=needs_meal,
+                # Auto-cocher le poste pour toute demi-journée ou journée complète
+                needs_workstation=needs_workstation or (payload.period in ("morning", "afternoon", "full")),
+                needs_meal=needs_meal or (payload.period == "full"),
                 is_remote=is_remote,
                 period=payload.period,
                 created_by=self.current_user.id,
@@ -879,7 +880,20 @@ class AgendaService:
                     presence.presence_date, next_room, user_id=presence.user_id
                 )
                 if clash and clash.id != presence.id:
-                    raise ValueError("Vous êtes déjà inscrit dans ce local ce jour-là")
+                    # Fusionner avec la présence existante dans le nouveau local
+                    merged_period = _merge_periods(clash.period, next_period)
+                    clash.period = merged_period
+                    # Auto-cocher poste/repas selon la période fusionnée
+                    if clash.period == "full":
+                        clash.needs_workstation = True
+                        clash.needs_meal = True
+                    else:
+                        clash.needs_workstation = True
+                    # Supprimer la présence qu'on déplace
+                    await self.db.delete(presence)
+                    await self.db.commit()
+                    await self.db.refresh(clash)
+                    return AgendaPresenceResponse.model_validate(clash)
         next_present = presence.is_present if is_present is None else is_present
         if next_room is not None and next_present and presence.user_id is not None:
             # Un seul local par demi-journée : l'autre local qui chevauche
@@ -913,14 +927,6 @@ class AgendaService:
             presence.period = period
         if next_room != presence.room_id:
             presence.room_id = next_room
-        # Exclusivité par demi-journée avec la présence de l'autre nature.
-        if next_present and presence.user_id is not None:
-            await self._resolve_half_day_overlap(
-                presence.presence_date,
-                presence.user_id,
-                keep_remote=next_remote,
-                period=next_period,
-            )
         await self.db.commit()
         await self.db.refresh(presence)
         return AgendaPresenceResponse.model_validate(presence)
@@ -968,12 +974,9 @@ class AgendaService:
         period: str,
         exclude_presence_id: Optional[int] = None,
     ) -> None:
-        """Un seul local par demi-journée.
+        """Un seul local par jour pour les présences locales (matin/après-midi/poste).
 
-        Toute présence locale d'un autre local qui chevauche ``period``
-        est réduite ou retirée automatiquement (jamais d'erreur) :
-        - présence "full" → réduite à l'autre moitié
-        - présence même période → désactivée
+        Toute présence locale dans un autre local ce jour-là est supprimée.
         Les lignes de télétravail (``room_id`` NULL) ne sont pas concernées.
         """
         if owner_id is None:
@@ -989,14 +992,8 @@ class AgendaService:
             stmt = stmt.where(AgendaPresence.id != exclude_presence_id)
         rows = (await self.db.execute(stmt)).scalars().all()
         for row in rows:
-            if not _periods_overlap(period, row.period or "full"):
-                continue
-            if row.period == "full" and period != "full":
-                # Présence journée complète : on la réduit à l'autre moitié
-                row.period = "morning" if period == "afternoon" else "afternoon"
-            else:
-                # Chevauchement sur la même demi-journée : on retire
-                row.is_present = False
+            # Supprimer complètement la présence (évite les conflits d'unicité)
+            await self.db.delete(row)
 
     async def _assert_own_day_allowed(
         self,

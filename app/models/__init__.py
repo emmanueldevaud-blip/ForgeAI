@@ -194,4 +194,16 @@ __all__ = [
     "ITAlertType",
     "ITAlertSeverity",
     "ITAssetHistory",
+    "ITAsset",
+    "ITAssetType",
+    "ITAssetStatus",
+    "DiscoverySource",
+    "NetworkRange",
+    "DiscoveryLog",
+    "AssetObservation",
+    "ITAlert",
+    "ITAlertType",
+    "ITAlertSeverity",
+    "ITAssetHistory",
+    "ITAssetSummary",  # added for V2 inventory fields
 ]

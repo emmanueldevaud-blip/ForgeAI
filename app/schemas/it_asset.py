@@ -64,9 +64,27 @@ class ITAssetBase(BaseModel):
     mac_address: Optional[str] = Field(None, max_length=17)
     os: Optional[str] = Field(None, max_length=100)
     os_version: Optional[str] = Field(None, max_length=100)
+    os_build: Optional[str] = Field(None, max_length=50)
+    os_architecture: Optional[str] = Field(None, max_length=20)  # e.g., "64-bit"
+    cpu_name: Optional[str] = Field(None, max_length=200)
+    cpu_cores: Optional[int] = Field(None, ge=1, le=256)
+    ram_total_mb: Optional[int] = Field(None, ge=0)
+    ram_free_mb: Optional[int] = Field(None, ge=0)
+    disk_total_mb: Optional[int] = Field(None, ge=0)
+    disk_free_mb: Optional[int] = Field(None, ge=0)
+    bios_version: Optional[str] = Field(None, max_length=100)
+    manufacturer_system: Optional[str] = Field(None, max_length=200)  # Dell, HP, Lenovo, etc.
+    domain: Optional[str] = Field(None, max_length=200)  # Active Directory domain
+    last_collection: Optional[datetime] = None
+    agent_version: Optional[str] = Field(None, max_length=20)
     status: ITAssetStatus = ITAssetStatus.UNKNOWN
     discovery_source: DiscoverySource = DiscoverySource.MANUAL
     discovery_data: Optional[dict] = None
+    snmp_manufacturer: Optional[str] = Field(None, max_length=200)  # Collecté via SNMP
+    snmp_model: Optional[str] = Field(None, max_length=200)  # Collecté via SNMP
+    snmp_firmware_version: Optional[str] = Field(None, max_length=100)  # Collecté via SNMP
+    snmp_contact: Optional[str] = Field(None, max_length=200)  # Collecté via SNMP
+    snmp_location: Optional[str] = Field(None, max_length=500)  # Collecté via SNMP
     room_id: int
     meshcentral_id: Optional[str] = Field(None, max_length=100)
     wol_enabled: bool = False
@@ -105,6 +123,14 @@ class ITAssetCreate(ITAssetBase):
         return ITAssetCreate.validate_mac(v)
 
 
+    domain: Optional[str] = Field(None, max_length=200)  # Active Directory domain
+    computer_name_ad: Optional[str] = Field(None, max_length=200)  # Nom du compte ordinateur dans AD
+    organizational_unit: Optional[str] = Field(None, max_length=500)  # Unité organisationnelle
+    last_ad_activity: Optional[datetime] = None  # Dernière activité connue dans l'annuaire
+    is_domain_joined: Optional[bool] = None  # Le poste est-il joint au domaine
+    domain_last_sync: Optional[datetime] = None  # Dernière synchronisation AD
+
+
 class ITAssetUpdate(BaseModel):
     reference: Optional[str] = Field(None, min_length=1, max_length=50)
     name: Optional[str] = Field(None, min_length=1, max_length=200)
@@ -117,6 +143,19 @@ class ITAssetUpdate(BaseModel):
     mac_address: Optional[str] = Field(None, max_length=17)
     os: Optional[str] = Field(None, max_length=100)
     os_version: Optional[str] = Field(None, max_length=100)
+    os_build: Optional[str] = Field(None, max_length=50)
+    os_architecture: Optional[str] = Field(None, max_length=20)  # e.g., "64-bit"
+    cpu_name: Optional[str] = Field(None, max_length=200)
+    cpu_cores: Optional[int] = Field(None, ge=1, le=256)
+    ram_total_mb: Optional[int] = Field(None, ge=0)
+    ram_free_mb: Optional[int] = Field(None, ge=0)
+    disk_total_mb: Optional[int] = Field(None, ge=0)
+    disk_free_mb: Optional[int] = Field(None, ge=0)
+    bios_version: Optional[str] = Field(None, max_length=100)
+    manufacturer_system: Optional[str] = Field(None, max_length=200)  # Dell, HP, Lenovo, etc.
+    domain: Optional[str] = Field(None, max_length=200)  # Active Directory domain
+    last_collection: Optional[datetime] = None
+    agent_version: Optional[str] = Field(None, max_length=20)
     status: Optional[ITAssetStatus] = None
     discovery_source: Optional[DiscoverySource] = None
     discovery_data: Optional[dict] = None
@@ -164,9 +203,32 @@ class ITAssetResponse(BaseModel):
     mac_address: Optional[str] = None
     os: Optional[str] = None
     os_version: Optional[str] = None
+    os_build: Optional[str] = None
+    os_architecture: Optional[str] = None  # e.g., "64-bit"
+    cpu_name: Optional[str] = None
+    cpu_cores: Optional[int] = None
+    ram_total_mb: Optional[int] = None
+    ram_free_mb: Optional[int] = None
+    disk_total_mb: Optional[int] = None
+    disk_free_mb: Optional[int] = None
+    bios_version: Optional[str] = None
+    manufacturer_system: Optional[str] = None  # Dell, HP, Lenovo, etc.
+    domain: Optional[str] = None  # Active Directory domain
+    computer_name_ad: Optional[str] = None  # Nom du compte ordinateur dans AD
+    organizational_unit: Optional[str] = None  # Unité organisationnelle
+    last_ad_activity: Optional[datetime] = None  # Dernière activité connue dans l'annuaire
+    is_domain_joined: Optional[bool] = None  # Le poste est-il joint au domaine
+    domain_last_sync: Optional[datetime] = None  # Dernière synchronisation AD
+    last_collection: Optional[datetime] = None
+    agent_version: Optional[str] = None
     status: str
     discovery_source: str
     discovery_data: Optional[dict] = None
+    snmp_manufacturer: Optional[str] = None  # Collecté via SNMP
+    snmp_model: Optional[str] = None  # Collecté via SNMP
+    snmp_firmware_version: Optional[str] = None  # Collecté via SNMP
+    snmp_contact: Optional[str] = None  # Collecté via SNMP
+    snmp_location: Optional[str] = None  # Collecté via SNMP
     room_id: int
     room: Optional[RoomSummaryResponse] = None
     building: Optional[BuildingSummaryResponse] = None

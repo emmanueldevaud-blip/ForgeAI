@@ -81,9 +81,32 @@ class ITAsset(Base):
     mac_address: Mapped[Optional[str]] = mapped_column(String(17), nullable=True, index=True)
     os: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     os_version: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    os_build: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    os_architecture: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)  # e.g., "64-bit"
+    cpu_name: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
+    cpu_cores: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    ram_total_mb: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    ram_free_mb: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    disk_total_mb: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    disk_free_mb: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    bios_version: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    manufacturer_system: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)  # Dell, HP, Lenovo, etc.
+    domain: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)  # Active Directory domain
+    computer_name_ad: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)  # Nom du compte ordinateur dans AD
+    organizational_unit: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)  # Unité organisationnelle
+    last_ad_activity: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)  # Dernière activité connue dans l'annuaire
+    is_domain_joined: Mapped[Optional[bool]] = mapped_column(Boolean, nullable=True)  # Le poste est-il joint au domaine
+    domain_last_sync: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)  # Dernière synchronisation AD
+    last_collection: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    agent_version: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
     status: Mapped[ITAssetStatus] = mapped_column(SQLEnum(ITAssetStatus, native_enum=False), default=ITAssetStatus.UNKNOWN, nullable=False, index=True)
     discovery_source: Mapped[DiscoverySource] = mapped_column(SQLEnum(DiscoverySource, native_enum=False), default=DiscoverySource.MANUAL, nullable=False)
     discovery_data: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+    snmp_manufacturer: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)  # Collecté via SNMP
+    snmp_model: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)  # Collecté via SNMP
+    snmp_firmware_version: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)  # Collecté via SNMP
+    snmp_contact: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)  # Collecté via SNMP
+    snmp_location: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)  # Collecté via SNMP
     room_id: Mapped[int] = mapped_column(ForeignKey("rooms.id", ondelete="RESTRICT"), nullable=False, index=True)
     meshcentral_id: Mapped[Optional[str]] = mapped_column(String(100), nullable=True, unique=True, index=True)
     wol_enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)

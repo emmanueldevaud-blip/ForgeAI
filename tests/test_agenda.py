@@ -183,12 +183,12 @@ async def test_agenda_second_local_replaces_first(client, admin_headers):
     day = next(d for d in planning.json()["days"] if d["date"] == presence_date)
     room_a_day = next(r for r in day["rooms"] if r["room_id"] == room_a)
     room_b_day = next(r for r in day["rooms"] if r["room_id"] == room_b)
-    # Les deux locaux cohabitent : matin dans A, après-midi dans B
-    assert room_a_day["present_count"] == 1
-    assert any(p["is_mine"] and p["period"] == "morning" for p in room_a_day["presences"])
+    # Un seul local par jour : l'après-midi dans B retire le matin de A
+    assert room_a_day["present_count"] == 0
+    assert room_a_day["presences"] == []
     assert room_b_day["present_count"] == 1
     assert any(p["is_mine"] and p["period"] == "afternoon" for p in room_b_day["presences"])
-    assert day["total_present"] == 2
+    assert day["total_present"] == 1
 
     # Mais si on remet un matin dans B : le matin de A est retiré
     morning_b = await client.post(
@@ -271,7 +271,7 @@ async def test_agenda_conflict_rules(client, admin_headers):
     assert mine_b["needs_workstation"] is True
     assert day["total_present"] == 1
 
-    # Demi-journée opposée dans un autre local : AUTORISÉE (les deux restent)
+    # Demi-journée opposée dans un autre local : le matin dans B est retiré, après-midi créé dans A avec poste
     afternoon_c = await client.post(
         "/agenda/presences",
         json={
@@ -290,9 +290,14 @@ async def test_agenda_conflict_rules(client, admin_headers):
     day = next(d for d in planning.json()["days"] if d["date"] == presence_date)
     room_day_b = next(r for r in day["rooms"] if r["room_id"] == room_b)
     room_day_a = next(r for r in day["rooms"] if r["room_id"] == room_a)
-    assert room_day_b["present_count"] == 1, room_day_b  # matin dans B toujours là
-    assert room_day_a["present_count"] == 1, room_day_a  # après-midi dans A ajouté
-    assert day["total_present"] == 2
+    # Un seul local par jour : l'après-midi dans A retire le matin de B
+    assert room_day_b["present_count"] == 0, room_day_b  # matin dans B retiré
+    assert room_day_b["presences"] == []
+    assert room_day_a["present_count"] == 1, room_day_a  # après-midi dans A créé avec poste
+    mine_a = next(p for p in room_day_a["presences"] if p["is_mine"])
+    assert mine_a["period"] == "afternoon"
+    assert mine_a["needs_workstation"] is True  # poste auto-coché
+    assert day["total_present"] == 1
 
     # Le poste reste modifiable sur la présence active
     desk_a = await client.patch(
@@ -453,19 +458,23 @@ async def test_update_presence_can_move_room(client, admin_headers):
     )
     assert other.status_code == 200, other.text
 
-    # Deux présences du même jour ne peuvent pas se rejoindre dans le même local
+    # Un seul local par jour : déplacer la présence du matin de B vers A fusionne en journée complète
     clash = await client.patch(
         f"/agenda/presences/{presence_id}", json={"room_id": room_a}, headers=admin_headers
     )
-    assert clash.status_code == 409, clash.text
+    assert clash.status_code == 200, clash.text
+    assert clash.json()["room_id"] == room_a
+    assert clash.json()["period"] == "full"
 
-    # Période en conflit dans un autre local
+    # Changer la période de l'autre présence (après-midi dans A) vers matin dans B
     conflict = await client.patch(
         f"/agenda/presences/{other.json()['id']}",
         json={"room_id": room_b, "period": "morning"},
         headers=admin_headers,
     )
-    assert conflict.status_code == 409, conflict.text
+    assert conflict.status_code == 200, conflict.text
+    assert conflict.json()["room_id"] == room_b
+    assert conflict.json()["period"] == "morning"
 
 
 @pytest.mark.asyncio

@@ -32,6 +32,7 @@ import { createAgendaPage } from './pages/AgendaPage.js?v=54';
 import { createAgendaSettingsPage } from './pages/AgendaSettingsPage.js?v=3';
 import { createDomotiquePage } from './pages/DomotiquePage.js?v=8';
 import { createDomotiqueConfigPage } from './pages/DomotiqueConfigPage.js?v=8';
+import { createPhotosPage } from './pages/PhotosPage.js?v=8';
 import { createITAssetPage } from './pages/ITAssetPage.js?v=1';
 
 const moduleRoutes = [
@@ -282,7 +283,7 @@ async function initializeApp() {
 
   // Modules with explicit routes (registered above) - skip in module loop
   const explicitModuleRoutes = ['dashboard', 'administration', 'administratif',
-    'buildings', 'equipment', 'sport', 'housing', 'maintenance', 'it_assets'];
+    'buildings', 'equipment', 'sport', 'housing', 'maintenance', 'it_assets', 'photos'];
 
   moduleRoutes.forEach(module => {
     if (module === 'dashboard' || module === 'administration' || module === 'administratif'

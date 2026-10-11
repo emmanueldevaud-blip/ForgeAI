@@ -752,6 +752,7 @@ dependencies = [
     { name = "pydantic" },
     { name = "pydantic-settings" },
     { name = "pymysql" },
+    { name = "pysnmp" },
     { name = "pytest" },
     { name = "pytest-asyncio" },
     { name = "pytest-cov" },
@@ -784,6 +785,7 @@ requires-dist = [
     { name = "pydantic", specifier = ">=2.5.3" },
     { name = "pydantic-settings", specifier = ">=2.1.0" },
     { name = "pymysql", specifier = ">=1.1.0" },
+    { name = "pysnmp", specifier = ">=7.1,<8" },
     { name = "pytest", specifier = ">=7.4.4" },
     { name = "pytest-asyncio", specifier = ">=0.23.3" },
     { name = "pytest-cov", specifier = ">=4.1.0" },
@@ -791,7 +793,7 @@ requires-dist = [
     { name = "python-jose", extras = ["cryptography"], specifier = ">=3.3.0" },
     { name = "python-multipart", specifier = ">=0.0.6" },
     { name = "slowapi", specifier = ">=0.1.9" },
-    { name = "sqlalchemy", extras = ["asyncio"], specifier = ">=2.0.25" },
+    { name = "sqlalchemy", extras = ["asyncio"], specifier = ">=2.0.25,<2.1" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.27.0" },
 ]
 
@@ -1594,6 +1596,18 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/c9/bc/1c6a92f385940f727daeecf3bacaf186e03875dff57197801046c583bcf0/pymysql-1.2.0.tar.gz", hash = "sha256:6c7b17ca686988104d7426c27895b455cdeea3e9d3ceb1270f0c3704fead8c33", size = 49021 }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/c4/bd/2534e130295c8cfd4f0a2e31623baab7502278f1e97bcfe61db75656a77f/pymysql-1.2.0-py3-none-any.whl", hash = "sha256:62169ce6d5510f08e140c5e7990ee884a9764024e4a9a27b2cc11f1099322ae0", size = 45716 },
+]
+
+[[package]]
+name = "pysnmp"
+version = "7.1.30"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "pyasn1" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/55/2a/ab68df5b1a2f673da731da7caf39c29d924735359e7d50eacb80d2d38e53/pysnmp-7.1.30.tar.gz", hash = "sha256:db72f439b066725d2586dff068478dc8e9b303a4dba3294462b0e76b3cb63bc2", size = 268625 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/41/6e/5ba915d4aa285d7ca7c8c3db0dddb5d848e9f85e383de064122fb0702c7b/pysnmp-7.1.30-py3-none-any.whl", hash = "sha256:1f648b7e38fc400e63b493a45d06581d837d07cddd901e6dc9c45be03e9ed685", size = 355559 },
 ]
 
 [[package]]

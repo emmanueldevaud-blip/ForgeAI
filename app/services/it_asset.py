@@ -51,6 +51,53 @@ def _normalize_ip(ip: Optional[str]) -> Optional[str]:
     return ip
 
 
+_SNMP_OID_PREFIXES = {
+    "sys_descr": "1.3.6.1.2.1.1.1",
+    "sys_object_id": "1.3.6.1.2.1.1.2",
+    "sys_uptime": "1.3.6.1.2.1.1.3",
+    "sys_contact": "1.3.6.1.2.1.1.4",
+    "sys_name": "1.3.6.1.2.1.1.5",
+    "sys_location": "1.3.6.1.2.1.1.6",
+}
+
+_SNMP_VENDOR_HINTS = (
+    ("cisco", "Cisco"),
+    ("hewlett", "Hewlett-Packard"),
+    ("hp ", "Hewlett-Packard"),
+    ("juniper", "Juniper"),
+    ("fortinet", "Fortinet"),
+    ("mikrotik", "MikroTik"),
+    ("ubiquiti", "Ubiquiti"),
+    ("dell", "Dell"),
+    ("lexmark", "Lexmark"),
+    ("brother", "Brother"),
+    ("hikvision", "Hikvision"),
+    ("synology", "Synology"),
+    ("canon", "Canon"),
+    ("ricoh", "Ricoh"),
+    ("kyocera", "Kyocera"),
+    ("epson", "Epson"),
+)
+
+
+def _parse_snmp_results(results: dict) -> dict:
+    """Extraire les valeurs utiles (sysDescr, sysName, ...) d'une réponse SNMP brute."""
+    parsed: dict = {}
+    for key, value in results.items():
+        if not value:
+            continue
+        for field, prefix in _SNMP_OID_PREFIXES.items():
+            if field not in parsed and key.startswith(prefix):
+                parsed[field] = value
+                break
+    descr = (parsed.get("sys_descr") or "").lower()
+    for hint, vendor in _SNMP_VENDOR_HINTS:
+        if hint in descr:
+            parsed["vendor"] = vendor
+            break
+    return parsed
+
+
 class ITAssetService:
     def __init__(
         self,
@@ -772,6 +819,7 @@ class NetworkDiscoveryService:
         version: str = "2c",
         timeout: float = 2.0,
         retries: int = 3,
+        port: int = 161,
     ) -> Optional[dict]:
         """Collecter des informations SNMP depuis un équipement."""
         from pysnmp.hlapi import (
@@ -786,10 +834,11 @@ class NetworkDiscoveryService:
         )
 
         try:
-            auth_data = CommunityData(community, mpModel=int(version.split("v")[-1] if "v" in version else "2"))
+            mp_model = 1 if str(version).strip().lower().lstrip("v").startswith("1") else 2
+            auth_data = CommunityData(community, mpModel=mp_model)
 
             transport = UdpTransportTarget(
-                (ip, 161),
+                (ip, port),
                 timeout=timeout,
                 retries=retries,
             )
@@ -880,23 +929,58 @@ class NetworkDiscoveryService:
                         if not existing:
                             existing = await self.asset_service.get_it_asset_by_ip(ip)
 
+                        discovery_data = {"response_time_ms": response_time}
+                        snmp_fields = {}
+
+                        if network_range.snmp_enabled:
+                            snmp_raw = await self._get_snmp_info(
+                                ip,
+                                network_range.snmp_community or "public",
+                                network_range.snmp_version or "2c",
+                                retries=1,
+                                port=network_range.snmp_port or 161,
+                            )
+                            if snmp_raw:
+                                parsed = _parse_snmp_results(snmp_raw)
+                                discovery_data["snmp"] = {**parsed, "raw": snmp_raw}
+
+                                def _snmp_set(field: str, value):
+                                    # Priorité Manuel > SNMP : ne jamais écraser une valeur existante
+                                    if not value:
+                                        return
+                                    if existing is not None and getattr(existing, field, None) is not None:
+                                        return
+                                    snmp_fields[field] = value
+
+                                _snmp_set("snmp_manufacturer", parsed.get("vendor"))
+                                _snmp_set("snmp_contact", parsed.get("sys_contact"))
+                                _snmp_set("snmp_location", parsed.get("sys_location"))
+
                         asset_data = {
-                            "name": f"Host {ip}",
-                            "asset_type": "other",
                             "ip_address": ip,
-                            "mac_address": mac,
                             "status": "online",
                             "discovery_source": "network_scan",
-                            "discovery_data": {"response_time_ms": response_time},
-                            "room_id": 1,
+                            "discovery_data": discovery_data,
                             "last_seen": datetime.now(UTC),
                             "last_check": datetime.now(UTC),
+                            **snmp_fields,
                         }
 
                         if existing:
+                            # Priorité Manuel > scan : préserver un nom/type saisi manuellement
+                            if existing.name.startswith("Host ") or not existing.name:
+                                asset_data["name"] = f"Host {ip}"
+                            if existing.mac_address is None and mac:
+                                asset_data["mac_address"] = mac
                             await self.asset_service.update_it_asset(existing.id, asset_data)
                             assets_updated += 1
                         else:
+                            asset_data["name"] = (
+                                (discovery_data.get("snmp") or {}).get("sys_name") or f"Host {ip}"
+                            )
+                            asset_data["asset_type"] = "other"
+                            asset_data["mac_address"] = mac
+                            asset_data["room_id"] = 1
                             await self.asset_service.create_it_asset(asset_data)
                             assets_created += 1
 

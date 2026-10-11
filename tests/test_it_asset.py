@@ -1,0 +1,327 @@
+"""Tests du module IT Asset : helpers, service et scan réseau mocké.
+
+Cibles :
+- normalisation MAC / parsing SNMP (unitaires) ;
+- création d'asset avec les champs V2 (inventaire avancé) ;
+- verrou documenté : ``update_it_asset`` ignore les valeurs ``None`` ;
+- dédoublonnage de l'import (MAC / IP / serial) ;
+- scan réseau mocké (jamais de scan réseau réel) avec priorité
+  Manuel > SNMP sur les champs ``snmp_*`` et le nom.
+"""
+import pytest
+from sqlalchemy import select
+
+from app.models import ITAsset, NetworkRange, Room, Building, Site
+from app.services.it_asset import (
+    ITAssetService,
+    NetworkDiscoveryService,
+    _normalize_mac,
+    _parse_snmp_results,
+)
+
+
+# ============================================================
+# Helpers purs (aucune DB)
+# ============================================================
+
+
+def test_normalize_mac_lowercases_and_replaces_dashes():
+    assert _normalize_mac("AA-BB-CC-DD-EE-FF") == "aa:bb:cc:dd:ee:ff"
+
+
+def test_normalize_mac_passthrough_and_empty():
+    assert _normalize_mac("aa:bb:cc:dd:ee:ff") == "aa:bb:cc:dd:ee:ff"
+    assert _normalize_mac(None) is None
+    assert _normalize_mac("") is None
+
+
+def test_parse_snmp_results_extracts_sys_fields_and_vendor():
+    raw = {
+        "1.3.6.1.2.1.1.1.0": "Cisco IOS Software, C2960 Software",
+        "1.3.6.1.2.1.1.5.0": "SW-LAB-01",
+        "1.3.6.1.2.1.1.4.0": "netadmin@example.com",
+        "1.3.6.1.2.1.1.6.0": "Local technique RDC",
+    }
+    parsed = _parse_snmp_results(raw)
+    assert parsed["sys_descr"] == "Cisco IOS Software, C2960 Software"
+    assert parsed["sys_name"] == "SW-LAB-01"
+    assert parsed["sys_contact"] == "netadmin@example.com"
+    assert parsed["sys_location"] == "Local technique RDC"
+    assert parsed["vendor"] == "Cisco"
+
+
+def test_parse_snmp_results_ignores_empty_values():
+    parsed = _parse_snmp_results({"1.3.6.1.2.1.1.1.0": None, "1.3.6.1.2.1.1.5.0": ""})
+    assert "sys_descr" not in parsed
+    assert "vendor" not in parsed
+
+
+# ============================================================
+# Fixtures DB
+# ============================================================
+
+
+async def _create_room(db) -> Room:
+    """Créer un site/bâtiment/pièce. La pièce reçoit l'id=1 (auto-incrément)."""
+    site = Site(reference="SITE-TEST", name="Site de test")
+    db.add(site)
+    await db.flush()
+    building = Building(site_id=site.id, reference="B-1", name="Bâtiment test")
+    db.add(building)
+    await db.flush()
+    room = Room(building_id=building.id, reference="R-101", name="Salle test")
+    db.add(room)
+    await db.commit()
+    await db.refresh(room)
+    assert room.id == 1  # requis : scan_host utilise room_id=1 en dur
+    return room
+
+
+# ============================================================
+# ITAssetService
+# ============================================================
+
+
+async def test_create_it_asset_persists_v2_inventory_fields(db_session):
+    await _create_room(db_session)
+    service = ITAssetService(db_session)
+
+    asset = await service.create_it_asset({
+        "name": "PC-Direction",
+        "asset_type": "pc_windows",
+        "room_id": 1,
+        "status": "online",
+        "manufacturer": "Dell",
+        "model": "OptiPlex 7010",
+        "serial_number": "SN-TEST-001",
+        "ip_address": "192.168.1.10",
+        "mac_address": "AA-BB-CC-DD-EE-01",
+        "os": "Windows",
+        "os_version": "11",
+        "os_build": "22631.3672",
+        "os_architecture": "64-bit",
+        "cpu_name": "Intel Core i5-13500",
+        "cpu_cores": 14,
+        "ram_total_mb": 16384,
+        "ram_free_mb": 8192,
+        "disk_total_mb": 512000,
+        "disk_free_mb": 256000,
+        "bios_version": "1.12.0",
+        "manufacturer_system": "Dell Inc.",
+        "domain": "forgeai.local",
+        "computer_name_ad": "PC-DIRECTION",
+        "organizational_unit": "OU=Direction,DC=forgeai,DC=local",
+        "is_domain_joined": True,
+        "agent_version": "1.0.0",
+        "snmp_manufacturer": "Dell",
+        "snmp_model": "OptiPlex 7010",
+        "snmp_firmware_version": "1.12.0",
+        "snmp_contact": "it@forgeai.local",
+        "snmp_location": "Bureau direction",
+        "notes": "Poste de la direction",
+    })
+
+    assert asset is not None
+    assert asset.reference.startswith("IT-")
+    assert asset.mac_address == "aa:bb:cc:dd:ee:01"  # normalisée
+    assert asset.os_build == "22631.3672"
+    assert asset.os_architecture == "64-bit"
+    assert asset.cpu_cores == 14
+    assert asset.ram_total_mb == 16384
+    assert asset.disk_free_mb == 256000
+    assert asset.bios_version == "1.12.0"
+    assert asset.manufacturer_system == "Dell Inc."
+    assert asset.domain == "forgeai.local"
+    assert asset.computer_name_ad == "PC-DIRECTION"
+    assert asset.is_domain_joined is True
+    assert asset.snmp_manufacturer == "Dell"
+    assert asset.snmp_location == "Bureau direction"
+
+    # Relecture depuis la DB (persistance des champs V2)
+    reloaded = await service.get_it_asset(asset.id)
+    assert reloaded.os_build == "22631.3672"
+    assert reloaded.snmp_contact == "it@forgeai.local"
+
+
+async def test_update_it_asset_ignores_none_values(db_session):
+    """Verrou documenté : update_it_asset n'applique jamais None (impossible de vider un champ)."""
+    await _create_room(db_session)
+    service = ITAssetService(db_session)
+    asset = await service.create_it_asset({
+        "name": "PC-Test",
+        "asset_type": "pc_windows",
+        "room_id": 1,
+        "os_build": "19045.4651",
+        "notes": "Note initiale",
+    })
+
+    updated = await service.update_it_asset(asset.id, {
+        "name": None,          # ignoré : le nom reste inchangé
+        "os_build": "22631.3672",
+        "notes": None,         # ignoré : la note reste inchangée
+    })
+
+    assert updated.name == "PC-Test"
+    assert updated.os_build == "22631.3672"
+    assert updated.notes == "Note initiale"
+
+
+async def test_import_it_assets_skips_duplicates_by_mac(db_session):
+    await _create_room(db_session)
+    service = ITAssetService(db_session)
+
+    items = [
+        {
+            "name": "PC-Import-1",
+            "asset_type": "pc_windows",
+            "room_id": 1,
+            "mac_address": "11:22:33:44:55:66",
+            "ip_address": "10.0.0.10",
+        },
+        {
+            "name": "PC-Import-Doublon",
+            "asset_type": "pc_windows",
+            "room_id": 1,
+            "mac_address": "11:22:33:44:55:66",  # même MAC
+            "ip_address": "10.0.0.99",
+        },
+    ]
+
+    result = await service.import_it_assets(items, skip_duplicates=True)
+
+    assert result["created"] == 1
+    assert result["skipped"] == 1
+    assert result["errors"] == []
+
+    assets = (await db_session.execute(select(ITAsset))).scalars().all()
+    assert len(assets) == 1
+    assert assets[0].name == "PC-Import-1"
+
+
+async def test_import_it_assets_reports_missing_room(db_session):
+    await _create_room(db_session)
+    service = ITAssetService(db_session)
+
+    result = await service.import_it_assets([
+        {"name": "PC-Sans-Salle", "asset_type": "pc_windows"},  # ni room_id ni référence
+    ])
+
+    assert result["created"] == 0
+    assert result["skipped"] == 1
+    assert any("Pièce introuvable" in err for err in result["errors"])
+
+
+# ============================================================
+# Scan réseau (mocké — aucun scan réseau réel)
+# ============================================================
+
+
+async def _mock_discovery(db, monkeypatch, *, reachable_ips, mac_by_ip, snmp_by_ip):
+    """Instancier un NetworkDiscoveryService entièrement mocké."""
+    discovery = NetworkDiscoveryService(db)
+
+    async def fake_ping(ip, timeout=2.0):
+        if ip in reachable_ips:
+            return True, 5.0
+        return False, None
+
+    async def fake_arp(ip):
+        return mac_by_ip.get(ip)
+
+    async def fake_snmp(ip, community, version="2c", timeout=2.0, retries=3, port=161):
+        return snmp_by_ip.get(ip)
+
+    monkeypatch.setattr(discovery, "_ping_host", fake_ping)
+    monkeypatch.setattr(discovery, "_get_mac_from_arp", fake_arp)
+    monkeypatch.setattr(discovery, "_get_snmp_info", fake_snmp)
+    return discovery
+
+
+async def test_scan_network_range_creates_asset_with_snmp_fields(db_session, monkeypatch):
+    await _create_room(db_session)
+    service = ITAssetService(db_session)
+    network_range = await service.create_network_range({
+        "name": "Lab",
+        "cidr": "192.168.77.0/30",  # 2 hosts : .1 et .2
+        "snmp_enabled": True,
+        "snmp_community": "public",
+        "snmp_version": "v2c",
+        "snmp_port": 161,
+    })
+
+    discovery = await _mock_discovery(
+        db_session,
+        monkeypatch,
+        reachable_ips={"192.168.77.1"},
+        mac_by_ip={"192.168.77.1": "AA:BB:CC:DD:EE:01"},
+        snmp_by_ip={
+            "192.168.77.1": {
+                "1.3.6.1.2.1.1.1.0": "Cisco IOS Software, C2960",
+                "1.3.6.1.2.1.1.5.0": "SW-LAB-01",
+                "1.3.6.1.2.1.1.4.0": "netadmin@example.com",
+                "1.3.6.1.2.1.1.6.0": "Local technique RDC",
+            }
+        },
+    )
+
+    result = await discovery.scan_network_range(network_range.id)
+
+    assert result["hosts_scanned"] == 2
+    assert result["hosts_found"] == 1
+    assert result["assets_created"] == 1
+
+    asset = await service.get_it_asset_by_ip("192.168.77.1")
+    assert asset is not None
+    assert asset.name == "SW-LAB-01"  # sys_name SNMP
+    assert asset.mac_address == "aa:bb:cc:dd:ee:01"
+    assert asset.status == "online"
+    assert asset.discovery_source == "network_scan"
+    assert asset.snmp_manufacturer == "Cisco"  # vendor déduit du sysDescr
+    assert asset.snmp_contact == "netadmin@example.com"
+    assert asset.snmp_location == "Local technique RDC"
+    assert asset.discovery_data["snmp"]["raw"]["1.3.6.1.2.1.1.5.0"] == "SW-LAB-01"
+
+
+async def test_scan_network_range_does_not_overwrite_manual_values(db_session, monkeypatch):
+    """Priorité Manuel > scan > SNMP : nom et champs saisis manuellement préservés."""
+    await _create_room(db_session)
+    service = ITAssetService(db_session)
+    network_range = await service.create_network_range({
+        "name": "Lab 2",
+        "cidr": "192.168.78.0/30",
+        "snmp_enabled": True,
+        "snmp_community": "public",
+        "snmp_version": "v2c",
+    })
+    existing = await service.create_it_asset({
+        "name": "PC-Direction",  # nom manuel
+        "asset_type": "pc_windows",
+        "room_id": 1,
+        "ip_address": "192.168.78.1",
+        "mac_address": "aa:bb:cc:dd:ee:02",
+        "snmp_manufacturer": "Fabricant Manuel",  # valeur manuelle
+    })
+
+    discovery = await _mock_discovery(
+        db_session,
+        monkeypatch,
+        reachable_ips={"192.168.78.1"},
+        mac_by_ip={"192.168.78.1": "aa:bb:cc:dd:ee:02"},
+        snmp_by_ip={
+            "192.168.78.1": {
+                "1.3.6.1.2.1.1.1.0": "Dell OS",
+                "1.3.6.1.2.1.1.4.0": "contact@snmp.local",
+            }
+        },
+    )
+
+    result = await discovery.scan_network_range(network_range.id)
+
+    assert result["assets_updated"] == 1
+    assert result["assets_created"] == 0
+
+    asset = await service.get_it_asset(existing.id)
+    assert asset.name == "PC-Direction"  # non écrasé par le scan
+    assert asset.snmp_manufacturer == "Fabricant Manuel"  # non écrasé par SNMP
+    assert asset.snmp_contact == "contact@snmp.local"  # champ vide → renseigné par SNMP
+    assert asset.status == "online"

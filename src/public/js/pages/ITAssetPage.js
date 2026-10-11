@@ -1,6 +1,7 @@
 import { Table } from '../components/Table.js';
 import { ConfirmDialog } from '../components/ConfirmDialog.js';
 import { authStore } from '../stores/auth.js';
+import { listRooms } from '../services/buildingsApi.js';
 import {
   listItAssets,
   getItAsset,
@@ -24,6 +25,26 @@ import {
   discoverAllRanges
 } from '../services/itAssetApi.js';
 
+const ASSET_TYPES = [
+  { value: 'pc_windows', label: 'Poste Windows' },
+  { value: 'pc_linux', label: 'Poste Linux' },
+  { value: 'server', label: 'Serveur' },
+  { value: 'printer', label: 'Imprimante' },
+  { value: 'switch', label: 'Commutateur' },
+  { value: 'router', label: 'Routeur' },
+  { value: 'firewall', label: 'Pare-feu' },
+  { value: 'access_point', label: "Point d'accès" },
+  { value: 'other', label: 'Autre' },
+];
+
+const ASSET_STATUSES = [
+  { value: 'online', label: 'En ligne' },
+  { value: 'offline', label: 'Hors ligne' },
+  { value: 'degraded', label: 'Dégradé' },
+  { value: 'unknown', label: 'Inconnu' },
+  { value: 'maintenance', label: 'En maintenance' },
+];
+
 export class ITAssetPage {
   constructor(router) {
     this.router = router;
@@ -33,6 +54,7 @@ export class ITAssetPage {
     this.observations = [];
     this.alerts = [];
     this.networkRanges = [];
+    this.rooms = [];
     this.loading = false;
     this.loadingAlerts = false;
     this.page = 1;
@@ -67,6 +89,7 @@ export class ITAssetPage {
         { key: 'status', label: 'Statut', render: (v) => `<span class="status-badge ${(v || '').toLowerCase()}">${this._escape(v || '')}</span>` },
       ],
       actions: [
+        { key: 'edit', label: 'Modifier', icon: 'edit', permission: 'it_asset.update' },
         { key: 'view', label: 'Détails', icon: 'eye', permission: 'it_asset.view' },
         { key: 'delete', label: 'Supprimer', icon: 'trash', permission: 'it_asset.delete', variant: 'danger' },
       ],
@@ -88,6 +111,7 @@ export class ITAssetPage {
         { key: 'last_scan', label: 'Dernier scan', render: (v) => this._escape(v || 'Jamais') },
       ],
       actions: [
+        { key: 'edit', label: 'Modifier', icon: 'edit', permission: 'it_asset.manage_network_ranges' },
         { key: 'scan', label: 'Scanner', icon: 'eye', permission: 'it_asset.manage_network_ranges' },
       ],
       getItemId: (item) => item.id,
@@ -115,6 +139,17 @@ export class ITAssetPage {
   async _loadData() {
     await this.loadAssets();
     await this.loadNetworkRanges();
+    await this.loadRooms();
+  }
+
+  async loadRooms() {
+    if (this.rooms.length > 0) return;
+    try {
+      const data = await listRooms({ is_active: true, page_size: 1000, sort_by: 'reference', sort_order: 'asc' });
+      this.rooms = data.items || [];
+    } catch (err) {
+      console.error('Error loading rooms:', err);
+    }
   }
 
   async loadAssets() {
@@ -201,6 +236,9 @@ export class ITAssetPage {
 
   _handleAction(action, item) {
     switch (action) {
+      case 'edit':
+        this._showAssetModal(item);
+        break;
       case 'view':
         this.currentSection = 'asset-detail';
         this.render();
@@ -221,6 +259,10 @@ export class ITAssetPage {
   }
 
   async _handleRangeAction(action, item) {
+    if (action === 'edit') {
+      this._showRangeModal(item);
+      return;
+    }
     if (action === 'scan') {
       this.loading = true;
       this.render();
@@ -332,8 +374,8 @@ export class ITAssetPage {
   _renderListView(filterLabels) {
     return `
       <div class="page-actions">
-        <button class="btn btn-primary" data-action="create-asset" data-bs-toggle="modal" data-bs-target="#assetModal">Nouvel asset</button>
-        <button class="btn btn-secondary" data-action="create-range" data-bs-toggle="modal" data-bs-target="#rangeModal">Nouvelle plage</button>
+        <button class="btn btn-primary" data-action="create-asset">Nouvel asset</button>
+        <button class="btn btn-secondary" data-action="create-range">Nouvelle plage</button>
         <button class="btn btn-secondary" data-action="monitor-all">Surveiller tout</button>
       </div>
       <div class="search-bar">
@@ -457,7 +499,7 @@ export class ITAssetPage {
         <h3>Plages réseau</h3>
         <div class="table-container" data-range-table></div>
         <div class="page-actions">
-          <button class="btn btn-primary" data-action="create-range" data-bs-toggle="modal" data-bs-target="#rangeModal">Nouvelle plage</button>
+          <button class="btn btn-primary" data-action="create-range">Nouvelle plage</button>
           <button class="btn btn-secondary" data-section="discovery">Nouvelle découverte</button>
         </div>
       </div>
@@ -642,6 +684,7 @@ export class ITAssetPage {
         </dl>
         <div class="asset-actions">
           <button class="btn btn-secondary" data-section="list">Retour à la liste</button>
+          ${authStore.hasPermission('it_asset.update') ? `<button class="btn btn-secondary" data-action="edit-asset" data-asset-id="${asset.id}">Modifier</button>` : ''}
           <button class="btn btn-primary" data-action="check-asset" data-asset-id="${asset.id}">Vérifier</button>
         </div>
       </div>
@@ -707,6 +750,21 @@ export class ITAssetPage {
         this.render();
       });
     }
+
+    this.element.querySelectorAll('[data-action="create-asset"]').forEach(btn => {
+      btn.addEventListener('click', () => this._showAssetModal());
+    });
+
+    this.element.querySelectorAll('[data-action="create-range"]').forEach(btn => {
+      btn.addEventListener('click', () => this._showRangeModal());
+    });
+
+    this.element.querySelectorAll('[data-action="edit-asset"]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const asset = this.assets.find(a => a.id === parseInt(btn.dataset.assetId));
+        if (asset) this._showAssetModal(asset);
+      });
+    });
 
     this.element.querySelectorAll('[data-action="scan-range"]').forEach(btn => {
       btn.addEventListener('click', async () => {
@@ -797,6 +855,264 @@ export class ITAssetPage {
         }
       });
     });
+  }
+
+  _showAssetModal(asset = null) {
+    const isEdit = !!asset;
+    const value = (field, fallback = '') => this._escape(asset?.[field] ?? fallback);
+    const typeOptions = ASSET_TYPES.map(t =>
+      `<option value="${t.value}" ${asset?.asset_type === t.value ? 'selected' : ''}>${t.label}</option>`
+    ).join('');
+    const statusOptions = ASSET_STATUSES.map(s =>
+      `<option value="${s.value}" ${(asset?.status || 'unknown') === s.value ? 'selected' : ''}>${s.label}</option>`
+    ).join('');
+    const roomOptions = this.rooms.map(r =>
+      `<option value="${r.id}" ${asset?.room_id === r.id ? 'selected' : ''}>${this._escape(r.reference)} — ${this._escape(r.name)}</option>`
+    ).join('');
+    const num = (field) => {
+      const v = asset?.[field];
+      return v !== null && v !== undefined ? v : '';
+    };
+
+    const modal = document.createElement('div');
+    modal.className = 'modal-overlay';
+    modal.innerHTML = `
+      <div class="modal modal-lg">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h2>${isEdit ? `Modifier l'asset ${this._escape(asset.reference)}` : 'Nouvel asset'}</h2>
+            <button class="modal-close" data-action="close" aria-label="Fermer">&times;</button>
+          </div>
+          <div class="modal-body">
+            <form data-form>
+              <fieldset>
+                <legend>Identité</legend>
+                <div class="form-row">
+                  <label><span>Nom *</span><input type="text" name="name" value="${value('name')}" required maxlength="200"></label>
+                  <label><span>Type *</span><select name="asset_type" required>
+                    <option value="">-- Sélectionner --</option>
+                    ${typeOptions}
+                  </select></label>
+                </div>
+                <div class="form-row">
+                  <label><span>Salle *</span><select name="room_id" required>
+                    <option value="">-- Sélectionner --</option>
+                    ${roomOptions}
+                  </select></label>
+                  <label><span>Statut</span><select name="status">${statusOptions}</select></label>
+                </div>
+                <div class="form-row">
+                  <label><span>Description</span><textarea name="description" rows="2">${value('description')}</textarea></label>
+                </div>
+              </fieldset>
+              <fieldset>
+                <legend>Réseau</legend>
+                <div class="form-row">
+                  <label><span>Adresse IP</span><input type="text" name="ip_address" value="${value('ip_address')}" placeholder="192.168.1.10" maxlength="45"></label>
+                  <label><span>Adresse MAC</span><input type="text" name="mac_address" value="${value('mac_address')}" placeholder="aa:bb:cc:dd:ee:ff" maxlength="17"></label>
+                </div>
+                <div class="form-row">
+                  <label class="ad-check"><input type="checkbox" name="wol_enabled" ${asset?.wol_enabled ? 'checked' : ''}><span>Wake-on-LAN</span></label>
+                  <label><span>MAC WOL</span><input type="text" name="wol_mac" value="${value('wol_mac')}" maxlength="17"></label>
+                </div>
+              </fieldset>
+              <fieldset>
+                <legend>Matériel</legend>
+                <div class="form-row">
+                  <label><span>Fabricant</span><input type="text" name="manufacturer" value="${value('manufacturer')}" maxlength="200"></label>
+                  <label><span>Modèle</span><input type="text" name="model" value="${value('model')}" maxlength="200"></label>
+                </div>
+                <div class="form-row">
+                  <label><span>Numéro de série</span><input type="text" name="serial_number" value="${value('serial_number')}" maxlength="200"></label>
+                  <label><span>Fabricant système</span><input type="text" name="manufacturer_system" value="${value('manufacturer_system')}" placeholder="Dell, HP, Lenovo..." maxlength="200"></label>
+                </div>
+                <div class="form-row">
+                  <label><span>Processeur</span><input type="text" name="cpu_name" value="${value('cpu_name')}" maxlength="200"></label>
+                  <label><span>Cœurs</span><input type="number" name="cpu_cores" value="${num('cpu_cores')}" min="1" max="256"></label>
+                </div>
+                <div class="form-row">
+                  <label><span>RAM totale (Mo)</span><input type="number" name="ram_total_mb" value="${num('ram_total_mb')}" min="0"></label>
+                  <label><span>RAM libre (Mo)</span><input type="number" name="ram_free_mb" value="${num('ram_free_mb')}" min="0"></label>
+                </div>
+                <div class="form-row">
+                  <label><span>Disque total (Mo)</span><input type="number" name="disk_total_mb" value="${num('disk_total_mb')}" min="0"></label>
+                  <label><span>Disque libre (Mo)</span><input type="number" name="disk_free_mb" value="${num('disk_free_mb')}" min="0"></label>
+                </div>
+                <div class="form-row">
+                  <label><span>BIOS</span><input type="text" name="bios_version" value="${value('bios_version')}" maxlength="100"></label>
+                </div>
+              </fieldset>
+              <fieldset>
+                <legend>Système</legend>
+                <div class="form-row">
+                  <label><span>OS</span><input type="text" name="os" value="${value('os')}" placeholder="Windows 11, Ubuntu..." maxlength="100"></label>
+                  <label><span>Version OS</span><input type="text" name="os_version" value="${value('os_version')}" maxlength="100"></label>
+                </div>
+                <div class="form-row">
+                  <label><span>Build OS</span><input type="text" name="os_build" value="${value('os_build')}" maxlength="50"></label>
+                  <label><span>Architecture</span><input type="text" name="os_architecture" value="${value('os_architecture')}" placeholder="64-bit" maxlength="20"></label>
+                </div>
+              </fieldset>
+              <fieldset>
+                <legend>Domaine</legend>
+                <div class="form-row">
+                  <label><span>Domaine Active Directory</span><input type="text" name="domain" value="${value('domain')}" placeholder="mondomaine.local" maxlength="200"></label>
+                </div>
+              </fieldset>
+              <fieldset>
+                <legend>Divers</legend>
+                <div class="form-row">
+                  <label><span>Notes</span><textarea name="notes" rows="2">${value('notes')}</textarea></label>
+                </div>
+                ${isEdit ? `
+                <div class="form-row">
+                  <label class="ad-check"><input type="checkbox" name="is_active" ${asset?.is_active !== false ? 'checked' : ''}><span>Asset actif</span></label>
+                </div>` : ''}
+              </fieldset>
+            </form>
+          </div>
+          <div class="modal-footer">
+            <button class="btn btn-secondary" data-action="close">Annuler</button>
+            <button class="btn btn-primary" data-action="save">${isEdit ? 'Enregistrer' : 'Créer'}</button>
+          </div>
+        </div>
+      </div>
+    `;
+
+    document.body.appendChild(modal);
+    modal.querySelector('[data-action="close"]')?.addEventListener('click', () => modal.remove());
+    modal.addEventListener('click', (e) => { if (e.target === modal) modal.remove(); });
+
+    modal.querySelector('[data-action="save"]')?.addEventListener('click', async () => {
+      const form = modal.querySelector('[data-form]');
+      const fd = new FormData(form);
+      const data = {};
+      const intFields = ['room_id', 'cpu_cores', 'ram_total_mb', 'ram_free_mb', 'disk_total_mb', 'disk_free_mb'];
+      for (const [k, v] of fd.entries()) {
+        if (v === '') continue;
+        data[k] = intFields.includes(k) ? parseInt(v, 10) : v;
+      }
+      data.wol_enabled = fd.get('wol_enabled') === 'on';
+      if (isEdit) data.is_active = fd.get('is_active') === 'on';
+      if (!data.name || !data.asset_type || !data.room_id) {
+        alert('Les champs Nom, Type et Salle sont obligatoires');
+        return;
+      }
+      try {
+        if (isEdit) {
+          await updateItAsset(asset.id, data);
+        } else {
+          await createItAsset(data);
+        }
+        modal.remove();
+        this._showToast(isEdit ? 'Asset mis à jour' : 'Asset créé');
+        await this.loadAssets();
+      } catch (e) {
+        alert(e.message || 'Erreur lors de l\'enregistrement');
+      }
+    });
+  }
+
+  _showRangeModal(range = null) {
+    const isEdit = !!range;
+    const value = (field, fallback = '') => this._escape(range?.[field] ?? fallback);
+    const num = (field, fallback = '') => {
+      const v = range?.[field];
+      return v !== null && v !== undefined ? v : fallback;
+    };
+
+    const modal = document.createElement('div');
+    modal.className = 'modal-overlay';
+    modal.innerHTML = `
+      <div class="modal">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h2>${isEdit ? `Modifier la plage ${this._escape(range.name)}` : 'Nouvelle plage réseau'}</h2>
+            <button class="modal-close" data-action="close" aria-label="Fermer">&times;</button>
+          </div>
+          <div class="modal-body">
+            <form data-form>
+              <div class="form-row">
+                <label><span>Nom *</span><input type="text" name="name" value="${value('name')}" required maxlength="100"></label>
+                <label><span>CIDR *</span><input type="text" name="cidr" value="${value('cidr')}" placeholder="192.168.1.0/24" required maxlength="50"></label>
+              </div>
+              <div class="form-row">
+                <label><span>VLAN</span><input type="number" name="vlan_id" value="${num('vlan_id')}" min="0" max="4094"></label>
+                <label><span>Intervalle de scan (min)</span><input type="number" name="scan_interval_minutes" value="${num('scan_interval_minutes', 60)}" min="1" max="10080"></label>
+              </div>
+              <div class="form-row">
+                <label><span>Description</span><textarea name="description" rows="2">${value('description')}</textarea></label>
+              </div>
+              <div class="form-row">
+                <label class="ad-check"><input type="checkbox" name="scan_enabled" ${range ? (range.scan_enabled ? 'checked' : '') : 'checked'}><span>Scan actif</span></label>
+                <label class="ad-check"><input type="checkbox" name="is_active" ${range ? (range.is_active !== false ? 'checked' : '') : 'checked'}><span>Plage active</span></label>
+              </div>
+              <fieldset>
+                <legend>SNMP</legend>
+                <div class="form-row">
+                  <label class="ad-check"><input type="checkbox" name="snmp_enabled" ${range?.snmp_enabled ? 'checked' : ''}><span>Collecte SNMP</span></label>
+                  <label><span>Version</span><select name="snmp_version">
+                    <option value="v2c" ${(range?.snmp_version || 'v2c') === 'v2c' ? 'selected' : ''}>v2c</option>
+                    <option value="v1" ${range?.snmp_version === 'v1' ? 'selected' : ''}>v1</option>
+                  </select></label>
+                </div>
+                <div class="form-row">
+                  <label><span>Communauté</span><input type="text" name="snmp_community" value="${value('snmp_community')}" placeholder="public" maxlength="100"></label>
+                  <label><span>Port</span><input type="number" name="snmp_port" value="${num('snmp_port', 161)}" min="1" max="65535"></label>
+                </div>
+              </fieldset>
+            </form>
+          </div>
+          <div class="modal-footer">
+            <button class="btn btn-secondary" data-action="close">Annuler</button>
+            <button class="btn btn-primary" data-action="save">${isEdit ? 'Enregistrer' : 'Créer'}</button>
+          </div>
+        </div>
+      </div>
+    `;
+
+    document.body.appendChild(modal);
+    modal.querySelector('[data-action="close"]')?.addEventListener('click', () => modal.remove());
+    modal.addEventListener('click', (e) => { if (e.target === modal) modal.remove(); });
+
+    modal.querySelector('[data-action="save"]')?.addEventListener('click', async () => {
+      const form = modal.querySelector('[data-form]');
+      const fd = new FormData(form);
+      const data = {};
+      const intFields = ['vlan_id', 'scan_interval_minutes', 'snmp_port'];
+      for (const [k, v] of fd.entries()) {
+        if (v === '') continue;
+        data[k] = intFields.includes(k) ? parseInt(v, 10) : v;
+      }
+      data.scan_enabled = fd.get('scan_enabled') === 'on';
+      data.is_active = fd.get('is_active') === 'on';
+      data.snmp_enabled = fd.get('snmp_enabled') === 'on';
+      if (!data.name || !data.cidr) {
+        alert('Les champs Nom et CIDR sont obligatoires');
+        return;
+      }
+      try {
+        if (isEdit) {
+          await updateNetworkRange(range.id, data);
+        } else {
+          await createNetworkRange(data);
+        }
+        modal.remove();
+        this._showToast(isEdit ? 'Plage mise à jour' : 'Plage créée');
+        await this.loadNetworkRanges();
+        this.render();
+      } catch (e) {
+        alert(e.message || 'Erreur lors de l\'enregistrement');
+      }
+    });
+  }
+
+  _showToast(message) {
+    const toast = document.createElement('div');
+    toast.className = 'toast toast-success';
+    toast.textContent = message;
+    document.body.appendChild(toast);
+    setTimeout(() => toast.remove(), 3000);
   }
 
   _escape(text) {

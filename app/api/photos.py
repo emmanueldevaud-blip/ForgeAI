@@ -813,6 +813,29 @@ async def empty_trash(service: PhotoService = Depends(_delete_service)):
     return await service.empty_trash()
 
 
+@router.delete("/trash/{photo_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_photo_permanently(
+    photo_id: int,
+    service: PhotoService = Depends(_delete_service),
+):
+    """Suppression définitive d'une photo de la corbeille (original + miniatures + versions)."""
+    try:
+        await service.delete_permanently(photo_id)
+    except PhotoNotFound:
+        _raise_not_found()
+
+
+@router.post("/{photo_id}/restore", response_model=PhotoResponse)
+async def restore_photo(
+    photo_id: int,
+    service: PhotoService = Depends(_write_service),
+):
+    try:
+        return await service.restore_photo(photo_id)
+    except PhotoNotFound:
+        _raise_not_found()
+
+
 @router.delete("/{photo_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_photo(
     photo_id: int,

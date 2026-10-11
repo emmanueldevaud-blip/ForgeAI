@@ -600,6 +600,31 @@ class PhotoService:
         await self.db.refresh(photo)
         return photo
 
+    async def delete_permanently(self, photo_id: int) -> None:
+        """Suppression définitive d'une seule photo (original + miniatures + versions)."""
+        photo = await self._get_owned(photo_id, include_deleted=True)
+        force_nas = photo.storage_backend == "nas"
+        try:
+            self.storage.delete_original(photo.storage_path, backend=photo.storage_backend, force=force_nas)
+        except Exception:
+            pass
+        try:
+            self.storage.delete_thumbnails(photo.id)
+            self.storage.delete_edits(photo.id)
+        except Exception:
+            pass
+        await self.db.delete(photo)
+        await self.db.commit()
+        if self.audit and self.current_user:
+            await self.audit.log(
+                action="delete_permanent",
+                module="photos",
+                user=self.current_user,
+                object_type="photo",
+                object_id=str(photo.id),
+                object_repr=photo.original_filename,
+            )
+
     async def empty_trash(self) -> int:
         """Suppression définitive de toutes les photos en corbeille.
 

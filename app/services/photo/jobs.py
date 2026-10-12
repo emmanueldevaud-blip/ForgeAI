@@ -39,6 +39,28 @@ def _utcnow() -> datetime:
     return datetime.now(UTC).replace(tzinfo=None)
 
 
+async def reset_running_jobs(db: AsyncSession) -> int:
+    """Remet en file les jobs laissés 'running' par un processus mort.
+
+    À appeler une fois au démarrage : un job 'running' en base au lancement
+    ne peut appartenir à aucun traitant vivant (aucune requête n'a encore
+    été servie). C'est le seul endroit où un ``scan_import`` interrompu est
+    repris — la reprise « stale » l'en exclut car il tourne légitimement
+    des heures."""
+    result = await db.execute(
+        update(PhotoJob)
+        .where(PhotoJob.status == "running")
+        .values(status="pending", available_at=_utcnow() - timedelta(seconds=1))
+    )
+    await db.commit()
+    if result.rowcount:
+        logger.warning(
+            "[PHOTO-JOBS] %s job(s) 'running' orphelin(s) du démarrage précédent remis en file",
+            result.rowcount,
+        )
+    return result.rowcount
+
+
 class PhotoJobError(Exception):
     pass
 
@@ -436,11 +458,16 @@ async def process_photo_jobs(
 
     # Reprise des jobs orphelins : un 'running' trop ancien vient d'un
     # processus mort en pleine exécution (pas de timeout par job).
+    # Un scan_import est exclu : il peut légitimement tourner des heures
+    # (parcours complet du stockage) et la reprise le relancerait à côté
+    # du scan encore vivant — double exécution et doublons en base. Sa
+    # reprise après crash est faite au démarrage (reset_running_jobs).
     stale = await db.execute(
         update(PhotoJob)
         .where(
             PhotoJob.status == "running",
             PhotoJob.started_at < _utcnow() - STALE_RUNNING_AFTER,
+            PhotoJob.type != "scan_import",
         )
         # Même tolérance de barrière qu'à la création : available_at porte
         # des micros secondes mais func.now() est tronqué à la seconde.

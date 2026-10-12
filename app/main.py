@@ -187,8 +187,17 @@ async def _photo_job_loop() -> None:
     ``PHOTO_NAS_SCAN_ENABLED``) est mis en file s'il est dû — jamais
     exécuté ici en synchrone."""
     from app.db.session import get_db
-    from app.services.photo.jobs import process_photo_jobs
+    from app.services.photo.jobs import process_photo_jobs, reset_running_jobs
     from app.services.photo.scan import maybe_schedule_scan
+
+    # Un 'running' en base au lancement vient d'un processus mort : remis en
+    # file avant la première consommation (seule reprise des scan_import).
+    try:
+        async for db in get_db():
+            await reset_running_jobs(db)
+            break
+    except Exception as exc:  # noqa: BLE001 - le reset ne doit pas bloquer la boucle
+        print(f"[PHOTO-JOBS] Reset jobs orphelins impossible: {exc}")
 
     while True:
         try:

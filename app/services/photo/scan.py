@@ -338,7 +338,13 @@ async def run_scan(
         root = backend_obj.scan_root
         batch: list[tuple[Path, str]] = []
 
-        for dirpath, _dirnames, filenames in os.walk(root):
+        for dirpath, dirnames, filenames in os.walk(root):
+            # Ne jamais descendre dans les @eaDir Synology : des dizaines de
+            # milliers de miniatures/listings NFS par dossier, inutiles à
+            # l'import (les fichiers @eaDir sont déjà filtrés ci-dessous) et
+            # coûteux — un walk qui les traverse peut geler l'application
+            # sur un montage NFS.
+            dirnames[:] = [d for d in dirnames if d != "@eaDir"]
             for filename in sorted(filenames):
                 path = Path(dirpath) / filename
                 # Ignorer les dossiers internes Synology @eaDir (miniatures/métadonnées)

@@ -17,6 +17,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any, Awaitable, Callable
 
 from sqlalchemy import func, select, update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
@@ -147,16 +148,49 @@ async def _resolve_place(db: AsyncSession, photo: Photo) -> None:
         return
     lat_cell = round(photo.gps_latitude, 2)
     lon_cell = round(photo.gps_longitude, 2)
+    # Tolérance ±1e-4 : lat_cell/lon_cell sont des FLOAT MySQL (4 bytes),
+    # la valeur stockée n'est jamais strictement égale au double Python
+    # (42.53) — une égalité stricte ne retrouverait pas la ligne et
+    # l'INSERT suivant échouerait en doublon. 1e-4 couvre l'arrondi
+    # float32 (~1e-6) sans jamais rejoindre la cellule voisine (écart
+    # 0.01). Portable : fonctionne aussi sur SQLite (tests).
+    eps = 1e-4
     result = await db.execute(
-        select(PhotoPlace).where(
-            PhotoPlace.lat_cell == lat_cell, PhotoPlace.lon_cell == lon_cell
+        select(PhotoPlace)
+        .where(
+            PhotoPlace.lat_cell.between(lat_cell - eps, lat_cell + eps),
+            PhotoPlace.lon_cell.between(lon_cell - eps, lon_cell + eps),
         )
+        .limit(1)
     )
     place = result.scalar_one_or_none()
     if place is None:
-        place = PhotoPlace(lat_cell=lat_cell, lon_cell=lon_cell, label="", source="coords")
-        db.add(place)
-        await db.flush()
+        try:
+            # Savepoint : la boucle de jobs et les BackgroundTasks HTTP
+            # consomment en parallèle — deux photos de même cellule GPS
+            # peuvent tenter le même INSERT. La contrainte unique tranche,
+            # on réutilise alors la ligne gagnante.
+            async with db.begin_nested():
+                place = PhotoPlace(
+                    lat_cell=lat_cell, lon_cell=lon_cell, label="", source="coords"
+                )
+                db.add(place)
+                await db.flush()
+        except IntegrityError:
+            # FOR UPDATE (lecture « courante ») : en REPEATABLE READ, un
+            # SELECT simple lirait la snapshot de la transaction (elle peut
+            # précéder le commit concurrent) et ne verrait pas la ligne
+            # gagnante → NoResultFound.
+            result = await db.execute(
+                select(PhotoPlace)
+                .where(
+                    PhotoPlace.lat_cell.between(lat_cell - eps, lat_cell + eps),
+                    PhotoPlace.lon_cell.between(lon_cell - eps, lon_cell + eps),
+                )
+                .with_for_update()
+                .limit(1)
+            )
+            place = result.scalar_one()
     photo.place_id = place.id
 
 
@@ -482,10 +516,16 @@ async def process_photo_jobs(
         result = await db.execute(query)
         jobs = list(result.scalars().all())
 
-    for job in jobs:
+    # Ids lus AVANT la boucle : un handler en échec fait un rollback, qui
+    # expire TOUTES les instances de la session — l'accès différé aux
+    # attributs des jobs restants lèverait alors MissingGreenlet (lazy
+    # load hors greenlet) et casserait tout le batch.
+    job_ids = [job.id for job in jobs]
+
+    for job_id in job_ids:
         claim = await db.execute(
             update(PhotoJob)
-            .where(PhotoJob.id == job.id, PhotoJob.status == "pending")
+            .where(PhotoJob.id == job_id, PhotoJob.status == "pending")
             .values(
                 status="running",
                 attempts=PhotoJob.attempts + 1,
@@ -500,11 +540,10 @@ async def process_photo_jobs(
         # persistées et le même job est rejoué indéfiniment.
         await db.commit()
 
+        # Rechargement explicite : un rollback précédent du batch a pu
+        # expirer l'instance issue de la requête initiale.
+        job = await db.get(PhotoJob, job_id, populate_existing=True)
         handler = HANDLERS.get(job.type)
-        # Identifiants lus AVANT l'exécution : un handler dont le flush casse
-        # la transaction expire les instances, leur accès lèverait alors
-        # PendingRollbackError avant même le rollback.
-        job_id = job.id
         job_type = job.type
         photo_id = job.photo_id
         payload = job.payload_json or {}

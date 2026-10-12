@@ -12,6 +12,14 @@ from typing import Any
 
 from PIL import Image, ExifTags
 
+# HEIC/HEIF : pillow-heif doit être enregistré AVANT le premier Image.open.
+# Sans ça, le premier HEIC traité par un processus neuf (aucun import de
+# thumbnails encore effectué) lève UnidentifiedImageError → « HEIC non
+# décodable » à tort. L'enregistrement est idempotent (voir thumbnails.py).
+from app.services.photo.thumbnails import _register_heif
+
+_register_heif()
+
 # Tags EXIF conservés pour l'affichage « Informations ».
 _EXIF_TAGS = {
     "Make": "make",

@@ -108,6 +108,39 @@ async def list_it_assets(
     )
 
 
+@router.get("/network-ranges", response_model=NetworkRangeListResponse)
+async def list_network_ranges(
+    page: int = 1,
+    page_size: int = 20,
+    search: Optional[str] = None,
+    is_active: Optional[bool] = None,
+    sort_by: str = "created_at",
+    sort_order: str = "desc",
+    current_user: User = Depends(require_permission("it_asset.view")),
+    db: AsyncSession = Depends(get_db),
+):
+    from app.services.audit import get_audit_service
+    audit = await get_audit_service(db)
+    service = ITAssetService(db, audit=audit, current_user=current_user)
+
+    items, total = await service.search_network_ranges(
+        page=page,
+        page_size=page_size,
+        search=search,
+        is_active=is_active,
+        sort_by=sort_by,
+        sort_order=sort_order,
+    )
+    total_pages = math.ceil(total / page_size) if total > 0 else 1
+    return NetworkRangeListResponse(
+        items=[NetworkRangeResponse.model_validate(item) for item in items],
+        total=total,
+        page=page,
+        page_size=page_size,
+        total_pages=total_pages,
+    )
+
+
 @router.get("/{asset_id}", response_model=ITAssetResponse)
 async def get_it_asset(
     asset_id: int,
@@ -274,39 +307,6 @@ async def get_asset_history(
 # NETWORK RANGES
 # ============================================================
 
-@router.get("/network-ranges", response_model=NetworkRangeListResponse)
-async def list_network_ranges(
-    page: int = 1,
-    page_size: int = 20,
-    search: Optional[str] = None,
-    is_active: Optional[bool] = None,
-    sort_by: str = "created_at",
-    sort_order: str = "desc",
-    current_user: User = Depends(require_permission("it_asset.view")),
-    db: AsyncSession = Depends(get_db),
-):
-    from app.services.audit import get_audit_service
-    audit = await get_audit_service(db)
-    service = ITAssetService(db, audit=audit, current_user=current_user)
-
-    items, total = await service.search_network_ranges(
-        page=page,
-        page_size=page_size,
-        search=search,
-        is_active=is_active,
-        sort_by=sort_by,
-        sort_order=sort_order,
-    )
-    total_pages = math.ceil(total / page_size) if total > 0 else 1
-    return NetworkRangeListResponse(
-        items=[NetworkRangeResponse.model_validate(item) for item in items],
-        total=total,
-        page=page,
-        page_size=page_size,
-        total_pages=total_pages,
-    )
-
-
 @router.get("/network-ranges/{range_id}", response_model=NetworkRangeResponse)
 async def get_network_range(
     range_id: int,
@@ -410,34 +410,34 @@ async def discover_all_ranges(
     from app.models import NetworkRange
     from sqlalchemy import select
 
-    async for db in discovery_service._get_db():
-        audit = await get_audit_service(db)
-        result = await db.execute(
-            select(NetworkRange).where(NetworkRange.is_active == True, NetworkRange.scan_enabled == True)
-        )
-        ranges = result.scalars().all()
+    db = discovery_service.db
+    audit = await get_audit_service(db)
+    result = await db.execute(
+        select(NetworkRange).where(NetworkRange.is_active == True, NetworkRange.scan_enabled == True)
+    )
+    ranges = result.scalars().all()
 
-        total_created = 0
-        total_updated = 0
-        total_scanned = 0
-        total_found = 0
+    total_created = 0
+    total_updated = 0
+    total_scanned = 0
+    total_found = 0
 
-        for r in ranges:
-            ds = NetworkDiscoveryService(db, audit=audit, current_user=discovery_service.current_user)
-            res = await ds.scan_network_range(r.id)
-            if "error" not in res:
-                total_created += res.get("assets_created", 0)
-                total_updated += res.get("assets_updated", 0)
-                total_scanned += res.get("hosts_scanned", 0)
-                total_found += res.get("hosts_found", 0)
+    for r in ranges:
+        ds = NetworkDiscoveryService(db, audit=audit, current_user=discovery_service.current_user)
+        res = await ds.scan_network_range(r.id)
+        if "error" not in res:
+            total_created += res.get("assets_created", 0)
+            total_updated += res.get("assets_updated", 0)
+            total_scanned += res.get("hosts_scanned", 0)
+            total_found += res.get("hosts_found", 0)
 
-        return {
-            "ranges_scanned": len(ranges),
-            "hosts_scanned": total_scanned,
-            "hosts_found": total_found,
-            "assets_created": total_created,
-            "assets_updated": total_updated,
-        }
+    return {
+        "ranges_scanned": len(ranges),
+        "hosts_scanned": total_scanned,
+        "hosts_found": total_found,
+        "assets_created": total_created,
+        "assets_updated": total_updated,
+    }
 
 
 # ============================================================

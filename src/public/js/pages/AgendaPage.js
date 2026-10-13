@@ -505,7 +505,7 @@ export class AgendaPage {
       { field: 'morning', label: 'Matin', bulk: true },
       { field: 'afternoon', label: 'Après-midi', bulk: true },
       { field: 'meal', label: 'Repas', bulk: false, sectionBreak: true },
-      { field: 'desk', label: 'Poste', bulk: false },
+      { field: 'desk', label: 'Poste', bulk: true },
     ];
 
     const isMonth = this.view === 'month';
@@ -1878,6 +1878,19 @@ export class AgendaPage {
       return weekday >= 1 && weekday <= 5;
     });
     try {
+      if (field === 'desk') {
+        // Poste : coché sur les jours où une présence existe déjà dans ce
+        // local (les jours sans présence ne sont pas touchés).
+        for (const date of dates) {
+          const mine = this._minePresenceForDate(date, roomId);
+          if (!mine || mine.id == null || mine.needs_workstation) continue;
+          await updatePresence(mine.id, { needs_workstation: true });
+        }
+        await this.loadPlanning();
+        this.renderState();
+        this._toast('Poste de travail sélectionné', 'success');
+        return true;
+      }
       for (const date of dates) {
         const mine = this._minePresenceForDate(date, roomId);
         let morning = false;

@@ -10,6 +10,7 @@ import {
   editFileUrl,
   emptyTrash,
   faceCropUrl,
+  geocodePlaces,
   getPhoto,
   getStorageStatus,
   getTimeline,
@@ -34,7 +35,7 @@ import {
   updatePerson,
   updatePhoto,
   uploadPhotos,
-} from '../services/photosApi.js?v=6';
+} from '../services/photosApi.js?v=7';
 import { authStore } from '../stores/auth.js';
 
 const PAGE_SIZE = 60;
@@ -251,6 +252,8 @@ export class PhotosPage {
 
   destroy() {
     this._stopPolling();
+    this._stopPlacesGeocodePolling();
+    if (this.placesMap) { this.placesMap.remove(); this.placesMap = null; }
     if (this.observer) {
       this.observer.disconnect();
       this.observer = null;
@@ -636,11 +639,13 @@ export class PhotosPage {
       && this._can('photos.upload');
     const showCreate = ['albums', 'people'].includes(this.view);
     const showStorage = this._can('photos.view');
+    const showGeocode = this.view === 'places' && this._can('photos.update');
     const showTrash = this.view === 'trash' && this._can('photos.delete');
     container.innerHTML = `
       ${showUpload ? '<button type="button" class="btn btn-primary" data-action="upload">Importer</button>' : ''}
       ${showCreate ? '<button type="button" class="btn btn-primary" data-action="create">Créer</button>' : ''}
       ${showStorage ? '<button type="button" class="btn btn-secondary" data-action="storage">Stockage</button>' : ''}
+      ${showGeocode ? '<button type="button" class="btn btn-secondary" data-action="geocode">Résoudre les lieux</button>' : ''}
       ${showTrash ? '<button type="button" class="btn btn-danger" data-action="empty-trash">Vider la corbeille</button>' : ''}
       <input type="file" accept="image/*" multiple data-upload-input hidden>
     `;
@@ -686,6 +691,11 @@ export class PhotosPage {
       container
         .querySelector('[data-action="storage"]')
         .addEventListener('click', () => this._toggleStoragePanel());
+    }
+    if (showGeocode) {
+      container
+        .querySelector('[data-action="geocode"]')
+        .addEventListener('click', () => this._startPlacesGeocode());
     }
   }
 
@@ -979,7 +989,7 @@ export class PhotosPage {
     dbg('observeSentinel: observer créé photos=', this.photos.length);
   }
 
-  _renderCards() {
+  async _renderCards() {
     const container = this.element.querySelector('[data-cards]');
     const grid = this.element.querySelector('[data-grid]');
     if (!container || !grid) return;
@@ -1096,34 +1106,109 @@ export class PhotosPage {
         });
       });
     } else if (this.view === 'places') {
-      container.innerHTML = this.places.length ? `
-        <div class="photos-card-grid">
-          ${this.places.map((place) => `
-            <div class="photos-card" data-place="${place.id}">
-              <div class="photos-card-cover">
-                <span class="photos-card-placeholder">📍</span>
-              </div>
-              <div class="photos-card-body">
-                <strong>${this._esc(place.label || `${place.lat_cell}, ${place.lon_cell}`)}</strong>
-                <span>${place.photo_count} photo(s)</span>
-              </div>
-            </div>`).join('')}
-        </div>` : '<p class="empty-message">Aucun lieu (photos sans GPS).</p>';
+      container.innerHTML = this.places.length
+        ? '<div class="photos-places-map" data-places-map></div>'
+        : '<p class="empty-message">Aucun lieu (photos sans GPS).</p>';
       container.hidden = Boolean(this.filter);
       grid.hidden = !this.filter;
-      container.querySelectorAll('[data-place]').forEach((card) => {
-        card.querySelector('strong').addEventListener('click', () => {
-          const place = this.places.find((p) => p.id === Number(card.dataset.place));
-          const name = place.label || `${place.lat_cell}, ${place.lon_cell}`;
-          this.filter = { type: 'place', id: place.id, name };
-          this.timeline = 'days';
-          this._rerender();
-        });
-      });
+      if (this.places.length && !this.filter) {
+        await this._renderPlacesMap(container.querySelector('[data-places-map]'));
+      }
     } else {
       container.innerHTML = '';
       container.hidden = true;
       grid.hidden = false;
+    }
+  }
+
+  async _ensureLeaflet() {
+    if (window.L) return;
+    await new Promise((resolve, reject) => {
+      const link = document.createElement('link');
+      link.rel = 'stylesheet';
+      link.href = '/vendor/leaflet/leaflet.css';
+      document.head.appendChild(link);
+      const script = document.createElement('script');
+      script.src = '/vendor/leaflet/leaflet.js';
+      script.onload = resolve;
+      script.onerror = reject;
+      document.head.appendChild(script);
+    });
+  }
+
+  async _renderPlacesMap(el) {
+    if (!el) return;
+    await this._ensureLeaflet();
+    if (this.placesMap) { this.placesMap.remove(); this.placesMap = null; }
+    const map = window.L.map(el, { worldCopyJump: true }).setView([20, 0], 2);
+    window.L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+      maxZoom: 18,
+    }).addTo(map);
+    for (const place of this.places) {
+      if (!Number.isFinite(place.lat_cell) || !Number.isFinite(place.lon_cell)) continue;
+      const count = place.photo_count || 1;
+      const radius = Math.min(20, 5 + Math.log10(count + 1) * 6);
+      const marker = window.L.circleMarker([place.lat_cell, place.lon_cell], {
+        radius,
+        color: '#2563eb',
+        fillColor: '#2563eb',
+        fillOpacity: 0.4,
+        weight: 1,
+      }).addTo(map);
+      const name = place.label || `${place.lat_cell}, ${place.lon_cell}`;
+      const countryLine = (place.country && place.country !== name)
+        ? `<br>${this._esc(place.country)}` : '';
+      marker.bindPopup(`<strong>${this._esc(name)}</strong>${countryLine}<br>${count} photo(s)`);
+      marker.on('click', () => {
+        this.filter = { type: 'place', id: place.id, name };
+        this.timeline = 'days';
+        this._rerender();
+      });
+    }
+    this.placesMap = map;
+  }
+
+  // ------------------------------------- reverse-geocoding (opt-in backend)
+
+  async _startPlacesGeocode() {
+    try {
+      const result = await geocodePlaces();
+      this._toast(result.message || 'Résolution des lieux lancée');
+      if (result.queued) this._pollPlacesGeocode();
+    } catch (error) {
+      this._toast(error.message || 'Erreur', 'error');
+    }
+  }
+
+  // Le backend résout les lieux en arrière-plan (cadence ~1/s) : on
+  // recharge la carte toutes les 3 s jusqu'à stabilisation (10 essais max).
+  async _pollPlacesGeocode(attempts = 10) {
+    this._stopPlacesGeocodePolling();
+    for (let i = 0; i < attempts; i += 1) {
+      await new Promise((resolve) => {
+        this.placesGeocodePollHandle = setTimeout(resolve, 3000);
+      });
+      if (this.view !== 'places' || this.filter) return;
+      try {
+        const result = await listPlaces();
+        this.places = result.items || [];
+        const pending = this.places.filter((place) => !place.label).length;
+        await this._rerender();
+        if (!pending) {
+          this._toast('Tous les lieux sont résolus');
+          return;
+        }
+      } catch {
+        return;
+      }
+    }
+  }
+
+  _stopPlacesGeocodePolling() {
+    if (this.placesGeocodePollHandle) {
+      clearTimeout(this.placesGeocodePollHandle);
+      this.placesGeocodePollHandle = null;
     }
   }
 

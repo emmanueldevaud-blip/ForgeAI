@@ -746,6 +746,51 @@ async def list_places(service: PhotoService = Depends(_service)):
     )
 
 
+@router.post("/places/geocode", response_model=PhotoScanQueuedResponse, status_code=202)
+async def photo_places_geocode(
+    background_tasks: BackgroundTasks,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_permission("photos.update")),
+):
+    """Met en file la résolution (reverse-geocoding) des lieux sans label.
+
+    Opt-in (``PHOTO_GEOCODING_ENABLED``) : appelle Nominatim en
+    arrière-plan (job ``place_geocode``, cadence 1 req/s), résultat caché
+    en base — un seul appel par cellule GPS, jamais pendant l'import.
+    Idempotent : un job déjà en cours est réutilisé."""
+    settings = get_settings()
+    if not settings.PHOTO_GEOCODING_ENABLED:
+        raise HTTPException(
+            status_code=409,
+            detail="Géocodage inverse désactivé (PHOTO_GEOCODING_ENABLED)",
+        )
+
+    from app.services.photo.geocoding import count_pending_places
+
+    pending = await count_pending_places(db)
+    if pending == 0:
+        return PhotoScanQueuedResponse(
+            queued=False, job_id=None, message="Aucun lieu à résoudre"
+        )
+
+    existing = await find_active_job(db, type="place_geocode", photo_id=None)
+    if existing is not None:
+        return PhotoScanQueuedResponse(
+            queued=False,
+            job_id=str(existing.id),
+            message="Résolution des lieux déjà en cours",
+        )
+
+    job = await enqueue_job_unique(db, type="place_geocode", photo_id=None)
+    if settings.PHOTO_BACKGROUND_JOBS:
+        background_tasks.add_task(run_pending_jobs_now)
+    return PhotoScanQueuedResponse(
+        queued=True,
+        job_id=str(job.id),
+        message=f"{pending} lieu(x) à résoudre",
+    )
+
+
 @router.get("/jobs", response_model=List[PhotoJobResponse])
 async def list_jobs(service: PhotoService = Depends(_service)):
     return await service.list_jobs()

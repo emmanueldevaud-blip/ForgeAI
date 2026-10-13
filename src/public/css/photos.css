@@ -457,6 +457,15 @@
   gap: var(--spacing-4);
 }
 
+.photos-places-map {
+  height: 70vh;
+  min-height: 400px;
+  border: 1px solid var(--color-border-light);
+  border-radius: var(--radius-md, 8px);
+  overflow: hidden;
+  z-index: 0;
+}
+
 .photos-card {
   display: flex;
   flex-direction: column;

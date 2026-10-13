@@ -145,6 +145,11 @@ export async function listPlaces() {
   return photosApi.get('/places');
 }
 
+// Reverse-geocoding des lieux sans label (opt-in backend, job en arrière-plan).
+export async function geocodePlaces() {
+  return photosApi.post('/places/geocode');
+}
+
 export async function listJobs() {
   return photosApi.get('/jobs');
 }

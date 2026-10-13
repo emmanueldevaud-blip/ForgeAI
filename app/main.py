@@ -353,6 +353,9 @@ if os.path.exists(frontend_path):
     app.mount("/css", StaticFiles(directory=os.path.join(frontend_path, "css")), name="css")
     app.mount("/js", StaticFiles(directory=os.path.join(frontend_path, "js")), name="js")
     app.mount("/images", StaticFiles(directory=os.path.join(frontend_path, "images")), name="images")
+    vendor_dir = os.path.join(frontend_path, "vendor")
+    if os.path.isdir(vendor_dir):
+        app.mount("/vendor", StaticFiles(directory=vendor_dir), name="vendor")
     icons_dir = os.path.join(frontend_path, "icons")
     if os.path.isdir(icons_dir):
         app.mount("/icons", StaticFiles(directory=icons_dir), name="icons")

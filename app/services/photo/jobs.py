@@ -176,6 +176,13 @@ async def _resolve_place(db: AsyncSession, photo: Photo) -> None:
                 )
                 db.add(place)
                 await db.flush()
+                if get_settings().PHOTO_GEOCODING_ENABLED:
+                    # Reverse-geocoding en arrière-plan (1 job global
+                    # dédoublonné pour tous les lieux en attente) — jamais
+                    # d'appel réseau dans le chemin d'import.
+                    await enqueue_job_unique(
+                        db, type="place_geocode", photo_id=None, commit=False
+                    )
         except IntegrityError:
             # FOR UPDATE (lecture « courante ») : en REPEATABLE READ, un
             # SELECT simple lirait la snapshot de la transaction (elle peut
@@ -461,6 +468,40 @@ async def _scan_import(db: AsyncSession, photo: Photo | None, payload: dict) -> 
         raise PhotoJobError(f"Scan interrompu ({result['state']}): {detail}")
 
 
+async def _place_geocode(db: AsyncSession, photo: Photo | None, payload: dict) -> None:
+    """Reverse-geocoding des lieux en attente (job global, opt-in).
+
+    Traite un lot de ``PHOTO_GEOCODING_BATCH`` lieux (cadence ~1 req/s
+    imposée par Nominatim), puis se remet en file si d'autres lieux restent
+    (lieux créés pendant l'exécution ou dépassement du lot). Un usage
+    ``place_geocode`` ne porte pas de photo.
+    """
+    if photo is not None:
+        raise PhotoJobError("place_geocode ne porte pas de photo")
+    settings = get_settings()
+    if not settings.PHOTO_GEOCODING_ENABLED:
+        # Désactivé entre-temps : rien à faire, le job se termine proprement.
+        return
+    from app.services.photo.geocoding import GeocodeError, resolve_pending_places
+
+    try:
+        resolved, remaining = await resolve_pending_places(
+            db, limit=settings.PHOTO_GEOCODING_BATCH
+        )
+    except GeocodeError as exc:
+        # Erreur réseau/API : levee pour que le retry (backoff,
+        # max_attempts) s'applique ; les lieux déjà résolus sont commités.
+        raise PhotoJobError(f"Geocodage inverse échoué: {exc}") from exc
+    if remaining:
+        # Job « plain » (pas unique) : le job courant est encore 'running',
+        # le dédoublonnage unique le réutiliserait et rien ne repartirait.
+        await enqueue_job(db, type="place_geocode", photo_id=None, commit=False)
+    if resolved:
+        logger.info(
+            "[PHOTO-GEOCOD] %s lieu(x) résolu(s), %s restant(s)", resolved, remaining
+        )
+
+
 HANDLERS: dict[str, JobHandler] = {
     "ingest": _ingest,
     "analyze": _analyze,
@@ -468,6 +509,7 @@ HANDLERS: dict[str, JobHandler] = {
     "face_detect": _face_detect,
     "face_embedding": _face_embedding,
     "scan_import": _scan_import,
+    "place_geocode": _place_geocode,
 }
 
 

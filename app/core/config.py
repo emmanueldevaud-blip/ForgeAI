@@ -187,6 +187,13 @@ class Settings(BaseSettings):
     PHOTO_AI_SEARCH_ENABLED: bool = True
     # Resolution des lieux via une API externe (opt-in, resultats caches en base).
     PHOTO_GEOCODING_ENABLED: bool = False
+    # Endpoint Nominatim utilise pour le geocodage inverse (libre, self-hostable).
+    PHOTO_GEOCODING_NOMINATIM_URL: str = "https://nominatim.openstreetmap.org"
+    # Langue des labels renvoyes par Nominatim (parametre accept-language).
+    PHOTO_GEOCODING_LANGUAGE: str = "fr"
+    # Timeout HTTP (secondes) et nombre de lieux traites par job.
+    PHOTO_GEOCODING_TIMEOUT: float = 10.0
+    PHOTO_GEOCODING_BATCH: int = 25
     # V3 — Stockage des originaux : "local" (volume applicatif) ou "nas"
     # (repertoire monte, ex. /mnt/synology/photos). Les miniatures et les
     # versions retouchees restent toujours locales.

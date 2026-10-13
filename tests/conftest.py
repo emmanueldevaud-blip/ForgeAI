@@ -15,6 +15,9 @@ os.environ.setdefault(
 )
 os.environ["PHOTO_BACKGROUND_JOBS"] = "false"
 os.environ["PHOTO_AI_SEARCH_ENABLED"] = "false"
+# Reverse-geocoding : jamais d'appel réseau pendant les tests (les tests
+# ciblés l'activent explicitement avec un transport Nominatim mocké).
+os.environ["PHOTO_GEOCODING_ENABLED"] = "false"
 
 # Backend des originaux : les tests ne doivent jamais dépendre de
 # PHOTO_STORAGE_BACKEND du .env local (nas en dev). Les tests qui

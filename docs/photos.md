@@ -36,7 +36,11 @@ Les originaux ne sont jamais modifiés : toute retouche crée une nouvelle versi
   renommage / fusion / séparation, couverture par groupe, recadrage privé,
   affectation manuelle (`PATCH /photos/faces/{id}`).
 - **Tags** : ajout/retrait manuel par photo, tags générés par l'analyse.
-- **Lieux** : cache de cellules GPS arrondies (0,01°), compteur de photos.
+- **Lieux** : cache de cellules GPS arrondies (0,01°), compteur de photos ;
+  **géocodage inverse** opt-in via Nominatim (`PHOTO_GEOCODING_ENABLED`) —
+  job `place_geocode` en arrière-plan (cadence 1 req/s), label + country
+  cachés en base (un seul appel par cellule GPS, jamais pendant l'import),
+  bouton « Résoudre les lieux » de la page Lieux (`POST /photos/places/geocode`).
 - **Retouche** : rotation, recadrage, réglages, amélioration automatique —
   versions cumulatives rendues depuis l'original (`GET /photos/{id}/edits/{eid}/file`),
   retour à l'original (`POST /photos/{id}/revert`).
@@ -51,8 +55,6 @@ Les originaux ne sont jamais modifiés : toute retouche crée une nouvelle versi
   n'accepte que du texte (`gateway.generate(prompt=…)`, aucune entrée image).
   Le branchement se fera sans toucher au gateway (interface
   `PhotoAnalysisProvider` déjà en place), activation locale par défaut.
-- **Géocodage inverse** : `PhotoPlace.label` reste vide sans appel externe
-  (`PHOTO_GEOCODING_ENABLED` réservé).
 - **Opérations IA de retouche** (`ai_remove`, `ai_upscale`) : répondent `501`
   (sortie réservée à une évolution).
 - **Outils développeur** : `app/services/photo/tools.py` expose 9 outils du type
@@ -286,8 +288,8 @@ réutilisé). Statut visible côté UI : pastille par tuile + ligne
 - Routes SPA : `/photos`, `/photos/albums`, `/photos/people`, `/photos/places`,
   `/photos/favorites` (permission `photos.view`).
 - Le service worker a été bumpé (`forgeai-static-v6`) pour invalider le cache
-  statique ; versions `photos.css?v=4`, `PhotosPage.js?v=4`, `photosApi.js?v=3`,
-  `app-erp.js?v=62` (V3 : section Stockage).
+  statique ; versions `photos.css?v=4`, `PhotosPage.js?v=9`, `photosApi.js?v=7`,
+  `app-erp.js?v=62` (V3 : section Stockage ; géocodage inverse : v=9).
 - Pillow est ajouté à `pyproject.toml` (installation via `pip install -e .`).
 
 ## Configuration (`.env`)
@@ -312,7 +314,11 @@ réutilisé). Statut visible côté UI : pastille par tuile + ligne
 | `PHOTO_FACE_GROUP_THRESHOLD` | `0.90` | Similarité min. pour rejoindre un groupe |
 | `PHOTO_FACE_GROUP_MERGE_THRESHOLD` | `0.97` | Similarité min. pour fusionner deux anonymes |
 | `PHOTO_AI_SEARCH_ENABLED` | `true` | Enrichissement IA de la recherche |
-| `PHOTO_GEOCODING_ENABLED` | `false` | Réserve pour le géocodage inverse |
+| `PHOTO_GEOCODING_ENABLED` | `false` | Opt-in : géocodage inverse des lieux (Nominatim) |
+| `PHOTO_GEOCODING_NOMINATIM_URL` | `https://nominatim.openstreetmap.org` | Endpoint Nominatim (self-hostable) |
+| `PHOTO_GEOCODING_LANGUAGE` | `fr` | Langue des labels (`accept-language`) |
+| `PHOTO_GEOCODING_TIMEOUT` | `10.0` | Timeout HTTP du géocodage (secondes) |
+| `PHOTO_GEOCODING_BATCH` | `25` | Lieux résolus par job `place_geocode` |
 | `PHOTO_STORAGE_BACKEND` | `local` | Backend des originaux (`local` \| `nas`) |
 | `PHOTO_NAS_PATH` | `` | Racine NAS montée (si `nas`) |
 | `PHOTO_NAS_SCAN_ENABLED` | `false` | Scan automatique périodique (V3) |
@@ -374,4 +380,3 @@ tests consomment les jobs explicitement (`process_photo_jobs`).
   `POST /photos/{id}/embeddings`.
 - Encodeur texte pour interroger les embeddings par mots-clés (actuellement
   la similarité part d'une photo source : `GET /photos/{id}/similar`).
-- Géocodage inverse (`PHOTO_GEOCODING_ENABLED`).

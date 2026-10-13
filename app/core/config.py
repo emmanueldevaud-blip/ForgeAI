@@ -147,7 +147,7 @@ class Settings(BaseSettings):
     PHOTO_THUMBNAIL_PATH: str = ""
     PHOTO_MAX_UPLOAD_SIZE: int = 50 * 1024 * 1024  # octets
     # Largeurs des miniatures (px), de la plus petite a la plus grande.
-    PHOTO_THUMBNAIL_SIZES: str = "tiny:96,small:256,medium:640,large:1280,preview:2048"
+    PHOTO_THUMBNAIL_SIZES: str = "small:256,medium:640,large:1280"
     # File de taches d'arriere-plan (ingest, analyse IA, ...).
     PHOTO_BACKGROUND_JOBS: bool = True
     PHOTO_JOB_POLL_SECONDS: float = 2.0

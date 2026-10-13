@@ -173,7 +173,7 @@ async def test_ingest_pipeline_metadata_and_thumbnails(client, db_session, admin
     assert payload["exif_json"]["make"] == "Canon"
 
     # Miniatures multi-tailles servies authentifiées.
-    for size in ("tiny", "small", "medium", "large", "preview"):
+    for size in ("small", "medium", "large"):
         thumb = await client.get(
             f"/photos/{photo_id}/file", params={"size": size}, headers=admin_headers
         )

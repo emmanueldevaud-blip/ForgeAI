@@ -94,6 +94,10 @@ export class AgendaPage {
     this.editCell = null;
     this.addPersonOpen = false;
     this.searchQuery = '';
+    // Sections du planning dépliées : le groupe de l'utilisateur connecté
+    // par défaut, le reste replié (clés = id de groupe, 'others' pour Autres).
+    this.openGroupIds = new Set();
+    this._sectionsDefaulted = false;
     this.activeTab = 'mine'; // 'mine' or 'inscriptions'
     this.personWeekModal = null; // { personKey, person }
     this._authUnsubscribe = null;
@@ -191,8 +195,8 @@ export class AgendaPage {
     this.element.innerHTML = `
       <div class="page-header agenda-header">
         <div class="page-header-left">
-          <h1>Ma présence</h1>
-          <p class="page-subtitle">${isMineTab ? 'Vos présences personnelles.' : 'Planning par bureau et inscriptions libres.'}</p>
+          <h1>${isInscriptionsTab ? 'Inscriptions' : 'Ma présence'}</h1>
+          ${isInscriptionsTab ? '' : `<p class="page-subtitle">${isMineTab ? 'Vos présences personnelles.' : 'Planning par bureau et inscriptions libres.'}</p>`}
         </div>
         <div class="page-header-right agenda-toolbar">
           <div class="agenda-tabs" role="tablist" aria-label="Onglets Agenda">
@@ -226,7 +230,7 @@ export class AgendaPage {
         </div>
 
         <div role="tabpanel" id="panel-inscriptions" aria-labelledby="tab-inscriptions" ${isInscriptionsTab ? '' : 'hidden'}>
-          <section class="card agenda-card" aria-label="Planning des présences">
+          <section class="card agenda-card" id="agenda-planning-section" aria-label="Planning des présences">
             ${this._planningBody(days)}
           </section>
           <section class="agenda-legend" aria-label="Légende">
@@ -652,20 +656,6 @@ export class AgendaPage {
       return '<div class="card-body agenda-empty"><p class="agenda-none">Aucune inscription sur cette période.</p></div>';
     }
 
-    // Compteurs par local/jour pour la ligne de résumé (Repas / Postes / Présents)
-    const roomDayCounts = {};
-    for (const day of days) {
-      for (const room of day.rooms || []) {
-        const key = `${day.date}|${room.room_id}`;
-        const presences = room.presences || [];
-        roomDayCounts[key] = {
-          present: presences.filter(p => p.is_present).length,
-          meals: presences.filter(p => p.needs_meal).length,
-          desks: presences.filter(p => p.needs_workstation).length,
-        };
-      }
-    }
-
     const head = `
       <thead>
         <tr>
@@ -685,41 +675,23 @@ export class AgendaPage {
       </thead>`;
 
     const sections = this._planningSections(people);
+    this._seedOpenSections();
     const totalColumns = 1 + dates.length * 2;
 
-    // Génère les lignes de compteurs pour une section (un local = une ligne de compteurs)
-    const counterRowHtml = (sectionPeople, dates, roomDayCounts) => {
-      // Les roomId sont portés par les presences de chaque personne.
-      const roomIds = [];
-      for (const person of sectionPeople) {
-        for (const entry of person.presences || []) {
-          if (entry.roomId == null) continue;
-          if (!roomIds.some(id => String(id) === String(entry.roomId))) roomIds.push(entry.roomId);
-        }
-      }
-      return roomIds.map(roomId => {
-        const room = this._roomById(roomId);
-        const cells = dates.map(iso => {
-          const counts = roomDayCounts[`${iso}|${roomId}`] || { present: 0, meals: 0, desks: 0 };
-          return `<td class="agenda-planning-counter" colspan="2" title="Présents: ${counts.present} — Repas: ${counts.meals} — Postes: ${counts.desks}">${counts.present} / ${counts.meals} / ${counts.desks}</td>`;
-        }).join('');
-        return `
-          <tr class="agenda-planning-counter-row">
-            <th class="agenda-planning-counter-label">Prés / Repas / Postes${room ? ` — ${escapeHtml(this._getShortRoomName(room.name))}` : ''}</th>
-            ${cells}
-          </tr>`;
-      }).join('');
-    };
-
-    const rows = sections.map((section, idx) => `
-      <tr class="agenda-group-row agenda-section-${idx % 2 === 0 ? 'even' : 'odd'}">
+    const sectionRows = sections.map((section, idx) => {
+      const sectionKey = String(section.groupId);
+      const collapsed = this._isSectionCollapsed(section);
+      const groupRow = `
+      <tr class="agenda-group-row agenda-section-${idx % 2 === 0 ? 'even' : 'odd'} ${collapsed ? 'is-collapsed' : ''}" data-section-toggle="${escapeHtml(sectionKey)}">
         <th class="agenda-group-head" colspan="${totalColumns}" scope="colgroup" style="--agenda-group-depth: ${section.depth}">
-          <span class="agenda-group-label">${escapeHtml(section.label)}</span>
-          <span class="agenda-group-count">${section.people.length}</span>
+          <button type="button" class="agenda-group-toggle" aria-expanded="${!collapsed}" aria-controls="agenda-section-${escapeHtml(sectionKey)}">
+            <span class="agenda-group-chevron" aria-hidden="true">▾</span>
+            <span class="agenda-group-label">${escapeHtml(section.label)}</span>
+            <span class="agenda-group-count">${section.people.length}</span>
+          </button>
         </th>
-      </tr>
-      ${counterRowHtml(section.people, dates, roomDayCounts)}
-      ${section.people.map(person => `
+      </tr>`;
+      const peopleRows = section.people.map(person => `
       <tr class="agenda-section-${idx % 2 === 0 ? 'even' : 'odd'} agenda-person-row" data-person-key="${escapeHtml(person.key)}" style="cursor: pointer;">
         <th class="agenda-room-head agenda-person-head" scope="row" title="${escapeHtml(person.meta)}">
           <span class="agenda-room-name">${escapeHtml(person.name)}${person.isMine ? ' (moi)' : ''}</span>
@@ -728,15 +700,57 @@ export class AgendaPage {
         ${dates.map((iso, dayIndex) => ['morning', 'afternoon']
           .map(half => this._personCellHtml(person, iso, half, canManage, isMonth, dayIndex))
           .join('')).join('')}
-      </tr>`).join('')}`).join('');
+      </tr>`).join('');
+      // Un <tbody> par section : le bandeau reste visible, le corps se replie.
+      return `
+        <tbody>${groupRow}</tbody>
+        <tbody id="agenda-section-${escapeHtml(sectionKey)}" data-section-rows="${escapeHtml(sectionKey)}" ${collapsed ? 'hidden' : ''}>${peopleRows}</tbody>`;
+    }).join('');
 
     return `
       <div class="agenda-scroll">
         <table class="agenda-table agenda-table--people ${isMonth ? 'agenda-table--people-month' : ''}" role="grid" aria-label="Planning des inscrits">
           ${head}
-          <tbody>${rows}</tbody>
+          ${sectionRows}
         </table>
       </div>`;
+  }
+
+  // Déplie par défaut la section du groupe de l'utilisateur connecté.
+  _seedOpenSections() {
+    if (this._sectionsDefaulted) return;
+    this._sectionsDefaulted = true;
+    const mine = (this.data?.planning_people || [])
+      .find(p => p.person_id === authStore.currentUser?.id);
+    if (mine?.group_id != null) this.openGroupIds.add(String(mine.group_id));
+  }
+
+  // Section repliée par défaut, sauf si dépliée à la main (ou si c'est le
+  // groupe de l'utilisateur connecté) ou si la recherche est active.
+  _isSectionCollapsed(section) {
+    if (this.searchQuery) return false;
+    return !this.openGroupIds.has(String(section.groupId));
+  }
+
+  _togglePlanningSection(sectionKey) {
+    if (this.openGroupIds.has(sectionKey)) this.openGroupIds.delete(sectionKey);
+    else this.openGroupIds.add(sectionKey);
+    this._syncPlanningSections();
+  }
+
+  // Applique l'état replié/déplié des sections sans reconstruire le tableau.
+  _syncPlanningSections() {
+    this.element.querySelectorAll('#agenda-planning-section [data-section-rows]').forEach(tbody => {
+      const key = tbody.dataset.sectionRows;
+      const collapsed = !this.searchQuery && !this.openGroupIds.has(key);
+      tbody.hidden = collapsed;
+      const head = this.element.querySelector(`#agenda-planning-section [data-section-toggle="${key}"]`);
+      if (head) {
+        head.classList.toggle('is-collapsed', collapsed);
+        const toggle = head.querySelector('.agenda-group-toggle');
+        if (toggle) toggle.setAttribute('aria-expanded', String(!collapsed));
+      }
+    });
   }
 
   // Catégories du planning : groupes dans l'ordre reçu (arbre puis
@@ -759,6 +773,7 @@ export class AgendaPage {
       if (!members || !members.length) continue;
       byGroup.delete(group.id);
       sections.push({
+        groupId: group.id,
         label: group.description || group.name,
         depth: group.depth || 0,
         people: members,
@@ -768,7 +783,7 @@ export class AgendaPage {
     // Personnes sans groupe ou dont le groupe n'est plus cochée.
     const others = people.filter(person => person.groupId == null || byGroup.has(person.groupId));
     if (others.length) {
-      sections.push({ label: 'Autres', depth: 0, people: others });
+      sections.push({ groupId: 'others', label: 'Autres', depth: 0, people: others });
     }
     return sections;
   }
@@ -1636,7 +1651,7 @@ export class AgendaPage {
       for (const action of removals) await action();
       for (const action of changes) await action();
       await this.loadPlanning();
-      this.personWeekModal.draft = null;
+      this.personWeekModal = null; // enregistré : le modal se ferme
       this.renderState();
       this._toast('Planning mis à jour', 'success');
     } catch (error) {
@@ -2130,7 +2145,13 @@ export class AgendaPage {
     });
   }
 
-  _bindPlanning() {
+  // Écouteurs du tableau de planning (recréables après un rafraîchissement
+  // ciblé, par exemple le filtre par nom).
+  _bindPlanningTable() {
+    // Bandeaux dépliants : un clic sur l'en-tête replie/déplie la section.
+    this.element.querySelectorAll('#agenda-planning-section [data-section-toggle]').forEach(row => {
+      row.addEventListener('click', () => this._togglePlanningSection(row.dataset.sectionToggle));
+    });
     this.element.querySelectorAll('th[data-day]').forEach(head => {
       head.addEventListener('click', () => {
         this.openDay = head.dataset.day;
@@ -2165,6 +2186,10 @@ export class AgendaPage {
         }
       });
     });
+  }
+
+  _bindPlanning() {
+    this._bindPlanningTable();
     this.element.querySelector('[data-action="add-person-to-planning"]')?.addEventListener('click', () => {
       this.addPersonOpen = true;
       this.renderState();
@@ -2180,11 +2205,18 @@ export class AgendaPage {
         }
       });
     });
-    // Recherche
+    // Recherche : rafraîchit uniquement le tableau, sinon l'input perd le
+    // focus à chaque frappe (renderState reconstruit toute la page).
     const searchInput = this.element.querySelector('.agenda-search');
     searchInput?.addEventListener('input', (e) => {
       this.searchQuery = e.target.value;
-      this.renderState();
+      const section = this.element.querySelector('#agenda-planning-section');
+      if (section) {
+        section.innerHTML = this._planningBody(this.data?.days || []);
+        this._bindPlanningTable();
+      } else {
+        this.renderState();
+      }
     });
     searchInput?.addEventListener('keydown', (e) => {
       // Empêcher la soumission du formulaire si dans un form

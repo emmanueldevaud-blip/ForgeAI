@@ -199,16 +199,12 @@ export class AgendaPage {
           ${isInscriptionsTab ? '' : `<p class="page-subtitle">${isMineTab ? 'Vos présences personnelles.' : 'Planning par bureau et inscriptions libres.'}</p>`}
         </div>
         <div class="page-header-right agenda-toolbar">
-          <div class="agenda-tabs" role="tablist" aria-label="Onglets Agenda">
-            <button role="tab" class="btn btn-sm ${isMineTab ? 'btn-primary' : 'btn-secondary'}" data-tab="mine" aria-selected="${isMineTab}" aria-controls="panel-mine">Ma présence</button>
-            <button role="tab" class="btn btn-sm ${isInscriptionsTab ? 'btn-primary' : 'btn-secondary'}" data-tab="inscriptions" aria-selected="${isInscriptionsTab}" aria-controls="panel-inscriptions">Inscriptions</button>
-            ${canManage ? `<button role="tab" class="btn btn-sm ${isSettingsTab ? 'btn-primary' : 'btn-secondary'}" data-tab="settings" aria-selected="${isSettingsTab}" aria-controls="panel-settings">Paramètres</button>` : ''}
-          </div>
           <div class="agenda-nav" role="group" aria-label="Navigation">
             <button class="btn btn-secondary btn-sm" data-nav="prev" aria-label="Période précédente">‹</button>
             <button class="btn btn-secondary btn-sm" data-nav="today">Aujourd’hui</button>
             <button class="btn btn-secondary btn-sm" data-nav="next" aria-label="Période suivante">›</button>
           </div>
+          <span class="agenda-period-label" aria-live="polite">${escapeHtml(this._periodLabel())}</span>
           <div class="agenda-views" role="group" aria-label="Vue">
             ${Object.entries(VIEW_LABELS).map(([value, label]) => `
               <button class="btn btn-sm ${this.view === value ? 'btn-primary' : 'btn-secondary'}" data-view="${value}" aria-pressed="${this.view === value}">${label}</button>
@@ -2193,17 +2189,6 @@ export class AgendaPage {
     this.element.querySelector('[data-action="add-person-to-planning"]')?.addEventListener('click', () => {
       this.addPersonOpen = true;
       this.renderState();
-    });
-    // Onglets
-    this.element.querySelectorAll('[data-tab]').forEach(btn => {
-      btn.addEventListener('click', () => {
-        const tab = btn.dataset.tab;
-        if (tab !== this.activeTab) {
-          this.activeTab = tab;
-          const newPath = tab === 'inscriptions' ? '/agenda/inscriptions' : (tab === 'settings' ? '/agenda/settings' : '/agenda');
-          this.router.navigate(newPath);
-        }
-      });
     });
     // Recherche : rafraîchit uniquement le tableau, sinon l'input perd le
     // focus à chaque frappe (renderState reconstruit toute la page).

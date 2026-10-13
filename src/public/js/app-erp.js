@@ -1,6 +1,6 @@
 import { router, createAuthGuard, createNotFoundPage, createForbiddenPage } from './router/router.js';
 import { authStore } from './stores/auth.js';
-import { AppShell } from './components/AppShell.js?v=6';
+import { AppShell } from './components/AppShell.js?v=8';
 import { createModulePlaceholderPage } from './pages/ModulePlaceholder.js?v=3';
 import { createLoginPage } from './pages/LoginPage.js';
 import { createRegisterPage } from './pages/RegisterPage.js';
@@ -20,6 +20,7 @@ import { createMaintenanceCalendarPage } from './pages/MaintenanceCalendarPage.j
 import { createAIAssistantPage } from './pages/AIAssistantPage.js?v=26';
 import { createHousingPage } from './pages/HousingPage.js';
 import { createProfilePage } from './pages/ProfilePage.js?v=2';
+import { createSettingsPage } from './pages/UserSettingsPage.js?v=1';
 import { createCleaningVolunteersPage } from './pages/CleaningVolunteersPage.js?v=4';
 import { createAdministrativeProgramsPage } from './pages/AdministrativeProgramsPage.js';
 import { createSportDashboardPage } from './pages/SportDashboardPage.js?v=5';
@@ -28,7 +29,7 @@ import { createSportGarminPage } from './pages/SportGarminPage.js?v=5';
 import { createSportHealthPage } from './pages/SportHealthPage.js?v=1';
 import { createSportAnalysesPage } from './pages/SportAnalysesPage.js?v=1';
 import { createSportGoalsPage } from './pages/SportGoalsPage.js?v=1';
-import { createAgendaPage } from './pages/AgendaPage.js?v=56';
+import { createAgendaPage } from './pages/AgendaPage.js?v=57';
 import { createAgendaSettingsPage } from './pages/AgendaSettingsPage.js?v=3';
 import { createDomotiquePage } from './pages/DomotiquePage.js?v=8';
 import { createDomotiqueConfigPage } from './pages/DomotiqueConfigPage.js?v=8';
@@ -144,6 +145,11 @@ async function initializeApp() {
     .addRoute('/profile', async () => {
       const profilePage = createProfilePage(router);
       appShell.showContent(profilePage.render());
+    }, { requiresAuth: true })
+    .addRoute('/settings', async () => {
+      const settingsPage = createSettingsPage(router);
+      await settingsPage.initialize();
+      appShell.showContent(settingsPage.render());
     }, { requiresAuth: true })
     .addRoute('/administration', async (route) => {
       await showAdministrationPage(route);

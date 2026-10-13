@@ -41,6 +41,7 @@ class UserUpdate(BaseModel):
     last_name: str | None = Field(None, max_length=100)
     is_active: bool | None = None
     role: str | None = None
+    default_needs_workstation: bool | None = None
 
 
 class UserPasswordUpdate(BaseModel):
@@ -60,6 +61,7 @@ class UserResponse(UserBase):
     is_active: bool
     role: str
     source: str
+    default_needs_workstation: bool = False
     last_login: datetime | None
     created_at: datetime
     updated_at: datetime

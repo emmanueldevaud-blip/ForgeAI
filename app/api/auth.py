@@ -161,6 +161,7 @@ async def user_response_with_authorization(db: AsyncSession, user: User) -> User
         is_active=user.is_active,
         role=user.role.value,
         source=user.source,
+        default_needs_workstation=user.default_needs_workstation,
         last_login=user.last_login,
         created_at=user.created_at,
         updated_at=user.updated_at,

@@ -36,6 +36,10 @@ class User(Base):
         SQLEnum(UserRole, native_enum=False), default=UserRole.USER, nullable=False
     )
     source: Mapped[str] = mapped_column(String(20), default="local", nullable=False)
+    # Préférence utilisateur : le poste est auto-coché à l'inscription Agenda
+    default_needs_workstation: Mapped[bool] = mapped_column(
+        Boolean, default=False, nullable=False
+    )
     ad_dn: Mapped[str] = mapped_column(String(500), nullable=True, unique=True)
     last_login: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(

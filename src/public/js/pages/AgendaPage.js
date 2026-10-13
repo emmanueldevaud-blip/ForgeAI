@@ -1838,7 +1838,8 @@ export class AgendaPage {
     }
 
     if ((field === 'morning' || field === 'afternoon') && morning && afternoon && !wasFull) {
-      desk = true;
+      // Le poste suit la préférence utilisateur : il n'est plus imposé par la
+      // journée complète.
       meal = true;
     }
 
@@ -1908,7 +1909,7 @@ export class AgendaPage {
         if (field === 'morning') morning = true;
         if (field === 'afternoon') afternoon = true;
         if (morning && afternoon && !wasFull) {
-          desk = true;
+          // Le poste suit la préférence utilisateur (pas d'imposition).
           meal = true;
         }
         const period = morning && afternoon ? 'full' : (morning ? 'morning' : 'afternoon');

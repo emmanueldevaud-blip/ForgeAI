@@ -668,10 +668,10 @@ class AgendaService:
                 external_name=None,
                 source="user",
                 is_present=True,
-                # Auto-cocher le poste pour toute demi-journée ou journée
-                # complète (jamais en télétravail : ni poste ni repas).
-                needs_workstation=needs_workstation
-                or (not is_remote and payload.period in ("morning", "afternoon", "full")),
+                # Le poste est auto-coché selon la préférence de l'utilisateur
+                # (jamais en télétravail : ni poste ni repas).
+                needs_workstation=bool(needs_workstation)
+                or (not is_remote and await self._pref_needs_workstation(owner_id)),
                 needs_meal=needs_meal or (not is_remote and payload.period == "full"),
                 is_remote=is_remote,
                 period=payload.period,
@@ -980,6 +980,15 @@ class AgendaService:
                 row.period = "morning" if period == "afternoon" else "afternoon"
             else:
                 await self.db.delete(row)
+
+    async def _pref_needs_workstation(self, owner_id: Optional[int]) -> bool:
+        """Préférence utilisateur « besoin d'un poste » (désactivée par défaut)."""
+        if owner_id is None:
+            return False
+        if self.current_user is not None and self.current_user.id == owner_id:
+            return bool(self.current_user.default_needs_workstation)
+        owner = await self.db.get(User, owner_id)
+        return bool(owner.default_needs_workstation) if owner is not None else False
 
     async def _migrate_meal(
         self,

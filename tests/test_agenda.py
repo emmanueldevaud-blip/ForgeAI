@@ -294,10 +294,11 @@ async def test_agenda_conflict_rules(client, admin_headers):
     assert room_day_b["present_count"] == 1, room_day_b  # matin conservé dans B
     mine_b_after = next(p for p in room_day_b["presences"] if p["is_mine"])
     assert mine_b_after["period"] == "morning"
-    assert room_day_a["present_count"] == 1, room_day_a  # après-midi créé dans A avec poste
+    assert room_day_a["present_count"] == 1, room_day_a  # après-midi créé dans A
     mine_a = next(p for p in room_day_a["presences"] if p["is_mine"])
     assert mine_a["period"] == "afternoon"
-    assert mine_a["needs_workstation"] is True  # poste auto-coché
+    # Pas de préférence « poste » : le poste n'est plus auto-coché
+    assert mine_a["needs_workstation"] is False
     assert day["total_present"] == 2
 
     # Le poste reste modifiable sur la présence active
@@ -1448,3 +1449,55 @@ async def test_meal_migrates_to_clicked_local(client, admin_headers):
     room_b_day = next(r for r in day["rooms"] if r["room_id"] == room_b)
     assert room_a_day["presences"][0]["needs_meal"] is False
     assert room_b_day["presences"][0]["needs_meal"] is False
+
+
+@pytest.mark.asyncio
+async def test_user_preference_defaults_workstation(client, admin_headers):
+    """Préférence « poste » : auto-coché à l'inscription si active, sinon non.
+
+    Désactivée par défaut, réglée depuis la page Paramètres (PATCH /auth/me).
+    """
+    room_ids = await _setup_bureau_rooms(client, admin_headers, names=("Bureau A", "Bureau B"))
+    room_a, room_b = room_ids
+    presence_date = _next_weekday(date.today()).isoformat()
+
+    # Par défaut : la préférence est inactive, le poste n'est pas auto-coché
+    first = await client.post(
+        "/agenda/presences",
+        json={"presence_date": presence_date, "room_id": room_a, "is_present": True, "period": "morning"},
+        headers=admin_headers,
+    )
+    assert first.status_code == 200, first.text
+    assert first.json()["needs_workstation"] is False
+
+    # Activation de la préférence depuis les paramètres
+    pref = await client.patch(
+        "/auth/me", json={"default_needs_workstation": True}, headers=admin_headers
+    )
+    assert pref.status_code == 200, pref.text
+    assert pref.json()["default_needs_workstation"] is True
+
+    # Nouvelle inscription : le poste est auto-coché
+    second = await client.post(
+        "/agenda/presences",
+        json={"presence_date": presence_date, "room_id": room_b, "is_present": True, "period": "afternoon"},
+        headers=admin_headers,
+    )
+    assert second.status_code == 200, second.text
+    assert second.json()["needs_workstation"] is True
+
+    # Désactivation : les inscriptions suivantes repartent sans poste
+    off = await client.patch(
+        "/auth/me", json={"default_needs_workstation": False}, headers=admin_headers
+    )
+    assert off.status_code == 200, off.text
+    assert off.json()["default_needs_workstation"] is False
+
+    other_day = _next_weekday(date.today() + timedelta(days=7)).isoformat()
+    third = await client.post(
+        "/agenda/presences",
+        json={"presence_date": other_day, "room_id": room_a, "is_present": True, "period": "full"},
+        headers=admin_headers,
+    )
+    assert third.status_code == 200, third.text
+    assert third.json()["needs_workstation"] is False

@@ -6,6 +6,7 @@ export class Header {
     this.onSearch = options.onSearch || (() => {});
     this.onLogout = options.onLogout || (() => {});
     this.onProfileClick = options.onProfileClick || (() => {});
+    this.onSettingsClick = options.onSettingsClick || (() => {});
     this.onNavigate = options.onNavigate || (() => {});
     this.user = null;
     this.pageTitle = '';
@@ -102,6 +103,7 @@ export class Header {
     });
 
     userMenu.querySelector('[data-action="settings"]')?.addEventListener('click', () => {
+      this.onSettingsClick();
       this._closeUserMenu();
     });
 

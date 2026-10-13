@@ -1,5 +1,5 @@
 import { Sidebar } from './Sidebar.js?v=2';
-import { Header } from './Header.js?v=2';
+import { Header } from './Header.js?v=3';
 import { MainContent } from './MainContent.js';
 import { MobileSidebar } from './MobileSidebar.js?v=3';
 import { authStore } from '../stores/auth.js';
@@ -63,6 +63,7 @@ export class AppShell {
       onSearch: (query) => this._handleSearch(query),
       onLogout: () => this._handleLogout(),
       onProfileClick: () => this._handleProfileClick(),
+      onSettingsClick: () => this._handleSettingsClick(),
       onNavigate: (path) => this.router.navigate(path),
     }).mount(headerEl);
 
@@ -206,7 +207,11 @@ export class AppShell {
   }
 
   _handleProfileClick() {
-    router.navigate('/profile', { replace: true });
+    this.router.navigate('/profile', { replace: true });
+  }
+
+  _handleSettingsClick() {
+    this.router.navigate('/settings', { replace: true });
   }
 
   _handleResize() {

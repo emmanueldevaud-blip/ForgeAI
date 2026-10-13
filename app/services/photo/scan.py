@@ -122,7 +122,10 @@ async def _finish_run(
     updated_paths: int = 0,
     missing_marked: int = 0,
 ) -> dict:
-    run = await db.get(PhotoScanRun, run_id)
+    # populate_existing : ``started_at`` est un server_default (MySQL ne le
+    # retourne pas à l'INSERT) — sans rechargement, son accès différé dans
+    # _run_to_dict lèverait MissingGreenlet (IO implicite hors greenlet).
+    run = await db.get(PhotoScanRun, run_id, populate_existing=True)
     run.state = state
     run.detail = detail
     run.files_seen = files_seen

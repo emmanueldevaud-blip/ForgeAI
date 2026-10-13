@@ -475,29 +475,6 @@ export class AgendaPage {
       (room.presences || []).some(p => p.is_mine && p.person_type === 'user' && p.needs_meal));
   }
 
-  _otherMineOnDay(iso, roomId) {
-    const day = (this.data?.days || []).find(d => d.date === iso);
-    if (!day) return [];
-    const others = [];
-    for (const room of day.rooms || []) {
-      if (String(room.room_id) === String(roomId)) continue;
-      const mine = (room.presences || []).find(p => p.is_mine && p.person_type === 'user');
-      if (mine) others.push(mine);
-    }
-    return others;
-  }
-
-  // Règle « un seul repas par jour » : l'autre local n'est pas concerné par le
-  // retrait automatique (le serveur le gère), seul le repas en double est refusé.
-  _conflictMessage(iso, roomId, period, needsMeal) {
-    for (const other of this._otherMineOnDay(iso, roomId)) {
-      if (needsMeal && other.needs_meal) {
-        return 'Repas déjà sélectionné dans un autre local';
-      }
-    }
-    return null;
-  }
-
   _mineGridHtml(rooms) {
     // Ordre personnalisé : CEBAZAT, RIOM, PUTEAUX
     const roomOrder = ['CEBAZAT', 'RIOM', 'PUTEAUX'];
@@ -594,16 +571,11 @@ export class AgendaPage {
               const inMonth = (this.data?.days || []).some(d => d.date === iso);
               const mine = this._mineRemoteForDate(iso);
               const period = mine ? (mine.period || 'full') : null;
-              const past = iso < today;
               const halves = ['morning', 'afternoon'].map(half => {
                 const on = inMonth && (period === 'full' || period === half);
                 let enabled = inMonth;
                 let title = half === 'morning' ? 'Télétravail le matin' : 'Télétravail l\u2019après-midi';
                 if (!inMonth) title = 'Hors mois affiché';
-                else if (past && !on) {
-                  enabled = false;
-                  title = 'Date dépassée — inscription impossible';
-                } else if (past) title = 'Date dépassée — cliquez pour annuler le télétravail';
                 const halfLabel = half === 'morning' ? 'matin' : 'après-midi';
                 return `
                   <button type="button" class="agenda-mine-cell agenda-mine-cell--remote ${on ? 'is-on' : ''} agenda-mine-cell--half"
@@ -1804,10 +1776,6 @@ export class AgendaPage {
     const otherHalf = half === 'morning' ? 'afternoon' : 'morning';
     try {
       if (!remote) {
-        if (date < toISODate(new Date())) {
-          this._toast('Impossible de vous inscrire pour une date passée', 'error');
-          return false;
-        }
         await upsertMyPresence({
           presence_date: date,
           is_remote: true,
@@ -1860,10 +1828,8 @@ export class AgendaPage {
     const wasFull = morning && afternoon;
 
     if (field === 'desk' || field === 'meal') {
-      if (!mine) {
-        this._toast('Sélectionnez d’abord une présence ce jour-là', 'error');
-        return false;
-      }
+      // Cellule inutilisable tant qu'aucune présence n'existe ce jour-là.
+      if (!mine) return false;
       if (field === 'desk') desk = !desk;
       else meal = !meal;
     } else {
@@ -1877,13 +1843,6 @@ export class AgendaPage {
     }
 
     const nextPeriod = morning && afternoon ? 'full' : (morning ? 'morning' : 'afternoon');
-    if (morning || afternoon) {
-      const conflict = this._conflictMessage(date, roomId, nextPeriod, meal);
-      if (conflict) {
-        this._toast(conflict, 'error');
-        return false;
-      }
-    }
 
     try {
       if (!morning && !afternoon) {
@@ -1895,10 +1854,6 @@ export class AgendaPage {
           });
         }
       } else {
-        if (date < toISODate(new Date())) {
-          this._toast('Impossible de vous inscrire pour une date passée', 'error');
-          return false;
-        }
         await upsertMyPresence({
           presence_date: date,
           room_id: Number(roomId),
@@ -1918,40 +1873,11 @@ export class AgendaPage {
   }
 
   async _bulkMineHalf({ roomId, field }) {
-    const todayIso = toISODate(new Date());
     const dates = this._mineGridDates().filter((iso) => {
-      if (iso < todayIso) return false;
       const weekday = parseISODate(iso).getDay();
       return weekday >= 1 && weekday <= 5;
     });
     try {
-      for (const date of dates) {
-        const mine = this._minePresenceForDate(date, roomId);
-        let morning = false;
-        let afternoon = false;
-        let desk = false;
-        let meal = false;
-        if (mine) {
-          const period = mine.period || 'full';
-          morning = period === 'morning' || period === 'full';
-          afternoon = period === 'afternoon' || period === 'full';
-          desk = !!mine.needs_workstation;
-          meal = !!mine.needs_meal;
-        }
-        const wasFull = morning && afternoon;
-        if (field === 'morning') morning = true;
-        if (field === 'afternoon') afternoon = true;
-        if (morning && afternoon && !wasFull) {
-          desk = true;
-          meal = true;
-        }
-        const period = morning && afternoon ? 'full' : (morning ? 'morning' : 'afternoon');
-        const conflict = this._conflictMessage(date, roomId, period, meal);
-        if (conflict) {
-          this._toast(conflict, 'error');
-          return false;
-        }
-      }
       for (const date of dates) {
         const mine = this._minePresenceForDate(date, roomId);
         let morning = false;

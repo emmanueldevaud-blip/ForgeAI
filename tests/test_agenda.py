@@ -139,8 +139,8 @@ async def test_agenda_planning_and_presence_flow(client, admin_headers):
 
 @pytest.mark.asyncio
 async def test_agenda_second_local_replaces_first(client, admin_headers):
-    """Un seul local par demi-journée : même période dans un autre local → retrait.
-    Demi-journée opposée → autorisée (les deux cohabitent)."""
+    """Même période dans un autre local → migration.
+    Demi-journée opposée dans un autre local → cohabitation (matin A / après-midi B)."""
     room_a, room_b = await _setup_bureau_rooms(
         client, admin_headers, names=("Bureau A", "Bureau B")
     )
@@ -161,7 +161,7 @@ async def test_agenda_second_local_replaces_first(client, admin_headers):
     assert morning.json()["room_id"] == room_a
     assert morning.json()["period"] == "morning"
 
-    # Après-midi dans l'autre local : AUTORISÉE (demi-journée différente)
+    # Après-midi dans l'autre local : les deux demi-journées cohabitent
     afternoon = await client.post(
         "/agenda/presences",
         json={
@@ -183,12 +183,12 @@ async def test_agenda_second_local_replaces_first(client, admin_headers):
     day = next(d for d in planning.json()["days"] if d["date"] == presence_date)
     room_a_day = next(r for r in day["rooms"] if r["room_id"] == room_a)
     room_b_day = next(r for r in day["rooms"] if r["room_id"] == room_b)
-    # Un seul local par jour : l'après-midi dans B retire le matin de A
-    assert room_a_day["present_count"] == 0
-    assert room_a_day["presences"] == []
+    # Matin dans A conservé, après-midi ajouté dans B
+    assert room_a_day["present_count"] == 1
+    assert any(p["is_mine"] and p["period"] == "morning" for p in room_a_day["presences"])
     assert room_b_day["present_count"] == 1
     assert any(p["is_mine"] and p["period"] == "afternoon" for p in room_b_day["presences"])
-    assert day["total_present"] == 1
+    assert day["total_present"] == 2
 
     # Mais si on remet un matin dans B : le matin de A est retiré
     morning_b = await client.post(
@@ -212,10 +212,10 @@ async def test_agenda_second_local_replaces_first(client, admin_headers):
     room_b_day = next(r for r in day["rooms"] if r["room_id"] == room_b)
     assert room_a_day["present_count"] == 0
     assert room_a_day["presences"] == []
-    # B: le matin ajouté fusionne avec l'après-midi existant → journée complète
+    # B: la période demandée remplace la précédente (aucune fusion)
     assert room_b_day["present_count"] == 1
     mine_b = next(p for p in room_b_day["presences"] if p["is_mine"])
-    assert mine_b["period"] == "full"
+    assert mine_b["period"] == "morning"
     assert day["total_present"] == 1
 
 
@@ -290,14 +290,15 @@ async def test_agenda_conflict_rules(client, admin_headers):
     day = next(d for d in planning.json()["days"] if d["date"] == presence_date)
     room_day_b = next(r for r in day["rooms"] if r["room_id"] == room_b)
     room_day_a = next(r for r in day["rooms"] if r["room_id"] == room_a)
-    # Un seul local par jour : l'après-midi dans A retire le matin de B
-    assert room_day_b["present_count"] == 0, room_day_b  # matin dans B retiré
-    assert room_day_b["presences"] == []
-    assert room_day_a["present_count"] == 1, room_day_a  # après-midi dans A créé avec poste
+    # Demi-journée opposée : le matin de B reste, l'après-midi s'ajoute dans A
+    assert room_day_b["present_count"] == 1, room_day_b  # matin conservé dans B
+    mine_b_after = next(p for p in room_day_b["presences"] if p["is_mine"])
+    assert mine_b_after["period"] == "morning"
+    assert room_day_a["present_count"] == 1, room_day_a  # après-midi créé dans A avec poste
     mine_a = next(p for p in room_day_a["presences"] if p["is_mine"])
     assert mine_a["period"] == "afternoon"
     assert mine_a["needs_workstation"] is True  # poste auto-coché
-    assert day["total_present"] == 1
+    assert day["total_present"] == 2
 
     # Le poste reste modifiable sur la présence active
     desk_a = await client.patch(
@@ -1036,16 +1037,16 @@ async def test_create_afternoon_in_a_removes_afternoon_in_b(client, admin_header
     print(f"Room A: {room_a_day}")
     print(f"Room B: {room_b_day}")
     
-    # Room A: morning + afternoon merged → full
+    # Room A: l'après-midi demandé remplace le matin (aucune fusion)
     assert room_a_day["present_count"] == 1
-    assert any(p["period"] == "full" for p in room_a_day["presences"])
+    assert any(p["period"] == "afternoon" for p in room_a_day["presences"])
     
     # Room B should have NO presences (afternoon removed)
     assert room_b_day["present_count"] == 0, f"Room B should be empty but has: {room_b_day['presences']}"
 
 @pytest.mark.asyncio
-async def test_create_afternoon_in_same_room_merges_to_full(client, admin_headers):
-    """Morning in A -> create afternoon in A should merge to full"""
+async def test_create_afternoon_in_same_room_replaces_morning(client, admin_headers):
+    """Morning in A -> create afternoon in A replaces it (pas de fusion)"""
     room_a, room_b = await _setup_bureau_rooms(client, admin_headers, names=("Bureau A", "Bureau B"))
     
     presence_date = _next_weekday(date.today()).isoformat()
@@ -1064,18 +1065,386 @@ async def test_create_afternoon_in_same_room_merges_to_full(client, admin_header
     assert room_a_day["present_count"] == 1
     assert any(p["period"] == "morning" for p in room_a_day["presences"])
     
-    # Create afternoon in SAME room A (should merge to full)
+    # Create afternoon in SAME room A (remplace le matin, pas de fusion)
     await client.post(
         "/agenda/presences",
         json={"presence_date": presence_date, "room_id": room_a, "is_present": True, "period": "afternoon"},
         headers=admin_headers,
     )
     
-    # Check: should be merged to full
+    # Check: l'après-midi remplace le matin
     planning = await client.get(f"/agenda/planning?view=week&anchor={presence_date}", headers=admin_headers)
     day = next(d for d in planning.json()["days"] if d["date"] == presence_date)
     room_a_day = next(r for r in day["rooms"] if r["room_id"] == room_a)
     print(f"Room A after adding afternoon: {room_a_day}")
     
     assert room_a_day["present_count"] == 1
-    assert any(p["period"] == "full" for p in room_a_day["presences"])
+    assert any(p["period"] == "afternoon" for p in room_a_day["presences"])
+
+
+@pytest.mark.asyncio
+async def test_resubscribe_half_day_after_cancel_keeps_requested_period(client, admin_headers):
+    """Re-inscription apres annulation : la periode obsolene ne doit pas fusionner.
+
+    Une presence desactivee (is_present=False) conserve sa periode en base.
+    Clic sur « Matin » apres une annulation ne doit PAS cocher l'apres-midi.
+    """
+    room_id = await _setup_bureau_room(client, admin_headers)
+    presence_date = _next_weekday(date.today()).isoformat()
+
+    afternoon = await client.post(
+        "/agenda/presences",
+        json={"presence_date": presence_date, "room_id": room_id, "is_present": True, "period": "afternoon"},
+        headers=admin_headers,
+    )
+    assert afternoon.status_code == 200, afternoon.text
+
+    cancelled = await client.post(
+        "/agenda/presences",
+        json={"presence_date": presence_date, "room_id": room_id, "is_present": False},
+        headers=admin_headers,
+    )
+    assert cancelled.status_code == 200, cancelled.text
+
+    planning = await client.get(f"/agenda/planning?view=week&anchor={presence_date}", headers=admin_headers)
+    day = next(d for d in planning.json()["days"] if d["date"] == presence_date)
+    room_day = next(r for r in day["rooms"] if r["room_id"] == room_id)
+    assert room_day["present_count"] == 0
+
+    morning = await client.post(
+        "/agenda/presences",
+        json={"presence_date": presence_date, "room_id": room_id, "is_present": True, "period": "morning"},
+        headers=admin_headers,
+    )
+    assert morning.status_code == 200, morning.text
+    assert morning.json()["period"] == "morning"
+
+
+@pytest.mark.asyncio
+async def test_half_day_cells_toggle_independently(client, admin_headers):
+    """Coche/decoche individuelles : aucune fusion matin/apres-midi.
+
+    Reproduit les envois de la page « Ma présence » :
+    - cocher une seule demi-journée ;
+    - cocher les deux (journee complete) ;
+    - decocher une demi-journée d'une journee complete ;
+    - decocher la derniere demi-journée puis recocher une seule.
+    """
+    room_id = await _setup_bureau_room(client, admin_headers)
+    presence_date = _next_weekday(date.today()).isoformat()
+
+    async def upsert(**kwargs):
+        payload = {"presence_date": presence_date, "room_id": room_id, **kwargs}
+        resp = await client.post("/agenda/presences", json=payload, headers=admin_headers)
+        assert resp.status_code == 200, resp.text
+        return resp.json()
+
+    # Cocher « Matin » seul
+    assert (await upsert(is_present=True, period="morning"))["period"] == "morning"
+    # Cocher aussi l'après-midi (le front envoie 'full' quand les deux sont coches)
+    assert (await upsert(is_present=True, period="full"))["period"] == "full"
+    # Decocher « Matin » : le front envoie la demi-journée restante
+    assert (await upsert(is_present=True, period="afternoon"))["period"] == "afternoon"
+    # Decocher « Après-midi » : dernière demi-journée -> absence
+    assert (await upsert(is_present=False))["is_present"] is False
+    # Recoquer « Après-midi » seul
+    assert (await upsert(is_present=True, period="afternoon"))["period"] == "afternoon"
+
+
+@pytest.mark.asyncio
+async def test_remote_half_day_completion_unchecks_local_half(client, admin_headers):
+    """Completer la journee de teletravail retire la demi-journee locale.
+
+    L'interface complete la journee via PATCH {period: 'full'} : la presence
+    locale qui chevauche doit etre retiree (cocher un teletravail decoche la
+    demi-journee des locaux).
+    """
+    room_id = await _setup_bureau_room(client, admin_headers)
+    presence_date = _next_weekday(date.today()).isoformat()
+
+    local = await client.post(
+        "/agenda/presences",
+        json={"presence_date": presence_date, "room_id": room_id, "is_present": True, "period": "morning"},
+        headers=admin_headers,
+    )
+    assert local.status_code == 200, local.text
+
+    # Teletravail l'apres-midi : coexiste avec le matin sur site
+    remote = await client.post(
+        "/agenda/presences",
+        json={"presence_date": presence_date, "is_present": True, "period": "afternoon", "is_remote": True},
+        headers=admin_headers,
+    )
+    assert remote.status_code == 200, remote.text
+
+    # L'utilisateur coche aussi le teletravail du matin -> PATCH 'full'
+    patched = await client.patch(
+        f"/agenda/presences/{remote.json()['id']}", json={"period": "full"}, headers=admin_headers
+    )
+    assert patched.status_code == 200, patched.text
+
+    planning = await client.get(f"/agenda/planning?view=week&anchor={presence_date}", headers=admin_headers)
+    day = next(d for d in planning.json()["days"] if d["date"] == presence_date)
+    room_day = next(r for r in day["rooms"] if r["room_id"] == room_id)
+    # Le matin sur site est retire
+    assert room_day["present_count"] == 0
+    assert room_day["presences"] == []
+    remote_mine = next(p for p in day["remote"] if p["is_mine"])
+    assert remote_mine["period"] == "full"
+
+
+@pytest.mark.asyncio
+async def test_full_remote_drops_local_meal_and_desk(client, admin_headers):
+    """Teletravail matin + apres-midi : la presence locale (repas/poste) part."""
+    room_id = await _setup_bureau_room(client, admin_headers)
+    presence_date = _next_weekday(date.today()).isoformat()
+
+    local = await client.post(
+        "/agenda/presences",
+        json={
+            "presence_date": presence_date,
+            "room_id": room_id,
+            "is_present": True,
+            "period": "full",
+            "needs_workstation": True,
+            "needs_meal": True,
+        },
+        headers=admin_headers,
+    )
+    assert local.status_code == 200, local.text
+
+    # Teletravail matin : locale reduite a l'apres-midi, repas/poste conserves
+    remote = await client.post(
+        "/agenda/presences",
+        json={"presence_date": presence_date, "is_present": True, "period": "morning", "is_remote": True},
+        headers=admin_headers,
+    )
+    assert remote.status_code == 200, remote.text
+    assert remote.json()["needs_workstation"] is False
+    assert remote.json()["needs_meal"] is False
+
+    # Teletravail apres-midi (PATCH comme l'interface) : plus rien sur site
+    patched = await client.patch(
+        f"/agenda/presences/{remote.json()['id']}", json={"period": "full"}, headers=admin_headers
+    )
+    assert patched.status_code == 200, patched.text
+    assert patched.json()["needs_workstation"] is False
+    assert patched.json()["needs_meal"] is False
+
+    planning = await client.get(f"/agenda/planning?view=week&anchor={presence_date}", headers=admin_headers)
+    day = next(d for d in planning.json()["days"] if d["date"] == presence_date)
+    room_day = next(r for r in day["rooms"] if r["room_id"] == room_id)
+    assert room_day["present_count"] == 0
+    assert room_day["presences"] == []
+    assert room_day["workstation_count"] == 0
+
+
+@pytest.mark.asyncio
+async def test_past_date_registration_allowed(client, admin_headers):
+    """Plus de garde-fou date passee : l'inscription sur une date passee reussit."""
+    room_id = await _setup_bureau_room(client, admin_headers)
+
+    past = date.today() - timedelta(days=1)
+    while past.weekday() >= 5:
+        past -= timedelta(days=1)
+    assert past < date.today()
+
+    resp = await client.post(
+        "/agenda/presences",
+        json={"presence_date": past.isoformat(), "room_id": room_id, "is_present": True, "period": "morning"},
+        headers=admin_headers,
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["period"] == "morning"
+
+
+@pytest.mark.asyncio
+async def test_clicking_other_room_migrates_registration(client, admin_headers):
+    """Clic sur Matin dans un autre bureau : l'inscription migre la-bas.
+
+    Meme demi-journee dans un autre local : l'ancien local est vide, le
+    nouveau garde exactement la demi-journee demandee (pas de fusion).
+    """
+    room_ids = await _setup_bureau_rooms(client, admin_headers, names=("Bureau A", "Bureau B"))
+    room_a, room_b = room_ids
+    presence_date = _next_weekday(date.today()).isoformat()
+
+    first = await client.post(
+        "/agenda/presences",
+        json={"presence_date": presence_date, "room_id": room_a, "is_present": True, "period": "morning"},
+        headers=admin_headers,
+    )
+    assert first.status_code == 200, first.text
+
+    moved = await client.post(
+        "/agenda/presences",
+        json={"presence_date": presence_date, "room_id": room_b, "is_present": True, "period": "morning"},
+        headers=admin_headers,
+    )
+    assert moved.status_code == 200, moved.text
+    assert moved.json()["period"] == "morning"
+
+    planning = await client.get(f"/agenda/planning?view=week&anchor={presence_date}", headers=admin_headers)
+    day = next(d for d in planning.json()["days"] if d["date"] == presence_date)
+    room_a_day = next(r for r in day["rooms"] if r["room_id"] == room_a)
+    room_b_day = next(r for r in day["rooms"] if r["room_id"] == room_b)
+    assert room_a_day["present_count"] == 0
+    assert room_a_day["presences"] == []
+    assert room_b_day["present_count"] == 1
+    assert room_b_day["presences"][0]["period"] == "morning"
+
+
+@pytest.mark.asyncio
+async def test_split_half_day_across_locals(client, admin_headers):
+    """Matin dans un local, apres-midi dans un autre : les deux cohabitent.
+
+    Une journee complete dans A puis un apres-midi clique dans B est reduite
+    a son matin dans A. Le teletravail (par demi-journee ou complet) retire
+    la ou les presences locales qui chevauchent.
+    """
+    room_ids = await _setup_bureau_rooms(client, admin_headers, names=("Bureau A", "Bureau B"))
+    room_a, room_b = room_ids
+    presence_date = _next_weekday(date.today()).isoformat()
+
+    full = await client.post(
+        "/agenda/presences",
+        json={"presence_date": presence_date, "room_id": room_a, "is_present": True, "period": "full"},
+        headers=admin_headers,
+    )
+    assert full.status_code == 200, full.text
+
+    # Apres-midi clique dans B : A n'est plus qu'un matin
+    afternoon_b = await client.post(
+        "/agenda/presences",
+        json={"presence_date": presence_date, "room_id": room_b, "is_present": True, "period": "afternoon"},
+        headers=admin_headers,
+    )
+    assert afternoon_b.status_code == 200, afternoon_b.text
+
+    planning = await client.get(f"/agenda/planning?view=week&anchor={presence_date}", headers=admin_headers)
+    day = next(d for d in planning.json()["days"] if d["date"] == presence_date)
+    room_a_day = next(r for r in day["rooms"] if r["room_id"] == room_a)
+    room_b_day = next(r for r in day["rooms"] if r["room_id"] == room_b)
+    assert room_a_day["present_count"] == 1
+    assert room_a_day["presences"][0]["period"] == "morning"
+    assert room_b_day["present_count"] == 1
+    assert room_b_day["presences"][0]["period"] == "afternoon"
+    assert day["total_present"] == 2
+
+    # Teletravail l'apres-midi : seule la presence locale de l'apres-midi part
+    remote = await client.post(
+        "/agenda/presences",
+        json={"presence_date": presence_date, "is_present": True, "period": "afternoon", "is_remote": True},
+        headers=admin_headers,
+    )
+    assert remote.status_code == 200, remote.text
+
+    planning = await client.get(f"/agenda/planning?view=week&anchor={presence_date}", headers=admin_headers)
+    day = next(d for d in planning.json()["days"] if d["date"] == presence_date)
+    room_a_day = next(r for r in day["rooms"] if r["room_id"] == room_a)
+    room_b_day = next(r for r in day["rooms"] if r["room_id"] == room_b)
+    assert room_a_day["present_count"] == 1  # matin conserve
+    assert room_b_day["present_count"] == 0  # apres-midi locale retire
+
+    # Teletravail complet : plus rien sur site
+    patched = await client.patch(
+        f"/agenda/presences/{remote.json()['id']}", json={"period": "full"}, headers=admin_headers
+    )
+    assert patched.status_code == 200, patched.text
+
+    planning = await client.get(f"/agenda/planning?view=week&anchor={presence_date}", headers=admin_headers)
+    day = next(d for d in planning.json()["days"] if d["date"] == presence_date)
+    room_a_day = next(r for r in day["rooms"] if r["room_id"] == room_a)
+    room_b_day = next(r for r in day["rooms"] if r["room_id"] == room_b)
+    assert room_a_day["present_count"] == 0
+    assert room_b_day["present_count"] == 0
+    assert next(p for p in day["remote"] if p["is_mine"])["period"] == "full"
+
+
+@pytest.mark.asyncio
+async def test_meal_migrates_to_clicked_local(client, admin_headers):
+    """Un seul repas par jour : cocher le repas dans un autre local migre le repas.
+
+    L'inscription dans l'autre local est acceptee (pas d'erreur) et le repas
+    quitte l'ancien local. Le decocher ne touche pas l'autre local.
+    """
+    room_ids = await _setup_bureau_rooms(client, admin_headers, names=("Bureau A", "Bureau B"))
+    room_a, room_b = room_ids
+    presence_date = _next_weekday(date.today()).isoformat()
+
+    first = await client.post(
+        "/agenda/presences",
+        json={
+            "presence_date": presence_date,
+            "room_id": room_a,
+            "is_present": True,
+            "period": "full",
+            "needs_meal": True,
+            "needs_workstation": True,
+        },
+        headers=admin_headers,
+    )
+    assert first.status_code == 200, first.text
+    assert first.json()["needs_meal"] is True
+
+    moved = await client.post(
+        "/agenda/presences",
+        json={
+            "presence_date": presence_date,
+            "room_id": room_b,
+            "is_present": True,
+            "period": "afternoon",
+            "needs_meal": True,
+        },
+        headers=admin_headers,
+    )
+    assert moved.status_code == 200, moved.text
+    assert moved.json()["needs_meal"] is True
+
+    planning = await client.get(f"/agenda/planning?view=week&anchor={presence_date}", headers=admin_headers)
+    day = next(d for d in planning.json()["days"] if d["date"] == presence_date)
+    room_a_day = next(r for r in day["rooms"] if r["room_id"] == room_a)
+    room_b_day = next(r for r in day["rooms"] if r["room_id"] == room_b)
+    # A est reduite a son matin et a perdu son repas
+    assert room_a_day["present_count"] == 1
+    assert room_a_day["presences"][0]["period"] == "morning"
+    assert room_a_day["presences"][0]["needs_meal"] is False
+    assert room_b_day["present_count"] == 1
+    assert room_b_day["presences"][0]["needs_meal"] is True
+
+    # Le repas revient dans A (deuxieme direction)
+    back = await client.post(
+        "/agenda/presences",
+        json={
+            "presence_date": presence_date,
+            "room_id": room_a,
+            "is_present": True,
+            "period": "morning",
+            "needs_meal": True,
+        },
+        headers=admin_headers,
+    )
+    assert back.status_code == 200, back.text
+
+    planning = await client.get(f"/agenda/planning?view=week&anchor={presence_date}", headers=admin_headers)
+    day = next(d for d in planning.json()["days"] if d["date"] == presence_date)
+    room_a_day = next(r for r in day["rooms"] if r["room_id"] == room_a)
+    room_b_day = next(r for r in day["rooms"] if r["room_id"] == room_b)
+    assert room_a_day["presences"][0]["needs_meal"] is True
+    assert room_b_day["present_count"] == 1
+    assert room_b_day["presences"][0]["needs_meal"] is False
+
+    # Decocher le repas dans A ne touche pas B
+    uncheck = await client.patch(
+        f"/agenda/presences/{room_a_day['presences'][0]['id']}",
+        json={"needs_meal": False},
+        headers=admin_headers,
+    )
+    assert uncheck.status_code == 200, uncheck.text
+
+    planning = await client.get(f"/agenda/planning?view=week&anchor={presence_date}", headers=admin_headers)
+    day = next(d for d in planning.json()["days"] if d["date"] == presence_date)
+    room_a_day = next(r for r in day["rooms"] if r["room_id"] == room_a)
+    room_b_day = next(r for r in day["rooms"] if r["room_id"] == room_b)
+    assert room_a_day["presences"][0]["needs_meal"] is False
+    assert room_b_day["presences"][0]["needs_meal"] is False

@@ -640,20 +640,11 @@ class AgendaService:
 
         if not is_remote:
             await self._ensure_room_exists(room_id)
-        if payload.presence_date < date.today():
-            raise ValueError("Impossible de s'inscrire pour une date passée")
-        if not is_remote:
-            # Un seul local par demi-journée : la présence dans un autre
-            # local qui chevauche cette période est retirée automatiquement.
+            # Le matin peut se passer dans un local et l'après-midi dans un
+            # autre : seules les présences des autres locaux qui chevauchent
+            # la période demandée sont retirées.
             await self._remove_other_locals(
                 payload.presence_date, owner_id, keep_room_id=room_id, period=payload.period
-            )
-            await self._assert_own_day_allowed(
-                payload.presence_date,
-                room_id,
-                period=payload.period,
-                needs_meal=needs_meal,
-                user_id=owner_id,
             )
         existing = await self._find_own_presence(
             payload.presence_date, room_id, user_id=owner_id
@@ -664,7 +655,10 @@ class AgendaService:
             existing.needs_meal = needs_meal
             existing.is_remote = is_remote
             existing.is_present = True
-            existing.period = _merge_periods(existing.period, payload.period)
+            # Pas de fusion matin/après-midi : la période demandée remplace la
+            # précédente (y compris la période conservée après une annulation),
+            # sinon décocher une demi-journée ou en cocher une seule est impossible.
+            existing.period = payload.period
             presence = existing
         else:
             presence = AgendaPresence(
@@ -674,9 +668,11 @@ class AgendaService:
                 external_name=None,
                 source="user",
                 is_present=True,
-                # Auto-cocher le poste pour toute demi-journée ou journée complète
-                needs_workstation=needs_workstation or (payload.period in ("morning", "afternoon", "full")),
-                needs_meal=needs_meal or (payload.period == "full"),
+                # Auto-cocher le poste pour toute demi-journée ou journée
+                # complète (jamais en télétravail : ni poste ni repas).
+                needs_workstation=needs_workstation
+                or (not is_remote and payload.period in ("morning", "afternoon", "full")),
+                needs_meal=needs_meal or (not is_remote and payload.period == "full"),
                 is_remote=is_remote,
                 period=payload.period,
                 created_by=self.current_user.id,
@@ -691,6 +687,12 @@ class AgendaService:
             keep_remote=is_remote,
             period=payload.period,
         )
+        if not is_remote and needs_meal:
+            # Un seul repas par jour : le repas suit la présence qui vient
+            # d'être cochée, les autres locaux du jour le perdent.
+            await self._migrate_meal(
+                payload.presence_date, owner_id, exclude_presence_id=presence.id
+            )
 
         await self.db.commit()
         await self.db.refresh(presence)
@@ -871,7 +873,6 @@ class AgendaService:
         elif room_id is None and presence.room_id is None:
             raise ValueError("Local requis pour une présence sur site")
         next_period = period if period is not None else presence.period
-        next_meal = needs_meal if needs_meal is not None else presence.needs_meal
         next_room = room_id if room_id is not None else presence.room_id
         if next_room is not None and next_room != presence.room_id:
             await self._ensure_room_exists(next_room)
@@ -889,6 +890,12 @@ class AgendaService:
                         clash.needs_meal = True
                     else:
                         clash.needs_workstation = True
+                    if clash.needs_meal and clash.user_id is not None:
+                        # Un seul repas par jour : le repas migre sur la
+                        # présence qui reste.
+                        await self._migrate_meal(
+                            clash.presence_date, clash.user_id, exclude_presence_id=clash.id
+                        )
                     # Supprimer la présence qu'on déplace
                     await self.db.delete(presence)
                     await self.db.commit()
@@ -905,17 +912,6 @@ class AgendaService:
                 period=next_period,
                 exclude_presence_id=presence.id,
             )
-        if next_room is not None and (
-            period is not None or needs_meal is not None or next_room != presence.room_id
-        ):
-            await self._assert_own_day_allowed(
-                presence.presence_date,
-                next_room,
-                period=next_period,
-                needs_meal=next_meal,
-                exclude_presence_id=presence.id,
-                user_id=presence.user_id,
-            )
         if needs_workstation is not None:
             presence.needs_workstation = needs_workstation
         if needs_meal is not None:
@@ -927,6 +923,23 @@ class AgendaService:
             presence.period = period
         if next_room != presence.room_id:
             presence.room_id = next_room
+        if next_present and presence.user_id is not None:
+            # Exclusivité télétravail / présence locale : comme lors d'une
+            # inscription, la période mise à jour retire ou rétrécit la
+            # présence de l'autre nature (télétravail complet = plus de
+            # présence sur site, ni repas ni poste).
+            await self._resolve_half_day_overlap(
+                presence.presence_date,
+                presence.user_id,
+                keep_remote=next_remote,
+                period=next_period,
+                exclude_presence_id=presence.id,
+            )
+        if next_present and not next_remote and presence.needs_meal and presence.user_id is not None:
+            # Un seul repas par jour : le repas migre sur la présence cochée.
+            await self._migrate_meal(
+                presence.presence_date, presence.user_id, exclude_presence_id=presence.id
+            )
         await self.db.commit()
         await self.db.refresh(presence)
         return AgendaPresenceResponse.model_validate(presence)
@@ -938,6 +951,7 @@ class AgendaService:
         *,
         keep_remote: bool,
         period: str,
+        exclude_presence_id: Optional[int] = None,
     ) -> None:
         """Exclusivité par demi-journée entre télétravail et présence locale.
 
@@ -956,6 +970,8 @@ class AgendaService:
             stmt = stmt.where(AgendaPresence.room_id.is_not(None))
         else:
             stmt = stmt.where(AgendaPresence.room_id.is_(None))
+        if exclude_presence_id is not None:
+            stmt = stmt.where(AgendaPresence.id != exclude_presence_id)
         rows = (await self.db.execute(stmt)).scalars().all()
         for row in rows:
             if not _periods_overlap(period, row.period or "full"):
@@ -964,6 +980,34 @@ class AgendaService:
                 row.period = "morning" if period == "afternoon" else "afternoon"
             else:
                 await self.db.delete(row)
+
+    async def _migrate_meal(
+        self,
+        day: date,
+        owner_id: Optional[int],
+        *,
+        exclude_presence_id: Optional[int] = None,
+    ) -> None:
+        """Un seul repas par jour.
+
+        Le repas est porté par la présence qui vient d'être cochée : les
+        autres présences locales du même jour le perdent (migration, jamais
+        d'erreur). Les lignes de télétravail ne portent jamais de repas.
+        """
+        if owner_id is None:
+            return
+        stmt = select(AgendaPresence).where(
+            AgendaPresence.presence_date == day,
+            AgendaPresence.user_id == owner_id,
+            AgendaPresence.room_id.is_not(None),
+            AgendaPresence.is_present.is_(True),
+            AgendaPresence.needs_meal.is_(True),
+        )
+        if exclude_presence_id is not None:
+            stmt = stmt.where(AgendaPresence.id != exclude_presence_id)
+        rows = (await self.db.execute(stmt)).scalars().all()
+        for row in rows:
+            row.needs_meal = False
 
     async def _remove_other_locals(
         self,
@@ -974,9 +1018,13 @@ class AgendaService:
         period: str,
         exclude_presence_id: Optional[int] = None,
     ) -> None:
-        """Un seul local par jour pour les présences locales (matin/après-midi/poste).
+        """Recouvrement par demi-journée entre locaux.
 
-        Toute présence locale dans un autre local ce jour-là est supprimée.
+        Le matin peut se passer dans un local et l'après-midi dans un autre :
+        seules les présences des autres locaux qui chevauchent ``period`` sont
+        retirées (une présence couvrant la journée est réduite à l'autre
+        moitié, sinon elle est supprimée). Un clic sur le même matin dans un
+        autre local migre donc l'inscription, l'après-midi reste en place.
         Les lignes de télétravail (``room_id`` NULL) ne sont pas concernées.
         """
         if owner_id is None:
@@ -992,38 +1040,12 @@ class AgendaService:
             stmt = stmt.where(AgendaPresence.id != exclude_presence_id)
         rows = (await self.db.execute(stmt)).scalars().all()
         for row in rows:
-            # Supprimer complètement la présence (évite les conflits d'unicité)
-            await self.db.delete(row)
-
-    async def _assert_own_day_allowed(
-        self,
-        day: date,
-        room_id: int,
-        *,
-        period: str,
-        needs_meal: bool,
-        exclude_presence_id: Optional[int] = None,
-        user_id: Optional[int] = None,
-    ) -> None:
-        owner_id = self.current_user.id if user_id is None else user_id
-        if owner_id is None:
-            return
-        stmt = select(AgendaPresence).where(
-            AgendaPresence.presence_date == day,
-            AgendaPresence.user_id == owner_id,
-            AgendaPresence.room_id != room_id,
-            AgendaPresence.is_present.is_(True),
-        )
-        if exclude_presence_id is not None:
-            stmt = stmt.where(AgendaPresence.id != exclude_presence_id)
-        others = (await self.db.execute(stmt)).scalars().all()
-        for other in others:
-            if _periods_overlap(period, other.period or "full"):
-                raise ValueError(
-                    "Vous êtes déjà inscrit dans un autre local pour la même période"
-                )
-            if needs_meal and other.needs_meal:
-                raise ValueError("Repas déjà sélectionné dans un autre local")
+            if not _periods_overlap(period, row.period or "full"):
+                continue
+            if row.period == "full" and period != "full":
+                row.period = "morning" if period == "afternoon" else "afternoon"
+            else:
+                await self.db.delete(row)
 
     async def _find_own_presence(
         self,

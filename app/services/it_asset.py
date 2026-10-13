@@ -763,7 +763,7 @@ class NetworkDiscoveryService:
         self.audit = audit
         self.current_user = current_user
         self.asset_service = ITAssetService(db, audit, current_user)
-        self._semaphore = asyncio.Semaphore(50)
+        self._semaphore = asyncio.Semaphore(20)
 
     async def _ping_host(self, ip: str, timeout: float = 2.0) -> Tuple[bool, Optional[float]]:
         system = platform.system().lower()

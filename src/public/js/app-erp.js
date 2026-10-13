@@ -34,7 +34,7 @@ import { createAgendaSettingsPage } from './pages/AgendaSettingsPage.js?v=3';
 import { createDomotiquePage } from './pages/DomotiquePage.js?v=8';
 import { createDomotiqueConfigPage } from './pages/DomotiqueConfigPage.js?v=8';
 import { createPhotosPage } from './pages/PhotosPage.js?v=9';
-import { createITAssetPage } from './pages/ITAssetPage.js?v=1';
+import { createITAssetPage } from './pages/ITAssetPage.js?v=2';
 
 const moduleRoutes = [
   'dashboard',

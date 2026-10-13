@@ -13,6 +13,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
     openssh-client \
     ffmpeg \
+    iputils-ping \
+    net-tools \
     && rm -rf /var/lib/apt/lists/*
 
 COPY pyproject.toml .

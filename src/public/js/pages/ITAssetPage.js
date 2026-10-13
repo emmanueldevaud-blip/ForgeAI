@@ -86,7 +86,7 @@ export class ITAssetPage {
         { key: 'mac_address', label: 'Adresse MAC' },
         { key: 'serial_number', label: 'Série' },
         { key: 'room_name', label: 'Salle' },
-        { key: 'status', label: 'Statut', render: (v) => `<span class="status-badge ${(v || '').toLowerCase()}">${this._escape(v || '')}</span>` },
+        { key: 'status', label: 'Statut', render: (item) => `<span class="status-badge ${(item.status || '').toLowerCase()}">${this._escape(item.status || '')}</span>` },
       ],
       actions: [
         { key: 'edit', label: 'Modifier', icon: 'edit', permission: 'it_asset.update' },
@@ -106,9 +106,9 @@ export class ITAssetPage {
         {
           key: 'is_active',
           label: 'Active',
-          render: (v) => `<span class="status-badge ${v ? 'active' : 'inactive'}">${v ? 'Oui' : 'Non'}</span>`,
+          render: (item) => `<span class="status-badge ${item.is_active ? 'active' : 'inactive'}">${item.is_active ? 'Oui' : 'Non'}</span>`,
         },
-        { key: 'last_scan', label: 'Dernier scan', render: (v) => this._escape(v || 'Jamais') },
+        { key: 'last_scan_at', label: 'Dernier scan', render: (item) => this._escape(item.last_scan_at || 'Jamais') },
       ],
       actions: [
         { key: 'edit', label: 'Modifier', icon: 'edit', permission: 'it_asset.manage_network_ranges' },
@@ -271,7 +271,7 @@ export class ITAssetPage {
       this.discoveryLastScan = new Date().toLocaleString('fr-FR');
       try {
         const logs = await getDiscoveryLogs(item.id);
-        this.discoveryLogs = logs.items || [];
+        this.discoveryLogs = Array.isArray(logs) ? logs : (logs.items || []);
       } catch (err) {
         console.error('Error loading discovery logs:', err);
       }
@@ -432,9 +432,11 @@ export class ITAssetPage {
               ${this.discoveryLogs.map(log => `
                 <div class="log-entry">
                   <span class="${(log.status || '').toLowerCase()}">${this._escape(log.status)}</span>
-                  <span>${this._escape(log.ip_address)}</span>
-                  <span>${this._escape(log.mac_address || '')}</span>
-                  <span>${this._escape(log.hostname || '')}</span>
+                  <span>${new Date(log.started_at).toLocaleString('fr-FR')}</span>
+                  <span>${log.hosts_scanned} scannés</span>
+                  <span>${log.hosts_found} trouvés</span>
+                  <span>+${log.assets_created} / ~${log.assets_updated}</span>
+                  ${log.errors ? `<span class="log-error">${this._escape(log.errors)}</span>` : ''}
                 </div>
               `).join('')}
             </div>
@@ -775,7 +777,7 @@ export class ITAssetPage {
           await this.loadNetworkRanges();
           this.discoveryLastScan = new Date().toLocaleString('fr-FR');
           const logs = await getDiscoveryLogs(this.selectedRangeId);
-          this.discoveryLogs = logs.items || [];
+          this.discoveryLogs = Array.isArray(logs) ? logs : (logs.items || []);
           this.loading = false;
           this.render();
         }

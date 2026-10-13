@@ -5623,6 +5623,28 @@
   .agenda-section-header h2 { font-size: var(--font-size-base); }
 }
 
+@media (max-width: 480px) {
+  .agenda-mine-matrix:not(.agenda-mine-matrix--month) {
+    min-width: 0;
+    --mine-room-col: 60px;
+    --mine-option-col: 40px;
+    grid-template-columns: var(--mine-room-col) var(--mine-option-col) repeat(var(--mine-days, 5), minmax(40px, 1fr)) minmax(40px, auto);
+  }
+  .agenda-mine-matrix-room { padding: var(--spacing-1) var(--spacing-2); font-size: var(--font-size-xs); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .agenda-mine-matrix-label { padding: var(--spacing-1) var(--spacing-2); font-size: var(--font-size-xs); }
+  .agenda-mine-matrix-day { padding: var(--spacing-1) 0; gap: 1px; }
+  .agenda-mine-day-name { font-size: 7px; }
+  .agenda-mine-day-num { font-size: var(--font-size-xs); }
+  .agenda-mine-cell { min-height: 36px; }
+  .agenda-mine-matrix-corner { left: 0; }
+  .agenda-mine-matrix-option { left: var(--mine-room-col); }
+  .agenda-mine-matrix-label { left: var(--mine-room-col); }
+  .agenda-mine-matrix-room { left: 0; }
+  .agenda-mine-grid-wrapper { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .agenda-mine-grid-wrapper::-webkit-scrollbar { height: 6px; }
+  .agenda-mine-grid-wrapper::-webkit-scrollbar-thumb { background: var(--color-border-medium); border-radius: 3px; }
+}
+
 /* Domotique */
 .domo-page { display: flex; flex-direction: column; gap: var(--spacing-4); max-width: 1440px; }
 .domo-header { align-items: flex-end; }

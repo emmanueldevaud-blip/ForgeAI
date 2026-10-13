@@ -1147,19 +1147,34 @@ export class PhotosPage {
     }).addTo(map);
     for (const place of this.places) {
       if (!Number.isFinite(place.lat_cell) || !Number.isFinite(place.lon_cell)) continue;
-      const count = place.photo_count || 1;
-      const radius = Math.min(20, 5 + Math.log10(count + 1) * 6);
-      const marker = window.L.circleMarker([place.lat_cell, place.lon_cell], {
-        radius,
-        color: '#2563eb',
-        fillColor: '#2563eb',
-        fillOpacity: 0.4,
-        weight: 1,
-      }).addTo(map);
       const name = place.label || `${place.lat_cell}, ${place.lon_cell}`;
       const countryLine = (place.country && place.country !== name)
         ? `<br>${this._esc(place.country)}` : '';
-      marker.bindPopup(`<strong>${this._esc(name)}</strong>${countryLine}<br>${count} photo(s)`);
+
+      let marker;
+      const repPhotoId = place.representative_photo_id;
+      if (repPhotoId) {
+        const thumbUrl = photoFileUrl(repPhotoId, 'small');
+        const icon = window.L.divIcon({
+          className: 'photos-place-thumb-icon',
+          html: `<img src="${thumbUrl}" alt="" style="width:48px;height:48px;object-fit:cover;border-radius:4px;border:2px solid white;box-shadow:0 2px 6px rgba(0,0,0,.3);">`,
+          iconSize: [48, 48],
+          iconAnchor: [24, 48],
+          popupAnchor: [0, -44],
+        });
+        marker = window.L.marker([place.lat_cell, place.lon_cell], { icon }).addTo(map);
+      } else {
+        const count = place.photo_count || 1;
+        const radius = Math.min(20, 5 + Math.log10(count + 1) * 6);
+        marker = window.L.circleMarker([place.lat_cell, place.lon_cell], {
+          radius,
+          color: '#2563eb',
+          fillColor: '#2563eb',
+          fillOpacity: 0.4,
+          weight: 1,
+        }).addTo(map);
+      }
+      marker.bindPopup(`<strong>${this._esc(name)}</strong>${countryLine}<br>${place.photo_count || 0} photo(s)`);
       marker.on('click', () => {
         this.filter = { type: 'place', id: place.id, name };
         this.timeline = 'days';

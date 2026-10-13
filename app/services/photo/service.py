@@ -1294,10 +1294,44 @@ class PhotoService:
         return True
 
     # ------------------------------------------------------------------ lieux
-    async def list_places(self) -> list[tuple[PhotoPlace, int]]:
+    async def list_places(self) -> list[tuple[PhotoPlace, int, int | None]]:
+        """Retourne (place, photo_count, representative_photo_id).
+
+        representative_photo_id : photo la plus récente (par taken_at) du lieu,
+        pour afficher une miniature sur la carte.
+        """
+        # Sous-requête : photo la plus récente par place_id
+        from sqlalchemy import select as _select
+
+        recent_photo_subq = (
+            _select(Photo.place_id, func.max(Photo.taken_at).label("max_taken"))
+            .where(
+                Photo.owner_id == self.current_user.id,
+                Photo.is_deleted.is_(False),
+                Photo.place_id.is_not(None),
+            )
+            .group_by(Photo.place_id)
+            .subquery()
+        )
+        recent_photo_id_subq = (
+            _select(Photo.id)
+            .join(
+                recent_photo_subq,
+                (Photo.place_id == recent_photo_subq.c.place_id)
+                & (Photo.taken_at == recent_photo_subq.c.max_taken),
+            )
+            .where(
+                Photo.owner_id == self.current_user.id,
+                Photo.is_deleted.is_(False),
+            )
+            .limit(1)
+            .correlate(PhotoPlace)
+            .scalar_subquery()
+        )
+
         rows = (
             await self.db.execute(
-                select(PhotoPlace, func.count(Photo.id))
+                select(PhotoPlace, func.count(Photo.id), recent_photo_id_subq)
                 .join(Photo, Photo.place_id == PhotoPlace.id)
                 .where(
                     Photo.owner_id == self.current_user.id,
@@ -1307,7 +1341,7 @@ class PhotoService:
                 .order_by(func.count(Photo.id).desc())
             )
         ).all()
-        return [(row[0], int(row[1] or 0)) for row in rows]
+        return [(row[0], int(row[1] or 0), row[2]) for row in rows]
 
     # --------------------------------------------------------------- doublons
     async def list_duplicates(self) -> list[PhotoDuplicateGroup]:

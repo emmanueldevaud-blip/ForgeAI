@@ -739,8 +739,9 @@ async def list_places(service: PhotoService = Depends(_service)):
                 lat_cell=place.lat_cell,
                 lon_cell=place.lon_cell,
                 photo_count=count,
+                representative_photo_id=rep_id,
             )
-            for place, count in rows
+            for place, count, rep_id in rows
         ],
         total=len(rows),
     )

@@ -117,6 +117,7 @@ class PhotoPlaceResponse(BaseModel):
     lat_cell: float
     lon_cell: float
     photo_count: int = 0
+    representative_photo_id: Optional[int] = None
 
 
 class PhotoDetailResponse(PhotoResponse):

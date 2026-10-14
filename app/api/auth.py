@@ -6,7 +6,7 @@ from pydantic import BaseModel, ConfigDict
 from sqlalchemy import delete, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import get_current_active_user, require_admin, require_permission
+from app.api.deps import get_current_active_user, get_sso_user, require_admin, require_permission, _generate_csrf_token
 from app.db.session import get_db
 from app.models import ADConfig, ADGroupMapping, ADSyncLog, Group, Role
 from app.models.user import User
@@ -45,6 +45,7 @@ from app.services.rbac import RBACService
 class AuthSettingsResponse(BaseModel):
     auth_local_enabled: bool
     ad_enabled: bool
+    ad_sso_enabled: bool
 
 
 class ADConfigBase(BaseModel):
@@ -306,6 +307,85 @@ async def refresh_token(
     return tokens
 
 
+@router.post("/sso", response_model=LoginResponse)
+async def sso_login(
+    response: Response,
+    current_user: User = Depends(get_sso_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """SSO login via Kerberos/SPNEGO (Apache mod_auth_gssapi).
+    
+    Called after Apache validates Kerberos ticket and sets X-Remote-User header.
+    Issues JWT cookies identical to standard login.
+    Requires valid CSRF token (double-submit cookie pattern).
+    """
+    await update_last_login(db, current_user)
+    current_user = await get_user_by_id(db, current_user.id)
+    tokens = create_tokens(current_user)
+
+    cookie_secure = not settings.DEBUG
+    cookie_samesite = "lax" if settings.DEBUG else "none"
+
+    response.set_cookie(
+        key="access_token",
+        value=tokens.access_token,
+        httponly=True,
+        secure=cookie_secure,
+        samesite=cookie_samesite,
+        max_age=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+        path="/",
+    )
+    response.set_cookie(
+        key="refresh_token",
+        value=tokens.refresh_token,
+        httponly=True,
+        secure=cookie_secure,
+        samesite=cookie_samesite,
+        max_age=settings.REFRESH_TOKEN_EXPIRE_DAYS * 24 * 60 * 60,
+        path="/",
+    )
+
+    # Clear CSRF cookie after successful use (single-use)
+    response.delete_cookie(settings.AD_SSO_CSRF_COOKIE_NAME, path="/")
+
+    return LoginResponse(user=await user_response_with_authorization(db, current_user), tokens=tokens)
+
+
+@router.get("/sso/csrf-token")
+async def get_sso_csrf_token(response: Response):
+    """Get a CSRF token for SSO authentication.
+    
+    Sets a secure HttpOnly cookie with the token.
+    The client must read this cookie and send it in the X-CSRF-Token header
+    when calling POST /auth/sso.
+    """
+    settings = get_settings()
+    
+    if not settings.AD_SSO_ENABLED:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="SSO non activé",
+        )
+    
+    # Generate and set CSRF token cookie
+    csrf_token = _generate_csrf_token()
+    
+    cookie_secure = not settings.DEBUG
+    cookie_samesite = "lax" if settings.DEBUG else "none"
+    
+    response.set_cookie(
+        key=settings.AD_SSO_CSRF_COOKIE_NAME,
+        value=csrf_token,
+        httponly=True,
+        secure=cookie_secure,
+        samesite=cookie_samesite,
+        max_age=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,  # Same as access token
+        path="/",
+    )
+    
+    return {"csrf_token": csrf_token}
+
+
 @router.get("/me", response_model=UserResponse)
 async def get_me(
     current_user: User = Depends(get_current_active_user),
@@ -534,6 +614,7 @@ async def get_auth_settings():
     return AuthSettingsResponse(
         auth_local_enabled=settings.AUTH_LOCAL_ENABLED,
         ad_enabled=settings.AD_ENABLED,
+        ad_sso_enabled=settings.AD_SSO_ENABLED,
     )
 
 

@@ -104,6 +104,48 @@ class AuthStore {
     }
   }
 
+  async loginSSO() {
+    this.loading = true;
+    this._notify();
+
+    try {
+      // First get CSRF token
+      await api.get('/sso/csrf-token');
+      
+      // Then call SSO endpoint with CSRF token from cookie
+      const response = await api.post('/sso', {}, {
+        headers: {
+          'X-CSRF-Token': this._getCSRFTokenFromCookie()
+        }
+      });
+      this.currentUser = response.user;
+      this.authenticated = true;
+      this.roles = response.user.roles || [];
+      if (response.user.permissions) {
+        this.permissions = new Set(response.user.permissions);
+      }
+      this.loading = false;
+      this._notify();
+      return true;
+    } catch (error) {
+      this.loading = false;
+      this._notify();
+      throw error;
+    }
+  }
+
+  _getCSRFTokenFromCookie() {
+    const name = 'sso_csrf_token=';
+    const cookies = document.cookie.split(';');
+    for (let cookie of cookies) {
+      cookie = cookie.trim();
+      if (cookie.startsWith(name)) {
+        return cookie.substring(name.length);
+      }
+    }
+    return null;
+  }
+
   async register(userData) {
     this.loading = true;
     this._notify();

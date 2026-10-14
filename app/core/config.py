@@ -54,6 +54,16 @@ class Settings(BaseSettings):
         }
     )
 
+    # Active Directory SSO (Kerberos/SPNEGO via Apache mod_auth_gssapi)
+    AD_SSO_ENABLED: bool = False
+    AD_SSO_TRUSTED_PROXY_IPS: list[str] = Field(
+        default_factory=lambda: ["127.0.0.1", "172.17.0.1", "172.18.0.1"]
+    )
+    AD_SSO_HEADER_NAME: str = "X-Remote-User"
+    # CSRF protection for SSO endpoint
+    AD_SSO_CSRF_COOKIE_NAME: str = "sso_csrf_token"
+    AD_SSO_CSRF_HEADER_NAME: str = "X-CSRF-Token"
+
     # AI Gateway (passerelle IA centralisée)
     AI_GATEWAY_ENABLED: bool = True
     AI_DEFAULT_PROVIDER: str = "auto"

@@ -1,3 +1,4 @@
+import { api, ApiError } from '../services/api.js';
 import { authStore } from '../stores/auth.js';
 
 export class LoginPage {
@@ -5,9 +6,11 @@ export class LoginPage {
     this.router = router;
     this.element = null;
     this._unsubscribe = null;
+    this._ssoAttempted = false;
+    this._initialLoad = true;
   }
 
-  render() {
+  async render() {
     this.element = document.createElement('div');
     this.element.className = 'login-page-container';
     this.element.innerHTML = `
@@ -20,6 +23,8 @@ export class LoginPage {
           <p class="subtitle">Connectez-vous pour accéder à votre espace</p>
         </header>
         
+        <div id="sso-status" class="sso-status hidden" role="status" aria-live="polite"></div>
+
         <form id="login-form" class="login-form">
           <div id="login-error" class="error-message hidden" role="alert"></div>
           
@@ -63,7 +68,71 @@ export class LoginPage {
 
     this._bindEvents();
     this._subscribeToAuth();
+    await this._initialize();
     return this.element;
+  }
+
+  async _initialize() {
+    // First, check if we already have a valid session
+    try {
+      await authStore.loadCurrentUser();
+      if (authStore.authenticated && authStore.currentUser) {
+        // Valid session exists - redirect to dashboard
+        this.router.navigate('/dashboard', { replace: true });
+        return;
+      }
+    } catch (error) {
+      // No valid session, continue to SSO/login
+    }
+
+    // No valid session - attempt SSO if enabled
+    await this._trySSOLogin();
+  }
+
+  async _trySSOLogin() {
+    if (this._ssoAttempted) return;
+    this._ssoAttempted = true;
+
+    try {
+      const settings = await api.get('/settings');
+      if (settings.ad_enabled && settings.ad_sso_enabled) {
+        this._showSSOStatus('Connexion automatique en cours...', 'info');
+        try {
+          await authStore.loginSSO();
+          this.router.navigate('/dashboard', { replace: true });
+          return;
+        } catch (error) {
+          // SSO failed - check if we still have a valid session
+          try {
+            await authStore.loadCurrentUser();
+            if (authStore.authenticated && authStore.currentUser) {
+              this.router.navigate('/dashboard', { replace: true });
+              return;
+            }
+          } catch (e) {
+            // No session, show form
+          }
+          
+          if (error instanceof ApiError && error.status === 401) {
+            this._showSSOStatus('Connexion automatique non disponible, utilisez le formulaire ci-dessous.', 'warning');
+          } else if (error instanceof ApiError && error.status === 403) {
+            this._showSSOStatus('Accès SSO non autorisé, utilisez le formulaire ci-dessous.', 'warning');
+          } else {
+            this._showSSOStatus('Erreur connexion automatique, utilisez le formulaire ci-dessous.', 'warning');
+          }
+        }
+      }
+    } catch (error) {
+      console.error('Erreur vérification SSO:', error);
+    }
+  }
+
+  _showSSOStatus(message, type) {
+    const statusEl = this.element?.querySelector('#sso-status');
+    if (!statusEl) return;
+    statusEl.textContent = message;
+    statusEl.className = `sso-status ${type}`;
+    statusEl.classList.remove('hidden');
   }
 
   _bindEvents() {

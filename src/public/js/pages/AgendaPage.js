@@ -1903,6 +1903,14 @@ export class AgendaPage {
     }
   }
 
+  _isInCurrentWeek(iso) {
+    const today = new Date();
+    const todayMonday = startOfWeek(today);
+    const todayISO = toISODate(todayMonday);
+    const dateMonday = startOfWeek(parseISODate(iso));
+    return toISODate(dateMonday) === todayISO;
+  }
+
   async _toggleMineCell({ roomId, date, field, half }) {
     if (field === 'remote') return this._toggleMineRemote({ date, half });
     const mine = this._minePresenceForDate(date, roomId);
@@ -2075,9 +2083,15 @@ export class AgendaPage {
   }
 
   _bindMineForm() {
+    const lockedMsg = 'Pour modifier ton planning, merci de prévenir le responsable de l\u2019intendance';
+
     this.element.querySelectorAll('[data-mine-toggle]').forEach(btn => {
       btn.addEventListener('click', async () => {
         if (btn.disabled) return;
+        if (this._isInCurrentWeek(btn.dataset.date)) {
+          this._toast(lockedMsg, 'info');
+          return;
+        }
         btn.disabled = true;
         try {
           await this._toggleMineCell({
@@ -2095,6 +2109,14 @@ export class AgendaPage {
     this.element.querySelectorAll('[data-mine-bulk]').forEach(btn => {
       btn.addEventListener('click', async () => {
         if (btn.disabled) return;
+        const dates = this._mineGridDates().filter(iso => {
+          const weekday = parseISODate(iso).getDay();
+          return weekday >= 1 && weekday <= 5;
+        });
+        if (dates.some(iso => this._isInCurrentWeek(iso))) {
+          this._toast(lockedMsg, 'info');
+          return;
+        }
         btn.disabled = true;
         try {
           await this._bulkMineHalf({
@@ -2108,6 +2130,14 @@ export class AgendaPage {
     });
 
     this.element.querySelector('[data-action="clear-mine"]')?.addEventListener('click', async () => {
+      const dates = this._mineGridDates().filter(iso => {
+        const weekday = parseISODate(iso).getDay();
+        return weekday >= 1 && weekday <= 5;
+      });
+      if (dates.some(iso => this._isInCurrentWeek(iso))) {
+        this._toast(lockedMsg, 'info');
+        return;
+      }
       const ok = await this._clearMyPresence();
       if (!ok) return;
       await this.loadPlanning();

@@ -129,7 +129,7 @@ async function initializeApp() {
         return;
       }
       const loginPage = createLoginPage(router);
-      appShell.showContent(loginPage.render());
+      appShell.showContent(await loginPage.render());
     })
     .addRoute('/register', async () => {
       if (authStore.authenticated) {

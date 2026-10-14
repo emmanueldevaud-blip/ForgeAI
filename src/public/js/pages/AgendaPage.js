@@ -497,8 +497,8 @@ export class AgendaPage {
       <div class="agenda-mine-scroll">
         <div class="agenda-mine-matrix ${isMonth ? 'agenda-mine-matrix--month' : ''}" style="--mine-days: ${dates.length}; --mine-room-rows: ${rowDefs.length}">
           <div class="agenda-mine-matrix-head">
-            <span class="agenda-mine-matrix-corner">BUREAUX</span>
-            <span class="agenda-mine-matrix-option">Option</span>
+            <span class="agenda-mine-matrix-corner"></span>
+            <span class="agenda-mine-matrix-option"></span>
             ${dates.map(iso => {
               const date = parseISODate(iso);
               return `
@@ -550,7 +550,7 @@ export class AgendaPage {
           `).join('')).join('')}
           <div class="agenda-mine-matrix-row is-room-start is-room-end is-room-separator">
             <span class="agenda-mine-matrix-room agenda-mine-matrix-room--remote is-not-first">TÉLÉTRAVAIL</span>
-            <span class="agenda-mine-matrix-label">Présence</span>
+            <span class="agenda-mine-matrix-label"></span>
             ${dates.map(iso => {
               const inMonth = (this.data?.days || []).some(d => d.date === iso);
               const mine = this._mineRemoteForDate(iso);
@@ -1227,8 +1227,8 @@ export class AgendaPage {
       <div class="agenda-mine-scroll">
         <div class="agenda-mine-matrix ${isMonth ? 'agenda-mine-matrix--month' : ''}" style="--mine-days: ${dates.length}; --mine-room-rows: ${rowDefs.length}">
           <div class="agenda-mine-matrix-head">
-            <span class="agenda-mine-matrix-corner">BUREAUX</span>
-            <span class="agenda-mine-matrix-option">Option</span>
+            <span class="agenda-mine-matrix-corner"></span>
+            <span class="agenda-mine-matrix-option"></span>
             ${dates.map(iso => {
               const date = parseISODate(iso);
               return `
@@ -1266,7 +1266,7 @@ export class AgendaPage {
           `).join('')).join('')}
           <div class="agenda-mine-matrix-row is-room-start is-room-end is-room-separator">
             <span class="agenda-mine-matrix-room agenda-mine-matrix-room--remote is-not-first">TÉLÉTRAVAIL</span>
-            <span class="agenda-mine-matrix-label">Présence</span>
+            <span class="agenda-mine-matrix-label"></span>
             ${dates.map(iso => {
               const remoteFlags = draft[`${iso}|remote`] || { morning: false, afternoon: false };
               const halves = ['morning', 'afternoon'].map(half => {

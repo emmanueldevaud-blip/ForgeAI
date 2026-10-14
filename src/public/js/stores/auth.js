@@ -109,13 +109,13 @@ class AuthStore {
     this._notify();
 
     try {
-      // First get CSRF token
-      await api.get('/sso/csrf-token');
-      
-      // Then call SSO endpoint with CSRF token from cookie
+      // First get CSRF token (cookie is HttpOnly: use the token from the JSON body)
+      const tokenResponse = await api.get('/sso/csrf-token');
+
+      // Then call SSO endpoint with CSRF token
       const response = await api.post('/sso', {}, {
         headers: {
-          'X-CSRF-Token': this._getCSRFTokenFromCookie()
+          'X-CSRF-Token': tokenResponse.csrf_token
         }
       });
       this.currentUser = response.user;

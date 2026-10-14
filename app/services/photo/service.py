@@ -1300,30 +1300,17 @@ class PhotoService:
         representative_photo_id : photo la plus récente (par taken_at) du lieu,
         pour afficher une miniature sur la carte.
         """
-        # Sous-requête : photo la plus récente par place_id
         from sqlalchemy import select as _select
 
-        recent_photo_subq = (
-            _select(Photo.place_id, func.max(Photo.taken_at).label("max_taken"))
-            .where(
-                Photo.owner_id == self.current_user.id,
-                Photo.is_deleted.is_(False),
-                Photo.place_id.is_not(None),
-            )
-            .group_by(Photo.place_id)
-            .subquery()
-        )
+        # Sous-requête corrélée : photo la plus récente pour CHAQUE place
         recent_photo_id_subq = (
             _select(Photo.id)
-            .join(
-                recent_photo_subq,
-                (Photo.place_id == recent_photo_subq.c.place_id)
-                & (Photo.taken_at == recent_photo_subq.c.max_taken),
-            )
             .where(
+                Photo.place_id == PhotoPlace.id,  # corrélation explicite
                 Photo.owner_id == self.current_user.id,
                 Photo.is_deleted.is_(False),
             )
+            .order_by(Photo.taken_at.desc())
             .limit(1)
             .correlate(PhotoPlace)
             .scalar_subquery()

@@ -16,6 +16,7 @@ export class AdministrationPage {
       { id: 'roles', label: 'Rôles', permission: 'role_view', component: null },
       { id: 'permissions', label: 'Permissions', permission: 'permission_view', component: null },
       { id: 'audit', label: 'Audit', permission: 'audit_log_view', component: null },
+      { id: 'modules', label: 'Modules', permission: 'module_view', component: null },
       { id: 'active-directory', label: 'Active Directory', permission: 'ad_config', component: null },
       { id: 'smtp', label: 'E-mail / SMTP', permission: 'settings_view', component: null },
       { id: 'ai', label: 'Assistant IA', permission: 'settings_view', component: null },
@@ -25,6 +26,7 @@ export class AdministrationPage {
     this.rolesPage = null;
     this.permissionsPage = null;
     this.auditPage = null;
+    this.modulesPage = null;
     this.adPage = null;
     this.smtpPage = null;
     this.aiPage = null;
@@ -63,20 +65,25 @@ export class AdministrationPage {
     await this.auditPage.initialize();
     this.tabs[4].component = this.auditPage;
 
+    const { createModulesPage } = await import('./ModulesPage.js?v=1');
+    this.modulesPage = createModulesPage(this.router);
+    await this.modulesPage.initialize();
+    this.tabs[5].component = this.modulesPage;
+
     const { createActiveDirectoryPage } = await import('./ActiveDirectoryPage.js?v=1');
     this.adPage = createActiveDirectoryPage(this.router);
     await this.adPage.initialize();
-    this.tabs[5].component = this.adPage;
+    this.tabs[6].component = this.adPage;
 
     const { createSmtpSettingsPage } = await import('./SmtpSettingsPage.js');
     this.smtpPage = createSmtpSettingsPage();
     if (authStore.hasPermission('settings_view')) await this.smtpPage.initialize();
-    this.tabs[6].component = this.smtpPage;
+    this.tabs[7].component = this.smtpPage;
 
     const { createAiSettingsPage } = await import('./AiSettingsPage.js?v=6');
     this.aiPage = createAiSettingsPage();
     if (authStore.hasPermission('settings_view')) await this.aiPage.initialize();
-    this.tabs[7].component = this.aiPage;
+    this.tabs[8].component = this.aiPage;
 
     this.currentTab = this._getTabFromPath();
 
@@ -220,6 +227,12 @@ export class AdministrationPage {
       auditPanel.appendChild(this.auditPage.render());
     }
 
+    const modulesPanel = this.element.querySelector('[data-tab-panel="modules"]');
+    if (modulesPanel && this.modulesPage) {
+      modulesPanel.innerHTML = '';
+      modulesPanel.appendChild(this.modulesPage.render());
+    }
+
     const adPanel = this.element.querySelector('[data-tab-panel="active-directory"]');
     if (adPanel && this.adPage) {
       adPanel.innerHTML = '';
@@ -255,6 +268,7 @@ export class AdministrationPage {
     this.rolesPage?.destroy?.();
     this.permissionsPage?.destroy?.();
     this.auditPage?.destroy?.();
+    this.modulesPage?.destroy?.();
     this.adPage?.destroy?.();
     this.smtpPage?.destroy?.();
     this.aiPage?.destroy?.();

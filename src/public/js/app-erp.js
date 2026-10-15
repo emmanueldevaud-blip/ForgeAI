@@ -1,10 +1,10 @@
 import { router, createAuthGuard, createNotFoundPage, createForbiddenPage } from './router/router.js';
 import { authStore } from './stores/auth.js';
-import { AppShell } from './components/AppShell.js?v=8';
+import { AppShell } from './components/AppShell.js?v=9';
 import { createModulePlaceholderPage } from './pages/ModulePlaceholder.js?v=3';
 import { createLoginPage } from './pages/LoginPage.js';
 import { createRegisterPage } from './pages/RegisterPage.js';
-import { createAdministrationPage } from './pages/AdministrationPage.js?v=5';
+import { createAdministrationPage } from './pages/AdministrationPage.js?v=6';
 import { createBuildingsPage } from './pages/BuildingsPage.js?v=5';
 import { createBuildingRefsPage } from './pages/BuildingRefsPage.js';
 import { createEquipmentPage } from './pages/EquipmentPage.js?v=2';
@@ -169,6 +169,9 @@ async function initializeApp() {
     .addRoute('/administration/audit', async (route) => {
       await showAdministrationPage(route);
     }, { requiresAuth: true, permissions: ['audit_log_view'] })
+    .addRoute('/administration/modules', async (route) => {
+      await showAdministrationPage(route);
+    }, { requiresAuth: true, permissions: ['module_view'] })
     .addRoute('/administration/active-directory', async (route) => {
       await showAdministrationPage(route);
     }, { requiresAuth: true, permissions: ['ad_config'] })

@@ -86,6 +86,17 @@ export class AppShell {
       if (becameAuthenticated) this._syncNotificationBadge();
     });
 
+    /* Resynchronise la navigation apres un changement d'etat de module
+       (activation/desactivation depuis l'administration). */
+    this._onModulesChanged = () => {
+      if (authStore.authenticated) {
+        this.sidebar.loadNavigation().then(() => {
+          this.mobileSidebar.setNavigation(this.sidebar.navigation);
+        });
+      }
+    };
+    window.addEventListener('modules:changed', this._onModulesChanged);
+
     /* Retour au premier plan : la pastille des notifications est resynchronisee
        avec le serveur (les notifications non lues restent visibles). */
     document.addEventListener('visibilitychange', () => {
@@ -244,6 +255,9 @@ export class AppShell {
 
   destroy() {
     this._authUnsubscribe?.();
+    if (this._onModulesChanged) {
+      window.removeEventListener('modules:changed', this._onModulesChanged);
+    }
     this.sidebar?.destroy();
     this.header?.destroy();
     this.mainContent?.destroy();

@@ -5315,6 +5315,18 @@
 .calendar-nav { padding: var(--spacing-3); border: 1px solid var(--color-border-light); border-radius: var(--radius-lg); background: var(--color-surface-raised); }.calendar-table { overflow: hidden; border: 1px solid var(--color-border-light); border-radius: var(--radius-lg); background: var(--color-surface-raised); }.calendar-table th { color: var(--color-text-secondary); background: var(--color-bg-secondary); }.calendar-table td, .calendar-table th { border-color: var(--color-border-light); }.calendar-cell--today { box-shadow: inset 0 0 0 2px var(--color-primary); }.calendar-event { box-shadow: var(--shadow-sm); }
 .admin-settings-page { display: flex; flex-direction: column; gap: var(--spacing-5); max-width: 960px; }
 .admin-settings-page > .card { overflow: hidden; }
+/* MODULES PAGE */
+.modules-page .module-item { display: flex; align-items: center; justify-content: space-between; gap: var(--spacing-4); padding: var(--spacing-4) 0; border-bottom: 1px solid var(--color-border-light); }
+.modules-page .module-item:first-child { padding-top: 0; }
+.modules-page .module-item:last-child { padding-bottom: 0; border-bottom: 0; }
+.modules-page .module-item__info { min-width: 0; display: flex; flex-direction: column; gap: var(--spacing-1); }
+.modules-page .module-item__title { display: flex; align-items: center; flex-wrap: wrap; gap: var(--spacing-2); }
+.modules-page .module-item__name { color: var(--color-text-primary); font-weight: var(--font-weight-medium); }
+.modules-page .module-item__version { color: var(--color-text-tertiary); font-size: var(--font-size-xs); }
+.modules-page .module-item__description { margin: 0; color: var(--color-text-secondary); font-size: var(--font-size-sm); }
+.modules-page .module-item__toggle { flex-shrink: 0; }
+.modules-page .module-item__toggle:has(input:disabled) { cursor: not-allowed; }
+.modules-page .toggle-switch input[type="checkbox"]:disabled + .toggle-slider { opacity: .5; cursor: not-allowed; }
 .modal-form, .modal-body form { display: grid; gap: var(--spacing-4); }.modal-form label, .modal-body form label { color: var(--color-text-primary); }.modal-form label > span, .modal-body form label > span { display: block; margin-bottom: var(--spacing-1); color: var(--color-text-secondary); font-size: var(--font-size-sm); font-weight: var(--font-weight-medium); }.modal-form input, .modal-form select, .modal-form textarea, .modal-body form input, .modal-body form select, .modal-body form textarea { width: 100%; min-height: var(--input-height); padding: var(--spacing-2) var(--spacing-3); border: 1px solid var(--color-border-medium); border-radius: var(--control-radius); background: var(--color-surface-raised); color: var(--color-text-primary); }
 @media (max-width: 640px) { .card-header, .card-body { padding: var(--spacing-4); }.table-wrapper td, .table-wrapper th { padding: var(--spacing-3); }.action-btn { width: 44px; min-height: 44px; } }
 

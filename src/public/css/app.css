@@ -5494,6 +5494,46 @@
 .agenda-table--people-month .agenda-room-head { min-width: 88px; }
 .agenda-table--people-month .agenda-people-cell { min-width: 28px; }
 .agenda-table--people-month .agenda-people-cell-room { max-width: 44px; font-size: var(--font-size-xs); }
+
+/* Synthèse agenda */
+.agenda-table--synthesis { min-width: 0; }
+.agenda-table--synthesis th, .agenda-table--synthesis td { padding: var(--spacing-1) var(--spacing-2); font-size: var(--font-size-sm); }
+.agenda-table--synthesis thead th { background: var(--color-bg-secondary); color: var(--color-text-secondary); font-size: var(--font-size-xs); text-transform: uppercase; letter-spacing: .03em; }
+.agenda-table--synthesis .agenda-synthesis-corner { background: var(--color-bg-secondary); position: sticky; left: 0; z-index: 3; min-width: 80px; }
+.agenda-table--synthesis .agenda-synthesis-day-head { background: var(--color-bg-secondary); position: sticky; top: 0; z-index: 2; text-align: center; }
+.agenda-table--synthesis .agenda-synthesis-day-head .agenda-day-name { display: block; color: var(--color-text-tertiary); font-size: var(--font-size-xs); }
+.agenda-table--synthesis .agenda-synthesis-day-head .agenda-day-num { display: block; color: var(--color-text-primary); font-size: var(--font-size-sm); font-weight: var(--font-weight-semibold); }
+.agenda-table--synthesis .agenda-synthesis-day-head.is-today .agenda-day-num { color: var(--color-primary); }
+.agenda-table--synthesis .agenda-synthesis-subhead { background: var(--color-bg-secondary); font-size: var(--font-size-xs); color: var(--color-text-tertiary); padding: var(--spacing-1); }
+.agenda-table--synthesis .agenda-synthesis-total-head { background: var(--color-bg-secondary); position: sticky; right: 0; z-index: 2; min-width: 120px; }
+.agenda-table--synthesis .agenda-synthesis-room-name { position: sticky; left: 0; z-index: 2; background: var(--color-bg-secondary); min-width: 100px; max-width: 160px; text-align: left; padding: var(--spacing-1) var(--spacing-2); font-weight: var(--font-weight-medium); box-shadow: 1px 0 0 var(--color-border-light); }
+.agenda-table--synthesis .agenda-synthesis-capacity { background: var(--color-bg-secondary); min-width: 56px; text-align: center; color: var(--color-text-tertiary); font-size: var(--font-size-xs); font-weight: var(--font-weight-medium); position: sticky; left: 0; z-index: 1; }
+.agenda-table--synthesis .agenda-synthesis-capacity-label { display: block; font-size: 9px; color: var(--color-text-tertiary); }
+.agenda-table--synthesis .agenda-synthesis-cell { text-align: center; min-width: 36px; }
+.agenda-table--synthesis .agenda-synthesis-cell--persons { background: var(--color-primary-light); font-weight: var(--font-weight-semibold); }
+.agenda-table--synthesis .agenda-synthesis-cell--meals { background: var(--color-warning-light); }
+.agenda-table--synthesis .agenda-synthesis-cell--workstations { background: var(--color-info-light); }
+.agenda-table--synthesis .agenda-synthesis-cell.over-capacity { background: var(--color-danger-light); color: var(--color-danger); }
+.agenda-table--synthesis .agenda-synthesis-total { background: var(--color-bg-secondary); font-weight: var(--font-weight-semibold); position: sticky; right: 0; z-index: 1; min-width: 40px; }
+.agenda-table--synthesis .agenda-synthesis-total--persons { background: var(--color-primary-light); }
+.agenda-table--synthesis .agenda-synthesis-total--meals { background: var(--color-warning-light); }
+.agenda-table--synthesis .agenda-synthesis-total--workstations { background: var(--color-info-light); }
+.agenda-table--synthesis tfoot .agenda-synthesis-grand-total { background: var(--color-bg-tertiary); }
+.agenda-table--synthesis tfoot .agenda-synthesis-grand-total-cell { font-weight: var(--font-weight-bold); }
+.agenda-table--synthesis tfoot .agenda-synthesis-grand-total-cell.agenda-synthesis-total--persons { background: var(--color-primary); color: white; }
+.agenda-table--synthesis tfoot .agenda-synthesis-grand-total-cell.agenda-synthesis-total--meals { background: var(--color-warning); color: white; }
+.agenda-table--synthesis tfoot .agenda-synthesis-grand-total-cell.agenda-synthesis-total--workstations { background: var(--color-info); color: white; }
+.agenda-table--synthesis-month { min-width: max-content; }
+.agenda-table--synthesis-month th, .agenda-table--synthesis-month td { padding: 2px 4px; font-size: var(--font-size-xs); }
+.agenda-table--synthesis-month .agenda-synthesis-room-name { min-width: 72px; max-width: 100px; }
+.agenda-table--synthesis-month .agenda-synthesis-cell { min-width: 28px; }
+.agenda-table--synthesis-month .agenda-synthesis-corner { min-width: 56px; }
+
+.agenda-synthesis-summary { display: flex; flex-wrap: wrap; gap: var(--spacing-3); margin-top: var(--spacing-4); }
+.summary-card { flex: 1 1 180px; min-width: 160px; padding: var(--spacing-3) var(--spacing-4); border: 1px solid var(--color-border-light); border-radius: var(--radius-lg); background: var(--color-surface-raised); text-align: center; }
+.summary-label { display: block; color: var(--color-text-tertiary); font-size: var(--font-size-xs); text-transform: uppercase; letter-spacing: .05em; margin-bottom: var(--spacing-1); }
+.summary-value { display: block; color: var(--color-text-primary); font-size: var(--font-size-2xl); font-weight: var(--font-weight-bold); }
+
 .agenda-cell-form-grid { display: flex; flex-wrap: wrap; align-items: flex-end; gap: var(--spacing-4); }
 .agenda-cell-form-grid .form-control-wrap { display: block; width: auto; min-width: 240px; flex: 0 0 auto; }
 .agenda-cell-form-grid .agenda-check { display: inline-flex; flex-direction: row; align-items: center; width: auto; gap: var(--spacing-2); }

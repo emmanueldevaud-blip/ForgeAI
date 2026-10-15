@@ -9,6 +9,13 @@ export async function getAgendaPlanning(view = 'week', anchor = null) {
   return agendaApi.get(`/planning?${query.toString()}`);
 }
 
+export async function getAgendaSynthesis(view = 'week', anchor = null) {
+  const query = new URLSearchParams({ view });
+  if (anchor) query.set('anchor', anchor);
+  query.set('_', Date.now().toString());
+  return agendaApi.get(`/synthesis?${query.toString()}`);
+}
+
 export async function upsertMyPresence(payload) {
   return agendaApi.post('/presences', payload);
 }

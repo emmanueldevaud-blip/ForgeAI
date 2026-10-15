@@ -205,6 +205,28 @@ async def test_dns_cache_key_includes_server_and_type():
     assert a._cache_key != b._cache_key
 
 
+async def test_dns_resolve_ptr_pcfixe_manu_real():
+    """Test réel : PTR 192.168.100.100 → PCFIXE-MANU.design-ede.fr.
+
+    Ce test nécessite un accès réseau au serveur AD DNS (192.168.100.254)
+    et que la zone inverse 100.168.192.in-addr.arpa existe.
+    """
+    import dns.asyncresolver
+    
+    resolver = DnsResolver("192.168.100.254", timeout=2.0, cache_ttl=0)
+    
+    # Vérifier que le serveur répond
+    try:
+        result = await resolver.resolve_ptr("192.168.100.100")
+        assert result == "PCFIXE-MANU.design-ede.fr", f"Attendu PCFIXE-MANU.design-ede.fr, reçu {result}"
+    except AssertionError:
+        raise
+    except Exception as e:
+        # Si le serveur DNS n'est pas accessible en test, on skip plutôt que fail
+        import pytest
+        pytest.skip(f"Serveur DNS AD non accessible: {e}")
+
+
 # ============================================================
 # Tests d'intégration (scan mocké avec DHCP + DNS)
 # ============================================================

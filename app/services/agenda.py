@@ -25,6 +25,9 @@ from app.schemas.agenda import (
     AgendaPresenceUpsert,
     AgendaRoomDayCounters,
     AgendaRoomResponse,
+    AgendaSynthesisDay,
+    AgendaSynthesisResponse,
+    AgendaSynthesisRoom,
 )
 
 BUREAU_USAGE_CODES = ("BUREAUX", "BUREAU")
@@ -1074,6 +1077,186 @@ class AgendaService:
         )
         result = await self.db.execute(stmt)
         return result.scalar_one_or_none()
+
+    async def get_synthesis(self, view: str, anchor: date) -> AgendaSynthesisResponse:
+        if view == "week":
+            start, end = _week_bounds(anchor)
+        elif view == "month":
+            start, end = _month_bounds(anchor)
+        else:
+            raise ValueError(f"Vue inconnue: {view}")
+
+        rooms = await self.list_bureau_rooms()
+        room_ids = [r.id for r in rooms]
+        capacities = await self._room_capacity_map(room_ids)
+        days_list = _daterange(start, end)
+
+        presences_stmt = select(AgendaPresence).where(
+            AgendaPresence.presence_date.between(start, end),
+            AgendaPresence.is_present.is_(True),
+        )
+        if room_ids:
+            presences_stmt = presences_stmt.where(
+                or_(
+                    AgendaPresence.room_id.in_(room_ids),
+                    AgendaPresence.room_id.is_(None),
+                )
+            )
+        presences_stmt = presences_stmt.options(selectinload(AgendaPresence.user))
+        presences = (await self.db.execute(presences_stmt)).scalars().all()
+
+        user_ids = {p.user_id for p in presences if p.user_id}
+        users: Dict[int, User] = {}
+        if user_ids:
+            users_result = await self.db.execute(select(User).where(User.id.in_(user_ids)))
+            users = {u.id: u for u in users_result.scalars().all()}
+
+        cleaning_people = await self._cleaning_people(start, end)
+        occupant_people = await self._occupant_people(start, end)
+
+        user_keys_by_day: Dict[date, set] = defaultdict(set)
+        for p in presences:
+            user = users.get(p.user_id) if p.user_id else None
+            if not user:
+                continue
+            keys = user_keys_by_day[p.presence_date]
+            if user.ad_dn:
+                keys.add(f"dn:{user.ad_dn.strip().lower()}")
+            keys.add(f"name:{_normalize_name(user.full_name)}")
+
+        def _matches_present_user(day: date, person_name: str, ad_dn: Optional[str]) -> bool:
+            keys = user_keys_by_day.get(day)
+            if not keys:
+                return False
+            if ad_dn and f"dn:{ad_dn.strip().lower()}" in keys:
+                return True
+            return f"name:{_normalize_name(person_name)}" in keys
+
+        occupant_ids = {
+            item.person_id
+            for items in occupant_people.values()
+            for item in items
+            if item.person_id
+        }
+        volunteer_ids = {
+            item.person_id
+            for items in cleaning_people.values()
+            for item in items
+            if item.person_id
+        }
+        occupant_dns: Dict[int, Optional[str]] = {}
+        volunteer_dns: Dict[int, Optional[str]] = {}
+        if occupant_ids:
+            rows = await self.db.execute(
+                select(Occupant.id, Occupant.ad_dn).where(Occupant.id.in_(occupant_ids))
+            )
+            occupant_dns = {row.id: row.ad_dn for row in rows.all()}
+        if volunteer_ids:
+            rows = await self.db.execute(
+                select(Volunteer.id, Volunteer.ad_dn).where(Volunteer.id.in_(volunteer_ids))
+            )
+            volunteer_dns = {row.id: row.ad_dn for row in rows.all()}
+
+        occupant_people = {
+            day: [
+                item
+                for item in items
+                if not _matches_present_user(day, item.person_name, occupant_dns.get(item.person_id))
+            ]
+            for day, items in occupant_people.items()
+        }
+        cleaning_people = {
+            day: [
+                item
+                for item in items
+                if not _matches_present_user(day, item.person_name, volunteer_dns.get(item.person_id))
+            ]
+            for day, items in cleaning_people.items()
+        }
+
+        by_day: Dict[date, List[AgendaPresence]] = defaultdict(list)
+        for p in presences:
+            by_day[p.presence_date].append(p)
+
+        days: List[AgendaSynthesisDay] = []
+        grand_total_persons = 0
+        grand_total_meals = 0
+        grand_total_workstations = 0
+
+        for day in days_list:
+            room_counters: Dict[int, AgendaSynthesisRoom] = {}
+            for r in rooms:
+                room_counters[r.id] = AgendaSynthesisRoom(
+                    room_id=r.id,
+                    room_name=r.name,
+                    building_name=r.building_name,
+                    capacity=capacities.get(r.id, 0),
+                )
+
+            total_persons = 0
+            total_meals = 0
+            total_workstations = 0
+
+            for p in by_day.get(day, []):
+                if p.room_id is None:
+                    continue
+                counter = room_counters.get(p.room_id)
+                if counter is None:
+                    continue
+                counter.person_count += 1
+                total_persons += 1
+                if p.needs_workstation:
+                    counter.workstation_count += 1
+                    total_workstations += 1
+                if p.needs_meal:
+                    counter.meal_count += 1
+                    total_meals += 1
+
+            for item in cleaning_people.get(day, []):
+                if item.room_id is None:
+                    continue
+                counter = room_counters.get(item.room_id)
+                if counter is None:
+                    continue
+                counter.person_count += 1
+                total_persons += 1
+                if item.needs_workstation:
+                    counter.workstation_count += 1
+                    total_workstations += 1
+
+            for item in occupant_people.get(day, []):
+                if item.room_id is None:
+                    continue
+                counter = room_counters.get(item.room_id)
+                if counter is None:
+                    continue
+                counter.person_count += 1
+                total_persons += 1
+                if item.needs_workstation:
+                    counter.workstation_count += 1
+                    total_workstations += 1
+
+            days.append(
+                AgendaSynthesisDay(
+                    date=day,
+                    rooms=[room_counters[r.id] for r in rooms],
+                    total_persons=total_persons,
+                    total_meals=total_meals,
+                    total_workstations=total_workstations,
+                )
+            )
+            grand_total_persons += total_persons
+            grand_total_meals += total_meals
+            grand_total_workstations += total_workstations
+
+        return AgendaSynthesisResponse(
+            start_date=start,
+            end_date=end,
+            days=days,
+            grand_total_persons=grand_total_persons,
+            grand_total_meals=grand_total_meals,
+            grand_total_workstations=grand_total_workstations,
+        )
 
     async def _ensure_room_exists(self, room_id: int) -> None:
         room = await self.db.get(Room, room_id)

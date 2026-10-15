@@ -265,6 +265,9 @@ async function initializeApp() {
     .addRoute('/agenda/settings', async (route) => {
       await showAgendaSettingsPage(route);
     }, { requiresAuth: true, permissions: ['agenda.manage'] })
+    .addRoute('/agenda/synthese', async (route) => {
+      await showAgendaSynthesisPage(route);
+    }, { requiresAuth: true, permissions: ['agenda.access'] })
     .addRoute('/volunteers', async (route) => {
       await showVolunteersPage(route);
     }, { requiresAuth: true, permissions: ['volunteers.view'] })
@@ -598,6 +601,29 @@ async function showAgendaSettingsPage(route) {
     appShell.showContent(page.render());
   } catch (error) {
     console.error('Erreur affichage paramètres agenda:', error);
+    appShell.showError(error);
+  }
+}
+
+let agendaSynthesisPage = null;
+
+async function ensureAgendaSynthesisPage() {
+  if (!agendaSynthesisPage) {
+    const { AgendaSynthesisPage } = await import('../pages/AgendaSynthesisPage.js');
+    agendaSynthesisPage = new AgendaSynthesisPage(router);
+  }
+  await agendaSynthesisPage.initialize();
+  return agendaSynthesisPage;
+}
+
+async function showAgendaSynthesisPage(route) {
+  if (!appShell) return;
+  appShell.showLoading();
+  try {
+    const page = await ensureAgendaSynthesisPage();
+    appShell.showContent(page.render());
+  } catch (error) {
+    console.error('Erreur affichage synthèse agenda:', error);
     appShell.showError(error);
   }
 }

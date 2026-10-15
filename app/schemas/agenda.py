@@ -160,3 +160,30 @@ class AgendaPresenceResponse(BaseModel):
     created_by: Optional[int] = None
     created_at: datetime
     updated_at: datetime
+
+
+class AgendaSynthesisRoom(BaseModel):
+    room_id: int
+    room_name: str
+    building_name: Optional[str] = None
+    capacity: int
+    person_count: int = 0
+    meal_count: int = 0
+    workstation_count: int = 0
+
+
+class AgendaSynthesisDay(BaseModel):
+    date: date
+    rooms: List[AgendaSynthesisRoom] = []
+    total_persons: int = 0
+    total_meals: int = 0
+    total_workstations: int = 0
+
+
+class AgendaSynthesisResponse(BaseModel):
+    start_date: date
+    end_date: date
+    days: List[AgendaSynthesisDay] = []
+    grand_total_persons: int = 0
+    grand_total_meals: int = 0
+    grand_total_workstations: int = 0

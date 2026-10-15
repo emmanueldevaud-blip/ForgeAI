@@ -198,10 +198,10 @@ export class AgendaPage {
           <h1>${isInscriptionsTab ? 'Inscriptions' : 'Ma présence'}</h1>
           ${isInscriptionsTab ? '' : `<p class="page-subtitle">${isMineTab ? 'Vos présences personnelles.' : 'Planning par bureau et inscriptions libres.'}</p>`}
         </div>
-        <div class="page-header-right agenda-toolbar">
+<div class="page-header-right agenda-toolbar">
           <div class="agenda-nav" role="group" aria-label="Navigation">
             <button class="btn btn-secondary btn-sm" data-nav="prev" aria-label="Période précédente">‹</button>
-            <button class="btn btn-secondary btn-sm" data-nav="today">Aujourd’hui</button>
+            <button class="btn btn-secondary btn-sm" data-nav="today">Aujourd'hui</button>
             <button class="btn btn-secondary btn-sm" data-nav="next" aria-label="Période suivante">›</button>
           </div>
           <span class="agenda-period-label" aria-live="polite">${escapeHtml(this._periodLabel())}</span>
@@ -210,6 +210,10 @@ export class AgendaPage {
               <button class="btn btn-sm ${this.view === value ? 'btn-primary' : 'btn-secondary'}" data-view="${value}" aria-pressed="${this.view === value}">${label}</button>
             `).join('')}
           </div>
+          <a href="/agenda/synthese" class="btn btn-secondary btn-sm" style="margin-left:auto;" title="Voir la synthèse par bureau">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+            <span>Synthèse</span>
+          </a>
           ${isInscriptionsTab ? `
           <div class="agenda-search-wrap" style="margin-left:auto; min-width:200px;">
             <label for="agenda-search" class="visually-hidden">Filtrer par nom</label>

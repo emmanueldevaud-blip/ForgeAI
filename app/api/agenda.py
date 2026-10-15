@@ -21,6 +21,7 @@ from app.schemas.agenda import (
     AgendaPresenceUpsert,
     AgendaSettingsResponse,
     AgendaSettingsUpdate,
+    AgendaSynthesisResponse,
     AgendaUserResponse,
 )
 from app.services.agenda import AgendaService
@@ -277,3 +278,15 @@ async def delete_presence(
 
     await service.delete_presence(presence_id)
     return None
+
+
+@router.get("/synthesis", response_model=AgendaSynthesisResponse)
+async def get_synthesis(
+    view: str = Query("week", pattern="^(week|month)$"),
+    anchor: Optional[date] = Query(None, description="Date de référence (aujourd'hui par défaut)"),
+    service: AgendaService = Depends(get_agenda_service),
+):
+    try:
+        return await service.get_synthesis(view, anchor or date.today())
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))

@@ -18,6 +18,23 @@ from app.services.audit import AuditService
 from app.core.config import get_settings
 
 
+# Désactiver le chargement des MIB PySNMP (erreurs MibNotFoundError dans le
+# callback dispatcher) : on utilise exclusivement les OID numériques.
+# Le patch au niveau classe affecte aussi le dispatcher asynchrone.
+from pysnmp.smi.builder import MibBuilder
+from pysnmp.smi import error as _pysnmp_error
+
+_original_import_symbols = MibBuilder.import_symbols
+
+def _safe_import_symbols(self, modName, *symbols, **kwargs):
+    try:
+        return _original_import_symbols(self, modName, *symbols, **kwargs)
+    except _pysnmp_error.MibNotFoundError:
+        return ()  # Pas de résolution MIB, OID numériques uniquement
+
+MibBuilder.import_symbols = _safe_import_symbols
+
+
 async def _generate_it_asset_reference(db: AsyncSession) -> str:
     now = datetime.now(UTC)
     prefix = f"IT-{now.strftime('%Y%m')}-"
@@ -272,6 +289,145 @@ class ArpTableResolver:
         table = (await self._fetch_table()) if self._fetch_table else {}
         self._cache[self._cache_key] = (now, table)
         return table
+
+    @classmethod
+    def clear_cache(cls) -> None:
+        cls._cache.clear()
+
+
+# --- Source B : Résolution des baux DHCP depuis pfSense ---
+
+class DhcpLeaseResolver:
+    """Récupération des baux DHCP (IP, MAC, hostname) depuis pfSense.
+
+    Supporte deux modes selon la version pfSense :
+    - API REST v2 (/api/v2/status/dhcp/leases) avec clé API
+    - Page de statut HTML (fallback) si pas d'API
+
+    La table est récupérée en une seule passe puis mise en cache (TTL configurable).
+    """
+
+    _cache: dict = {}
+
+    def __init__(
+        self,
+        url: str,
+        *,
+        api_key: str = "",
+        user: str = "",
+        password: str = "",
+        cache_ttl: int = 300,
+        fetch_leases=None,
+    ):
+        self.url = url
+        self.api_key = api_key
+        self.user = user
+        self.password = password
+        self.cache_ttl = cache_ttl
+        self._fetch_leases = fetch_leases
+        self._cache_key = f"dhcp:{url}"
+
+    async def get_lease(self, ip: str) -> Optional[dict]:
+        """Retourne {'mac': str, 'hostname': str} ou None."""
+        try:
+            leases = await self._get_leases()
+            return leases.get(ip)
+        except Exception as e:
+            print(f"[DHCP-RESOLVER] Échec baux DHCP via {self.url}: {e}")
+            return None
+
+    async def get_hostname(self, ip: str) -> Optional[str]:
+        lease = await self.get_lease(ip)
+        return lease.get("hostname") if lease else None
+
+    async def get_mac(self, ip: str) -> Optional[str]:
+        lease = await self.get_lease(ip)
+        return lease.get("mac") if lease else None
+
+    async def _get_leases(self) -> dict:
+        import time as _time
+        now = _time.monotonic()
+        cached = self._cache.get(self._cache_key)
+        if cached and (now - cached[0]) < self.cache_ttl:
+            return cached[1]
+        leases = (await self._fetch_leases()) if self._fetch_leases else {}
+        self._cache[self._cache_key] = (now, leases)
+        return leases
+
+    @classmethod
+    def clear_cache(cls) -> None:
+        cls._cache.clear()
+
+
+# --- Source C : Résolution DNS via Active Directory ---
+
+class DnsResolver:
+    """Résolution DNS (A / PTR) via un serveur DNS spécifique (ex. AD).
+
+    Utilise `dnspython` pour requêter directement le serveur DNS AD,
+    sans dépendre du résolveur système du conteneur.
+    """
+
+    _cache: dict = {}
+
+    def __init__(
+        self,
+        server: str,
+        *,
+        port: int = 53,
+        timeout: float = 2.0,
+        cache_ttl: int = 300,
+    ):
+        self.server = server
+        self.port = port
+        self.timeout = timeout
+        self.cache_ttl = cache_ttl
+        self._cache_key = f"dns:{server}:{port}"
+
+    async def resolve_a(self, hostname: str) -> Optional[str]:
+        """Résolution directe A -> IP."""
+        try:
+            return await self._resolve(hostname, "A")
+        except Exception:
+            return None
+
+    async def resolve_ptr(self, ip: str) -> Optional[str]:
+        """Résolution inverse PTR -> hostname."""
+        try:
+            # Construire l'adresse inverse in-addr.arpa
+            parts = ip.split(".")
+            if len(parts) == 4:
+                rev = ".".join(reversed(parts)) + ".in-addr.arpa"
+                return await self._resolve(rev, "PTR")
+        except Exception:
+            pass
+        return None
+
+    async def _resolve(self, name: str, rtype: str) -> Optional[str]:
+        import dns.asyncresolver
+        import dns.exception
+
+        # Clé de cache incluant le type
+        cache_key = f"{self._cache_key}:{rtype}:{name}"
+        import time as _time
+        now = _time.monotonic()
+        cached = self._cache.get(cache_key)
+        if cached and (now - cached[0]) < self.cache_ttl:
+            return cached[1]
+
+        resolver = dns.asyncresolver.Resolver()
+        resolver.nameservers = [self.server]
+        resolver.port = self.port
+        resolver.timeout = self.timeout
+        resolver.lifetime = self.timeout
+
+        try:
+            answer = await resolver.resolve(name, rtype)
+            result = str(answer[0]).rstrip(".")
+            self._cache[cache_key] = (now, result)
+            return result
+        except (dns.exception.DNSException, Exception):
+            return None
 
     @classmethod
     def clear_cache(cls) -> None:
@@ -1256,6 +1412,97 @@ class NetworkDiscoveryService:
             fetch_table=_fetch_table,
         )
 
+    async def _build_dhcp_resolver(self) -> Optional[DhcpLeaseResolver]:
+        """Construire le résolveur DHCP (pfSense) si configuré, sinon None."""
+        settings = get_settings()
+        if not settings.IT_DHCP_RESOLVER_ENABLED or not settings.IT_DHCP_RESOLVER_URL:
+            return None
+
+        async def _fetch_leases() -> dict:
+            """Récupérer les baux DHCP depuis pfSense."""
+            import aiohttp
+            import ssl
+
+            url = settings.IT_DHCP_RESOLVER_URL
+            headers = {}
+            auth = None
+
+            if settings.IT_DHCP_RESOLVER_API_KEY:
+                headers["Authorization"] = f"Bearer {settings.IT_DHCP_RESOLVER_API_KEY}"
+            elif settings.IT_DHCP_RESOLVER_USER and settings.IT_DHCP_RESOLVER_PASSWORD:
+                auth = aiohttp.BasicAuth(
+                    settings.IT_DHCP_RESOLVER_USER,
+                    settings.IT_DHCP_RESOLVER_PASSWORD,
+                )
+
+            # Désactiver la vérification SSL si auto-signé (commun sur pfSense local)
+            ssl_ctx = ssl.create_default_context()
+            ssl_ctx.check_hostname = False
+            ssl_ctx.verify_mode = ssl.CERT_NONE
+
+            leases: dict = {}
+            try:
+                async with aiohttp.ClientSession(
+                    connector=aiohttp.TCPConnector(ssl=ssl_ctx),
+                    timeout=aiohttp.ClientTimeout(total=10),
+                ) as session:
+                    async with session.get(url, headers=headers, auth=auth) as resp:
+                        if resp.status != 200:
+                            print(f"[DHCP] Erreur HTTP {resp.status} depuis {url}")
+                            return leases
+
+                        content_type = resp.headers.get("Content-Type", "")
+                        if "application/json" in content_type:
+                            data = await resp.json()
+                            # Format attendu: liste d'objets {ip, mac, hostname, ...}
+                            for entry in data if isinstance(data, list) else []:
+                                ip = entry.get("ip") or entry.get("IP")
+                                mac = entry.get("mac") or entry.get("MAC") or entry.get("hardware_address")
+                                hostname = entry.get("hostname") or entry.get("host_name") or entry.get("name")
+                                if ip and mac:
+                                    leases[ip] = {"mac": mac.lower().replace("-", ":"), "hostname": hostname}
+                        else:
+                            # Fallback HTML parsing basique (page status_dhcp_leases.php)
+                            text = await resp.text()
+                            import re
+                            # Pattern: <tr>...<td>IP</td><td>MAC</td><td>hostname</td>...
+                            rows = re.findall(
+                                r"<tr[^>]*>.*?<td[^>]*>([0-9.]+)</td>.*?<td[^>]*>([0-9a-fA-F:]{17})</td>.*?<td[^>]*>([^<]*)</td>",
+                                text,
+                                re.DOTALL | re.IGNORECASE,
+                            )
+                            for ip, mac, hostname in rows:
+                                leases[ip.strip()] = {
+                                    "mac": mac.strip().lower(),
+                                    "hostname": hostname.strip() if hostname else None,
+                                }
+            except Exception as e:
+                print(f"[DHCP] Erreur collecte baux depuis {url}: {e}")
+
+            return leases
+
+        return DhcpLeaseResolver(
+            settings.IT_DHCP_RESOLVER_URL,
+            api_key=settings.IT_DHCP_RESOLVER_API_KEY,
+            user=settings.IT_DHCP_RESOLVER_USER,
+            password=settings.IT_DHCP_RESOLVER_PASSWORD,
+            cache_ttl=settings.IT_DHCP_RESOLVER_CACHE_TTL,
+            fetch_leases=_fetch_leases,
+        )
+
+    async def _build_dns_resolver(self) -> Optional[DnsResolver]:
+        """Construire le résolveur DNS (AD) si configuré, sinon None."""
+        settings = get_settings()
+        if not settings.IT_DNS_RESOLVER_ENABLED or not settings.IT_DNS_RESOLVER_SERVER:
+            return None
+
+        return DnsResolver(
+            settings.IT_DNS_RESOLVER_SERVER,
+            port=settings.IT_DNS_RESOLVER_PORT,
+            timeout=settings.IT_DNS_RESOLVER_TIMEOUT,
+            cache_ttl=settings.IT_DNS_RESOLVER_CACHE_TTL,
+        )
+
     async def scan_network_range(self, network_range_id: int, log: Optional[DiscoveryLog] = None) -> dict:
         network_range = await self.asset_service.get_network_range(network_range_id)
         if not network_range:
@@ -1276,6 +1523,12 @@ class NetworkDiscoveryService:
         # Résolution MAC croisée via routeur (ex. pfSense) : configurée par
         # settings, désactivée par défaut. Construite une fois pour tout le scan.
         arp_resolver = self._build_arp_resolver(snmp_community or "public")
+
+        # Résolution DHCP (baux pfSense) : hostname + MAC fallback
+        dhcp_resolver = await self._build_dhcp_resolver()
+
+        # Résolution DNS (AD) : hostname via PTR
+        dns_resolver = await self._build_dns_resolver()
 
         try:
             network = IPv4Network(cidr, strict=False) if ':' not in cidr else IPv6Network(cidr, strict=False)
@@ -1340,6 +1593,12 @@ class NetworkDiscoveryService:
                             if resolved:
                                 mac = resolved
 
+                        # Repli additionnel : baux DHCP pfSense — MAC si toujours absente
+                        if not mac and dhcp_resolver is not None:
+                            dhcp_mac = await dhcp_resolver.get_mac(ip)
+                            if dhcp_mac:
+                                mac = dhcp_mac
+
                         # Toutes les écritures DB sont sérialisées (verrou) car les
                         # tâches concurrentes partagent la même session SQLAlchemy
                         async with self._db_lock:
@@ -1364,12 +1623,21 @@ class NetworkDiscoveryService:
                                 **snmp_fields,
                             }
 
+                            # Détermination du nom : priorité SNMP sys_name > DHCP hostname > DNS PTR > IP
+                            snmp_name = (discovery_data.get("snmp") or {}).get("sys_name")
+                            dhcp_hostname = None
+                            if dhcp_resolver is not None:
+                                dhcp_hostname = await dhcp_resolver.get_hostname(ip)
+                            dns_ptr_name = None
+                            if not dhcp_hostname and dns_resolver is not None:
+                                dns_ptr_name = await dns_resolver.resolve_ptr(ip)
+
+                            chosen_name = snmp_name or dhcp_hostname or dns_ptr_name or f"Host {ip}"
+
                             if existing:
                                 # Priorité Manuel > scan : préserver un nom/type saisi manuellement
                                 if existing.name.startswith("Host ") or not existing.name:
-                                    asset_data["name"] = (
-                                        (discovery_data.get("snmp") or {}).get("sys_name") or f"Host {ip}"
-                                    )
+                                    asset_data["name"] = chosen_name
                                     if inferred_type and existing.asset_type in (None, "other", ITAssetType.OTHER):
                                         asset_data["asset_type"] = inferred_type
                                 if existing.mac_address is None and mac:
@@ -1378,9 +1646,7 @@ class NetworkDiscoveryService:
                                 assets_updated += 1
                                 asset_for_obs = existing
                             else:
-                                asset_data["name"] = (
-                                    (discovery_data.get("snmp") or {}).get("sys_name") or f"Host {ip}"
-                                )
+                                asset_data["name"] = chosen_name
                                 asset_data["asset_type"] = inferred_type or "other"
                                 asset_data["mac_address"] = mac
                                 asset_data["room_id"] = 1

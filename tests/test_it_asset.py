@@ -341,6 +341,18 @@ class _FakeArpResolverSettings:
     IT_ARP_RESOLVER_VERSION = "2c"
     IT_ARP_RESOLVER_PORT = 161
     IT_ARP_RESOLVER_CACHE_TTL = 300
+    # Nouveaux settings DHCP/DNS (désactivés par défaut pour les tests existants)
+    IT_DHCP_RESOLVER_ENABLED = False
+    IT_DHCP_RESOLVER_URL = ""
+    IT_DHCP_RESOLVER_API_KEY = ""
+    IT_DHCP_RESOLVER_USER = ""
+    IT_DHCP_RESOLVER_PASSWORD = ""
+    IT_DHCP_RESOLVER_CACHE_TTL = 300
+    IT_DNS_RESOLVER_ENABLED = False
+    IT_DNS_RESOLVER_SERVER = ""
+    IT_DNS_RESOLVER_PORT = 53
+    IT_DNS_RESOLVER_TIMEOUT = 2.0
+    IT_DNS_RESOLVER_CACHE_TTL = 300
 
 
 def _patch_arp_settings(monkeypatch, enabled=True):

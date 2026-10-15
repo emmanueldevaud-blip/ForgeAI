@@ -231,6 +231,32 @@ class Settings(BaseSettings):
     # récupérée en une seule passe par scan, pas un sondage par hôte.
     IT_ARP_RESOLVER_CACHE_TTL: int = 300
 
+    # --- IT — Récupération des baux DHCP depuis pfSense (Source B)
+    # Désactivé par défaut : nécessite configuration explicite.
+    IT_DHCP_RESOLVER_ENABLED: bool = False
+    # URL de l'API pfSense pour les baux DHCP (ex. https://pfsense/api/v2/status/dhcp/leases)
+    # ou URL de la page de statut si pas d'API. La méthode exacte dépend de la version pfSense.
+    IT_DHCP_RESOLVER_URL: str = ""
+    # Clé API pfSense (si API REST v2 disponible). Jamais loguée.
+    IT_DHCP_RESOLVER_API_KEY: str = ""
+    # Sinon : user/password pour authentification basique ou formulaire (non recommandé en dur).
+    IT_DHCP_RESOLVER_USER: str = ""
+    IT_DHCP_RESOLVER_PASSWORD: str = ""
+    # Durée de validité du cache des baux DHCP (secondes).
+    IT_DHCP_RESOLVER_CACHE_TTL: int = 300
+
+    # --- IT — Résolution DNS via Active Directory (Source C)
+    # Désactivé par défaut : nécessite configuration explicite.
+    IT_DNS_RESOLVER_ENABLED: bool = False
+    # Serveur DNS AD (ex. 192.168.100.254). Doit être accessible depuis le conteneur (WireGuard).
+    IT_DNS_RESOLVER_SERVER: str = ""
+    # Port DNS (standard 53).
+    IT_DNS_RESOLVER_PORT: int = 53
+    # Timeout requête DNS (secondes).
+    IT_DNS_RESOLVER_TIMEOUT: float = 2.0
+    # Durée de validité du cache DNS (secondes).
+    IT_DNS_RESOLVER_CACHE_TTL: int = 300
+
     @property
     def ad_url(self) -> str:
         protocol = "ldaps" if self.AD_USE_SSL else "ldap"

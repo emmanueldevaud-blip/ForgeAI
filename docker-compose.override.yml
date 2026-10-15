@@ -8,6 +8,9 @@ services:
       - PHOTO_STORAGE_BACKEND=nas
       - PHOTO_NAS_PATH=/mnt/synology-medias/PHOTOS
       - PHOTO_NAS_SCAN_ENABLED=false
+      - IT_ARP_RESOLVER_ENABLED=true
+      - IT_ARP_RESOLVER_HOST=192.168.100.253
+      - IT_ARP_RESOLVER_COMMUNITY=design
     volumes:
       - /mnt/synology-medias/PHOTOS:/mnt/synology-medias/PHOTOS
       - ./data:/app/data

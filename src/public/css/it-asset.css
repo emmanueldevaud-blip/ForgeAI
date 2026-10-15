@@ -465,3 +465,107 @@
     flex: 1 1 auto;
   }
 }
+
+/* ============================================================
+   SUIVI DE SCAN EN DIRECT
+   ============================================================ */
+
+.it-asset-page .scan-progress {
+  margin: 12px 0;
+  padding: 12px;
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-border-light);
+  border-radius: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.it-asset-page .scan-progress:empty {
+  display: none;
+}
+
+.it-asset-page .scan-progress-item {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.it-asset-page .scan-progress-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.it-asset-page .scan-progress-name {
+  font-weight: 600;
+  color: var(--color-text-primary);
+}
+
+.it-asset-page .scan-status {
+  font-size: 0.78rem;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-weight: 500;
+}
+
+.it-asset-page .scan-status-running {
+  background: var(--color-warning-light);
+  color: var(--color-warning-hover, var(--color-warning));
+}
+
+.it-asset-page .scan-status-success {
+  background: var(--color-success-light);
+  color: var(--color-success-hover, var(--color-success));
+}
+
+.it-asset-page .scan-status-failed {
+  background: var(--color-danger-light);
+  color: var(--color-danger-hover, var(--color-danger));
+}
+
+.it-asset-page .scan-progress-stats {
+  font-size: 0.85rem;
+  color: var(--color-text-secondary);
+}
+
+.it-asset-page .scan-progress-bar {
+  height: 8px;
+  background: var(--color-bg-primary);
+  border: 1px solid var(--color-border-light);
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.it-asset-page .scan-progress-fill {
+  height: 100%;
+  background: var(--color-primary);
+  border-radius: 999px;
+  transition: width 0.4s ease;
+}
+
+.it-asset-page .scan-progress-fill-indeterminate {
+  animation: scan-progress-slide 1.2s ease-in-out infinite;
+}
+
+@keyframes scan-progress-slide {
+  0% { margin-left: -30%; }
+  100% { margin-left: 100%; }
+}
+
+.it-asset-page .scan-progress-error {
+  font-size: 0.8rem;
+  color: var(--color-danger);
+}
+
+@media (max-width: 639px) {
+  .it-asset-page .scan-progress {
+    margin: 8px 0;
+    padding: 10px;
+  }
+
+  .it-asset-page .scan-progress-stats {
+    font-size: 0.78rem;
+  }
+}

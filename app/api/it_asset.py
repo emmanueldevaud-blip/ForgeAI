@@ -1,11 +1,12 @@
 import math
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import require_permission
 from app.db.session import get_db
+from app.models import DiscoveryLog
 from app.models.user import User
 from app.schemas.it_asset import (
     AssetObservationResponse,
@@ -66,6 +67,37 @@ async def _get_discovery_service(
 ) -> NetworkDiscoveryService:
     audit = await get_audit_service(db)
     return NetworkDiscoveryService(db, audit=audit, current_user=current_user)
+
+
+def _count_range_hosts(cidr: str) -> int:
+    from ipaddress import IPv4Network
+    try:
+        if ':' in cidr:
+            return 0  # IPv6 : trop d'hôtes, pas de barre de progression
+        return max(IPv4Network(cidr, strict=False).num_addresses - 2, 0)
+    except ValueError:
+        return 0
+
+
+async def _run_scan_background(range_id: int, log_id: int, current_user: Optional[User]) -> None:
+    """Exécuter un scan réseau en tâche de fond avec sa propre session DB."""
+    from app.db.session import AsyncSessionLocal
+    async with AsyncSessionLocal() as session:
+        audit = await get_audit_service(session)
+        service = NetworkDiscoveryService(session, audit=audit, current_user=current_user)
+        log = await session.get(DiscoveryLog, log_id)
+        await service.scan_network_range(range_id, log=log)
+
+
+async def _run_discover_background(scans: list, current_user: Optional[User]) -> None:
+    """Exécuter plusieurs scans séquentiellement en tâche de fond."""
+    from app.db.session import AsyncSessionLocal
+    async with AsyncSessionLocal() as session:
+        audit = await get_audit_service(session)
+        for range_id, log_id in scans:
+            service = NetworkDiscoveryService(session, audit=audit, current_user=current_user)
+            log = await session.get(DiscoveryLog, log_id)
+            await service.scan_network_range(range_id, log=log)
 
 
 # ============================================================
@@ -375,12 +407,25 @@ async def delete_network_range(
 @router.post("/network-ranges/{range_id}/scan", response_model=dict)
 async def scan_network_range(
     range_id: int,
+    background_tasks: BackgroundTasks,
     discovery_service: NetworkDiscoveryService = Depends(_get_discovery_service),
 ):
-    result = await discovery_service.scan_network_range(range_id)
-    if "error" in result:
-        raise HTTPException(status_code=400, detail=result["error"])
-    return result
+    asset_service = discovery_service.asset_service
+    network_range = await asset_service.get_network_range(range_id)
+    if not network_range:
+        raise HTTPException(status_code=404, detail="Plage réseau non trouvée")
+
+    # Créer le log immédiatement pour pouvoir suivre la progression en direct
+    log = await asset_service.create_discovery_log(range_id)
+    total_hosts = _count_range_hosts(network_range.cidr)
+    log.details = {"total_hosts": total_hosts}
+    await discovery_service.db.commit()
+
+    background_tasks.add_task(
+        _run_scan_background, range_id, log.id, discovery_service.current_user
+    )
+
+    return {"log_id": log.id, "status": "running", "total_hosts": total_hosts}
 
 
 @router.get("/network-ranges/{range_id}/logs", response_model=list[DiscoveryLogResponse])
@@ -404,40 +449,34 @@ async def get_discovery_logs(
 
 @router.post("/discover", response_model=dict)
 async def discover_all_ranges(
+    background_tasks: BackgroundTasks,
     discovery_service: NetworkDiscoveryService = Depends(_get_discovery_service),
 ):
-    from app.services.audit import get_audit_service
     from app.models import NetworkRange
     from sqlalchemy import select
 
     db = discovery_service.db
-    audit = await get_audit_service(db)
     result = await db.execute(
         select(NetworkRange).where(NetworkRange.is_active == True, NetworkRange.scan_enabled == True)
     )
     ranges = result.scalars().all()
 
-    total_created = 0
-    total_updated = 0
-    total_scanned = 0
-    total_found = 0
-
+    scans = []
     for r in ranges:
-        ds = NetworkDiscoveryService(db, audit=audit, current_user=discovery_service.current_user)
-        res = await ds.scan_network_range(r.id)
-        if "error" not in res:
-            total_created += res.get("assets_created", 0)
-            total_updated += res.get("assets_updated", 0)
-            total_scanned += res.get("hosts_scanned", 0)
-            total_found += res.get("hosts_found", 0)
+        log = await discovery_service.asset_service.create_discovery_log(r.id)
+        total_hosts = _count_range_hosts(r.cidr)
+        log.details = {"total_hosts": total_hosts}
+        await db.commit()
+        scans.append({"range_id": r.id, "log_id": log.id, "total_hosts": total_hosts})
 
-    return {
-        "ranges_scanned": len(ranges),
-        "hosts_scanned": total_scanned,
-        "hosts_found": total_found,
-        "assets_created": total_created,
-        "assets_updated": total_updated,
-    }
+    if scans:
+        background_tasks.add_task(
+            _run_discover_background,
+            [(s["range_id"], s["log_id"]) for s in scans],
+            discovery_service.current_user,
+        )
+
+    return {"ranges_scanned": len(scans), "scans": scans}
 
 
 # ============================================================

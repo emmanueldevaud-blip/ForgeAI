@@ -673,6 +673,24 @@ class ITAssetService:
         await self.db.refresh(log)
         return log
 
+    async def update_discovery_log_progress(
+        self,
+        log_id: int,
+        hosts_scanned: int = 0,
+        hosts_found: int = 0,
+        assets_created: int = 0,
+        assets_updated: int = 0,
+    ) -> None:
+        """Mettre à jour les compteurs d'un scan en cours (suivi en direct)."""
+        log = await self.db.get(DiscoveryLog, log_id)
+        if not log:
+            return
+        log.hosts_scanned = hosts_scanned
+        log.hosts_found = hosts_found
+        log.assets_created = assets_created
+        log.assets_updated = assets_updated
+        await self.db.commit()
+
     async def complete_discovery_log(
         self,
         log_id: int,
@@ -695,7 +713,8 @@ class ITAssetService:
         log.assets_created = assets_created
         log.assets_updated = assets_updated
         log.errors = errors
-        log.details = details
+        if details is not None:
+            log.details = details
 
         await self.db.commit()
         await self.db.refresh(log)
@@ -848,6 +867,9 @@ class NetworkDiscoveryService:
         self.current_user = current_user
         self.asset_service = ITAssetService(db, audit, current_user)
         self._semaphore = asyncio.Semaphore(20)
+        # Verrou DB : les écritures concurrentes (gather) partagent la même
+        # session, un commit simultané ferait échouer le scan
+        self._db_lock = asyncio.Lock()
 
     async def _ping_host(self, ip: str, timeout: float = 2.0) -> Tuple[bool, Optional[float]]:
         system = platform.system().lower()
@@ -906,26 +928,28 @@ class NetworkDiscoveryService:
         port: int = 161,
     ) -> Optional[dict]:
         """Collecter des informations SNMP depuis un équipement."""
-        from pysnmp.hlapi import (
+        from pysnmp.hlapi.asyncio import (
             SnmpEngine,
             CommunityData,
             UdpTransportTarget,
             ContextData,
             ObjectType,
-            ObjectIndex,
-            getCmd,
-            nextCmd,
+            ObjectIdentity,
+            get_cmd,
+            next_cmd,
         )
 
         try:
-            mp_model = 1 if str(version).strip().lower().lstrip("v").startswith("1") else 2
+            # CommunityData : mpModel 0 = SNMPv1, 1 = SNMPv2c (2 = USM/v3, invalide ici)
+            mp_model = 0 if str(version).strip().lower().lstrip("v").startswith("1") else 1
             auth_data = CommunityData(community, mpModel=mp_model)
 
-            transport = UdpTransportTarget(
+            transport = await UdpTransportTarget.create(
                 (ip, port),
                 timeout=timeout,
                 retries=retries,
             )
+            context = ContextData()
 
             # OID de base pour les informations de l'équipement
             oids = [
@@ -944,38 +968,31 @@ class NetworkDiscoveryService:
 
             results = {}
 
-            # Essayer d'abord getCmd (single request)
-            error_indication, error_status, error_index, var_binds = await asyncio.get_event_loop().run_in_executor(
-                None,
-                lambda: getCmd(
-                    SnmpEngine(),
-                    auth_data,
-                    transport,
-                    ContextData(),
-                    * [ObjectType(ObjectIndex(o)) for o in oids],
-                ),
+            # getCmd (requête simple) — les valeurs partielles sont conservées
+            error_indication, error_status, error_index, var_binds = await get_cmd(
+                SnmpEngine(),
+                auth_data,
+                transport,
+                context,
+                *[ObjectType(ObjectIdentity(o)) for o in oids],
             )
+            for name, val in var_binds:
+                results[str(name)] = str(val)
 
             if error_indication:
-                # Échec getCmd, essayer nextCmd (walk)
+                # Échec getCmd, essayer nextCmd (walk) OID par OID
                 for oid in oids:
-                    error_indication, error_status, error_index, var_binds = await asyncio.get_event_loop().run_in_executor(
-                        None,
-                        lambda: nextCmd(
-                            SnmpEngine(),
-                            auth_data,
-                            transport,
-                            ContextData(),
-                            ObjectType(ObjectIndex(oid)),
-                        ),
+                    error_indication, error_status, error_index, var_binds = await next_cmd(
+                        SnmpEngine(),
+                        auth_data,
+                        transport,
+                        context,
+                        ObjectType(ObjectIdentity(oid)),
                     )
+                    if error_indication:
+                        continue
                     for name, val in var_binds:
-                        if error_status:
-                            break
-                        results[oid] = str(val)
-            else:
-                for name, val in var_binds:
-                    results[str(name)] = str(val)
+                        results[str(name)] = str(val)
 
             return results if results else None
 
@@ -984,12 +1001,13 @@ class NetworkDiscoveryService:
             print(f"[SNMP] Erreur collecte depuis {ip}: {e}")
             return None
 
-    async def scan_network_range(self, network_range_id: int) -> dict:
+    async def scan_network_range(self, network_range_id: int, log: Optional[DiscoveryLog] = None) -> dict:
         network_range = await self.asset_service.get_network_range(network_range_id)
         if not network_range:
             return {"error": "Plage réseau non trouvée"}
 
-        log = await self.asset_service.create_discovery_log(network_range_id)
+        if log is None:
+            log = await self.asset_service.create_discovery_log(network_range_id)
 
         try:
             network = IPv4Network(network_range.cidr, strict=False) if ':' not in network_range.cidr else IPv6Network(network_range.cidr, strict=False)
@@ -1000,6 +1018,7 @@ class NetworkDiscoveryService:
             hosts_found = 0
             assets_created = 0
             assets_updated = 0
+            scan_errors: List[str] = []
 
             async def scan_host(ip: str):
                 nonlocal hosts_scanned, hosts_found, assets_created, assets_updated
@@ -1047,49 +1066,72 @@ class NetworkDiscoveryService:
                         if not mac and snmp_mac:
                             mac = snmp_mac
 
-                        existing = None
-                        if mac:
-                            existing = await self.asset_service.get_it_asset_by_mac(mac)
-                        if not existing:
-                            existing = await self.asset_service.get_it_asset_by_ip(ip)
+                        # Toutes les écritures DB sont sérialisées (verrou) car les
+                        # tâches concurrentes partagent la même session SQLAlchemy
+                        async with self._db_lock:
+                            existing = None
+                            if mac:
+                                existing = await self.asset_service.get_it_asset_by_mac(mac)
+                            if not existing:
+                                existing = await self.asset_service.get_it_asset_by_ip(ip)
 
-                        asset_data = {
-                            "ip_address": ip,
-                            "status": "online",
-                            "discovery_source": "network_scan",
-                            "discovery_data": discovery_data,
-                            "last_seen": datetime.now(UTC),
-                            "last_check": datetime.now(UTC),
-                            **snmp_fields,
-                        }
+                            asset_data = {
+                                "ip_address": ip,
+                                "status": "online",
+                                "discovery_source": "network_scan",
+                                "discovery_data": discovery_data,
+                                "last_seen": datetime.now(UTC),
+                                "last_check": datetime.now(UTC),
+                                **snmp_fields,
+                            }
 
-                        if existing:
-                            # Priorité Manuel > scan : préserver un nom/type saisi manuellement
-                            if existing.name.startswith("Host ") or not existing.name:
-                                asset_data["name"] = f"Host {ip}"
-                                if inferred_type and existing.asset_type in (None, "other", ITAssetType.OTHER):
-                                    asset_data["asset_type"] = inferred_type
-                            if existing.mac_address is None and mac:
+                            if existing:
+                                # Priorité Manuel > scan : préserver un nom/type saisi manuellement
+                                if existing.name.startswith("Host ") or not existing.name:
+                                    asset_data["name"] = f"Host {ip}"
+                                    if inferred_type and existing.asset_type in (None, "other", ITAssetType.OTHER):
+                                        asset_data["asset_type"] = inferred_type
+                                if existing.mac_address is None and mac:
+                                    asset_data["mac_address"] = mac
+                                await self.asset_service.update_it_asset(existing.id, asset_data)
+                                assets_updated += 1
+                                asset_for_obs = existing
+                            else:
+                                asset_data["name"] = (
+                                    (discovery_data.get("snmp") or {}).get("sys_name") or f"Host {ip}"
+                                )
+                                asset_data["asset_type"] = inferred_type or "other"
                                 asset_data["mac_address"] = mac
-                            await self.asset_service.update_it_asset(existing.id, asset_data)
-                            assets_updated += 1
-                        else:
-                            asset_data["name"] = (
-                                (discovery_data.get("snmp") or {}).get("sys_name") or f"Host {ip}"
-                            )
-                            asset_data["asset_type"] = inferred_type or "other"
-                            asset_data["mac_address"] = mac
-                            asset_data["room_id"] = 1
-                            await self.asset_service.create_it_asset(asset_data)
-                            assets_created += 1
+                                asset_data["room_id"] = 1
+                                asset_for_obs = await self.asset_service.create_it_asset(asset_data)
+                                if asset_for_obs:
+                                    assets_created += 1
 
-                        await self.asset_service.create_observation(
-                            existing.id if existing else 0,
-                            "online",
-                            response_time,
-                            "ping",
-                            {"ip": ip, "mac": mac},
-                        )
+                            if asset_for_obs:
+                                try:
+                                    await self.asset_service.create_observation(
+                                        asset_for_obs.id,
+                                        "online",
+                                        response_time,
+                                        "ping",
+                                        {"ip": ip, "mac": mac},
+                                    )
+                                except Exception as obs_err:
+                                    # Ne pas faire échouer tout le scan pour une observation
+                                    await self.db.rollback()
+                                    scan_errors.append(f"{ip}: observation: {obs_err}"[:300])
+
+                    # Suivi en direct : publier la progression toutes les 5 hôtes
+                    # scannés, et immédiatement lorsqu'un hôte est trouvé
+                    if reachable or hosts_scanned % 5 == 0:
+                        async with self._db_lock:
+                            await self.asset_service.update_discovery_log_progress(
+                                log.id,
+                                hosts_scanned=hosts_scanned,
+                                hosts_found=hosts_found,
+                                assets_created=assets_created,
+                                assets_updated=assets_updated,
+                            )
 
             await asyncio.gather(*[scan_host(ip) for ip in hosts])
 
@@ -1100,6 +1142,7 @@ class NetworkDiscoveryService:
                 hosts_found=hosts_found,
                 assets_created=assets_created,
                 assets_updated=assets_updated,
+                errors="; ".join(scan_errors[:5]) or None,
             )
 
             network_range.last_scan_at = datetime.now(UTC)
@@ -1114,14 +1157,23 @@ class NetworkDiscoveryService:
             }
 
         except Exception as e:
-            await self.asset_service.complete_discovery_log(
-                log.id,
-                "failed",
-                errors=str(e),
-            )
-            network_range.last_scan_at = datetime.now(UTC)
-            network_range.last_scan_status = "failed"
-            await self.db.commit()
+            # Rollback obligatoire : une exception en cours de flush laisse la
+            # session dans l'état "pending rollback", les écritures suivantes échoueraient
+            try:
+                await self.db.rollback()
+                await self.asset_service.complete_discovery_log(
+                    log.id,
+                    "failed",
+                    errors=str(e)[:500],
+                )
+            except Exception:
+                pass
+            try:
+                network_range.last_scan_at = datetime.now(UTC)
+                network_range.last_scan_status = "failed"
+                await self.db.commit()
+            except Exception:
+                pass
             return {"error": str(e)}
 
 

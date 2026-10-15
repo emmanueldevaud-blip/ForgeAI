@@ -77,6 +77,8 @@ export class ITAssetPage {
     this.selectedRangeCidr = '';
     this.discoveryLogs = [];
     this.discoveryLastScan = null;
+    this.activeScan = null;
+    this._scanPollTimer = null;
     this.confirmDialog = new ConfirmDialog();
     this.table = null;
     this.rangeTable = null;
@@ -144,6 +146,7 @@ export class ITAssetPage {
   }
 
   destroy() {
+    this._stopScanPolling();
     this._authUnsubscribe?.();
     if (this.element) this.element.remove();
     this.element = null;
@@ -279,19 +282,7 @@ export class ITAssetPage {
       return;
     }
     if (action === 'scan') {
-      this.loading = true;
-      this.render();
-      await scanNetworkRange(item.id);
-      await this.loadNetworkRanges();
-      this.discoveryLastScan = new Date().toLocaleString('fr-FR');
-      try {
-        const logs = await getDiscoveryLogs(item.id);
-        this.discoveryLogs = Array.isArray(logs) ? logs : (logs.items || []);
-      } catch (err) {
-        console.error('Error loading discovery logs:', err);
-      }
-      this.loading = false;
-      this.render();
+      await this._startScan(item.id);
     }
   }
 
@@ -382,6 +373,7 @@ export class ITAssetPage {
         <button class="page-tab ${this.currentSection === 'supervision' ? 'active' : ''}" data-section="supervision">Supervision</button>
         <button class="page-tab ${this.currentSection === 'history' ? 'active' : ''}" data-section="history">Historique</button>
       </nav>
+      <div data-scan-progress>${this._scanProgressHtml()}</div>
       ${content}
     `;
   }
@@ -432,8 +424,8 @@ export class ITAssetPage {
               <option value="${range.id}" ${range.id === this.selectedRangeId ? 'selected' : ''}>${this._escape(range.name)} (${this._escape(range.cidr)})</option>
             `).join('')}
           </select>
-          <button class="btn btn-primary" data-action="scan-range" ${!this.selectedRangeId ? 'disabled' : ''}>Scanner la plage</button>
-          <button class="btn btn-secondary" data-action="discover-all" ${this.networkRanges.length === 0 ? 'disabled' : ''}>Scanner toutes les plages</button>
+          <button class="btn btn-primary" data-action="scan-range" ${!this.selectedRangeId || this.activeScan ? 'disabled' : ''}>${this.activeScan ? 'Scan en cours…' : 'Scanner la plage'}</button>
+          <button class="btn btn-secondary" data-action="discover-all" ${this.networkRanges.length === 0 || this.activeScan ? 'disabled' : ''}>Scanner toutes les plages</button>
         </div>
         ${this.selectedRangeId ? `
           <div class="range-info">
@@ -459,6 +451,145 @@ export class ITAssetPage {
         ` : ''}
       </div>
     `;
+  }
+
+  // ============================================================
+  // SUIVI DE SCAN EN DIRECT
+  // ============================================================
+
+  _scanProgressHtml() {
+    if (!this.activeScan || this.activeScan.length === 0) return '';
+    const items = this.activeScan.map((s) => {
+      const total = s.totalHosts || 0;
+      const pct = total > 0 ? Math.min(100, Math.round((s.hosts_scanned / total) * 100)) : null;
+      const stats = `${s.hosts_scanned}${total ? ' / ' + total : ''} hôte(s) scanné(s)`
+        + ` — ${s.hosts_found} en ligne`
+        + ` — +${s.assets_created} créé(s), ~${s.assets_updated} mis à jour`;
+      const statusLabel = s.status === 'success'
+        ? '<span class="scan-status scan-status-success">Terminé</span>'
+        : s.status === 'failed'
+          ? '<span class="scan-status scan-status-failed">Échec</span>'
+          : '<span class="scan-status scan-status-running">En cours…</span>';
+      return `
+        <div class="scan-progress-item">
+          <div class="scan-progress-header">
+            <span class="scan-progress-name">${this._escape(s.rangeName)}</span>
+            ${statusLabel}
+          </div>
+          <div class="scan-progress-stats">${this._escape(stats)}</div>
+          <div class="scan-progress-bar">
+            <div class="scan-progress-fill ${pct === null ? 'scan-progress-fill-indeterminate' : ''}" style="width: ${pct === null ? 30 : pct}%"></div>
+          </div>
+          ${s.errors ? `<div class="scan-progress-error">${this._escape(s.errors)}</div>` : ''}
+        </div>
+      `;
+    }).join('');
+    return `<div class="scan-progress">${items}</div>`;
+  }
+
+  _updateScanProgressDom() {
+    const container = this.element?.querySelector('[data-scan-progress]');
+    if (container) container.innerHTML = this._scanProgressHtml();
+  }
+
+  async _startScan(rangeId = null) {
+    if (this.activeScan) return;
+    try {
+      let scans;
+      if (rangeId) {
+        const res = await scanNetworkRange(rangeId);
+        scans = [{ range_id: rangeId, log_id: res.log_id, total_hosts: res.total_hosts }];
+      } else {
+        const res = await discoverAllRanges();
+        scans = res.scans || [];
+      }
+      if (!scans.length) {
+        console.warn('Aucune plage active à scanner');
+        return;
+      }
+      this.activeScan = scans.map((s) => ({
+        rangeId: s.range_id,
+        logId: s.log_id,
+        totalHosts: s.total_hosts || 0,
+        rangeName: (this.networkRanges.find((r) => r.id === s.range_id) || {}).name || `Plage ${s.range_id}`,
+        status: 'running',
+        hosts_scanned: 0,
+        hosts_found: 0,
+        assets_created: 0,
+        assets_updated: 0,
+        errors: null,
+      }));
+      this.render();
+      this._startScanPolling();
+    } catch (err) {
+      console.error('Impossible de démarrer le scan:', err);
+      this.activeScan = null;
+    }
+  }
+
+  _startScanPolling() {
+    this._stopScanPolling();
+    this._scanPollTimer = setInterval(() => this._pollScan(), 1500);
+    this._pollScan();
+  }
+
+  _stopScanPolling() {
+    if (this._scanPollTimer) {
+      clearInterval(this._scanPollTimer);
+      this._scanPollTimer = null;
+    }
+  }
+
+  async _pollScan() {
+    if (!this.activeScan || this.activeScan.length === 0) {
+      this._stopScanPolling();
+      return;
+    }
+    let allDone = true;
+    for (const entry of this.activeScan) {
+      if (entry.status !== 'running') continue;
+      try {
+        const logs = await getDiscoveryLogs(entry.rangeId);
+        const list = Array.isArray(logs) ? logs : (logs.items || []);
+        const log = list.find((l) => l.id === entry.logId);
+        if (log) {
+          entry.status = (log.status || 'running').toLowerCase();
+          entry.hosts_scanned = log.hosts_scanned || 0;
+          entry.hosts_found = log.hosts_found || 0;
+          entry.assets_created = log.assets_created || 0;
+          entry.assets_updated = log.assets_updated || 0;
+          entry.errors = log.errors || null;
+          if (!entry.totalHosts && log.details && log.details.total_hosts) {
+            entry.totalHosts = log.details.total_hosts;
+          }
+        }
+      } catch (err) {
+        console.error('Polling scan:', err);
+      }
+      if (entry.status === 'running') allDone = false;
+    }
+    if (allDone) {
+      this._stopScanPolling();
+      const summary = this.activeScan
+        .map((s) => `${s.rangeName}: ${s.status === 'success' ? 'terminé' : 'échec'} (${s.hosts_found} en ligne, +${s.assets_created}/~${s.assets_updated})`)
+        .join(' | ');
+      console.info('Scan terminé —', summary);
+      this.activeScan = null;
+      this.discoveryLastScan = new Date().toLocaleString('fr-FR');
+      await this.loadNetworkRanges();
+      await this.loadAssets();
+      if (this.selectedRangeId) {
+        try {
+          const logs = await getDiscoveryLogs(this.selectedRangeId);
+          this.discoveryLogs = Array.isArray(logs) ? logs : (logs.items || []);
+        } catch (err) {
+          console.error('Error loading discovery logs:', err);
+        }
+      }
+      this.render();
+    } else {
+      this._updateScanProgressDom();
+    }
   }
 
   _renderAlertsView() {
@@ -786,27 +917,14 @@ export class ITAssetPage {
     this.element.querySelectorAll('[data-action="scan-range"]').forEach(btn => {
       btn.addEventListener('click', async () => {
         if (this.selectedRangeId) {
-          this.loading = true;
-          this.render();
-          await scanNetworkRange(this.selectedRangeId);
-          await this.loadNetworkRanges();
-          this.discoveryLastScan = new Date().toLocaleString('fr-FR');
-          const logs = await getDiscoveryLogs(this.selectedRangeId);
-          this.discoveryLogs = Array.isArray(logs) ? logs : (logs.items || []);
-          this.loading = false;
-          this.render();
+          await this._startScan(this.selectedRangeId);
         }
       });
     });
 
     this.element.querySelectorAll('[data-action="discover-all"]').forEach(btn => {
       btn.addEventListener('click', async () => {
-        this.loading = true;
-        this.render();
-        await discoverAllRanges();
-        await this.loadNetworkRanges();
-        this.loading = false;
-        this.render();
+        await this._startScan(null);
       });
     });
 

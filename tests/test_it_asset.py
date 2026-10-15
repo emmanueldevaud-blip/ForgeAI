@@ -325,3 +325,197 @@ async def test_scan_network_range_does_not_overwrite_manual_values(db_session, m
     assert asset.snmp_manufacturer == "Fabricant Manuel"  # non écrasé par SNMP
     assert asset.snmp_contact == "contact@snmp.local"  # champ vide → renseigné par SNMP
     assert asset.status == "online"
+
+
+# ============================================================
+# Scan réseau — résolution MAC croisée via routeur (table ARP SNMP)
+# ============================================================
+
+
+class _FakeArpResolverSettings:
+    """Réplique minimale des settings IT_ARP_RESOLVER_* pour activer le résolveur."""
+
+    IT_ARP_RESOLVER_ENABLED = True
+    IT_ARP_RESOLVER_HOST = "192.168.79.253"
+    IT_ARP_RESOLVER_COMMUNITY = ""
+    IT_ARP_RESOLVER_VERSION = "2c"
+    IT_ARP_RESOLVER_PORT = 161
+    IT_ARP_RESOLVER_CACHE_TTL = 300
+
+
+def _patch_arp_settings(monkeypatch, enabled=True):
+    from app.services import it_asset as it_asset_module
+
+    class _S(_FakeArpResolverSettings):
+        IT_ARP_RESOLVER_ENABLED = enabled
+
+    monkeypatch.setattr(it_asset_module, "get_settings", lambda: _S())
+
+
+def _patch_arp_walk(monkeypatch, discovery, phys=None, addrs=None, error=None):
+    """Mocker le walk SNMP des colonnes ARP sur l'instance de scan."""
+    calls = {"n": 0}
+
+    async def fake_walk(ip, column_oid, community, **kwargs):
+        calls["n"] += 1
+        if error:
+            raise error
+        from app.services.it_asset import _IPNETTOMEDIA_ADDR, _IPNETTOMEDIA_PHYS
+
+        if column_oid == _IPNETTOMEDIA_PHYS:
+            return dict(phys or {})
+        if column_oid == _IPNETTOMEDIA_ADDR:
+            return dict(addrs or {})
+        return {}
+
+    monkeypatch.setattr(discovery, "_snmp_walk_column", fake_walk)
+    return calls
+
+
+async def test_scan_resolves_mac_via_router_arp_when_mac_unknown(db_session, monkeypatch):
+    """MAC absente de l'ARP local et du SNMP de l'hôte → table ARP du routeur."""
+    from app.services.it_asset import ArpTableResolver
+
+    ArpTableResolver.clear_cache()
+    await _create_room(db_session)
+    service = ITAssetService(db_session)
+    network_range = await service.create_network_range({
+        "name": "Lab ARP",
+        "cidr": "192.168.79.0/30",
+        "snmp_enabled": True,
+        "snmp_community": "public",
+        "snmp_version": "v2c",
+    })
+
+    # Hôte joignable mais : ARP local vide, SNMP de l'équipement sans MAC
+    # (cas du NAS : ifTable = loopback seul)
+    discovery = await _mock_discovery(
+        db_session,
+        monkeypatch,
+        reachable_ips={"192.168.79.1"},
+        mac_by_ip={},
+        snmp_by_ip={
+            "192.168.79.1": {
+                "1.3.6.1.2.1.1.1.0": "Linux NAS-DESIGN",
+                "1.3.6.1.2.1.1.5.0": "NAS-DESIGN",
+            }
+        },
+    )
+    _patch_arp_settings(monkeypatch)
+    walk_calls = _patch_arp_walk(
+        monkeypatch,
+        discovery,
+        phys={"1.192.168.79.1": "aa:bb:cc:dd:ee:77"},
+        addrs={"1.192.168.79.1": "192.168.79.1"},
+    )
+
+    result = await discovery.scan_network_range(network_range.id)
+
+    assert result["assets_created"] == 1
+    assert walk_calls["n"] == 2  # deux colonnes (phys + adresse), une seule passe
+    asset = await service.get_it_asset_by_ip("192.168.79.1")
+    assert asset.mac_address == "aa:bb:cc:dd:ee:77"  # MAC venue de la table du routeur
+    assert asset.name == "NAS-DESIGN"
+
+
+async def test_scan_never_overwrites_directly_discovered_mac(db_session, monkeypatch):
+    """Priorité : MAC découverte directement (ARP local) → routeur jamais sollicité."""
+    from app.services.it_asset import ArpTableResolver
+
+    ArpTableResolver.clear_cache()
+    await _create_room(db_session)
+    service = ITAssetService(db_session)
+    network_range = await service.create_network_range({
+        "name": "Lab ARP 2",
+        "cidr": "192.168.80.0/30",
+        "snmp_enabled": False,
+    })
+
+    discovery = await _mock_discovery(
+        db_session,
+        monkeypatch,
+        reachable_ips={"192.168.80.1"},
+        mac_by_ip={"192.168.80.1": "aa:bb:cc:dd:ee:01"},  # ARP local
+        snmp_by_ip={},
+    )
+    _patch_arp_settings(monkeypatch)
+    walk_calls = _patch_arp_walk(
+        monkeypatch,
+        discovery,
+        phys={"1.192.168.80.1": "ff:ff:ff:ff:ff:99"},  # MAC routeur (différente)
+        addrs={"1.192.168.80.1": "192.168.80.1"},
+    )
+
+    result = await discovery.scan_network_range(network_range.id)
+
+    assert result["assets_created"] == 1
+    assert walk_calls["n"] == 0  # le routeur n'est jamais interrogé
+    asset = await service.get_it_asset_by_ip("192.168.80.1")
+    assert asset.mac_address == "aa:bb:cc:dd:ee:01"  # MAC directe préservée
+
+
+async def test_scan_survives_arp_resolver_failure(db_session, monkeypatch):
+    """Routeur indisponible : le scan se termine, l'asset est créé sans MAC."""
+    from app.services.it_asset import ArpTableResolver
+
+    ArpTableResolver.clear_cache()
+    await _create_room(db_session)
+    service = ITAssetService(db_session)
+    network_range = await service.create_network_range({
+        "name": "Lab ARP 3",
+        "cidr": "192.168.81.0/30",
+        "snmp_enabled": False,
+    })
+
+    discovery = await _mock_discovery(
+        db_session,
+        monkeypatch,
+        reachable_ips={"192.168.81.1"},
+        mac_by_ip={},
+        snmp_by_ip={},
+    )
+    _patch_arp_settings(monkeypatch)
+    _patch_arp_walk(monkeypatch, discovery, error=TimeoutError("pfSense injoignable"))
+
+    result = await discovery.scan_network_range(network_range.id)
+
+    assert result["hosts_scanned"] == 2
+    assert result["assets_created"] == 1  # le scan n'a pas échoué
+    asset = await service.get_it_asset_by_ip("192.168.81.1")
+    assert asset.mac_address is None  # MAC inconnue, asset malgré tout créé
+
+
+async def test_scan_skips_resolver_when_not_configured(db_session, monkeypatch):
+    """Sans IT_ARP_RESOLVER_ENABLED, le résolveur n'est pas construit (statu quo)."""
+    from app.services.it_asset import ArpTableResolver
+
+    ArpTableResolver.clear_cache()
+    await _create_room(db_session)
+    service = ITAssetService(db_session)
+    network_range = await service.create_network_range({
+        "name": "Lab ARP 4",
+        "cidr": "192.168.82.0/30",
+        "snmp_enabled": False,
+    })
+
+    discovery = await _mock_discovery(
+        db_session,
+        monkeypatch,
+        reachable_ips={"192.168.82.1"},
+        mac_by_ip={},
+        snmp_by_ip={},
+    )
+    _patch_arp_settings(monkeypatch, enabled=False)
+    walk_calls = _patch_arp_walk(
+        monkeypatch,
+        discovery,
+        phys={"1.192.168.82.1": "aa:bb:cc:dd:ee:02"},
+        addrs={"1.192.168.82.1": "192.168.82.1"},
+    )
+
+    result = await discovery.scan_network_range(network_range.id)
+
+    assert result["assets_created"] == 1
+    assert walk_calls["n"] == 0  # aucun sondage SNMP routeur
+    asset = await service.get_it_asset_by_ip("192.168.82.1")
+    assert asset.mac_address is None

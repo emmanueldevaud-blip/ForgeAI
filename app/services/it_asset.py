@@ -75,6 +75,7 @@ _SNMP_VENDOR_HINTS = (
     ("brother", "Brother"),
     ("hikvision", "Hikvision"),
     ("synology", "Synology"),
+    ("diskstation", "Synology"),
     ("canon", "Canon"),
     ("ricoh", "Ricoh"),
     ("kyocera", "Kyocera"),
@@ -93,8 +94,9 @@ def _parse_snmp_results(results: dict) -> dict:
                 parsed[field] = value
                 break
     descr = (parsed.get("sys_descr") or "").lower()
+    contact = (parsed.get("sys_contact") or "").lower()
     for hint, vendor in _SNMP_VENDOR_HINTS:
-        if hint in descr:
+        if hint in descr or hint in contact:
             parsed["vendor"] = vendor
             break
     return parsed
@@ -132,6 +134,7 @@ _SNMP_TYPE_HINTS = (
     ("c9300", "switch"),
     ("router", "router"),
     ("routeur", "router"),
+    ("nas", "server"),
     ("proxmox", "server"),
     ("esxi", "server"),
     ("vmware", "server"),
@@ -180,6 +183,99 @@ def _parse_snmp_mac(value: Optional[str]) -> Optional[str]:
     if mac == "00:00:00:00:00:00":
         return None
     return mac
+
+
+# --- Résolution MAC croisée via table ARP SNMP d'un routeur/pare-feu (ex. pfSense) ---
+
+# Colonnes de la table RFC1213 ipNetToMedia (table ARP)
+_IPNETTOMEDIA_PHYS = "1.3.6.1.2.1.4.22.1.2"  # ipNetToMediaPhysAddress (MAC, octets binaires)
+_IPNETTOMEDIA_ADDR = "1.3.6.1.2.1.4.22.1.3"  # ipNetToMediaAddress (IP, chaîne pointée)
+
+
+def _parse_mac_octets(raw: Optional[bytes]) -> Optional[str]:
+    """Convertir 6 octets SNMP en notation aa:bb:cc:dd:ee:ff.
+
+    Retourne None pour une valeur vide, de taille incorrecte ou nulle
+    (00:00:00:00:00:00 = entrée ARP non résolue).
+    """
+    if not raw or len(raw) != 6:
+        return None
+    mac = ":".join(f"{b:02x}" for b in raw)
+    return None if mac == "00:00:00:00:00:00" else mac
+
+
+def _arp_columns_to_map(phys_by_index: dict, addr_by_index: dict) -> dict:
+    """Relier les colonnes MAC et IP de la table ipNetToMedia par index de ligne.
+
+    Les deux colonnes partagent le même index de ligne SNMP (la valeur de
+    l'index diffère selon les agents : IP seule, ou ifIndex + IP). La jointure
+    se fait donc sur l'index commun, jamais sur la valeur.
+
+    Retourne {ip: mac}. Les lignes sans contrepartie ou sans MAC valide sont
+    ignorées.
+    """
+    table: dict = {}
+    for index, mac in phys_by_index.items():
+        ip = addr_by_index.get(index)
+        if ip and mac:
+            table[ip] = mac
+    return table
+
+
+class ArpTableResolver:
+    """Résolution IP -> MAC via la table ARP SNMP d'un routeur (ex. pfSense).
+
+    La table est récupérée en une seule passe puis mise en cache (TTL
+    configurable) pour ne pas interroger le routeur à chaque hôte scanné.
+    Aucune exception ne sort de ``get_mac`` : routeur indisponible, timeout ou
+    entrée absente retournent simplement None.
+    """
+
+    # Cache partagé entre scans : {cle: (horodatage, {ip: mac})}
+    _cache: dict = {}
+
+    def __init__(
+        self,
+        host: str,
+        community: str,
+        *,
+        version: str = "2c",
+        port: int = 161,
+        cache_ttl: int = 300,
+        fetch_table=None,
+    ):
+        self.host = host
+        self.community = community
+        self.version = version
+        self.port = port
+        self.cache_ttl = cache_ttl
+        # Callable async () -> {ip: mac} ; fourni par le service (walk SNMP).
+        self._fetch_table = fetch_table
+        # La communauté n'entre pas dans la clé de cache ni dans aucun log.
+        self._cache_key = f"{host}:{port}:{version}"
+
+    async def get_mac(self, ip: str) -> Optional[str]:
+        """MAC de `ip` via le cache ou une passe ARP, ou None (sans exception)."""
+        try:
+            table = await self._get_table()
+            return table.get(ip)
+        except Exception as e:
+            print(f"[ARP-RESOLVER] Échec de la table ARP via {self.host}: {e}")
+            return None
+
+    async def _get_table(self) -> dict:
+        import time as _time
+        now = _time.monotonic()
+        cached = self._cache.get(self._cache_key)
+        if cached and (now - cached[0]) < self.cache_ttl:
+            return cached[1]
+        table = (await self._fetch_table()) if self._fetch_table else {}
+        self._cache[self._cache_key] = (now, table)
+        return table
+
+    @classmethod
+    def clear_cache(cls) -> None:
+        cls._cache.clear()
 
 
 class ITAssetService:
@@ -952,19 +1048,31 @@ class NetworkDiscoveryService:
             context = ContextData()
 
             # OID de base pour les informations de l'équipement
+            # IMPORTANT : les scalaires SNMP exigent l'instance ".0",
+            # sans elle l'agent répond NoSuchInstance (valeur vide)
             oids = [
-                "1.3.6.1.2.1.1.1",  # sysDescr (description du système)
-                "1.3.6.1.2.1.1.2",  # sysObjectID
-                "1.3.6.1.2.1.1.3",  # sysUpTime
-                "1.3.6.1.2.1.1.4",  # sysContact
-                "1.3.6.1.2.1.1.5",  # sysName
-                "1.3.6.1.2.1.1.6",  # sysLocation
-                "1.3.6.1.2.1.1.8",  # ifNumber
+                "1.3.6.1.2.1.1.1.0",  # sysDescr (description du système)
+                "1.3.6.1.2.1.1.2.0",  # sysObjectID
+                "1.3.6.1.2.1.1.3.0",  # sysUpTime
+                "1.3.6.1.2.1.1.4.0",  # sysContact
+                "1.3.6.1.2.1.1.5.0",  # sysName
+                "1.3.6.1.2.1.1.6.0",  # sysLocation
+                "1.3.6.1.2.1.1.8.0",  # ifNumber
             ]
             if ":" not in ip:
                 # ipNetToMediaPhysAddress pour l'IP scannée (MAC de l'équipement)
                 oids.append(f"1.3.6.1.2.1.4.22.1.2.{'.'.join(ip.split('.'))}")
-            oids.append("1.3.6.1.2.1.2.2.1.6.1")  # ifPhysAddress (ifIndex 1) - repli
+
+            def _snmp_value_to_str(oid: str, val) -> str:
+                """Les adresses physiques sont binaires : les convertir en aa:bb:cc:dd:ee:ff."""
+                try:
+                    if '.4.22.1.2.' in oid or '.2.2.1.6.' in oid or oid.endswith('.2.2.1.6'):
+                        raw = val.asOctets()
+                        if len(raw) == 6:
+                            return ':'.join(f'{b:02x}' for b in raw)
+                except Exception:
+                    pass
+                return str(val)
 
             results = {}
 
@@ -977,10 +1085,29 @@ class NetworkDiscoveryService:
                 *[ObjectType(ObjectIdentity(o)) for o in oids],
             )
             for name, val in var_binds:
-                results[str(name)] = str(val)
+                s = _snmp_value_to_str(str(name), val)
+                if s:
+                    results[str(name)] = s
 
-            if error_indication:
-                # Échec getCmd, essayer nextCmd (walk) OID par OID
+            if results:
+                # Walk ifPhysAddress : première MAC réelle (ifIndex 1 est
+                # souvent la loopback sans adresse)
+                error_indication, error_status, error_index, var_binds = await next_cmd(
+                    SnmpEngine(),
+                    auth_data,
+                    transport,
+                    context,
+                    ObjectType(ObjectIdentity('1.3.6.1.2.1.2.2.1.6')),
+                )
+                if not error_indication:
+                    for name, val in var_binds:
+                        s = _snmp_value_to_str(str(name), val)
+                        if s and s != '00:00:00:00:00:00':
+                            results[str(name)] = s
+                            break
+
+            if not results and error_indication:
+                # Repli : marche (walk) OID par OID
                 for oid in oids:
                     error_indication, error_status, error_index, var_binds = await next_cmd(
                         SnmpEngine(),
@@ -992,7 +1119,9 @@ class NetworkDiscoveryService:
                     if error_indication:
                         continue
                     for name, val in var_binds:
-                        results[str(name)] = str(val)
+                        s = _snmp_value_to_str(str(name), val)
+                        if s:
+                            results[str(name)] = s
 
             return results if results else None
 
@@ -1000,6 +1129,132 @@ class NetworkDiscoveryService:
             # Erreur SNMP - ne pas faire planter la boucle
             print(f"[SNMP] Erreur collecte depuis {ip}: {e}")
             return None
+
+    async def _snmp_walk_column(
+        self,
+        ip: str,
+        column_oid: str,
+        community: str,
+        version: str = "2c",
+        timeout: float = 2.0,
+        retries: int = 1,
+        port: int = 161,
+    ) -> dict:
+        """Walk d'une colonne SNMP (ex. table ARP) -> {index de ligne: valeur}.
+
+        Les adresses physiques (ipNetToMediaPhysAddress) sont converties en
+        notation aa:bb:cc:dd:ee:ff. Timeout et erreurs SNMP retournent une
+        table partielle ou vide : jamais d'exception vers l'appelant.
+        """
+        from pysnmp.hlapi.asyncio import (
+            SnmpEngine,
+            CommunityData,
+            UdpTransportTarget,
+            ContextData,
+            ObjectType,
+            ObjectIdentity,
+            next_cmd,
+        )
+
+        is_phys_column = column_oid == _IPNETTOMEDIA_PHYS
+        mp_model = 0 if str(version).strip().lower().lstrip("v").startswith("1") else 1
+        # Nombre de sub-identifiants du préfixe de colonne (ex. 10 pour
+        # 1.3.6.1.2.1.4.22.1.2) : l'index de la ligne suit dans l'OID.
+        col_tuple = tuple(int(x) for x in column_oid.split("."))
+        prefix_len = len(col_tuple)
+
+        values: dict = {}
+        try:
+            transport = await UdpTransportTarget.create(
+                (ip, port), timeout=timeout, retries=retries,
+            )
+            # Marche SNMP : next_cmd (pysnmp 7) avance d'une seule OI par appel,
+            # on boucle jusqu'à sortir de la table ou manquer de réponses.
+            current_oid = column_oid
+            while current_oid:
+                error_indication, error_status, _error_index, var_binds = await next_cmd(
+                    SnmpEngine(),
+                    CommunityData(community, mpModel=mp_model),
+                    transport,
+                    ContextData(),
+                    ObjectType(ObjectIdentity(current_oid)),
+                )
+                if error_indication or error_status:
+                    break
+                if not var_binds:
+                    break
+                next_oid = None
+                for name, val in var_binds:
+                    name_tuple = tuple(name)
+                    if len(name_tuple) <= prefix_len or name_tuple[:prefix_len] != col_tuple:
+                        break  # sortie de la table
+                    # On repasse par une string OID 100 % numérique (les
+                    # sub-identifiants binaires de l'index IMPLIED ne doivent
+                    # jamais être repris via str() : chars illisibles).
+                    next_oid = ".".join(str(s) for s in name_tuple)
+                    # L'index de ligne peut être binaire (index IMPLIED des
+                    # agents BSD/pfSense : 4 octets d'IP encodés en sub-IDs) :
+                    # on le stabilise via le tuple numérique, jamais via str().
+                    index = ".".join(str(s) for s in name_tuple[prefix_len:])
+                    if is_phys_column:
+                        try:
+                            mac = _parse_mac_octets(val.asOctets())
+                        except Exception:
+                            mac = _parse_snmp_mac(str(val))
+                        if mac:
+                            values[index] = mac
+                    else:
+                        # ipNetToMediaAddress est une IpAddress (4 octets bruts)
+                        try:
+                            raw = val.asOctets()
+                            s = ".".join(str(b) for b in raw) if len(raw) == 4 else str(val)
+                        except Exception:
+                            s = str(val)
+                        s = s.strip()
+                        if s:
+                            values[index] = s
+                current_oid = next_oid
+        except Exception as e:
+            print(f"[SNMP-ARP] Erreur collecte colonne {column_oid} via {ip}: {e}")
+
+        return values
+
+    def _build_arp_resolver(self, community: str) -> Optional[ArpTableResolver]:
+        """Construire le résolveur ARP (routeur) si configuré, sinon None.
+
+        Activé uniquement via IT_ARP_RESOLVER_ENABLED + IT_ARP_RESOLVER_HOST
+        (désactivé par défaut : aucun environnement n'est impacté sans
+        configuration explicite). La communauté du routeur est celle des
+        paramètres, à défaut celle de la plage scannée — jamais codée en dur.
+        """
+        settings = get_settings()
+        if not settings.IT_ARP_RESOLVER_ENABLED or not settings.IT_ARP_RESOLVER_HOST:
+            return None
+
+        host = settings.IT_ARP_RESOLVER_HOST
+        version = settings.IT_ARP_RESOLVER_VERSION
+        port = settings.IT_ARP_RESOLVER_PORT
+
+        async def _fetch_table() -> dict:
+            # La table ARP est récupérée en une seule passe (puis mise en cache) :
+            # pfSense hors-ligne ou timeout ne font que produire une table vide,
+            # sans jamais faire échouer le scan (get_mac isole les exceptions).
+            phys = await self._snmp_walk_column(
+                host, _IPNETTOMEDIA_PHYS, community, version=version, port=port,
+            )
+            addrs = await self._snmp_walk_column(
+                host, _IPNETTOMEDIA_ADDR, community, version=version, port=port,
+            )
+            return _arp_columns_to_map(phys, addrs)
+
+        return ArpTableResolver(
+            host,
+            community,
+            version=version,
+            port=port,
+            cache_ttl=settings.IT_ARP_RESOLVER_CACHE_TTL,
+            fetch_table=_fetch_table,
+        )
 
     async def scan_network_range(self, network_range_id: int, log: Optional[DiscoveryLog] = None) -> dict:
         network_range = await self.asset_service.get_network_range(network_range_id)
@@ -1009,8 +1264,21 @@ class NetworkDiscoveryService:
         if log is None:
             log = await self.asset_service.create_discovery_log(network_range_id)
 
+        # Snapshot des scalaires ORM : après commit, les objets expirent et un
+        # accès concurrent depuis gather déclencherait des lazy-load en conflit
+        log_id = log.id
+        cidr = network_range.cidr
+        snmp_enabled = network_range.snmp_enabled
+        snmp_community = network_range.snmp_community
+        snmp_version = network_range.snmp_version
+        snmp_port = network_range.snmp_port
+
+        # Résolution MAC croisée via routeur (ex. pfSense) : configurée par
+        # settings, désactivée par défaut. Construite une fois pour tout le scan.
+        arp_resolver = self._build_arp_resolver(snmp_community or "public")
+
         try:
-            network = IPv4Network(network_range.cidr, strict=False) if ':' not in network_range.cidr else IPv6Network(network_range.cidr, strict=False)
+            network = IPv4Network(cidr, strict=False) if ':' not in cidr else IPv6Network(cidr, strict=False)
             hosts = [str(ip) for ip in network.hosts()]
             total_hosts = len(hosts)
 
@@ -1029,19 +1297,20 @@ class NetworkDiscoveryService:
                     if reachable:
                         hosts_found += 1
                         mac = await self._get_mac_from_arp(ip)
+                        existing = None
 
                         discovery_data = {"response_time_ms": response_time}
                         snmp_fields = {}
                         snmp_mac = None
                         inferred_type = None
 
-                        if network_range.snmp_enabled:
+                        if snmp_enabled:
                             snmp_raw = await self._get_snmp_info(
                                 ip,
-                                network_range.snmp_community or "public",
-                                network_range.snmp_version or "2c",
+                                snmp_community or "public",
+                                snmp_version or "2c",
                                 retries=1,
-                                port=network_range.snmp_port or 161,
+                                port=snmp_port or 161,
                             )
                             if snmp_raw:
                                 parsed = _parse_snmp_results(snmp_raw)
@@ -1051,12 +1320,8 @@ class NetworkDiscoveryService:
                                 inferred_type = _infer_asset_type(parsed.get("sys_descr"))
 
                                 def _snmp_set(field: str, value):
-                                    # Priorité Manuel > SNMP : ne jamais écraser une valeur existante
-                                    if not value:
-                                        return
-                                    if existing is not None and getattr(existing, field, None) is not None:
-                                        return
-                                    snmp_fields[field] = value
+                                    if value:
+                                        snmp_fields[field] = value
 
                                 _snmp_set("snmp_manufacturer", parsed.get("vendor"))
                                 _snmp_set("snmp_contact", parsed.get("sys_contact"))
@@ -1066,14 +1331,28 @@ class NetworkDiscoveryService:
                         if not mac and snmp_mac:
                             mac = snmp_mac
 
+                        # Dernier repli : table ARP du routeur (ex. pfSense) —
+                        # uniquement si la MAC reste inconnue, jamais par-dessus
+                        # une MAC déjà découverte. Timeout/routeur indisponible
+                        # : get_mac retourne None sans faire échouer le scan.
+                        if not mac and arp_resolver is not None:
+                            resolved = await arp_resolver.get_mac(ip)
+                            if resolved:
+                                mac = resolved
+
                         # Toutes les écritures DB sont sérialisées (verrou) car les
                         # tâches concurrentes partagent la même session SQLAlchemy
                         async with self._db_lock:
-                            existing = None
                             if mac:
                                 existing = await self.asset_service.get_it_asset_by_mac(mac)
                             if not existing:
                                 existing = await self.asset_service.get_it_asset_by_ip(ip)
+
+                            # Priorité Manuel > SNMP : ne jamais écraser une valeur déjà saisie
+                            if existing:
+                                for f in list(snmp_fields):
+                                    if getattr(existing, f, None) is not None:
+                                        del snmp_fields[f]
 
                             asset_data = {
                                 "ip_address": ip,
@@ -1088,7 +1367,9 @@ class NetworkDiscoveryService:
                             if existing:
                                 # Priorité Manuel > scan : préserver un nom/type saisi manuellement
                                 if existing.name.startswith("Host ") or not existing.name:
-                                    asset_data["name"] = f"Host {ip}"
+                                    asset_data["name"] = (
+                                        (discovery_data.get("snmp") or {}).get("sys_name") or f"Host {ip}"
+                                    )
                                     if inferred_type and existing.asset_type in (None, "other", ITAssetType.OTHER):
                                         asset_data["asset_type"] = inferred_type
                                 if existing.mac_address is None and mac:
@@ -1126,7 +1407,7 @@ class NetworkDiscoveryService:
                     if reachable or hosts_scanned % 5 == 0:
                         async with self._db_lock:
                             await self.asset_service.update_discovery_log_progress(
-                                log.id,
+                                log_id,
                                 hosts_scanned=hosts_scanned,
                                 hosts_found=hosts_found,
                                 assets_created=assets_created,
@@ -1136,7 +1417,7 @@ class NetworkDiscoveryService:
             await asyncio.gather(*[scan_host(ip) for ip in hosts])
 
             await self.asset_service.complete_discovery_log(
-                log.id,
+                log_id,
                 "success",
                 hosts_scanned=hosts_scanned,
                 hosts_found=hosts_found,
@@ -1162,7 +1443,7 @@ class NetworkDiscoveryService:
             try:
                 await self.db.rollback()
                 await self.asset_service.complete_discovery_log(
-                    log.id,
+                    log_id,
                     "failed",
                     errors=str(e)[:500],
                 )

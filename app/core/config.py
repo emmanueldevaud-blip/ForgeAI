@@ -216,6 +216,21 @@ class Settings(BaseSettings):
     # Intervalle minimal entre deux scans automatiques.
     PHOTO_NAS_SCAN_INTERVAL_SECONDS: int = 300
 
+    # --- IT — Résolution MAC croisée via la table ARP SNMP d'un routeur/pare-feu
+    # (ex. pfSense). Utilisée uniquement quand la MAC d'un hôte scanné n'a pas pu
+    # être obtenue directement (ARP local ou SNMP de l'équipement lui-même).
+    # Désactivé par défaut : renseigner IT_ARP_RESOLVER_HOST pour l'activer.
+    IT_ARP_RESOLVER_ENABLED: bool = False
+    IT_ARP_RESOLVER_HOST: str = ""
+    # Communauté SNMP du routeur. Vide = réutiliser la communauté de la plage
+    # scannée (aucun identifiant n'est codé en dur dans le code).
+    IT_ARP_RESOLVER_COMMUNITY: str = ""
+    IT_ARP_RESOLVER_VERSION: str = "2c"
+    IT_ARP_RESOLVER_PORT: int = 161
+    # Durée de validité du cache de la table ARP (secondes) : la table est
+    # récupérée en une seule passe par scan, pas un sondage par hôte.
+    IT_ARP_RESOLVER_CACHE_TTL: int = 300
+
     @property
     def ad_url(self) -> str:
         protocol = "ldaps" if self.AD_USE_SSL else "ldap"

@@ -573,6 +573,7 @@ class AdministrationModule(BaseModule):
             ("administration-ad", "Active Directory", "database", "/administration/active-directory", "ad_config"),
             ("administration-smtp", "E-mail / SMTP", "mail", "/administration/smtp", "settings_view"),
             ("administration-ai", "Assistant IA", "bot", "/administration/ai", "settings_view"),
+            ("administration-modules", "Modules", "package", "/administration/modules", "module_view"),
         ]
         for code, name, icon, route, permission in general_children:
             if "*" in permissions or permission in permissions:

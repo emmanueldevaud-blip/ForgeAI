@@ -245,6 +245,14 @@ class Settings(BaseSettings):
     # Durée de validité du cache des baux DHCP (secondes).
     IT_DHCP_RESOLVER_CACHE_TTL: int = 300
 
+    # --- IT — Fichier local de baux Kea DHCP (Source B — fallback local)
+    # Chemin vers le fichier de baux Kea copié sur le VPS (ex. /data/leases/dhcp4.leases).
+    # Si renseigné, ce fichier est lu en priorité avant l'API HTTP pfSense.
+    # Le fichier doit être au format Kea (JSON par entrée, une entrée par ligne).
+    IT_DHCP_KEA_LEASE_FILE: str = ""
+    # Durée de validité du cache des baux Kea locaux (secondes).
+    IT_DHCP_KEA_CACHE_TTL: int = 300
+
     # --- IT — Résolution DNS via Active Directory (Source C)
     # Désactivé par défaut : nécessite configuration explicite.
     IT_DNS_RESOLVER_ENABLED: bool = False

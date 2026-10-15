@@ -609,7 +609,7 @@ let agendaSynthesisPage = null;
 
 async function ensureAgendaSynthesisPage() {
   if (!agendaSynthesisPage) {
-    const { AgendaSynthesisPage } = await import('../pages/AgendaSynthesisPage.js');
+    const { AgendaSynthesisPage } = await import('./pages/AgendaSynthesisPage.js');
     agendaSynthesisPage = new AgendaSynthesisPage(router);
   }
   await agendaSynthesisPage.initialize();

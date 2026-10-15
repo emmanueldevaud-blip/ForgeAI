@@ -4,8 +4,8 @@ import { getAgendaSynthesis } from '../services/agendaApi.js';
 const DAY_LABELS_SHORT = ['Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam', 'Dim'];
 const DAY_LABELS_LONG = ['dimanche', 'lundi', 'mardi', 'mercredi', 'jeudi', 'vendredi', 'samedi'];
 const MONTH_LABELS = [
-  'Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin',
-  'Juillet', 'Août', 'Septembre', 'Octobre', 'Novembre', 'Décembre',
+  'Janvier', 'Fevrier', 'Mars', 'Avril', 'Mai', 'Juin',
+  'Juillet', 'Aout', 'Septembre', 'Octobre', 'Novembre', 'Decembre',
 ];
 
 const VIEW_LABELS = {
@@ -118,13 +118,13 @@ export class AgendaSynthesisPage {
     if (this.error) {
       this.element.innerHTML = `
         <div class="page-header">
-          <div class="page-header-left"><h1>Synthèse agenda</h1><p class="page-subtitle">Compteurs par bureau.</p></div>
+          <div class="page-header-left"><h1>Synthese agenda</h1><p class="page-subtitle">Compteurs par bureau.</p></div>
         </div>
         <div class="card" role="alert">
           <div class="card-body agenda-empty">
-            <h2>Impossible de charger la synthèse</h2>
+            <h2>Impossible de charger la synthese</h2>
             <p>${escapeHtml(this.error.message || 'Erreur inconnue')}</p>
-            <button class="btn btn-primary" data-action="retry">Réessayer</button>
+            <button class="btn btn-primary" data-action="retry">Reessayer</button>
           </div>
         </div>`;
       this._bindCommon();
@@ -143,14 +143,14 @@ export class AgendaSynthesisPage {
     this.element.innerHTML = `
       <div class="page-header agenda-header">
         <div class="page-header-left">
-          <h1>Synthèse agenda</h1>
+          <h1>Synthese agenda</h1>
           <p class="page-subtitle">Compteurs personnes / repas / postes par bureau.</p>
         </div>
         <div class="page-header-right agenda-toolbar">
           <div class="agenda-nav" role="group" aria-label="Navigation">
-            <button class="btn btn-secondary btn-sm" data-nav="prev" aria-label="Période précédente">‹</button>
+            <button class="btn btn-secondary btn-sm" data-nav="prev" aria-label="Periode precedente">&lsaquo;</button>
             <button class="btn btn-secondary btn-sm" data-nav="today">Aujourd'hui</button>
-            <button class="btn btn-secondary btn-sm" data-nav="next" aria-label="Période suivante">›</button>
+            <button class="btn btn-secondary btn-sm" data-nav="next" aria-label="Periode suivante">&rsaquo;</button>
           </div>
           <span class="agenda-period-label" aria-live="polite">${escapeHtml(this._periodLabel(dates))}</span>
           <div class="agenda-views" role="group" aria-label="Vue">
@@ -163,7 +163,7 @@ export class AgendaSynthesisPage {
 
       ${rooms.length === 0 ? this._noRoomsHtml() : `
         <div class="agenda-scroll">
-          <table class="agenda-table agenda-table--synthesis ${isMonth ? 'agenda-table--synthesis-month' : ''}" role="grid" aria-label="Synthèse des présences par bureau">
+          <table class="agenda-table agenda-table--synthesis ${isMonth ? 'agenda-table--synthesis-month' : ''}" role="grid" aria-label="Synthese des presences par bureau">
             ${this._tableHead(dates, today, rooms)}
             ${this._tableBody(dates, today, rooms, dayByIso)}
             ${this._tableFoot(dates, rooms, data)}
@@ -230,19 +230,18 @@ export class AgendaSynthesisPage {
       <div class="card">
         <div class="card-body agenda-empty">
           <h2>Aucun local Bureau</h2>
-          <p>Définissez un local avec un type d'utilisation « Bureau » (ou « Bureaux ») dans le module Bâtiments pour l'afficher ici.</p>
+          <p>Definissez un local avec un type d'utilisation "Bureau" (ou "Bureaux") dans le module Batiments pour l'afficher ici.</p>
         </div>
       </div>`;
   }
 
   _tableHead(dates, today, rooms) {
-    const roomCount = rooms.length;
     return `
       <thead>
         <tr>
           <th class="agenda-synthesis-corner" rowspan="2" scope="col" colspan="2">
             <span>Local</span>
-            <span class="agenda-synthesis-capacity-label">Capacité</span>
+            <span class="agenda-synthesis-capacity-label">Capacite</span>
           </th>
           ${dates.map((iso, di) => `
             <th class="agenda-synthesis-day-head ${iso === today ? 'is-today' : ''} ${di === 0 ? 'agenda-day-first' : ''} ${di === dates.length - 1 ? 'agenda-day-last' : ''}" colspan="3" scope="colgroup" title="${escapeHtml(formatDayLabel(iso))}">
@@ -316,7 +315,7 @@ export class AgendaSynthesisPage {
     return `
       <tfoot>
         <tr class="agenda-synthesis-grand-total">
-          <th class="agenda-synthesis-corner" colspan="2" scope="row">Total général</th>
+          <th class="agenda-synthesis-corner" colspan="2" scope="row">Total general</th>
           ${dayTotals.map(t => `
             <td class="agenda-synthesis-total agenda-synthesis-total--persons">${t.persons}</td>
             <td class="agenda-synthesis-total agenda-synthesis-total--meals">${t.meals}</td>

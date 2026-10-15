@@ -3,6 +3,8 @@ import asyncio
 import socket
 import subprocess
 import platform
+import json
+import os
 from datetime import UTC, datetime
 from ipaddress import IPv4Network, IPv6Network, IPv4Address, IPv6Address
 from typing import Optional, List, Tuple
@@ -353,6 +355,135 @@ class DhcpLeaseResolver:
         leases = (await self._fetch_leases()) if self._fetch_leases else {}
         self._cache[self._cache_key] = (now, leases)
         return leases
+
+    @classmethod
+    def clear_cache(cls) -> None:
+        cls._cache.clear()
+
+
+# --- Source B bis : Résolution DHCP via fichier local Kea (fallback local) ---
+
+class KeaLeaseFileResolver:
+    """Récupération des baux DHCP depuis un fichier local Kea (JSON Lines).
+
+    Le fichier de baux Kea (`/var/lib/kea/dhcp4.leases` sur pfSense) est copié
+    sur le VPS (ex. via SCP cron) et lu localement. Format attendu : une
+    entrée JSON par ligne (format Kea dhcp4.leases).
+
+    Gère :
+    - Parsing robuste JSON Lines (ignore lignes vides/commentaires/invalides)
+    - Filtrage baux expirés (selon `expire` timestamp)
+    - Déduplication : conserve le bail le plus récent par IP
+    - Normalisation hostname (strip trailing dot, lowercase)
+    - Fichier absent/illisible : log + retour table vide sans exception
+    """
+
+    _cache: dict = {}
+
+    def __init__(
+        self,
+        lease_file_path: str,
+        *,
+        cache_ttl: int = 300,
+    ):
+        self.lease_file_path = lease_file_path
+        self.cache_ttl = cache_ttl
+        self._cache_key = f"kea:{lease_file_path}"
+
+    async def get_lease(self, ip: str) -> Optional[dict]:
+        """Retourne {'mac': str, 'hostname': str} ou None."""
+        try:
+            leases = await self._get_leases()
+            return leases.get(ip)
+        except Exception as e:
+            print(f"[KEA-RESOLVER] Échec lecture baux Kea via {self.lease_file_path}: {e}")
+            return None
+
+    async def get_hostname(self, ip: str) -> Optional[str]:
+        lease = await self.get_lease(ip)
+        return lease.get("hostname") if lease else None
+
+    async def get_mac(self, ip: str) -> Optional[str]:
+        lease = await self.get_lease(ip)
+        return lease.get("mac") if lease else None
+
+    @staticmethod
+    def _normalize_hostname(hostname: Optional[str]) -> Optional[str]:
+        """Normalise le hostname : strip trailing dot, lowercase, strip whitespace."""
+        if not hostname:
+            return None
+        h = hostname.strip().rstrip(".").lower()
+        return h if h else None
+
+    @staticmethod
+    def _is_lease_valid(entry: dict, now: float) -> bool:
+        """Vérifie si le bail est encore valide (pas expiré)."""
+        expire = entry.get("expire")
+        if expire is None:
+            return True  # Pas d'expiration = valide
+        try:
+            return float(expire) > now
+        except (ValueError, TypeError):
+            return True  # En cas de format invalide, on considère valide
+
+    async def _get_leases(self) -> dict:
+        import time as _time
+        now = _time.monotonic()
+        cached = self._cache.get(self._cache_key)
+        if cached and (now - cached[0]) < self.cache_ttl:
+            return cached[1]
+
+        leases_by_ip: dict = {}
+        try:
+            # Lecture du fichier ligne par ligne (JSON Lines)
+            with open(self.lease_file_path, "r", encoding="utf-8") as f:
+                for line_num, line in enumerate(f, 1):
+                    line = line.strip()
+                    if not line or line.startswith("#"):
+                        continue
+                    try:
+                        entry = json.loads(line)
+                    except json.JSONDecodeError:
+                        # Ligne invalide : on ignore silencieusement
+                        continue
+
+                    # Extraction des champs
+                    ip = entry.get("ip-address") or entry.get("ip_address")
+                    mac = entry.get("hw-address") or entry.get("mac-address") or entry.get("hardware_address")
+                    hostname = entry.get("hostname") or entry.get("host-name")
+
+                    if not ip or not mac:
+                        continue  # Entrée incomplète
+
+                    # Vérifier expiration
+                    if not self._is_lease_valid(entry, now):
+                        continue
+
+                    # Normalisation
+                    mac_norm = mac.lower().replace("-", ":")
+                    host_norm = self._normalize_hostname(hostname)
+
+                    # Déduplication : garde le bail le plus récent (par expire timestamp)
+                    existing = leases_by_ip.get(ip)
+                    if existing is None or entry.get("expire", 0) > existing.get("_expire", 0):
+                        leases_by_ip[ip] = {
+                            "mac": mac_norm,
+                            "hostname": host_norm,
+                            "_expire": entry.get("expire", 0),  # pour déduplication
+                        }
+
+        except FileNotFoundError:
+            print(f"[KEA-RESOLVER] Fichier de baux introuvable : {self.lease_file_path}")
+        except PermissionError:
+            print(f"[KEA-RESOLVER] Permission refusée pour lire : {self.lease_file_path}")
+        except Exception as e:
+            print(f"[KEA-RESOLVER] Erreur lecture fichier Kea {self.lease_file_path}: {e}")
+
+        # Nettoyer le champ temporaire _expire
+        leases_clean = {ip: {"mac": v["mac"], "hostname": v["hostname"]} for ip, v in leases_by_ip.items()}
+
+        self._cache[self._cache_key] = (time.monotonic(), leases_clean)
+        return leases_clean
 
     @classmethod
     def clear_cache(cls) -> None:
@@ -1413,8 +1544,34 @@ class NetworkDiscoveryService:
         )
 
     async def _build_dhcp_resolver(self) -> Optional[DhcpLeaseResolver]:
-        """Construire le résolveur DHCP (pfSense) si configuré, sinon None."""
+        """Construire le résolveur DHCP.
+
+        Priorité :
+        1. Fichier local Kea (IT_DHCP_KEA_LEASE_FILE) si configuré et lisible
+        2. API HTTP pfSense (IT_DHCP_RESOLVER_URL) si configurée
+        3. None sinon
+
+        Retourne un objet compatible avec l'interface get_lease/get_hostname/get_mac.
+        """
         settings = get_settings()
+
+        # 1. Fichier local Kea (priorité haute : fichier copié via SCP cron)
+        kea_file = settings.IT_DHCP_KEA_LEASE_FILE
+        if kea_file:
+            try:
+                # Vérifier que le fichier existe et est lisible
+                import os
+                if os.path.isfile(kea_file) and os.access(kea_file, os.R_OK):
+                    return KeaLeaseFileResolver(
+                        kea_file,
+                        cache_ttl=settings.IT_DHCP_KEA_CACHE_TTL,
+                    )
+                else:
+                    print(f"[DHCP] Fichier Kea configuré mais introuvable ou illisible : {kea_file}")
+            except Exception as e:
+                print(f"[DHCP] Erreur initialisation résolveur Kea local : {e}")
+
+        # 2. Fallback : API HTTP pfSense (existant)
         if not settings.IT_DHCP_RESOLVER_ENABLED or not settings.IT_DHCP_RESOLVER_URL:
             return None
 

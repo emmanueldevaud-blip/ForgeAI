@@ -86,6 +86,173 @@ async def test_dhcp_cache_key_includes_url():
 
 
 # ============================================================
+# KeaLeaseFileResolver (fichier local — aucun réseau)
+# ============================================================
+
+
+@pytest.fixture(autouse=True)
+def _clear_kea_cache():
+    from app.services.it_asset import KeaLeaseFileResolver
+    KeaLeaseFileResolver.clear_cache()
+    yield
+    KeaLeaseFileResolver.clear_cache()
+
+
+def _write_kea_file(tmp_path, content: str):
+    """Helper to create a temporary Kea lease file."""
+    p = tmp_path / "dhcp4.leases"
+    p.write_text(content, encoding="utf-8")
+    return str(p)
+
+
+async def test_kea_parse_json_lines(tmp_path):
+    """Parse valide JSON Lines Kea : IP, MAC, hostname, expire."""
+    content = (
+        '{"ip-address": "192.168.100.76", "hw-address": "aa:bb:cc:dd:ee:01", '
+        '"hostname": "pcfixe-ede-8.design-ede.fr.", "expire": 2000000000}\n'
+        '{"ip-address": "192.168.100.100", "hw-address": "bb:cc:dd:ee:ff:02", '
+        '"hostname": "pcfixe-manu.", "expire": 2000000000}\n'
+        '{"ip-address": "192.168.100.6", "hw-address": "cc:dd:ee:ff:00:11", '
+        '"hostname": "pcfixe-reunion.design-ede.fr.", "expire": 2000000000}\n'
+    )
+    path = _write_kea_file(tmp_path, content)
+
+    from app.services.it_asset import KeaLeaseFileResolver
+    resolver = KeaLeaseFileResolver(path, cache_ttl=0)
+
+    lease = await resolver.get_lease("192.168.100.76")
+    assert lease == {"mac": "aa:bb:cc:dd:ee:01", "hostname": "pcfixe-ede-8.design-ede.fr"}
+
+    lease = await resolver.get_lease("192.168.100.100")
+    assert lease == {"mac": "bb:cc:dd:ee:ff:02", "hostname": "pcfixe-manu"}
+
+    lease = await resolver.get_lease("192.168.100.6")
+    assert lease == {"mac": "cc:dd:ee:ff:00:11", "hostname": "pcfixe-reunion.design-ede.fr"}
+
+
+async def test_kea_hostname_absent(tmp_path):
+    """Entrée sans hostname : retourne MAC mais hostname=None."""
+    content = '{"ip-address": "192.168.100.50", "hw-address": "aa:bb:cc:dd:ee:ff"}\n'
+    path = _write_kea_file(tmp_path, content)
+
+    from app.services.it_asset import KeaLeaseFileResolver
+    resolver = KeaLeaseFileResolver(path, cache_ttl=0)
+
+    lease = await resolver.get_lease("192.168.100.50")
+    assert lease == {"mac": "aa:bb:cc:dd:ee:ff", "hostname": None}
+
+
+async def test_kea_expired_lease_ignored(tmp_path):
+    """Bail expiré (expire dans le passé) : ignoré."""
+    import time
+    past = int(time.time()) - 3600
+    content = f'{{"ip-address": "192.168.100.20", "hw-address": "aa:bb:cc:dd:ee:ff", "expire": {past}}}\n'
+    path = _write_kea_file(tmp_path, content)
+
+    from app.services.it_asset import KeaLeaseFileResolver
+    resolver = KeaLeaseFileResolver(path, cache_ttl=0)
+
+    lease = await resolver.get_lease("192.168.100.20")
+    assert lease is None
+
+
+async def test_kea_duplicate_ip_keeps_latest(tmp_path):
+    """Même IP plusieurs fois : garde le bail le plus récent (expire max)."""
+    content = (
+        '{"ip-address": "192.168.100.25", "hw-address": "aa:bb:cc:dd:ee:01", "expire": 1000}\n'
+        '{"ip-address": "192.168.100.25", "hw-address": "bb:cc:dd:ee:ff:02", "expire": 2000}\n'
+    )
+    path = _write_kea_file(tmp_path, content)
+
+    from app.services.it_asset import KeaLeaseFileResolver
+    resolver = KeaLeaseFileResolver(path, cache_ttl=0)
+
+    lease = await resolver.get_lease("192.168.100.25")
+    assert lease["mac"] == "bb:cc:dd:ee:ff:02"  # le plus récent
+
+
+async def test_kea_file_not_found(tmp_path):
+    """Fichier introuvable : retourne None sans exception."""
+    from app.services.it_asset import KeaLeaseFileResolver
+    resolver = KeaLeaseFileResolver(str(tmp_path / "inexistant.leases"), cache_ttl=0)
+
+    lease = await resolver.get_lease("192.168.100.1")
+    assert lease is None
+
+
+async def test_kea_invalid_json_line_ignored(tmp_path):
+    """Ligne JSON invalide ignorée, lignes valides parsées."""
+    content = (
+        'not json\n'
+        '{"ip-address": "192.168.100.30", "hw-address": "aa:bb:cc:dd:ee:03", "expire": 2000000000}\n'
+    )
+    path = _write_kea_file(tmp_path, content)
+
+    from app.services.it_asset import KeaLeaseFileResolver
+    resolver = KeaLeaseFileResolver(path, cache_ttl=0)
+
+    lease = await resolver.get_lease("192.168.100.30")
+    assert lease == {"mac": "aa:bb:cc:dd:ee:03", "hostname": None}
+
+
+async def test_kea_normalize_hostname_trailing_dot(tmp_path):
+    """Hostname avec point final : strip + lowercase."""
+    content = (
+        '{"ip-address": "192.168.100.40", "hw-address": "aa:bb:cc:dd:ee:04", '
+        '"hostname": "PCFIXE-MANU.Design-ede.FR.", "expire": 2000000000}\n'
+    )
+    path = _write_kea_file(tmp_path, content)
+
+    from app.services.it_asset import KeaLeaseFileResolver
+    resolver = KeaLeaseFileResolver(path, cache_ttl=0)
+
+    lease = await resolver.get_lease("192.168.100.40")
+    assert lease["hostname"] == "pcfixe-manu.design-ede.fr"
+
+
+async def test_kea_cache_ttl(tmp_path):
+    """Cache TTL : une seule lecture fichier pour plusieurs appels."""
+    import time
+    content = '{"ip-address": "192.168.100.50", "hw-address": "aa:bb:cc:dd:ee:ff", "expire": 2000000000}\n'
+    path = _write_kea_file(tmp_path, content)
+
+    from app.services.it_asset import KeaLeaseFileResolver
+    calls = {"n": 0}
+    original_get_leases = KeaLeaseFileResolver._get_leases
+
+    async def counting_get_leases(self):
+        calls["n"] += 1
+        return await original_get_leases(self)
+
+    import app.services.it_asset as mod
+    mod.KeaLeaseFileResolver._get_leases = counting_get_leases
+    try:
+        resolver = KeaLeaseFileResolver(path, cache_ttl=300)
+        await resolver.get_lease("192.168.100.50")
+        await resolver.get_lease("192.168.100.50")
+        assert calls["n"] == 1
+    finally:
+        mod.KeaLeaseFileResolver._get_leases = original_get_leases
+
+
+async def test_kea_permission_error(tmp_path):
+    """Permission refusée : log et retour None."""
+    import os
+    content = '{"ip-address": "192.168.100.50", "hw-address": "aa:bb:cc:dd:ee:ff"}\n'
+    path = _write_kea_file(tmp_path, content)
+    os.chmod(path, 0o000)  # pas de lecture
+
+    from app.services.it_asset import KeaLeaseFileResolver
+    resolver = KeaLeaseFileResolver(path, cache_ttl=0)
+
+    try:
+        lease = await resolver.get_lease("192.168.100.50")
+        assert lease is None
+    finally:
+        os.chmod(path, 0o644)
+
+
+# ============================================================
 # DnsResolver (mock dnspython — aucun réseau)
 # ============================================================
 
@@ -250,6 +417,8 @@ class _FakeAllResolverSettings(_FakeArpResolverSettings):
     IT_DHCP_RESOLVER_USER = ""
     IT_DHCP_RESOLVER_PASSWORD = ""
     IT_DHCP_RESOLVER_CACHE_TTL = 300
+    IT_DHCP_KEA_LEASE_FILE = ""  # Pas de fichier Kea local dans les tests d'intégration
+    IT_DHCP_KEA_CACHE_TTL = 300
     IT_DNS_RESOLVER_ENABLED = True
     IT_DNS_RESOLVER_SERVER = "192.168.79.254"
     IT_DNS_RESOLVER_PORT = 53

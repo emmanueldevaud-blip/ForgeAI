@@ -45,6 +45,13 @@ const ASSET_STATUSES = [
   { value: 'maintenance', label: 'En maintenance' },
 ];
 
+const SECTION_ROUTES = {
+  list: '/it-assets',
+  discovery: '/it-assets/discovery',
+  alerts: '/it-assets/alerts',
+  'network-ranges': '/it-assets/network-ranges',
+};
+
 export class ITAssetPage {
   constructor(router) {
     this.router = router;
@@ -128,6 +135,14 @@ export class ITAssetPage {
     this.render();
   }
 
+  setSection(section) {
+    this.currentSection = section;
+    if (section === 'list' && this.selectedAssetId) {
+      this.selectedAssetId = null;
+      this.selectedAssetName = null;
+    }
+  }
+
   destroy() {
     this._authUnsubscribe?.();
     if (this.element) this.element.remove();
@@ -195,7 +210,7 @@ export class ITAssetPage {
       this.selectedAssetName = asset.name;
       this.assets = [asset];
       this.observations = observations.items || [];
-      this.alerts = alerts.items || [];
+      this.alerts = Array.isArray(alerts) ? alerts : (alerts.items || []);
     } catch (err) {
       console.error('Error loading asset details:', err);
     } finally {
@@ -698,12 +713,12 @@ export class ITAssetPage {
 
     this.element.querySelectorAll('[data-section]').forEach(btn => {
       btn.addEventListener('click', () => {
-        this.currentSection = btn.dataset.section;
-        if (this.currentSection === 'list' && this.selectedAssetId) {
-          this.selectedAssetId = null;
-          this.selectedAssetName = null;
-          this.loadAssets();
+        const section = btn.dataset.section;
+        const route = SECTION_ROUTES[section];
+        if (route && this.router) {
+          this.router.navigate(route);
         } else {
+          this.currentSection = section;
           this.render();
         }
       });
@@ -823,7 +838,7 @@ export class ITAssetPage {
         const alertId = parseInt(btn.dataset.alertId);
         await resolveAlert(this.selectedAssetId, alertId);
         const alerts = await getAssetAlerts(this.selectedAssetId, null);
-        this.alerts = alerts.items || [];
+        this.alerts = Array.isArray(alerts) ? alerts : (alerts.items || []);
         this.render();
       });
     });
@@ -833,7 +848,7 @@ export class ITAssetPage {
         const alertId = parseInt(btn.dataset.alertId);
         await acknowledgeAlert(this.selectedAssetId, alertId);
         const alerts = await getAssetAlerts(this.selectedAssetId, null);
-        this.alerts = alerts.items || [];
+        this.alerts = Array.isArray(alerts) ? alerts : (alerts.items || []);
         this.render();
       });
     });

@@ -34,7 +34,7 @@ import { createAgendaSettingsPage } from './pages/AgendaSettingsPage.js?v=3';
 import { createDomotiquePage } from './pages/DomotiquePage.js?v=8';
 import { createDomotiqueConfigPage } from './pages/DomotiqueConfigPage.js?v=8';
 import { createPhotosPage } from './pages/PhotosPage.js?v=9';
-import { createITAssetPage } from './pages/ITAssetPage.js?v=2';
+import { createITAssetPage } from './pages/ITAssetPage.js?v=3';
 
 const moduleRoutes = [
   'dashboard',
@@ -284,6 +284,15 @@ async function initializeApp() {
       await showPhotosPage(route);
     }, { requiresAuth: true, permissions: ['photos.delete'] })
     .addRoute('/it-assets', async (route) => {
+      await showITAssetPage(route);
+    }, { requiresAuth: true, permissions: ['it_asset.view'] })
+    .addRoute('/it-assets/discovery', async (route) => {
+      await showITAssetPage(route);
+    }, { requiresAuth: true, permissions: ['it_asset.view'] })
+    .addRoute('/it-assets/alerts', async (route) => {
+      await showITAssetPage(route);
+    }, { requiresAuth: true, permissions: ['it_asset.view'] })
+    .addRoute('/it-assets/network-ranges', async (route) => {
       await showITAssetPage(route);
     }, { requiresAuth: true, permissions: ['it_asset.view'] })
 
@@ -975,11 +984,19 @@ async function showPhotosPage(route) {
   }
 }
 
+const IT_SECTION_BY_PATH = {
+  '/it-assets': 'list',
+  '/it-assets/discovery': 'discovery',
+  '/it-assets/alerts': 'alerts',
+  '/it-assets/network-ranges': 'network-ranges',
+};
+
 async function showITAssetPage(route) {
   if (!appShell) return;
   appShell.showLoading();
   try {
     const page = await ensureITAssetPage();
+    page.setSection(IT_SECTION_BY_PATH[route.path] || 'list');
     const content = page.render();
     appShell.showContent(content);
     page.loadData();

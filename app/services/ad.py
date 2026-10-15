@@ -910,6 +910,15 @@ class DatabaseADService:
             user_dn = str(entry.distinguishedName)
             found_ad_dns.add(user_dn)
 
+            # Compte désactivé en AD (bit ACCOUNTDISABLE = 2) : on le
+            # désactive côté ForgeAI au lieu de le réactiver à chaque synchro.
+            ad_disabled = False
+            if "userAccountControl" in entry and entry.userAccountControl:
+                try:
+                    ad_disabled = bool(int(str(entry.userAccountControl)) & 2)
+                except (TypeError, ValueError):
+                    ad_disabled = False
+
             groups = []
             if entry.memberOf:
                 groups = [str(g) for g in entry.memberOf]
@@ -952,7 +961,7 @@ class DatabaseADService:
                 email_owner = result.scalar_one_or_none()
 
             if user:
-                user.is_active = True
+                user.is_active = not ad_disabled
                 user.last_login = datetime.now(UTC)
                 if entry.mail:
                     result = await self.db.execute(select(User).where(User.email == email))
@@ -978,6 +987,9 @@ class DatabaseADService:
             elif username_owner is not None or email_owner is not None:
                 continue
             else:
+                # Ne pas créer de compte déjà désactivé en AD.
+                if ad_disabled:
+                    continue
                 try:
                     async with self.db.begin_nested():
                         user = User(

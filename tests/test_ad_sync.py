@@ -257,6 +257,53 @@ async def test_sync_updates_existing_ad_user_with_same_username(monkeypatch):
     assert existing_user.is_active is True
 
 
+@pytest.mark.asyncio
+async def test_sync_deactivates_existing_user_disabled_in_ad(monkeypatch):
+    """Un compte désactivé en AD (ACCOUNTDISABLE) est désactivé dans ForgeAI."""
+    config = _make_config(group_search_base=None)
+    user_entry = _user_entry()
+    user_entry.userAccountControl = 514  # 512 (normal) + 2 (ACCOUNTDISABLE)
+    existing_user = User(
+        id=7,
+        username="alice",
+        email="alice@example.test",
+        password_hash=None,
+        source="ad",
+        ad_dn=user_entry.distinguishedName,
+        is_active=True,
+        role=UserRole.USER,
+    )
+    ldap_connection = FakeLDAPConnection(user_entries=[user_entry])
+    db_session = FakeSession(existing_user=existing_user)
+    service = DatabaseADService(db_session)
+    monkeypatch.setattr(service, "_create_server", lambda _: object())
+    monkeypatch.setattr(service, "_create_connection", lambda *args, **kwargs: ldap_connection)
+
+    sync_log = await service.sync_users(config)
+
+    assert sync_log.status == "success"
+    assert existing_user.is_active is False
+
+
+@pytest.mark.asyncio
+async def test_sync_does_not_create_user_already_disabled_in_ad(monkeypatch):
+    """Un compte désactivé en AD absent de la base n'est pas créé."""
+    config = _make_config(group_search_base=None)
+    user_entry = _user_entry()
+    user_entry.userAccountControl = 514
+    ldap_connection = FakeLDAPConnection(user_entries=[user_entry])
+    db_session = FakeSession()
+    service = DatabaseADService(db_session)
+    monkeypatch.setattr(service, "_create_server", lambda _: object())
+    monkeypatch.setattr(service, "_create_connection", lambda *args, **kwargs: ldap_connection)
+
+    sync_log = await service.sync_users(config)
+
+    assert sync_log.status == "success"
+    assert sync_log.users_created == 0
+    assert db_session.users == []
+
+
 # ── Tests réconciliation des groupes ────────────────────────────────────────
 
 

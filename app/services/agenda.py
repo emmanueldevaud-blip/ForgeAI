@@ -248,10 +248,10 @@ class AgendaService:
         if not user_groups:
             return []
 
-        # Fetch users
+        # Fetch users (actifs uniquement)
         user_ids = list(user_groups.keys())
         u_result = await self.db.execute(
-            select(User).where(User.id.in_(user_ids))
+            select(User).where(User.id.in_(user_ids), User.is_active.is_(True))
         )
         users = {u.id: u for u in u_result.scalars().all()}
 

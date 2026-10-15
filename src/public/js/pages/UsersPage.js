@@ -1,6 +1,6 @@
 import { authStore } from '../stores/auth.js';
 import { UserTable } from '../components/UserTable.js?v=2';
-import { UserFilters } from '../components/UserFilters.js';
+import { UserFilters } from '../components/UserFilters.js?v=1';
 import { UserModal } from '../components/UserModal.js';
 import { ConfirmDialog } from '../components/ConfirmDialog.js';
 import {
@@ -34,7 +34,7 @@ export class UsersPage {
     this.filters = {
       search: '',
       role: '',
-      is_active: null,
+      is_active: true,
       source: '',
     };
 
@@ -66,6 +66,7 @@ export class UsersPage {
     });
 
     this.userFilters = new UserFilters({
+      defaultStatus: 'true',
       onSearch: (search) =>
         this.handleSearch(search),
 
@@ -294,7 +295,7 @@ export class UsersPage {
     this.filters = {
       search: '',
       role: '',
-      is_active: null,
+      is_active: true,
       source: '',
     };
 

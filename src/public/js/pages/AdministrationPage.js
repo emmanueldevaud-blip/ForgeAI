@@ -1,5 +1,5 @@
 import { authStore } from '../stores/auth.js';
-import { createUsersPage } from './UsersPage.js';
+import { createUsersPage } from './UsersPage.js?v=1';
 import { createGroupsPage } from './GroupsPage.js';
 import { createRolesPage } from './RolesPage.js';
 import { createPermissionsPage } from './PermissionsPage.js';

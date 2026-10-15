@@ -7,11 +7,12 @@ export class UserFilters {
     this.onSystemFilter = options.onSystemFilter || null;
     this.onClearFilters = options.onClearFilters || (() => {});
     this.modules = options.modules || [];
+    this.defaultStatus = options.defaultStatus ?? '';
     this.element = null;
     this.searchDebounce = null;
     this.currentValues = {
       search: '',
-      is_active: '',
+      is_active: this.defaultStatus,
       source: '',
       module: '',
       is_system: '',
@@ -19,10 +20,10 @@ export class UserFilters {
   }
 
   reset() {
-    this.currentValues = { search: '', is_active: '', source: '', module: '', is_system: '' };
+    this.currentValues = { search: '', is_active: this.defaultStatus, source: '', module: '', is_system: '' };
     if (this.element) {
       this.element.querySelector('[data-filter="search"]').value = '';
-      this.element.querySelector('[data-filter="status"]').value = '';
+      this.element.querySelector('[data-filter="status"]').value = this.defaultStatus;
       const sourceFilter = this.element.querySelector('[data-filter="source"]');
       if (sourceFilter) sourceFilter.value = '';
       const moduleFilter = this.element.querySelector('[data-filter="module"]');
@@ -118,6 +119,7 @@ export class UserFilters {
     `;
 
     const searchInput = this.element.querySelector('[data-filter="search"]');
+    this.element.querySelector('[data-filter="status"]').value = this.currentValues.is_active;
     searchInput.addEventListener('input', (e) => {
       clearTimeout(this.searchDebounce);
       this.searchDebounce = setTimeout(() => {

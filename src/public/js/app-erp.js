@@ -4,7 +4,7 @@ import { AppShell } from './components/AppShell.js?v=8';
 import { createModulePlaceholderPage } from './pages/ModulePlaceholder.js?v=3';
 import { createLoginPage } from './pages/LoginPage.js';
 import { createRegisterPage } from './pages/RegisterPage.js';
-import { createAdministrationPage } from './pages/AdministrationPage.js?v=4';
+import { createAdministrationPage } from './pages/AdministrationPage.js?v=5';
 import { createBuildingsPage } from './pages/BuildingsPage.js?v=5';
 import { createBuildingRefsPage } from './pages/BuildingRefsPage.js';
 import { createEquipmentPage } from './pages/EquipmentPage.js?v=2';

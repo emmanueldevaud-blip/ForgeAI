@@ -12,7 +12,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.models import ITAsset, NetworkRange, DiscoveryLog, AssetObservation, ITAlert, ITAssetHistory, Room, Building, Site
+from app.models import ITAsset, ITAssetType, NetworkRange, DiscoveryLog, AssetObservation, ITAlert, ITAssetHistory, Room, Building, Site
 from app.models.user import User
 from app.services.audit import AuditService
 from app.core.config import get_settings
@@ -58,6 +58,8 @@ _SNMP_OID_PREFIXES = {
     "sys_contact": "1.3.6.1.2.1.1.4",
     "sys_name": "1.3.6.1.2.1.1.5",
     "sys_location": "1.3.6.1.2.1.1.6",
+    "ip_media_phys_address": "1.3.6.1.2.1.4.22.1.2",
+    "if_phys_address": "1.3.6.1.2.1.2.2.1.6",
 }
 
 _SNMP_VENDOR_HINTS = (
@@ -96,6 +98,88 @@ def _parse_snmp_results(results: dict) -> dict:
             parsed["vendor"] = vendor
             break
     return parsed
+
+
+_SNMP_TYPE_HINTS = (
+    ("imprimante", "printer"),
+    ("printer", "printer"),
+    ("laserjet", "printer"),
+    ("inkjet", "printer"),
+    ("imageclass", "printer"),
+    ("workcentre", "printer"),
+    ("magicolor", "printer"),
+    ("canon", "printer"),
+    ("ricoh", "printer"),
+    ("kyocera", "printer"),
+    ("lexmark", "printer"),
+    ("epson", "printer"),
+    ("firewall", "firewall"),
+    ("fortigate", "firewall"),
+    ("sophos", "firewall"),
+    ("paloalto", "firewall"),
+    ("access point", "access_point"),
+    ("unifi", "access_point"),
+    ("unleashed", "access_point"),
+    ("switch", "switch"),
+    ("catalyst", "switch"),
+    ("commutateur", "switch"),
+    ("jetstream", "switch"),
+    ("ws-c", "switch"),
+    ("c2960", "switch"),
+    ("c3560", "switch"),
+    ("c3850", "switch"),
+    ("c9200", "switch"),
+    ("c9300", "switch"),
+    ("router", "router"),
+    ("routeur", "router"),
+    ("proxmox", "server"),
+    ("esxi", "server"),
+    ("vmware", "server"),
+    ("windows server", "server"),
+    ("synology", "server"),
+    ("qnap", "server"),
+    ("windows 11", "pc_windows"),
+    ("windows 10", "pc_windows"),
+    ("windows 7", "pc_windows"),
+    ("debian", "pc_linux"),
+    ("ubuntu", "pc_linux"),
+    ("fedora", "pc_linux"),
+    ("centos", "pc_linux"),
+)
+
+
+def _infer_asset_type(sys_descr: Optional[str]) -> Optional[str]:
+    """Inférer un type d'asset depuis la description système SNMP."""
+    if not sys_descr:
+        return None
+    descr = sys_descr.lower()
+    for hint, asset_type in _SNMP_TYPE_HINTS:
+        if hint in descr:
+            return asset_type
+    return None
+
+
+def _parse_snmp_mac(value: Optional[str]) -> Optional[str]:
+    """Convertir une adresse MAC renvoyée par SNMP (OctetString) en format aa:bb:cc:dd:ee:ff."""
+    if not value:
+        return None
+    v = str(value).strip()
+    mac = None
+    if v.startswith(("0x", "0X")):
+        hexpart = v[2:]
+        if len(hexpart) == 12 and all(c in "0123456789abcdefABCDEF" for c in hexpart):
+            mac = ":".join(hexpart[i:i + 2].lower() for i in range(0, 12, 2))
+    else:
+        import re
+        if re.fullmatch(r'([0-9a-fA-F]{2}[:-]){5}[0-9a-fA-F]{2}', v):
+            mac = v.replace("-", ":").lower()
+        else:
+            parts = re.split(r'[:\-\s\.]', v)
+            if len(parts) == 6 and all(0 < len(p) <= 2 and all(c in "0123456789abcdefABCDEF" for c in p) for p in parts):
+                mac = ":".join(p.lower().zfill(2) for p in parts)
+    if mac == "00:00:00:00:00:00":
+        return None
+    return mac
 
 
 class ITAssetService:
@@ -853,6 +937,10 @@ class NetworkDiscoveryService:
                 "1.3.6.1.2.1.1.6",  # sysLocation
                 "1.3.6.1.2.1.1.8",  # ifNumber
             ]
+            if ":" not in ip:
+                # ipNetToMediaPhysAddress pour l'IP scannée (MAC de l'équipement)
+                oids.append(f"1.3.6.1.2.1.4.22.1.2.{'.'.join(ip.split('.'))}")
+            oids.append("1.3.6.1.2.1.2.2.1.6.1")  # ifPhysAddress (ifIndex 1) - repli
 
             results = {}
 
@@ -923,14 +1011,10 @@ class NetworkDiscoveryService:
                         hosts_found += 1
                         mac = await self._get_mac_from_arp(ip)
 
-                        existing = None
-                        if mac:
-                            existing = await self.asset_service.get_it_asset_by_mac(mac)
-                        if not existing:
-                            existing = await self.asset_service.get_it_asset_by_ip(ip)
-
                         discovery_data = {"response_time_ms": response_time}
                         snmp_fields = {}
+                        snmp_mac = None
+                        inferred_type = None
 
                         if network_range.snmp_enabled:
                             snmp_raw = await self._get_snmp_info(
@@ -943,6 +1027,9 @@ class NetworkDiscoveryService:
                             if snmp_raw:
                                 parsed = _parse_snmp_results(snmp_raw)
                                 discovery_data["snmp"] = {**parsed, "raw": snmp_raw}
+                                snmp_mac = _parse_snmp_mac(parsed.get("ip_media_phys_address")) or \
+                                    _parse_snmp_mac(parsed.get("if_phys_address"))
+                                inferred_type = _infer_asset_type(parsed.get("sys_descr"))
 
                                 def _snmp_set(field: str, value):
                                     # Priorité Manuel > SNMP : ne jamais écraser une valeur existante
@@ -955,6 +1042,16 @@ class NetworkDiscoveryService:
                                 _snmp_set("snmp_manufacturer", parsed.get("vendor"))
                                 _snmp_set("snmp_contact", parsed.get("sys_contact"))
                                 _snmp_set("snmp_location", parsed.get("sys_location"))
+
+                        # ARP ne fonctionne qu'en L2 : repli sur la MAC SNMP (ifPhysAddress/ipNetToMedia)
+                        if not mac and snmp_mac:
+                            mac = snmp_mac
+
+                        existing = None
+                        if mac:
+                            existing = await self.asset_service.get_it_asset_by_mac(mac)
+                        if not existing:
+                            existing = await self.asset_service.get_it_asset_by_ip(ip)
 
                         asset_data = {
                             "ip_address": ip,
@@ -970,6 +1067,8 @@ class NetworkDiscoveryService:
                             # Priorité Manuel > scan : préserver un nom/type saisi manuellement
                             if existing.name.startswith("Host ") or not existing.name:
                                 asset_data["name"] = f"Host {ip}"
+                                if inferred_type and existing.asset_type in (None, "other", ITAssetType.OTHER):
+                                    asset_data["asset_type"] = inferred_type
                             if existing.mac_address is None and mac:
                                 asset_data["mac_address"] = mac
                             await self.asset_service.update_it_asset(existing.id, asset_data)
@@ -978,7 +1077,7 @@ class NetworkDiscoveryService:
                             asset_data["name"] = (
                                 (discovery_data.get("snmp") or {}).get("sys_name") or f"Host {ip}"
                             )
-                            asset_data["asset_type"] = "other"
+                            asset_data["asset_type"] = inferred_type or "other"
                             asset_data["mac_address"] = mac
                             asset_data["room_id"] = 1
                             await self.asset_service.create_it_asset(asset_data)

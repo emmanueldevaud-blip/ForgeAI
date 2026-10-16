@@ -273,21 +273,28 @@ class DatabaseADService:
 
             entry = admin_conn.entries[0]
             user_dn = str(entry.distinguishedName)
+
+            # Lire les groupes avec le compte de service : le compte de
+            # l'utilisateur authentifié peut ne pas avoir les droits de
+            # recherche sur l'OU des groupes.
+            groups = [str(group) for group in entry.memberOf] if entry.memberOf else []
+            if config.group_search_base:
+                admin_conn.search(
+                    search_base=config.group_search_base,
+                    search_filter=f"(member:1.2.840.113556.1.4.1941:={escape_filter_chars(user_dn)})",
+                    search_scope=SUBTREE,
+                    attributes=["distinguishedName"],
+                )
+                groups.extend(
+                    str(group_entry.distinguishedName)
+                    for group_entry in admin_conn.entries
+                    if group_entry.distinguishedName
+                )
             admin_conn.unbind()
 
             user_conn = self._create_connection(server, user_dn, password, config, authentication=SIMPLE)
             if not user_conn.bound:
                 return None, None, None, None
-
-            groups = [str(group) for group in entry.memberOf] if entry.memberOf else []
-            if config.group_search_base:
-                user_conn.search(
-                    search_base=config.group_search_base,
-                    search_filter=f"(member={user_dn})",
-                    search_scope=SUBTREE,
-                    attributes=["distinguishedName"],
-                )
-                groups.extend(str(group_entry.distinguishedName) for group_entry in user_conn.entries if group_entry.distinguishedName)
 
             user_conn.unbind()
 
@@ -555,7 +562,14 @@ class DatabaseADService:
                     )
                 )
 
-    async def _sync_user_ad_groups(self, user: User, group_dns: list[str], config: ADConfig) -> None:
+    async def _sync_user_ad_groups(
+        self,
+        user: User,
+        group_dns: list[str],
+        config: ADConfig,
+        *,
+        prune: bool = True,
+    ) -> None:
         groups = await self._ensure_ad_groups(group_dns, config)
         desired_ids = {group.id for group in groups.values()}
         result = await self.db.execute(
@@ -566,7 +580,7 @@ class DatabaseADService:
         current_ids = set(result.scalars().all())
         for group_id in desired_ids - current_ids:
             self.db.add(UserGroup(user_id=user.id, group_id=group_id))
-        if current_ids - desired_ids:
+        if prune and current_ids - desired_ids:
             await self.db.execute(
                 delete(UserGroup).where(
                     UserGroup.user_id == user.id,
@@ -678,6 +692,43 @@ class DatabaseADService:
             # PHASE 2 : synchronisation des utilisateurs
             # ------------------------------------------------------------------
             if group_phase and found_group_dns:
+                # Les groupes imbriqués ne sont pas nécessairement inclus dans
+                # le filtre de groupes configuré (ex. GG_EDE1 dans
+                # GG_FORGEAI_EDE1). Les charger à partir des membres de chaque
+                # groupe racine afin de ne pas perdre leurs utilisateurs.
+                expanded_groups: set[str] = set()
+
+                def expand_nested_group(group_dn: str) -> None:
+                    group_key = group_dn.casefold()
+                    if group_key in expanded_groups:
+                        return
+                    expanded_groups.add(group_key)
+                    admin_conn.search(
+                        search_base=group_dn,
+                        search_filter="(objectClass=group)",
+                        search_scope="BASE",
+                        attributes=["member", "distinguishedName"],
+                    )
+                    if not admin_conn.entries:
+                        return
+                    members = {
+                        str(member_dn)
+                        for member_dn in (getattr(admin_conn.entries[0], "member", None) or [])
+                    }
+                    group_member_dns[group_dn] = members
+                    for member_dn in members:
+                        admin_conn.search(
+                            search_base=member_dn,
+                            search_filter="(objectClass=group)",
+                            search_scope="BASE",
+                            attributes=["distinguishedName"],
+                        )
+                        if admin_conn.entries:
+                            expand_nested_group(member_dn)
+
+                for group_dn in sorted(found_group_dns):
+                    expand_nested_group(group_dn)
+
                 # Recherche des utilisateurs membres d'un des groupes trouves,
                 # directement ou par imbrication de groupes, via la regle
                 # in-chain AD (LDAP_MATCHING_RULE_IN_CHAIN).
@@ -689,32 +740,52 @@ class DatabaseADService:
                 users_updated = 0
                 users_deactivated = 0
 
-                # Appartenance : user_dn -> groupes AD dont il est membre
-                # (directement ou transitivement).
+                # Appartenance : user_dn -> groupes AD dont il est membre.
+                # La recherche `memberOf` côté utilisateur ne résout pas
+                # correctement les groupes imbriqués sur tous les contrôleurs
+                # AD. On part donc des attributs `member` déjà collectés sur
+                # les groupes et on calcule la fermeture transitive.
                 group_dns_by_user: dict[str, set[str]] = {}
-                for group_dn in sorted(found_group_dns):
-                    admin_conn.search(
-                        search_base=user_search_base,
-                        search_filter=(
-                            f"(&{user_base_filter}"
-                            f"(memberOf:1.2.840.113556.1.4.1941:={escape_filter_chars(group_dn)}))"
-                        ),
-                        search_scope=SUBTREE,
-                        attributes=["distinguishedName"],
-                        paged_size=config.page_size,
-                    )
-                    for entry in admin_conn.entries:
-                        if entry.distinguishedName:
-                            group_dns_by_user.setdefault(str(entry.distinguishedName), set()).add(group_dn)
+                group_dns_by_key = {group_dn.casefold(): group_dn for group_dn in group_member_dns}
 
-                # Traitement unique de chaque utilisateur trouve.
-                chain_filters = "".join(
-                    f"(memberOf:1.2.840.113556.1.4.1941:={escape_filter_chars(group_dn)})"
-                    for group_dn in sorted(found_group_dns)
+                def collect_members(group_dn: str, ancestors: set[str]) -> None:
+                    group_key = group_dn.casefold()
+                    if group_key in ancestors:
+                        return
+                    next_ancestors = ancestors | {group_key}
+                    for member_dn in group_member_dns.get(group_dn, set()):
+                        nested_group_dn = group_dns_by_key.get(member_dn.casefold())
+                        if nested_group_dn:
+                            collect_members(nested_group_dn, next_ancestors)
+                            continue
+                        group_dns_by_user.setdefault(member_dn, set()).update(
+                            group_dns_by_key[key] for key in next_ancestors if key in group_dns_by_key
+                        )
+
+                for group_dn in sorted(found_group_dns):
+                    collect_members(group_dn, set())
+
+                member_filters = "".join(
+                    f"(distinguishedName={escape_filter_chars(user_dn)})"
+                    for user_dn in sorted(group_dns_by_user)
                 )
+                if not member_filters:
+                    admin_conn.unbind()
+                    return {
+                        "groups_processed": groups_processed,
+                        "groups_created": groups_created,
+                        "groups_updated": groups_updated,
+                        "groups_deleted": groups_deleted,
+                        "users_processed": 0,
+                        "users_created": 0,
+                        "users_updated": 0,
+                        "users_deactivated": 0,
+                    }
+
+                # Traitement unique de chaque utilisateur trouvé.
                 admin_conn.search(
                     search_base=user_search_base,
-                    search_filter=f"(&{user_base_filter}(|{chain_filters}))",
+                    search_filter=f"(&{user_base_filter}(|{member_filters}))",
                     search_scope=SUBTREE,
                     attributes=user_attributes,
                     paged_size=config.page_size,

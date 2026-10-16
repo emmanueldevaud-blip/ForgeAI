@@ -39,14 +39,6 @@ from app.services.auth import create_user
 from app.services.rbac import seed_default_rbac
 
 
-@pytest.fixture(scope="session")
-def event_loop():
-    import asyncio
-    loop = asyncio.get_event_loop_policy().new_event_loop()
-    yield loop
-    loop.close()
-
-
 def _get_test_database_url():
     """Get test database URL - supports MySQL for integration tests."""
     mysql_url = os.getenv("TEST_DATABASE_URL")

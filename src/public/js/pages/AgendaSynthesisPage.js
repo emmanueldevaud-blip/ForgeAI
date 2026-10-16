@@ -71,7 +71,7 @@ function _monthDates(anchor) {
 const METRICS = [
   { key: 'person_count', totalKey: 'total_persons', grandKey: 'grand_total_persons', label: 'Personnes presentes', color: 'persons', showCapacity: false },
   { key: 'meal_count', totalKey: 'total_meals', grandKey: 'grand_total_meals', label: 'Repas', color: 'meals', showCapacity: false },
-  { key: 'workstation_count', totalKey: 'total_workstations', grandKey: 'grand_total_workstations', label: 'Postes de travail', color: 'workstations', showCapacity: true },
+  { key: 'workstation_count', totalKey: 'total_workstations', grandKey: 'grand_total_workstations', label: 'Postes de travail', color: 'workstations', showCapacity: false },
 ];
 
 export class AgendaSynthesisPage {
@@ -249,7 +249,7 @@ export class AgendaSynthesisPage {
     const showCapacity = metric.showCapacity;
     return `
       <tbody>
-        ${rooms.map(room => {
+          ${rooms.map(room => {
           let rowTotal = 0;
           const cells = dates.map((iso, di) => {
             const day = dayByIso.get(iso);
@@ -270,7 +270,19 @@ export class AgendaSynthesisPage {
               <td class="agenda-synthesis-total agenda-synthesis-total--${metric.color}">${rowTotal}</td>
             </tr>`;
         }).join('')}
+        ${metric.key === 'person_count' ? this._remoteRow(dates, dayByIso, metric) : ''}
       </tbody>`;
+  }
+
+  _remoteRow(dates, dayByIso, metric) {
+    let rowTotal = 0;
+    const cells = dates.map((iso, di) => {
+      const value = dayByIso.get(iso)?.total_remote ?? 0;
+      rowTotal += value;
+      const weekStart = this.view === 'month' && di % 5 === 0 && di > 0 ? ' agenda-week-start' : '';
+      return `<td class="agenda-synthesis-cell agenda-synthesis-cell--persons${weekStart}">${value}</td>`;
+    }).join('');
+    return `<tr class="agenda-synthesis-remote-row"><td class="agenda-synthesis-room-name">TELETRAVAIL</td>${cells}<td class="agenda-synthesis-total agenda-synthesis-total--persons">${rowTotal}</td></tr>`;
   }
 
   _tableFoot(dates, data, metric) {

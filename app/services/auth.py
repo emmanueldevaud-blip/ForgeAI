@@ -223,7 +223,7 @@ async def authenticate_ad(
             return None
         user.is_active = True
         user.last_login = datetime.now(UTC)
-        await ad_service._sync_user_ad_groups(user, groups or [], config)
+        await ad_service._sync_user_ad_groups(user, groups or [], config, prune=False)
         await db.commit()
         await db.refresh(user)
 
@@ -256,7 +256,7 @@ async def authenticate_ad(
             username_owner.ad_dn = user_dn
             username_owner.is_active = True
             username_owner.last_login = datetime.now(UTC)
-            await ad_service._sync_user_ad_groups(username_owner, groups or [], config)
+            await ad_service._sync_user_ad_groups(username_owner, groups or [], config, prune=False)
             await db.commit()
             await db.refresh(username_owner)
             return username_owner
@@ -276,7 +276,7 @@ async def authenticate_ad(
             async with db.begin_nested():
                 db.add(user)
                 await db.flush()
-                await ad_service._sync_user_ad_groups(user, groups or [], config)
+                await ad_service._sync_user_ad_groups(user, groups or [], config, prune=False)
             await db.commit()
             await db.refresh(user)
         except IntegrityError:
@@ -336,7 +336,7 @@ async def _user_has_authorized_mapping(
     if config.group_search_base:
         admin_conn.search(
             search_base=config.group_search_base,
-            search_filter=f"(member={escape_filter_chars(user_dn)})",
+            search_filter=f"(member:1.2.840.113556.1.4.1941:={escape_filter_chars(user_dn)})",
             search_scope=SUBTREE,
             attributes=["distinguishedName"],
         )
@@ -468,7 +468,7 @@ async def authenticate_sso(
                 return None
             user.is_active = True
             user.last_login = datetime.now(UTC)
-            await ad_service._sync_user_ad_groups(user, groups or [], config)
+            await ad_service._sync_user_ad_groups(user, groups or [], config, prune=False)
             await db.commit()
             await db.refresh(user)
 
@@ -509,7 +509,7 @@ async def authenticate_sso(
             username_owner.ad_dn = user_dn
             username_owner.is_active = True
             username_owner.last_login = datetime.now(UTC)
-            await ad_service._sync_user_ad_groups(username_owner, groups or [], config)
+            await ad_service._sync_user_ad_groups(username_owner, groups or [], config, prune=False)
             await db.commit()
             await db.refresh(username_owner)
             return username_owner
@@ -529,7 +529,7 @@ async def authenticate_sso(
             async with db.begin_nested():
                 db.add(user)
                 await db.flush()
-                await ad_service._sync_user_ad_groups(user, groups or [], config)
+                await ad_service._sync_user_ad_groups(user, groups or [], config, prune=False)
             await db.commit()
             await db.refresh(user)
         except IntegrityError:

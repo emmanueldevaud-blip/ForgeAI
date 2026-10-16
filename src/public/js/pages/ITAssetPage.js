@@ -45,6 +45,8 @@ const ASSET_STATUSES = [
   { value: 'maintenance', label: 'En maintenance' },
 ];
 
+const ASSET_STATUS_LABELS = Object.fromEntries(ASSET_STATUSES.map(({ value, label }) => [value, label]));
+
 const SECTION_ROUTES = {
   list: '/it-assets',
   discovery: '/it-assets/discovery',
@@ -95,7 +97,7 @@ export class ITAssetPage {
         { key: 'mac_address', label: 'Adresse MAC' },
         { key: 'serial_number', label: 'Série' },
         { key: 'room_name', label: 'Salle' },
-        { key: 'status', label: 'Statut', render: (item) => `<span class="status-badge ${(item.status || '').toLowerCase()}">${this._escape(item.status || '')}</span>` },
+        { key: 'status', label: 'Statut', render: (item) => this._renderStatus(item.status) },
       ],
       actions: [
         { key: 'edit', label: 'Modifier', icon: 'edit', permission: 'it_asset.update' },
@@ -130,6 +132,12 @@ export class ITAssetPage {
     });
 
     this._authUnsubscribe = authStore.subscribe(() => this._updateButtonVisibility());
+  }
+
+  _renderStatus(status) {
+    const value = String(status || 'unknown').toLowerCase();
+    const label = ASSET_STATUS_LABELS[value] || 'Inconnu';
+    return `<span class="asset-status status-badge ${this._escape(value)}"><span class="asset-status-dot" aria-hidden="true"></span>${this._escape(label)}</span>`;
   }
 
   async loadData() {

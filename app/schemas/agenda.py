@@ -178,6 +178,7 @@ class AgendaSynthesisDay(BaseModel):
     total_persons: int = 0
     total_meals: int = 0
     total_workstations: int = 0
+    total_remote: int = 0
 
 
 class AgendaSynthesisResponse(BaseModel):
@@ -187,3 +188,4 @@ class AgendaSynthesisResponse(BaseModel):
     grand_total_persons: int = 0
     grand_total_meals: int = 0
     grand_total_workstations: int = 0
+    grand_total_remote: int = 0

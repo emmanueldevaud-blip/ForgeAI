@@ -5483,9 +5483,9 @@
 .agenda-period-wrap { min-width: 130px; }
 .agenda-table--people { min-width: 0; --agenda-head-row1-h: 34px; }
 .agenda-table--people th[data-day] { cursor: pointer; }
-.agenda-table--people thead th { position: sticky; z-index: 5; }
-.agenda-table--people thead tr:first-child th { top: 0; height: var(--agenda-head-row1-h); }
-.agenda-table--people thead tr:nth-child(2) th { top: var(--agenda-head-row1-h); }
+.agenda-table--people thead th { position: sticky; z-index: 5; background: var(--color-bg-secondary); }
+.agenda-table--people thead tr:first-child th { top: 0; height: var(--agenda-head-row1-h); z-index: 6; box-shadow: 0 1px 0 var(--color-border-light); }
+.agenda-table--people thead tr:nth-child(2) th { top: var(--agenda-head-row1-h); z-index: 5; }
 .agenda-table--people .agenda-room-head { position: sticky; left: 32px; z-index: 6; min-width: 100px; max-width: 160px; box-shadow: 1px 0 0 var(--color-border-light); }
 .agenda-table--people thead .agenda-room-head { z-index: 7; }
 .agenda-table--people td { padding: 1px 2px; }
@@ -5520,10 +5520,10 @@
 .agenda-table--people .agenda-cell--afternoon { border-left: 1px solid var(--color-border-light); }
 /* En mode mois, les week-ends sont retirés : double trait entre vendredi et lundi. */
 .agenda-table--people .is-after-weekend,
-.agenda-mine-matrix .is-after-weekend { border-left: 3px double var(--color-border-medium); }
+.agenda-mine-matrix .is-after-weekend { border-left: 3px double var(--color-border-light); }
 .agenda-table--people td.agenda-cell--morning.is-after-weekend,
 .agenda-table--people th.agenda-half-subhead.is-after-weekend {
-  border-left: 3px double var(--color-border-medium);
+  border-left: 3px double var(--color-border-light);
 }
 .agenda-person-head { vertical-align: middle; }
 .agenda-people-cell { min-width: 44px; flex-direction: row; justify-content: center; gap: var(--spacing-1); padding: var(--spacing-1) var(--spacing-2); line-height: var(--line-height-tight); }
@@ -5534,6 +5534,8 @@
 .agenda-people-cell:disabled:hover, .agenda-people-cell:disabled:focus-visible { border-color: transparent; background: transparent; }
 .agenda-table--people-month { min-width: 0; width: 100%; table-layout: fixed; --agenda-head-row1-h: 26px; }
 .agenda-table--people-month .agenda-team-head, .agenda-table--people-month .agenda-team-cell { width: 22px; }
+.agenda-table--people-month thead tr:first-child th { top: 0; z-index: 9; }
+.agenda-table--people-month thead tr:nth-child(2) th { top: 26px; z-index: 8; background: var(--color-bg-secondary); }
 .agenda-table--people-month .agenda-corner, .agenda-table--people-month .agenda-room-head { width: 110px; min-width: 110px; max-width: 110px; }
 .agenda-table--people-month .agenda-day-head { width: 30px; min-width: 0; padding: 2px 1px; }
 .agenda-table--people-month .agenda-half-subhead { width: 15px; padding: 1px; font-size: 8px; }
@@ -5542,6 +5544,8 @@
 .agenda-table--people-month td.agenda-cell.has-presence { background: #dcfce7; }
 .agenda-table--people-month td.agenda-cell.has-presence .agenda-people-cell { background: transparent; border-color: transparent; display: flex; align-items: center; justify-content: center; width: 100%; height: 100%; }
 .agenda-people-cell-icons { display: inline-flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; width: 100%; height: 100%; min-height: 18px; }
+.agenda-table--people td.agenda-cell.is-remote { background: var(--color-warning-light); }
+.agenda-remote-marker { color: var(--color-warning-hover); font-size: var(--font-size-sm); font-weight: var(--font-weight-bold); line-height: 1; }
 .agenda-people-cell-dot { display: inline-block; width: 8px; height: 8px; border-radius: 2px; background: #16a34a; flex-shrink: 0; }
 .agenda-people-cell.is-compact.is-empty { min-width: 0; }
 .agenda-mini-icon { flex-shrink: 0; color: var(--color-text-secondary); }
@@ -7250,6 +7254,3 @@
 .agenda-team-3 .agenda-team-cell { background: #0369a1; border-left-color: #075985; }
 .agenda-team-4 .agenda-team-cell { background: #b91c1c; border-left-color: #991b1b; }
 .agenda-team-5 .agenda-team-cell { background: #7c3aed; border-left-color: #6d28d9; }
-
-.agenda-table--people-month td:nth-child(5n+1) { border-left: 4px solid var(--color-primary); }
-.agenda-table--people-month td:first-child { border-left: 4px solid var(--color-primary); }

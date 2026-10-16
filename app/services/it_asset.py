@@ -364,16 +364,28 @@ class DhcpLeaseResolver:
 # --- Source B bis : Résolution DHCP via fichier local Kea (fallback local) ---
 
 class KeaLeaseFileResolver:
-    """Récupération des baux DHCP depuis un fichier local Kea (JSON Lines).
+    """Récupération des baux DHCP depuis un fichier local Kea (format CSV).
 
     Le fichier de baux Kea (`/var/lib/kea/dhcp4.leases` sur pfSense) est copié
-    sur le VPS (ex. via SCP cron) et lu localement. Format attendu : une
-    entrée JSON par ligne (format Kea dhcp4.leases).
+    sur le VPS (ex. via SCP cron) et lu localement. Format attendu : CSV Kea
+    (format memfile dhcp4.leases).
+
+    Colonnes CSV Kea (format memfile dhcp4.leases) :
+      0: address (IP)
+      1: hwaddr (MAC)
+      2: client-id (DUID)
+      3: valid-lifetime
+      4: expire (Unix timestamp)
+      5: subnet-id
+      6: fqdn-fwd
+      7: fqdn-rev
+      8: hostname
+      9+: colonnes additionnelles (ignorées)
 
     Gère :
-    - Parsing robuste JSON Lines (ignore lignes vides/commentaires/invalides)
-    - Filtrage baux expirés (selon `expire` timestamp)
-    - Déduplication : conserve le bail le plus récent par IP
+    - Parsing robuste CSV (module csv, ignore lignes vides/invalides)
+    - Filtrage baux expirés (selon `expire` timestamp Unix)
+    - Déduplication : conserve le bail le plus récent par IP (expire max)
     - Normalisation hostname (strip trailing dot, lowercase)
     - Fichier absent/illisible : log + retour table vide sans exception
     """
@@ -416,10 +428,9 @@ class KeaLeaseFileResolver:
         return h if h else None
 
     @staticmethod
-    def _is_lease_valid(entry: dict, now: float) -> bool:
+    def _is_lease_valid(expire: Optional[str], now: float) -> bool:
         """Vérifie si le bail est encore valide (pas expiré)."""
-        expire = entry.get("expire")
-        if expire is None:
+        if expire is None or expire == "":
             return True  # Pas d'expiration = valide
         try:
             return float(expire) > now
@@ -428,35 +439,37 @@ class KeaLeaseFileResolver:
 
     async def _get_leases(self) -> dict:
         import time as _time
-        now = _time.monotonic()
+        # Pour la vérification d'expiration, on utilise time.time() (Unix timestamp)
+        # car les baux Kea stockent l'expiration en Unix timestamp
+        now_unix = _time.time()
+        now_mono = _time.monotonic()
         cached = self._cache.get(self._cache_key)
-        if cached and (now - cached[0]) < self.cache_ttl:
+        if cached and (now_mono - cached[0]) < self.cache_ttl:
             return cached[1]
 
         leases_by_ip: dict = {}
         try:
-            # Lecture du fichier ligne par ligne (JSON Lines)
+            # Lecture du fichier CSV (format Kea memfile dhcp4.leases)
             with open(self.lease_file_path, "r", encoding="utf-8") as f:
-                for line_num, line in enumerate(f, 1):
-                    line = line.strip()
-                    if not line or line.startswith("#"):
+                import csv
+                reader = csv.reader(f)
+                for row in reader:
+                    # Ignorer lignes vides
+                    if not row:
                         continue
-                    try:
-                        entry = json.loads(line)
-                    except json.JSONDecodeError:
-                        # Ligne invalide : on ignore silencieusement
-                        continue
-
-                    # Extraction des champs
-                    ip = entry.get("ip-address") or entry.get("ip_address")
-                    mac = entry.get("hw-address") or entry.get("mac-address") or entry.get("hardware_address")
-                    hostname = entry.get("hostname") or entry.get("host-name")
+                    # Format Kea CSV : address,hwaddr,client-id,valid-lifetime,expire,subnet-id,fqdn-fwd,fqdn-rev,hostname,...
+                    if len(row) < 9:
+                        continue  # Ligne incomplète
+                    ip = row[0].strip()
+                    mac = row[1].strip()
+                    expire = row[4].strip()
+                    hostname = row[8].strip() if len(row) > 8 else ""
 
                     if not ip or not mac:
                         continue  # Entrée incomplète
 
-                    # Vérifier expiration
-                    if not self._is_lease_valid(entry, now):
+                    # Vérifier expiration (comparaison Unix timestamp)
+                    if not self._is_lease_valid(expire, now_unix):
                         continue
 
                     # Normalisation
@@ -465,11 +478,16 @@ class KeaLeaseFileResolver:
 
                     # Déduplication : garde le bail le plus récent (par expire timestamp)
                     existing = leases_by_ip.get(ip)
-                    if existing is None or entry.get("expire", 0) > existing.get("_expire", 0):
+                    expire_val = 0
+                    try:
+                        expire_val = int(float(expire)) if expire else 0
+                    except (ValueError, TypeError):
+                        expire_val = 0
+                    if existing is None or expire_val > existing.get("_expire", 0):
                         leases_by_ip[ip] = {
                             "mac": mac_norm,
                             "hostname": host_norm,
-                            "_expire": entry.get("expire", 0),  # pour déduplication
+                            "_expire": expire_val,  # pour déduplication
                         }
 
         except FileNotFoundError:
@@ -482,7 +500,7 @@ class KeaLeaseFileResolver:
         # Nettoyer le champ temporaire _expire
         leases_clean = {ip: {"mac": v["mac"], "hostname": v["hostname"]} for ip, v in leases_by_ip.items()}
 
-        self._cache[self._cache_key] = (time.monotonic(), leases_clean)
+        self._cache[self._cache_key] = (_time.monotonic(), leases_clean)
         return leases_clean
 
     @classmethod
@@ -1824,6 +1842,24 @@ class NetworkDiscoveryService:
                                     # Ne pas faire échouer tout le scan pour une observation
                                     await self.db.rollback()
                                     scan_errors.append(f"{ip}: observation: {obs_err}"[:300])
+                    else:
+                        # Un hôte déjà inventorié doit aussi être actualisé lorsqu'il
+                        # ne répond plus : sinon il reste indéfiniment affiché online.
+                        async with self._db_lock:
+                            existing = await self.asset_service.get_it_asset_by_ip(ip)
+                            if existing:
+                                if existing.status != "maintenance":
+                                    await self.asset_service.update_it_asset(existing.id, {
+                                        "status": "offline",
+                                        "last_check": datetime.now(UTC),
+                                    })
+                                await self.asset_service.create_observation(
+                                    existing.id,
+                                    "offline",
+                                    None,
+                                    "ping",
+                                    {"ip": ip},
+                                )
 
                     # Suivi en direct : publier la progression toutes les 5 hôtes
                     # scannés, et immédiatement lorsqu'un hôte est trouvé
@@ -1918,7 +1954,13 @@ class AssetMonitoringService:
                 "last_seen": datetime.now(UTC) if reachable else asset.last_seen,
                 "last_check": datetime.now(UTC),
             })
+        else:
+            # Même si le statut n'a pas changé, rafraîchir last_check
+            await self.asset_service.update_it_asset(asset_id, {
+                "last_check": datetime.now(UTC),
+            })
 
+        if new_status != old_status:
             if new_status == "offline":
                 await self.asset_service.create_alert(
                     asset_id,
@@ -1938,7 +1980,9 @@ class AssetMonitoringService:
 
         return {"status": new_status, "response_time_ms": response_time}
 
-    async def check_all_assets(self, batch_size: int = 100) -> dict:
+    async def check_all_assets(self, batch_size: int = 20) -> dict:
+        from app.db.session import AsyncSessionLocal
+
         result = await self.db.execute(
             select(ITAsset.id)
             .where(ITAsset.is_active == True)
@@ -1949,13 +1993,23 @@ class AssetMonitoringService:
         checked = 0
         online = 0
         offline = 0
-        alerts_created = 0
+
+        async def _check_one(aid: int) -> dict:
+            # Session dédiée par vérification pour éviter les conflits concurrents
+            async with AsyncSessionLocal() as db:
+                try:
+                    svc = AssetMonitoringService(db)
+                    return await svc.check_asset(aid)
+                except Exception as e:
+                    print(f"[MONITORING] Erreur check asset {aid}: {e}")
+                    return {"error": str(e)}
+                finally:
+                    await db.close()
 
         for i in range(0, len(asset_ids), batch_size):
             batch = asset_ids[i:i + batch_size]
-            async with self._semaphore:
-                tasks = [self.check_asset(aid) for aid in batch]
-                results = await asyncio.gather(*tasks, return_exceptions=True)
+            tasks = [_check_one(aid) for aid in batch]
+            results = await asyncio.gather(*tasks, return_exceptions=True)
 
             for r in results:
                 if isinstance(r, dict) and "status" in r:

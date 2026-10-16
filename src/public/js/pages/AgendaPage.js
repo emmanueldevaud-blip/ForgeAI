@@ -198,7 +198,7 @@ export class AgendaPage {
       <div class="page-header agenda-header">
         <div class="page-header-left">
           <h1>${isInscriptionsTab ? 'Inscriptions' : 'Ma présence'}</h1>
-          ${isInscriptionsTab ? '' : `<p class="page-subtitle">${isMineTab ? 'Vos présences personnelles.' : 'Planning par bureau et inscriptions libres.'}</p>`}
+          ${isInscriptionsTab || isMineTab ? '' : '<p class="page-subtitle">Planning par bureau et inscriptions libres.</p>'}
         </div>
 <div class="page-header-right agenda-toolbar">
           <div class="agenda-nav" role="group" aria-label="Navigation">
@@ -378,6 +378,7 @@ export class AgendaPage {
     const willHavePresence = !!flags.morning || !!flags.afternoon;
 
     if (!inMonth) return { on: false, enabled: false, title: 'Hors mois affiché' };
+    if (this._isLockedWeek(iso)) return { on: false, enabled: false, title: this._lockedPlanningMessage() };
     if (presence && presence.id == null) return { on: false, enabled: false, title: 'Occupation en cours — non modifiable' };
 
     if (field === 'morning' || field === 'afternoon') {
@@ -728,20 +729,23 @@ export class AgendaPage {
     const byGroup = new Map();
     for (const person of people) {
       if (person.groupId == null) continue;
-      if (!byGroup.has(person.groupId)) byGroup.set(person.groupId, []);
-      byGroup.get(person.groupId).push(person);
+      const groupId = Number(person.groupId);
+      if (!Number.isFinite(groupId)) continue;
+      if (!byGroup.has(groupId)) byGroup.set(groupId, []);
+      byGroup.get(groupId).push(person);
     }
 
     const sections = [];
     const handled = new Set();
     for (const group of groups) {
-      if (handled.has(group.id)) continue;
-      handled.add(group.id);
-      const members = byGroup.get(group.id);
+      const groupId = Number(group.id);
+      if (handled.has(groupId)) continue;
+      handled.add(groupId);
+      const members = byGroup.get(groupId);
       if (!members || !members.length) continue;
-      byGroup.delete(group.id);
+      byGroup.delete(groupId);
       sections.push({
-        groupId: group.id,
+        groupId,
         label: group.description || group.name,
         depth: group.depth || 0,
         people: members,
@@ -749,7 +753,10 @@ export class AgendaPage {
     }
 
     // Personnes sans groupe ou dont le groupe n'est plus cochée.
-    const others = people.filter(person => person.groupId == null || byGroup.has(person.groupId));
+    const others = people.filter(person => {
+      if (person.groupId == null) return true;
+      return byGroup.has(Number(person.groupId));
+    });
     if (others.length) {
       sections.push({ groupId: 'others', label: 'Autres', depth: 0, people: others });
     }
@@ -760,6 +767,12 @@ export class AgendaPage {
     const inPeriod = (this.data?.days || []).some(day => day.date === iso);
     const editable = inPeriod && this._canEditPerson(person, canManage);
     const entry = this._presenceCovering(person, iso, half);
+    const remote = (this.data?.days || [])
+      .find(day => day.date === iso)?.remote
+      ?.find(presence => person.type === 'user' &&
+        this._presencePersonKey(presence) === person.key &&
+        (presence.period === 'full' || presence.period === half));
+    const isRemote = !!remote && (!entry || entry.presence?.person_type !== 'user');
     const halfLabel = half === 'morning' ? 'Matin' : 'Après-midi';
     const details = [];
     let label = '';
@@ -775,25 +788,29 @@ export class AgendaPage {
     }
     const title = details.join(' · ') || `${person.name} — ${formatDayLabel(iso)} · ${halfLabel}`;
     if (isMonth) {
-      const laptopSvg = '<svg class="agenda-mini-icon" width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><rect x="3" y="4" width="18" height="12" rx="1"/><path d="M2 20h20"/></svg>';
-      const plateSvg = '<svg class="agenda-mini-icon" width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="4"/></svg>';
+      const laptopSvg = '<svg class="agenda-mini-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><rect x="3" y="4" width="18" height="12" rx="1"/><path d="M2 20h20"/></svg>';
+      const plateSvg = '<svg class="agenda-mini-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="4"/></svg>';
       return `
-      <td class="agenda-cell agenda-cell--${half} ${half === 'morning' && this._isAfterWeekend(iso, this._mineGridDates()) ? 'is-after-weekend ' : ''}${dayIndex === 0 ? 'agenda-cell--day-first ' : ''}${entry ? 'has-presence' : ''}">
+      <td class="agenda-cell agenda-cell--${half} ${half === 'morning' && this._isAfterWeekend(iso, this._mineGridDates()) ? 'is-after-weekend ' : ''}${dayIndex === 0 ? 'agenda-cell--day-first ' : ''}${entry ? 'has-presence' : ''}${isRemote ? ' is-remote' : ''}">
         <span class="agenda-cell-btn agenda-people-cell ${entry ? 'has-presence' : 'is-empty'} is-compact"
           title="${escapeHtml(title)}"
           aria-label="${escapeHtml(title)}">
-          ${entry
+          ${isRemote
+            ? '<span class="agenda-remote-marker" aria-label="Télétravail">T</span>'
+            : entry
             ? `<span class="agenda-people-cell-icons">${entry.presence.needs_meal ? plateSvg : ''}${entry.presence.needs_workstation ? laptopSvg : ''}</span>`
             : ''}
         </span>
       </td>`;
     }
     return `
-      <td class="agenda-cell agenda-cell--${half} ${half === 'morning' && this._isAfterWeekend(iso, this._mineGridDates()) ? 'is-after-weekend ' : ''}${dayIndex === 0 ? 'agenda-cell--day-first ' : ''}${entry ? 'has-presence' : ''}">
+      <td class="agenda-cell agenda-cell--${half} ${half === 'morning' && this._isAfterWeekend(iso, this._mineGridDates()) ? 'is-after-weekend ' : ''}${dayIndex === 0 ? 'agenda-cell--day-first ' : ''}${entry ? 'has-presence' : ''}${isRemote ? ' is-remote' : ''}">
         <span class="agenda-cell-btn agenda-people-cell ${entry ? 'has-presence' : 'is-empty'}"
           title="${escapeHtml(title)}"
           aria-label="${escapeHtml(title)}">
-          ${entry
+          ${isRemote
+            ? '<span class="agenda-remote-marker" aria-label="Télétravail">T</span>'
+            : entry
             ? `<span class="agenda-people-cell-room">${escapeHtml(label)}</span>${entry.presence.needs_meal ? '<span class="agenda-people-cell-flag">repas</span>' : ''}${entry.presence.needs_workstation ? '<span class="agenda-people-cell-flag">poste</span>' : ''}`
             : ''}
         </span>
@@ -860,6 +877,10 @@ export class AgendaPage {
             day.date, counter.room_id ?? presence.room_id ?? null, presence.period || 'full', presence);
         }
       }
+      for (const presence of day.remote || []) {
+        ensure(presence.person_type, presence.person_id, presence.person_name, presence.is_mine,
+          day.date, null, presence.period || 'full', presence);
+      }
       for (const presence of day.integrated || []) {
         ensure(presence.person_type, presence.person_id, presence.person_name, false,
           day.date, presence.room_id ?? null, presence.period || 'full', presence);
@@ -874,7 +895,7 @@ export class AgendaPage {
       const existing = byKey.get(key);
       if (existing) {
         // Une seule ligne par personne : rattachée au premier groupe.
-        if (existing.groupId == null && groupId != null) existing.groupId = groupId;
+        if (existing.groupId == null && groupId != null) existing.groupId = Number(groupId);
         // Mettre à jour lastName/firstName avec les valeurs fiables du backend
         if (member.last_name != null) existing.lastName = member.last_name;
         if (member.first_name != null) existing.firstName = member.first_name;
@@ -888,7 +909,7 @@ export class AgendaPage {
         type: 'user',
         personId: member.person_id ?? null,
         isMine: member.person_id === currentUserId,
-        groupId,
+        groupId: groupId != null ? Number(groupId) : null,
         lastName: member.last_name ?? '',
         firstName: member.first_name ?? '',
         sourceTypes: new Set(['group']),
@@ -910,6 +931,11 @@ export class AgendaPage {
       if (target.groupId == null && row.groupId != null) target.groupId = row.groupId;
       byKey.delete(key);
     }
+    const planningGroupByUserId = new Map(
+      (this.data?.planning_people || [])
+        .filter(member => member.person_id != null && member.group_id != null)
+        .map(member => [String(member.person_id), Number(member.group_id)])
+    );
     const people = [...byKey.values()]
       .sort((a, b) => {
         const lnA = (a.lastName || '').localeCompare(b.lastName || '', 'fr');
@@ -922,7 +948,9 @@ export class AgendaPage {
         type: p.type,
         personId: p.personId,
         isMine: p.isMine,
-        groupId: p.groupId ?? null,
+        groupId: p.personId != null && planningGroupByUserId.has(String(p.personId))
+          ? planningGroupByUserId.get(String(p.personId))
+          : (p.groupId != null ? Number(p.groupId) : null),
         meta: p.presences.length ? (SOURCE_BADGES[p.type] || p.type) : 'groupe',
         sourceTypes: p.sourceTypes,
         presences: p.presences,
@@ -942,7 +970,15 @@ export class AgendaPage {
   }
 
   _presenceCovering(person, iso, half) {
-    return person.presences.find(entry => entry.date === iso && (entry.period === 'full' || entry.period === half)) || null;
+    const candidates = person.presences.filter(entry => entry.date === iso &&
+      !entry.presence?.is_remote && (entry.period === 'full' || entry.period === half) &&
+      (person.type !== 'user' || entry.presence?.person_type === 'user'));
+    // Une inscription Agenda utilisateur est prioritaire sur une occupation
+    // injectée par le module Hébergement pour la même personne et le même créneau.
+    return candidates.sort((a, b) => {
+      const priority = entry => entry.presence?.person_type === 'user' ? 0 : 1;
+      return priority(a) - priority(b);
+    })[0] || null;
   }
 
   _canEditPerson(person, canManage = authStore.hasPermission('agenda.manage')) {
@@ -1161,6 +1197,10 @@ export class AgendaPage {
     const needsMeal = form.elements.needs_meal.checked;
     if (!userId || !date || !roomId) {
       this._toast('Champs obligatoires manquants', 'error');
+      return;
+    }
+    if (this._isLockedWeek(date)) {
+      this._toast(this._lockedPlanningMessage(), 'info');
       return;
     }
     try {
@@ -1439,6 +1479,10 @@ export class AgendaPage {
     this.element.querySelectorAll('[data-week-bulk]').forEach(btn => {
       btn.addEventListener('click', () => {
         if (btn.disabled) return;
+        if (this._mineGridDates().some(iso => this._isLockedWeek(iso))) {
+          this._toast(this._lockedPlanningMessage(), 'info');
+          return;
+        }
         this._bulkPersonWeekHalf({
           person: this.personWeekModal?.person,
           roomId: Number(btn.dataset.weekRoom),
@@ -1469,6 +1513,7 @@ export class AgendaPage {
       return weekday >= 1 && weekday <= 5;
     });
     for (const date of dates) {
+      if (this._isLockedWeek(date)) continue;
       const existing = this._findPersonPresence(person.key, date, roomId);
       if (existing && existing.id == null) continue; // ligne d'occupation : non modifiable
       const flags = draft[`${date}|${roomId}`] || { morning: false, afternoon: false, meal: false, desk: false };
@@ -1487,6 +1532,7 @@ export class AgendaPage {
     const draft = this.personWeekModal?.draft;
     const person = this.personWeekModal?.person;
     if (!draft || !person) return;
+    if (this._isLockedWeek(date)) return;
     if (field === 'remote') {
       if (!half) return;
       const flags = draft[`${date}|remote`] || { morning: false, afternoon: false };
@@ -1561,6 +1607,7 @@ export class AgendaPage {
     for (const iso of this._mineGridDates()) {
       const weekday = parseISODate(iso).getDay();
       if (weekday === 0 || weekday === 6) continue;
+      if (this._isLockedWeek(iso)) continue;
       for (const room of this.data?.rooms || []) {
         const flags = draft[`${iso}|${room.id}`] || {};
         const existing = this._findPersonPresence(person.key, iso, room.id);
@@ -1656,6 +1703,10 @@ export class AgendaPage {
     const context = this._cellEditorContext();
     if (!form || !context) return;
     const { person, date, half, entry } = context;
+    if (this._isLockedWeek(date)) {
+      this._toast(this._lockedPlanningMessage(), 'info');
+      return;
+    }
     const roomId = Number(form.elements.room_id.value);
     const needsWorkstation = form.elements.needs_workstation.checked;
     const needsMeal = form.elements.needs_meal.checked;
@@ -1691,6 +1742,10 @@ export class AgendaPage {
     const context = this._cellEditorContext();
     if (!context || !context.entry) return;
     const { person, date, half, entry } = context;
+    if (this._isLockedWeek(date)) {
+      this._toast(this._lockedPlanningMessage(), 'info');
+      return;
+    }
     try {
       if (entry.period === 'full') {
         const otherHalf = half === 'morning' ? 'afternoon' : 'morning';
@@ -1898,6 +1953,15 @@ export class AgendaPage {
     return toISODate(dateMonday) === todayISO;
   }
 
+  _isLockedWeek(iso) {
+    const todayMonday = startOfWeek(new Date());
+    return startOfWeek(parseISODate(iso)) <= todayMonday;
+  }
+
+  _lockedPlanningMessage() {
+    return "Il n'est pas possible de modifier ton inscription. Merci de prévenir le responsable de l'intendance";
+  }
+
   async _toggleMineCell({ roomId, date, field, half }) {
     if (field === 'remote') return this._toggleMineRemote({ date, half });
     const mine = this._minePresenceForDate(date, roomId);
@@ -2070,12 +2134,12 @@ export class AgendaPage {
   }
 
   _bindMineForm() {
-    const lockedMsg = 'Pour modifier ton planning, merci de prévenir le responsable de l\u2019intendance';
+    const lockedMsg = this._lockedPlanningMessage();
 
     this.element.querySelectorAll('[data-mine-toggle]').forEach(btn => {
       btn.addEventListener('click', async () => {
         if (btn.disabled) return;
-        if (this._isInCurrentWeek(btn.dataset.date)) {
+        if (this._isLockedWeek(btn.dataset.date)) {
           this._toast(lockedMsg, 'info');
           return;
         }
@@ -2100,7 +2164,7 @@ export class AgendaPage {
           const weekday = parseISODate(iso).getDay();
           return weekday >= 1 && weekday <= 5;
         });
-        if (dates.some(iso => this._isInCurrentWeek(iso))) {
+        if (dates.some(iso => this._isLockedWeek(iso))) {
           this._toast(lockedMsg, 'info');
           return;
         }
@@ -2121,7 +2185,7 @@ export class AgendaPage {
         const weekday = parseISODate(iso).getDay();
         return weekday >= 1 && weekday <= 5;
       });
-      if (dates.some(iso => this._isInCurrentWeek(iso))) {
+      if (dates.some(iso => this._isLockedWeek(iso))) {
         this._toast(lockedMsg, 'info');
         return;
       }
@@ -2138,6 +2202,10 @@ export class AgendaPage {
     if (!form) return;
     form.addEventListener('submit', async event => {
       event.preventDefault();
+      if (this._isLockedWeek(form.elements.presence_date.value)) {
+        this._toast(this._lockedPlanningMessage(), 'info');
+        return;
+      }
       try {
         await createExternalPresence({
           presence_date: form.elements.presence_date.value,
@@ -2172,6 +2240,10 @@ export class AgendaPage {
       btn.addEventListener('click', (e) => {
         e.stopPropagation();
         if (btn.disabled) return;
+        if (this._isLockedWeek(btn.dataset.cellDate)) {
+          this._toast(this._lockedPlanningMessage(), 'info');
+          return;
+        }
         this.editCell = {
           key: btn.dataset.cellPerson,
           date: btn.dataset.cellDate,

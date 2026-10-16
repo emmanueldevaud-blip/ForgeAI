@@ -221,7 +221,7 @@ export class Sidebar {
     if (!this.element) return;
     this.element.querySelectorAll('.nav-item').forEach(itemEl => {
       const route = itemEl.dataset.navRoute;
-      const isActive = route && (route === this.currentRoute || this.currentRoute.startsWith(`${route}/`));
+      const isActive = route && route === this.currentRoute;
       itemEl.classList.toggle('nav-item--active', isActive);
     });
   }

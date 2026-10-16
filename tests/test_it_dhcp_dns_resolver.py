@@ -105,15 +105,14 @@ def _write_kea_file(tmp_path, content: str):
     return str(p)
 
 
-async def test_kea_parse_json_lines(tmp_path):
-    """Parse valide JSON Lines Kea : IP, MAC, hostname, expire."""
+async def test_kea_parse_csv_format(tmp_path):
+    """Parse valide CSV Kea : IP, MAC, hostname, expire (format CSV Kea)."""
+    # Format CSV Kea : address,hwaddr,client-id,valid-lifetime,expire,subnet-id,fqdn-fwd,fqdn-rev,hostname,...
+    future = "2000000000"
     content = (
-        '{"ip-address": "192.168.100.76", "hw-address": "aa:bb:cc:dd:ee:01", '
-        '"hostname": "pcfixe-ede-8.design-ede.fr.", "expire": 2000000000}\n'
-        '{"ip-address": "192.168.100.100", "hw-address": "bb:cc:dd:ee:ff:02", '
-        '"hostname": "pcfixe-manu.", "expire": 2000000000}\n'
-        '{"ip-address": "192.168.100.6", "hw-address": "cc:dd:ee:ff:00:11", '
-        '"hostname": "pcfixe-reunion.design-ede.fr.", "expire": 2000000000}\n'
+        f"192.168.100.76,4c:cf:7c:3a:99:d4,01:4c:cf:7c:3a:99:d4,7200,{future},1,0,0,pcfixe-ede-8.design-ede.fr.,0\n"
+        f"192.168.100.100,bb:cc:dd:ee:ff:02,01:bb:cc:dd:ee:ff:02,7200,{future},1,0,0,pcfixe-manu.,0\n"
+        f"192.168.100.6,cc:dd:ee:ff:00:11,01:cc:dd:ee:ff:00:11,7200,{future},1,0,0,pcfixe-reunion.design-ede.fr.,0\n"
     )
     path = _write_kea_file(tmp_path, content)
 
@@ -121,7 +120,7 @@ async def test_kea_parse_json_lines(tmp_path):
     resolver = KeaLeaseFileResolver(path, cache_ttl=0)
 
     lease = await resolver.get_lease("192.168.100.76")
-    assert lease == {"mac": "aa:bb:cc:dd:ee:01", "hostname": "pcfixe-ede-8.design-ede.fr"}
+    assert lease == {"mac": "4c:cf:7c:3a:99:d4", "hostname": "pcfixe-ede-8.design-ede.fr"}
 
     lease = await resolver.get_lease("192.168.100.100")
     assert lease == {"mac": "bb:cc:dd:ee:ff:02", "hostname": "pcfixe-manu"}
@@ -132,7 +131,8 @@ async def test_kea_parse_json_lines(tmp_path):
 
 async def test_kea_hostname_absent(tmp_path):
     """Entrée sans hostname : retourne MAC mais hostname=None."""
-    content = '{"ip-address": "192.168.100.50", "hw-address": "aa:bb:cc:dd:ee:ff"}\n'
+    # Format CSV : address,hwaddr,client-id,valid-lifetime,expire,subnet-id,fqdn-fwd,fqdn-rev,hostname
+    content = "192.168.100.50,aa:bb:cc:dd:ee:ff,01:aa:bb:cc:dd:ee:ff,7200,2000000000,1,0,0,\n"
     path = _write_kea_file(tmp_path, content)
 
     from app.services.it_asset import KeaLeaseFileResolver
@@ -145,8 +145,8 @@ async def test_kea_hostname_absent(tmp_path):
 async def test_kea_expired_lease_ignored(tmp_path):
     """Bail expiré (expire dans le passé) : ignoré."""
     import time
-    past = int(time.time()) - 3600
-    content = f'{{"ip-address": "192.168.100.20", "hw-address": "aa:bb:cc:dd:ee:ff", "expire": {past}}}\n'
+    past = str(int(time.time()) - 3600)
+    content = f"192.168.100.20,aa:bb:cc:dd:ee:ff,01:aa:bb:cc:dd:ee:ff,7200,{past},1,0,0,\n"
     path = _write_kea_file(tmp_path, content)
 
     from app.services.it_asset import KeaLeaseFileResolver
@@ -158,9 +158,12 @@ async def test_kea_expired_lease_ignored(tmp_path):
 
 async def test_kea_duplicate_ip_keeps_latest(tmp_path):
     """Même IP plusieurs fois : garde le bail le plus récent (expire max)."""
+    import time
+    future1 = str(int(time.time()) + 3600)
+    future2 = str(int(time.time()) + 7200)
     content = (
-        '{"ip-address": "192.168.100.25", "hw-address": "aa:bb:cc:dd:ee:01", "expire": 1000}\n'
-        '{"ip-address": "192.168.100.25", "hw-address": "bb:cc:dd:ee:ff:02", "expire": 2000}\n'
+        f"192.168.100.25,aa:bb:cc:dd:ee:01,01:aa:bb:cc:dd:ee:01,7200,{future1},1,0,0,\n"
+        f"192.168.100.25,bb:cc:dd:ee:ff:02,01:bb:cc:dd:ee:ff:02,7200,{future2},1,0,0,\n"
     )
     path = _write_kea_file(tmp_path, content)
 
@@ -180,11 +183,11 @@ async def test_kea_file_not_found(tmp_path):
     assert lease is None
 
 
-async def test_kea_invalid_json_line_ignored(tmp_path):
-    """Ligne JSON invalide ignorée, lignes valides parsées."""
+async def test_kea_invalid_csv_line_ignored(tmp_path):
+    """Ligne CSV invalide ignorée, lignes valides parsées."""
     content = (
-        'not json\n'
-        '{"ip-address": "192.168.100.30", "hw-address": "aa:bb:cc:dd:ee:03", "expire": 2000000000}\n'
+        "not,a,valid,csv,line\n"
+        "192.168.100.30,aa:bb:cc:dd:ee:03,01:aa:bb:cc:dd:ee:03,7200,2000000000,1,0,0,\n"
     )
     path = _write_kea_file(tmp_path, content)
 
@@ -197,9 +200,9 @@ async def test_kea_invalid_json_line_ignored(tmp_path):
 
 async def test_kea_normalize_hostname_trailing_dot(tmp_path):
     """Hostname avec point final : strip + lowercase."""
+    future = "2000000000"
     content = (
-        '{"ip-address": "192.168.100.40", "hw-address": "aa:bb:cc:dd:ee:04", '
-        '"hostname": "PCFIXE-MANU.Design-ede.FR.", "expire": 2000000000}\n'
+        f"192.168.100.40,aa:bb:cc:dd:ee:04,01:aa:bb:cc:dd:ee:04,7200,{future},1,0,0,PCFIXE-MANU.Design-ede.FR.,0\n"
     )
     path = _write_kea_file(tmp_path, content)
 
@@ -212,33 +215,37 @@ async def test_kea_normalize_hostname_trailing_dot(tmp_path):
 
 async def test_kea_cache_ttl(tmp_path):
     """Cache TTL : une seule lecture fichier pour plusieurs appels."""
-    import time
     content = '{"ip-address": "192.168.100.50", "hw-address": "aa:bb:cc:dd:ee:ff", "expire": 2000000000}\n'
     path = _write_kea_file(tmp_path, content)
 
     from app.services.it_asset import KeaLeaseFileResolver
-    calls = {"n": 0}
-    original_get_leases = KeaLeaseFileResolver._get_leases
-
-    async def counting_get_leases(self):
-        calls["n"] += 1
-        return await original_get_leases(self)
-
-    import app.services.it_asset as mod
-    mod.KeaLeaseFileResolver._get_leases = counting_get_leases
+    
+    # On teste le cache en vérifiant qu'un seul accès fichier est fait
+    # en mockant open() au lieu de la méthode interne
+    import builtins
+    original_open = builtins.open
+    call_count = {"n": 0}
+    
+    def counting_open(*args, **kwargs):
+        call_count["n"] += 1
+        return original_open(*args, **kwargs)
+    
+    builtins.open = counting_open
     try:
         resolver = KeaLeaseFileResolver(path, cache_ttl=300)
         await resolver.get_lease("192.168.100.50")
         await resolver.get_lease("192.168.100.50")
-        assert calls["n"] == 1
+        # Le fichier ne doit être ouvert qu'une seule fois grâce au cache
+        assert call_count["n"] == 1, f"Fichier ouvert {call_count['n']} fois au lieu de 1"
     finally:
-        mod.KeaLeaseFileResolver._get_leases = original_get_leases
+        builtins.open = original_open
 
 
 async def test_kea_permission_error(tmp_path):
     """Permission refusée : log et retour None."""
     import os
-    content = '{"ip-address": "192.168.100.50", "hw-address": "aa:bb:cc:dd:ee:ff"}\n'
+    # CSV format
+    content = "192.168.100.50,aa:bb:cc:dd:ee:ff,01:aa:bb:cc:dd:ee:ff,7200,2000000000,1,0,0,\n"
     path = _write_kea_file(tmp_path, content)
     os.chmod(path, 0o000)  # pas de lecture
 
@@ -250,6 +257,30 @@ async def test_kea_permission_error(tmp_path):
         assert lease is None
     finally:
         os.chmod(path, 0o644)
+
+
+async def test_kea_real_pfsense_line(tmp_path):
+    """Test réel : ligne pfSense Kea CSV réelle parse correctement.
+    
+    Exemple réel du fichier /var/lib/kea/dhcp4.leases sur pfSense :
+    192.168.100.76,4c:cf:7c:3a:99:d4,01:4c:cf:7c:3a:99:d4,7200,1792086807,1,0,0,pcfixe-ede-8.design-ede.fr.,0,...,0
+    
+    Utilise un timestamp futur pour que le bail soit valide.
+    """
+    import time
+    future_ts = str(int(time.time()) + 3600)
+    # Ligne réelle pfSense avec timestamp futur pour test
+    content = f"192.168.100.76,4c:cf:7c:3a:99:d4,01:4c:cf:7c:3a:99:d4,7200,{int(time.time())+3600},1,0,0,pcfixe-ede-8.design-ede.fr.,0,...,0\n"
+    path = _write_kea_file(tmp_path, content)
+
+    from app.services.it_asset import KeaLeaseFileResolver
+    resolver = KeaLeaseFileResolver(path, cache_ttl=0)
+
+    lease = await resolver.get_lease("192.168.100.76")
+    assert lease == {
+        "mac": "4c:cf:7c:3a:99:d4",
+        "hostname": "pcfixe-ede-8.design-ede.fr"  # strip trailing dot + lowercase
+    }
 
 
 # ============================================================

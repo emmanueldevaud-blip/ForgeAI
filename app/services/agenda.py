@@ -1182,6 +1182,7 @@ class AgendaService:
         grand_total_persons = 0
         grand_total_meals = 0
         grand_total_workstations = 0
+        grand_total_remote = 0
 
         for day in days_list:
             room_counters: Dict[int, AgendaSynthesisRoom] = {}
@@ -1196,9 +1197,11 @@ class AgendaService:
             total_persons = 0
             total_meals = 0
             total_workstations = 0
+            total_remote = 0
 
             for p in by_day.get(day, []):
                 if p.room_id is None:
+                    total_remote += 1
                     continue
                 counter = room_counters.get(p.room_id)
                 if counter is None:
@@ -1243,11 +1246,13 @@ class AgendaService:
                     total_persons=total_persons,
                     total_meals=total_meals,
                     total_workstations=total_workstations,
+                    total_remote=total_remote,
                 )
             )
             grand_total_persons += total_persons
             grand_total_meals += total_meals
             grand_total_workstations += total_workstations
+            grand_total_remote += total_remote
 
         return AgendaSynthesisResponse(
             start_date=start,
@@ -1256,6 +1261,7 @@ class AgendaService:
             grand_total_persons=grand_total_persons,
             grand_total_meals=grand_total_meals,
             grand_total_workstations=grand_total_workstations,
+            grand_total_remote=grand_total_remote,
         )
 
     async def _ensure_room_exists(self, room_id: int) -> None:

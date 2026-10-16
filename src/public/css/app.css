@@ -7180,74 +7180,11 @@
 }
 
 /* Group section separator rows - fond bleu complet, titre x2, compteur entre () en blanc */
-.agenda-group-row {
-  --bg: var(--color-primary);
-  background: var(--color-primary) !important;
-  min-height: 34px;         /* Moitié de la hauteur des cellules */
-}
-.agenda-group-row.even {
-  --bg: var(--color-primary);
-  background: var(--color-primary) !important;
-  min-height: 34px;
-}
-.agenda-group-row.odd {
-  --bg: var(--color-primary);
-  background: var(--color-primary) !important;
-  min-height: 34px;
-}
-.agenda-group-row > th {
-  background: var(--color-primary) !important;
-  color: var(--color-white) !important;
-  height: 100%;
-  padding: 0;
-}
-.agenda-group-label {
-  display: inline-block;
-  font-weight: 500;
-  font-size: var(--font-size-sm);
-  color: var(--color-white);
-  padding: 2px var(--spacing-2);
-  border-radius: calc(var(--radius-sm) * 2);
-  vertical-align: middle;
-  margin-right: var(--spacing-1);
-}
-.agenda-group-count {
-  display: inline-block;
-  font-size: var(--font-size-sm);
-  color: var(--color-white);
-  vertical-align: middle;
-  line-height: 1.2;
-}
-.agenda-group-count::before {
-  content: "(";
-  font-size: var(--font-size-sm);
-}
-.agenda-group-count::after {
-  content: ")";
-  font-size: var(--font-size-sm);
-}
-/* Bandeaux dépliants : en-tête de section cliquable, repliés par défaut. */
-.agenda-group-head { cursor: pointer; }
-.agenda-group-toggle {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--spacing-1);
-  background: none;
-  border: 0;
-  padding: 2px var(--spacing-2);
-  color: var(--color-white);
-  font: inherit;
-  cursor: pointer;
-}
-.agenda-group-toggle:focus-visible {
-  outline: 2px solid var(--color-white);
-  outline-offset: 2px;
-}
-.agenda-group-chevron {
-  display: inline-block;
-  font-size: var(--font-size-sm);
-  transition: transform .15s ease;
-}
-.agenda-group-row.is-collapsed .agenda-group-chevron {
-  transform: rotate(-90deg);
-}
+/* Séparateurs d'équipe : bandeau vertical coloré sur la 1re colonne. */
+.agenda-person-head { border-left: 4px solid transparent; }
+.agenda-team-0 .agenda-person-head { border-left-color: var(--color-primary); }
+.agenda-team-1 .agenda-person-head { border-left-color: var(--color-success); }
+.agenda-team-2 .agenda-person-head { border-left-color: var(--color-warning); }
+.agenda-team-3 .agenda-person-head { border-left-color: var(--color-info); }
+.agenda-team-4 .agenda-person-head { border-left-color: var(--color-danger); }
+.agenda-team-5 .agenda-person-head { border-left-color: #7c3aed; }

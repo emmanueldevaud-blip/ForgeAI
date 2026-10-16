@@ -651,6 +651,7 @@ export class AgendaPage {
     const head = `
       <thead>
         <tr>
+          <th class="agenda-team-head" rowspan="2" scope="col"><span class="visually-hidden">Equipe</span></th>
           <th class="agenda-room-head agenda-corner" rowspan="2" scope="col">Personne</th>
           ${dates.map((iso, di) => {
             const dayDate = parseISODate(iso);
@@ -668,16 +669,23 @@ export class AgendaPage {
 
     const sections = this._planningSections(people);
 
-    const personRows = sections.flatMap((section, idx) => section.people.map(person => `
+    const personRows = sections.flatMap((section, idx) => section.people.map((person, pi) => {
+      const personCells = dates.map((iso, dayIndex) => ['morning', 'afternoon']
+        .map(half => this._personCellHtml(person, iso, half, canManage, isMonth, dayIndex))
+        .join('')).join('');
+      const teamCell = pi === 0
+        ? `<th class="agenda-team-cell agenda-team-${idx % 6}" rowspan="${section.people.length}" scope="rowgroup"><span class="agenda-team-name">${escapeHtml(section.label)}</span></th>`
+        : '';
+      return `
       <tr class="agenda-section-${idx % 2 === 0 ? 'even' : 'odd'} agenda-person-row agenda-team-${idx % 6}" data-person-key="${escapeHtml(person.key)}" style="cursor: pointer;">
+        ${teamCell}
         <th class="agenda-room-head agenda-person-head" scope="row" title="${escapeHtml(person.meta)}">
           <span class="agenda-room-name">${escapeHtml(person.name)}${person.isMine ? ' (moi)' : ''}</span>
           <span class="agenda-room-meta">${escapeHtml(person.meta)}</span>
         </th>
-        ${dates.map((iso, dayIndex) => ['morning', 'afternoon']
-          .map(half => this._personCellHtml(person, iso, half, canManage, isMonth, dayIndex))
-          .join('')).join('')}
-      </tr>`)).join('');
+        ${personCells}
+      </tr>`;
+    })).join('');
 
     return `
       <div class="agenda-scroll">

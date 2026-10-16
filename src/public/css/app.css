@@ -5451,7 +5451,7 @@
 .agenda-period-wrap { min-width: 130px; }
 .agenda-table--people { min-width: 0; }
 .agenda-table--people th[data-day] { cursor: pointer; }
-.agenda-table--people .agenda-room-head { position: sticky; left: 0; z-index: 2; min-width: 100px; max-width: 160px; box-shadow: 1px 0 0 var(--color-border-light); }
+.agenda-table--people .agenda-room-head { position: sticky; left: 32px; z-index: 2; min-width: 100px; max-width: 160px; box-shadow: 1px 0 0 var(--color-border-light); }
 .agenda-table--people thead .agenda-room-head { z-index: 4; }
 .agenda-table--people td { padding: 1px 2px; }
 /* Ligne de compteurs planning (Prés / Repas / Postes) */
@@ -5732,7 +5732,7 @@
   }
   .agenda-table--people .agenda-room-head {
     position: sticky;
-    left: 0;
+    left: 24px;
     z-index: 2;
     min-width: 56px;
     max-width: 64px;
@@ -5740,6 +5740,8 @@
     box-shadow: 1px 0 0 var(--color-border-light);
   }
   .agenda-table--people thead .agenda-room-head { z-index: 4; }
+  .agenda-table--people .agenda-team-cell { width: 20px; min-width: 20px; max-width: 24px; }
+  .agenda-table--people .agenda-team-name { font-size: 7px; }
   .agenda-table--people .agenda-room-head .agenda-room-name {
     font-size: 8px;
     white-space: normal;
@@ -7180,11 +7182,14 @@
 }
 
 /* Group section separator rows - fond bleu complet, titre x2, compteur entre () en blanc */
-/* Séparateurs d'équipe : bandeau vertical coloré sur la 1re colonne. */
-.agenda-person-head { border-left: 4px solid transparent; }
-.agenda-team-0 .agenda-person-head { border-left-color: var(--color-primary); }
-.agenda-team-1 .agenda-person-head { border-left-color: var(--color-success); }
-.agenda-team-2 .agenda-person-head { border-left-color: var(--color-warning); }
-.agenda-team-3 .agenda-person-head { border-left-color: var(--color-info); }
-.agenda-team-4 .agenda-person-head { border-left-color: var(--color-danger); }
-.agenda-team-5 .agenda-person-head { border-left-color: #7c3aed; }
+/* Séparateurs d'équipe : bandeau vertical coloré avec nom d'équipe. */
+.agenda-team-cell { width: 28px; min-width: 28px; max-width: 32px; padding: var(--spacing-2) 0; text-align: center; vertical-align: middle; border-left: 4px solid transparent; position: sticky; left: 0; z-index: 3; box-shadow: 1px 0 0 var(--color-border-light); }
+.agenda-team-name { display: inline-block; writing-mode: vertical-rl; transform: rotate(180deg); font-size: var(--font-size-xs); font-weight: var(--font-weight-semibold); text-transform: uppercase; letter-spacing: .06em; color: var(--color-white); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-height: 100%; }
+.agenda-team-head { background: var(--color-bg-secondary); position: sticky; left: 0; z-index: 4; }
+.agenda-person-head { border-left: 0; }
+.agenda-team-0 .agenda-team-cell { background: var(--color-primary); border-left-color: var(--color-primary-dark); }
+.agenda-team-1 .agenda-team-cell { background: #15803d; border-left-color: #166534; }
+.agenda-team-2 .agenda-team-cell { background: #b45309; border-left-color: #92400e; }
+.agenda-team-3 .agenda-team-cell { background: #0369a1; border-left-color: #075985; }
+.agenda-team-4 .agenda-team-cell { background: #b91c1c; border-left-color: #991b1b; }
+.agenda-team-5 .agenda-team-cell { background: #7c3aed; border-left-color: #6d28d9; }

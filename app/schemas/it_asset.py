@@ -238,6 +238,7 @@ class ITAssetResponse(BaseModel):
     wol_mac: Optional[str] = None
     last_seen: Optional[datetime] = None
     last_check: Optional[datetime] = None
+    consecutive_failures: int = 0
     notes: Optional[str] = None
     is_active: bool
     created_at: datetime
@@ -405,6 +406,14 @@ class ITAlertAcknowledge(BaseModel):
 
 class ITAlertResolve(BaseModel):
     resolved: bool = True
+
+
+class ITAlertListResponse(BaseModel):
+    items: List[ITAlertResponse]
+    total: int
+    page: int
+    page_size: int
+    total_pages: int
 
 
 class ITAssetHistoryResponse(BaseModel):

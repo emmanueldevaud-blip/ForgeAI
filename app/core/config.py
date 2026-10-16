@@ -96,6 +96,14 @@ class Settings(BaseSettings):
     RATE_LIMIT_REQUESTS: int = 10
     RATE_LIMIT_WINDOW_SECONDS: int = 60
 
+    # ---------- Phase 2 – nouvelles configurations ----------
+    # TCP fallback ports (comma‑separated) used when ICMP ping échoue.
+    TCP_FALLBACK_PORTS: str = "80,443,3389,9100"
+    # Seuils SNMP spécialisés (pour alertes automatiques)
+    PRINTER_TONER_THRESHOLD: int = 10  # % restant avant alerte
+    SWITCH_PORT_DOWN_THRESHOLD: int = 0  # nombre de ports down toléré
+    SERVER_CPU_THRESHOLD: int = 85      # % utilisation CPU avant alerte
+    SERVER_DISK_THRESHOLD: int = 90     # % utilisation disque avant alerte
     # Sport - analyses automatiques (matin / soir / apres activite)
     SPORT_ANALYSIS_ENABLED: bool = True
     SPORT_MORNING_ANALYSIS_ENABLED: bool = True
@@ -230,6 +238,9 @@ class Settings(BaseSettings):
     # Durée de validité du cache de la table ARP (secondes) : la table est
     # récupérée en une seule passe par scan, pas un sondage par hôte.
     IT_ARP_RESOLVER_CACHE_TTL: int = 300
+
+    # Seuil d'échecs consécutifs avant de déclarer un équipement hors ligne (hystérésis)
+    IT_MONITORING_FAILURE_THRESHOLD: int = 2
 
     # --- IT — Récupération des baux DHCP depuis pfSense (Source B)
     # Désactivé par défaut : nécessite configuration explicite.

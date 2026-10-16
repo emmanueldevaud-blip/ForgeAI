@@ -14,7 +14,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.models import ITAsset, ITAssetType, NetworkRange, DiscoveryLog, AssetObservation, ITAlert, ITAssetHistory, Room, Building, Site
+from app.models import ITAsset, ITAssetType, NetworkRange, DiscoveryLog, AssetObservation, ITAlert, ITAssetHistory, Room, Building, Site, ITAlertType, ITAlertSeverity
 from app.models.user import User
 from app.services.audit import AuditService
 from app.core.config import get_settings
@@ -1265,6 +1265,87 @@ class ITAssetService:
         await self.db.refresh(alert)
         return alert
 
+    async def resolve_active_unreachable_alerts(self, asset_id: int) -> int:
+        """Résout automatiquement les alertes de non-disponibilité ouvertes pour cet équipement."""
+        unreachable_types = [ITAlertType.UNREACHABLE, ITAlertType.STATUS_CHANGE]
+        result = await self.db.execute(
+            select(ITAlert)
+            .where(
+                ITAlert.asset_id == asset_id,
+                ITAlert.resolved.is_(False),
+                ITAlert.alert_type.in_(unreachable_types),
+            )
+        )
+        alerts = list(result.scalars().all())
+        now = datetime.now(UTC)
+        for alert in alerts:
+            alert.resolved = True
+            alert.resolved_at = now
+            details = dict(alert.details or {})
+            details["auto_resolved"] = True
+            details["recovered_at"] = now.isoformat()
+            alert.details = details
+
+        if alerts:
+            await self.db.commit()
+            for alert in alerts:
+                await self.db.refresh(alert)
+        return len(alerts)
+
+    async def search_alerts(
+        self,
+        page: int = 1,
+        page_size: int = 20,
+        resolved: Optional[bool] = None,
+        severity: Optional[str] = None,
+        alert_type: Optional[str] = None,
+        asset_id: Optional[int] = None,
+        room_id: Optional[int] = None,
+        site_id: Optional[int] = None,
+        sort_order: str = "desc",
+    ) -> Tuple[List[ITAlert], int]:
+        """Recherche globale et filtrage des alertes de supervision du parc."""
+        query = select(ITAlert)
+        conditions = []
+
+        if resolved is not None:
+            conditions.append(ITAlert.resolved == resolved)
+
+        if severity is not None:
+            conditions.append(ITAlert.severity == severity)
+
+        if alert_type is not None:
+            conditions.append(ITAlert.alert_type == alert_type)
+
+        if asset_id is not None:
+            conditions.append(ITAlert.asset_id == asset_id)
+
+        need_asset_join = room_id is not None or site_id is not None
+        if need_asset_join:
+            query = query.join(ITAsset, ITAlert.asset_id == ITAsset.id)
+            if room_id is not None:
+                conditions.append(ITAsset.room_id == room_id)
+            if site_id is not None:
+                query = query.join(Room, ITAsset.room_id == Room.id).join(Building, Room.building_id == Building.id)
+                conditions.append(Building.site_id == site_id)
+
+        if conditions:
+            query = query.where(and_(*conditions))
+
+        if sort_order == "desc":
+            query = query.order_by(ITAlert.created_at.desc())
+        else:
+            query = query.order_by(ITAlert.created_at.asc())
+
+        count_query = select(func.count()).select_from(query.subquery())
+        total = (await self.db.execute(count_query)).scalar() or 0
+
+        query = query.offset((page - 1) * page_size).limit(page_size)
+        result = await self.db.execute(query)
+        items = list(result.scalars().all())
+
+        return items, total
+
     # ============================================================
     # HISTORY
     # ============================================================
@@ -1355,10 +1436,11 @@ class NetworkDiscoveryService:
         community: str,
         version: str = "2c",
         timeout: float = 2.0,
-        retries: int = 3,
+        retries: int = 1,
         port: int = 161,
+        max_total_timeout: float = 4.0,
     ) -> Optional[dict]:
-        """Collecter des informations SNMP depuis un équipement."""
+        """Collecter des informations SNMP depuis un équipement avec gestion stricte des timeouts."""
         from pysnmp.hlapi.asyncio import (
             SnmpEngine,
             CommunityData,
@@ -1370,99 +1452,84 @@ class NetworkDiscoveryService:
             next_cmd,
         )
 
-        try:
-            # CommunityData : mpModel 0 = SNMPv1, 1 = SNMPv2c (2 = USM/v3, invalide ici)
-            mp_model = 0 if str(version).strip().lower().lstrip("v").startswith("1") else 1
-            auth_data = CommunityData(community, mpModel=mp_model)
+        async def _do_collect():
+            snmp_engine = SnmpEngine()
+            try:
+                mp_model = 0 if str(version).strip().lower().lstrip("v").startswith("1") else 1
+                auth_data = CommunityData(community, mpModel=mp_model)
+                transport = await UdpTransportTarget.create(
+                    (ip, port),
+                    timeout=timeout,
+                    retries=retries,
+                )
+                context = ContextData()
 
-            transport = await UdpTransportTarget.create(
-                (ip, port),
-                timeout=timeout,
-                retries=retries,
-            )
-            context = ContextData()
+                oids = [
+                    "1.3.6.1.2.1.1.1.0",  # sysDescr
+                    "1.3.6.1.2.1.1.2.0",  # sysObjectID
+                    "1.3.6.1.2.1.1.3.0",  # sysUpTime
+                    "1.3.6.1.2.1.1.4.0",  # sysContact
+                    "1.3.6.1.2.1.1.5.0",  # sysName
+                    "1.3.6.1.2.1.1.6.0",  # sysLocation
+                    "1.3.6.1.2.1.1.8.0",  # ifNumber
+                ]
+                if ":" not in ip:
+                    oids.append(f"1.3.6.1.2.1.4.22.1.2.{'.'.join(ip.split('.'))}")
 
-            # OID de base pour les informations de l'équipement
-            # IMPORTANT : les scalaires SNMP exigent l'instance ".0",
-            # sans elle l'agent répond NoSuchInstance (valeur vide)
-            oids = [
-                "1.3.6.1.2.1.1.1.0",  # sysDescr (description du système)
-                "1.3.6.1.2.1.1.2.0",  # sysObjectID
-                "1.3.6.1.2.1.1.3.0",  # sysUpTime
-                "1.3.6.1.2.1.1.4.0",  # sysContact
-                "1.3.6.1.2.1.1.5.0",  # sysName
-                "1.3.6.1.2.1.1.6.0",  # sysLocation
-                "1.3.6.1.2.1.1.8.0",  # ifNumber
-            ]
-            if ":" not in ip:
-                # ipNetToMediaPhysAddress pour l'IP scannée (MAC de l'équipement)
-                oids.append(f"1.3.6.1.2.1.4.22.1.2.{'.'.join(ip.split('.'))}")
+                def _snmp_value_to_str(oid: str, val) -> str:
+                    try:
+                        if '.4.22.1.2.' in oid or '.2.2.1.6.' in oid or oid.endswith('.2.2.1.6'):
+                            raw = val.asOctets()
+                            if len(raw) == 6:
+                                return ':'.join(f'{b:02x}' for b in raw)
+                    except Exception:
+                        pass
+                    return str(val)
 
-            def _snmp_value_to_str(oid: str, val) -> str:
-                """Les adresses physiques sont binaires : les convertir en aa:bb:cc:dd:ee:ff."""
-                try:
-                    if '.4.22.1.2.' in oid or '.2.2.1.6.' in oid or oid.endswith('.2.2.1.6'):
-                        raw = val.asOctets()
-                        if len(raw) == 6:
-                            return ':'.join(f'{b:02x}' for b in raw)
-                except Exception:
-                    pass
-                return str(val)
-
-            results = {}
-
-            # getCmd (requête simple) — les valeurs partielles sont conservées
-            error_indication, error_status, error_index, var_binds = await get_cmd(
-                SnmpEngine(),
-                auth_data,
-                transport,
-                context,
-                *[ObjectType(ObjectIdentity(o)) for o in oids],
-            )
-            for name, val in var_binds:
-                s = _snmp_value_to_str(str(name), val)
-                if s:
-                    results[str(name)] = s
-
-            if results:
-                # Walk ifPhysAddress : première MAC réelle (ifIndex 1 est
-                # souvent la loopback sans adresse)
-                error_indication, error_status, error_index, var_binds = await next_cmd(
-                    SnmpEngine(),
+                results = {}
+                error_indication, error_status, error_index, var_binds = await get_cmd(
+                    snmp_engine,
                     auth_data,
                     transport,
                     context,
-                    ObjectType(ObjectIdentity('1.3.6.1.2.1.2.2.1.6')),
+                    *[ObjectType(ObjectIdentity(o)) for o in oids],
                 )
-                if not error_indication:
-                    for name, val in var_binds:
-                        s = _snmp_value_to_str(str(name), val)
-                        if s and s != '00:00:00:00:00:00':
-                            results[str(name)] = s
-                            break
 
-            if not results and error_indication:
-                # Repli : marche (walk) OID par OID
-                for oid in oids:
-                    error_indication, error_status, error_index, var_binds = await next_cmd(
-                        SnmpEngine(),
-                        auth_data,
-                        transport,
-                        context,
-                        ObjectType(ObjectIdentity(oid)),
-                    )
-                    if error_indication:
-                        continue
+                # Si erreur de transport/timeout, abandonner immédiatement (pas de cascade d'OIDs unitaires)
+                if error_indication:
+                    return None
+
+                if not error_status and var_binds:
                     for name, val in var_binds:
                         s = _snmp_value_to_str(str(name), val)
                         if s:
                             results[str(name)] = s
 
-            return results if results else None
+                if results:
+                    err_ind, err_stat, _, binds = await next_cmd(
+                        snmp_engine,
+                        auth_data,
+                        transport,
+                        context,
+                        ObjectType(ObjectIdentity('1.3.6.1.2.1.2.2.1.6')),
+                    )
+                    if not err_ind and not err_stat and binds:
+                        for name, val in binds:
+                            s = _snmp_value_to_str(str(name), val)
+                            if s and s != '00:00:00:00:00:00':
+                                results[str(name)] = s
+                                break
 
-        except Exception as e:
-            # Erreur SNMP - ne pas faire planter la boucle
-            print(f"[SNMP] Erreur collecte depuis {ip}: {e}")
+                return results if results else None
+            finally:
+                if hasattr(snmp_engine, "close_dispatcher"):
+                    snmp_engine.close_dispatcher()
+                elif hasattr(snmp_engine, "closeDispatcher"):
+                    snmp_engine.closeDispatcher()
+
+        try:
+            return await asyncio.wait_for(_do_collect(), timeout=max_total_timeout)
+        except (asyncio.TimeoutError, Exception):
             return None
 
     async def _snmp_walk_column(
@@ -1499,6 +1566,7 @@ class NetworkDiscoveryService:
         prefix_len = len(col_tuple)
 
         values: dict = {}
+        snmp_engine = SnmpEngine()
         try:
             transport = await UdpTransportTarget.create(
                 (ip, port), timeout=timeout, retries=retries,
@@ -1508,7 +1576,7 @@ class NetworkDiscoveryService:
             current_oid = column_oid
             while current_oid:
                 error_indication, error_status, _error_index, var_binds = await next_cmd(
-                    SnmpEngine(),
+                    snmp_engine,
                     CommunityData(community, mpModel=mp_model),
                     transport,
                     ContextData(),
@@ -1551,6 +1619,11 @@ class NetworkDiscoveryService:
                 current_oid = next_oid
         except Exception as e:
             print(f"[SNMP-ARP] Erreur collecte colonne {column_oid} via {ip}: {e}")
+        finally:
+            if hasattr(snmp_engine, "close_dispatcher"):
+                snmp_engine.close_dispatcher()
+            elif hasattr(snmp_engine, "closeDispatcher"):
+                snmp_engine.closeDispatcher()
 
         return values
 
@@ -1947,52 +2020,105 @@ class AssetMonitoringService:
 
     async def check_asset(self, asset_id: int) -> dict:
         asset = await self.asset_service.get_it_asset(asset_id)
-        if not asset or not asset.ip_address:
-            return {"error": "Asset non trouvé ou sans IP"}
+        if not asset:
+            return {"error": "Asset non trouvé"}
+
+        now = datetime.now(UTC)
+
+        # Équipement sans IP : ne pas pinguer ni modifier le statut
+        if not asset.ip_address:
+            await self.asset_service.update_it_asset(asset_id, {
+                "last_check": now,
+            })
+            return {"status": asset.status, "message": "Aucune adresse IP configurée"}
+
+        old_status_raw = asset.status
+        old_status_str = str(old_status_raw.value if hasattr(old_status_raw, "value") else old_status_raw).lower()
+        is_maintenance = old_status_str == "maintenance"
+        threshold = getattr(settings, "IT_MONITORING_FAILURE_THRESHOLD", 2)
 
         reachable, response_time = await self.discovery_service._ping_host(asset.ip_address)
-        new_status = "online" if reachable else "offline"
-        old_status = asset.status
 
+        # Enregistrer l'observation technique
         await self.asset_service.create_observation(
             asset_id,
-            new_status,
+            "online" if reachable else "offline",
             response_time,
             "ping",
             {"ip": asset.ip_address},
         )
 
-        if new_status != old_status:
-            await self.asset_service.update_it_asset(asset_id, {
-                "status": new_status,
-                "last_seen": datetime.now(UTC) if reachable else asset.last_seen,
-                "last_check": datetime.now(UTC),
-            })
+        # 1. Règle Maintenance : le statut reste "maintenance", aucune alerte générée
+        if is_maintenance:
+            update_data = {"last_check": now}
+            if reachable:
+                update_data["last_seen"] = now
+                update_data["consecutive_failures"] = 0
+            await self.asset_service.update_it_asset(asset_id, update_data)
+            return {
+                "status": "maintenance",
+                "reachable": reachable,
+                "response_time_ms": response_time,
+            }
+
+        # 2. Équipement joignable
+        if reachable:
+            update_data = {
+                "status": "online",
+                "consecutive_failures": 0,
+                "last_seen": now,
+                "last_check": now,
+            }
+            await self.asset_service.update_it_asset(asset_id, update_data)
+
+            # Auto-résolution des alertes d'injoignabilité ouvertes
+            await self.asset_service.resolve_active_unreachable_alerts(asset_id)
+
+            return {
+                "status": "online",
+                "response_time_ms": response_time,
+                "consecutive_failures": 0,
+            }
+
+        # 3. Équipement injoignable (échec)
+        failures = (asset.consecutive_failures or 0) + 1
+        update_data = {
+            "consecutive_failures": failures,
+            "last_check": now,
+        }
+
+        # Hystérésis : basculement hors ligne uniquement si le seuil est atteint
+        if failures >= threshold:
+            update_data["status"] = "offline"
+            await self.asset_service.update_it_asset(asset_id, update_data)
+
+            # Créer ou mettre à jour (déduplication) l'alerte de panne
+            severity = "critical" if failures >= 3 else "warning"
+            await self.asset_service.create_alert(
+                asset_id,
+                "unreachable",
+                severity,
+                f"Équipement {asset.name} ({asset.ip_address}) injoignable ({failures} échecs consécutifs)",
+                {
+                    "old_status": old_status_str,
+                    "new_status": "offline",
+                    "consecutive_failures": failures,
+                    "ip": asset.ip_address,
+                },
+            )
+            return {
+                "status": "offline",
+                "response_time_ms": None,
+                "consecutive_failures": failures,
+            }
         else:
-            # Même si le statut n'a pas changé, rafraîchir last_check
-            await self.asset_service.update_it_asset(asset_id, {
-                "last_check": datetime.now(UTC),
-            })
-
-        if new_status != old_status:
-            if new_status == "offline":
-                await self.asset_service.create_alert(
-                    asset_id,
-                    "status_change",
-                    "warning",
-                    f"Asset {asset.name} ({asset.ip_address}) est passé offline",
-                    {"old_status": old_status, "new_status": new_status},
-                )
-            elif old_status == "offline" and new_status == "online":
-                await self.asset_service.create_alert(
-                    asset_id,
-                    "status_change",
-                    "info",
-                    f"Asset {asset.name} ({asset.ip_address}) est revenu online",
-                    {"old_status": old_status, "new_status": new_status},
-                )
-
-        return {"status": new_status, "response_time_ms": response_time}
+            # Seuil non atteint : l'équipement conserve son statut précédent
+            await self.asset_service.update_it_asset(asset_id, update_data)
+            return {
+                "status": old_status_str,
+                "response_time_ms": None,
+                "consecutive_failures": failures,
+            }
 
     async def check_all_assets(self, batch_size: int = 20) -> dict:
         from app.db.session import AsyncSessionLocal

@@ -12,6 +12,7 @@ from app.schemas.it_asset import (
     AssetObservationResponse,
     ITAlertAcknowledge,
     ITAlertResponse,
+    ITAlertListResponse,
     ITAssetCreate,
     ITAssetImportRequest,
     ITAssetImportResponse,
@@ -167,6 +168,45 @@ async def list_network_ranges(
     total_pages = math.ceil(total / page_size) if total > 0 else 1
     return NetworkRangeListResponse(
         items=[NetworkRangeResponse.model_validate(item) for item in items],
+        total=total,
+        page=page,
+        page_size=page_size,
+        total_pages=total_pages,
+    )
+
+
+@router.get("/alerts", response_model=ITAlertListResponse)
+async def list_all_alerts(
+    page: int = 1,
+    page_size: int = 20,
+    resolved: Optional[bool] = None,
+    severity: Optional[str] = None,
+    alert_type: Optional[str] = None,
+    asset_id: Optional[int] = None,
+    room_id: Optional[int] = None,
+    site_id: Optional[int] = None,
+    sort_order: str = "desc",
+    current_user: User = Depends(require_permission("it_asset.view")),
+    db: AsyncSession = Depends(get_db),
+):
+    from app.services.audit import get_audit_service
+    audit = await get_audit_service(db)
+    service = ITAssetService(db, audit=audit, current_user=current_user)
+
+    items, total = await service.search_alerts(
+        page=page,
+        page_size=page_size,
+        resolved=resolved,
+        severity=severity,
+        alert_type=alert_type,
+        asset_id=asset_id,
+        room_id=room_id,
+        site_id=site_id,
+        sort_order=sort_order,
+    )
+    total_pages = math.ceil(total / page_size) if total > 0 else 1
+    return ITAlertListResponse(
+        items=[ITAlertResponse.model_validate(item) for item in items],
         total=total,
         page=page,
         page_size=page_size,

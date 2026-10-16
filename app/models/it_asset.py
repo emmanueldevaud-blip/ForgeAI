@@ -58,6 +58,9 @@ class ITAlertSeverity(str, PyEnum):
 class ITAlertType(str, PyEnum):
     STATUS_CHANGE = "status_change"
     UNREACHABLE = "unreachable"
+    PRINTER_TONER = "printer_toner"
+    SWITCH_PORT = "switch_port"
+    SERVER_METRICS = "server_metrics"
     HIGH_LATENCY = "high_latency"
     SNMP_ERROR = "snmp_error"
     AGENT_SILENT = "agent_silent"
@@ -113,6 +116,7 @@ class ITAsset(Base):
     wol_mac: Mapped[Optional[str]] = mapped_column(String(17), nullable=True)
     last_seen: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     last_check: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    consecutive_failures: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)

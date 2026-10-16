@@ -169,8 +169,8 @@ export class AgendaSynthesisPage {
           </header>
           <div class="card-body agenda-section-body" style="padding:0;overflow-x:auto;">
             <table class="agenda-table agenda-table--synthesis ${isMonth ? 'agenda-table--synthesis-month' : ''}" role="grid">
-              ${this._tableHead(dates, today, metric.showCapacity)}
-              ${this._tableBody(dates, rooms, dayByIso, metric)}
+              ${this._tableHead(dates, today, metric.showCapacity, isMonth)}
+              ${this._tableBody(dates, rooms, dayByIso, metric, isMonth)}
               ${this._tableFoot(dates, data, metric)}
             </table>
           </div>
@@ -226,7 +226,7 @@ export class AgendaSynthesisPage {
       </div>`;
   }
 
-  _tableHead(dates, today, showCapacity) {
+  _tableHead(dates, today, showCapacity, isMonth) {
     return `
       <thead>
         <tr>
@@ -234,7 +234,8 @@ export class AgendaSynthesisPage {
           ${showCapacity ? '<th class="agenda-synthesis-capacity-head" rowspan="2" scope="col">Capacite</th>' : ''}
           ${dates.map((iso, di) => {
             const d = parseISODate(iso);
-            return `<th class="agenda-synthesis-day-head ${iso === today ? 'is-today' : ''} ${di === 0 ? 'agenda-day-first' : ''} ${di === dates.length - 1 ? 'agenda-day-last' : ''}" scope="col" title="${escapeHtml(formatDayLabel(iso))}">
+            const weekStart = isMonth && di % 5 === 0 && di > 0 ? ' agenda-week-start' : '';
+            return `<th class="agenda-synthesis-day-head${weekStart} ${iso === today ? 'is-today' : ''} ${di === 0 ? 'agenda-day-first' : ''} ${di === dates.length - 1 ? 'agenda-day-last' : ''}" scope="col" title="${escapeHtml(formatDayLabel(iso))}">
               <span class="agenda-day-name">${DAY_LABELS_SHORT[d.getDay() === 0 ? 6 : d.getDay() - 1]}</span>
               <span class="agenda-day-num">${d.getDate()}</span>
             </th>`;
@@ -244,13 +245,13 @@ export class AgendaSynthesisPage {
       </thead>`;
   }
 
-  _tableBody(dates, rooms, dayByIso, metric) {
+  _tableBody(dates, rooms, dayByIso, metric, isMonth) {
     const showCapacity = metric.showCapacity;
     return `
       <tbody>
         ${rooms.map(room => {
           let rowTotal = 0;
-          const cells = dates.map(iso => {
+          const cells = dates.map((iso, di) => {
             const day = dayByIso.get(iso);
             const roomData = day?.rooms?.find(r => r.room_id === room.id);
             const value = roomData?.[metric.key] ?? 0;
@@ -258,7 +259,8 @@ export class AgendaSynthesisPage {
             rowTotal += value;
             const isOver = showCapacity && value > capacity;
             const pct = capacity ? Math.round((value / capacity) * 100) : 0;
-            return `<td class="agenda-synthesis-cell agenda-synthesis-cell--${metric.color} ${isOver ? 'over-capacity' : ''}" title="${showCapacity ? `${value} / ${capacity} (${pct}%)` : `${value} ${metric.unit || ''}`}">${value}</td>`;
+            const weekStart = isMonth && di % 5 === 0 && di > 0 ? ' agenda-week-start' : '';
+            return `<td class="agenda-synthesis-cell agenda-synthesis-cell--${metric.color}${weekStart} ${isOver ? 'over-capacity' : ''}" title="${showCapacity ? `${value} / ${capacity} (${pct}%)` : `${value} ${metric.unit || ''}`}">${value}</td>`;
           }).join('');
           return `
             <tr>

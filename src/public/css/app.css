@@ -5524,6 +5524,7 @@
 .agenda-table--synthesis-month .agenda-synthesis-room-name { min-width: 72px; max-width: 100px; }
 .agenda-table--synthesis-month .agenda-synthesis-cell { min-width: 32px; }
 .agenda-table--synthesis-month .agenda-synthesis-corner { min-width: 56px; }
+.agenda-table--synthesis-month .agenda-week-start { border-left: 3px solid var(--color-border); }
 
 .agenda-synthesis-summary { display: flex; flex-wrap: wrap; gap: var(--spacing-3); margin-top: var(--spacing-4); }
 .summary-card { flex: 1 1 180px; min-width: 160px; padding: var(--spacing-3) var(--spacing-4); border: 1px solid var(--color-border-light); border-radius: var(--radius-lg); background: var(--color-surface-raised); text-align: center; }

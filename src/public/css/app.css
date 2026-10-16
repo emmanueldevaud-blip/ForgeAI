@@ -5490,10 +5490,16 @@
 .agenda-people-cell.is-empty .agenda-people-cell-flag.is-add { color: var(--color-primary); font-size: var(--font-size-sm); font-weight: var(--font-weight-semibold); }
 .agenda-people-cell:disabled { opacity: .8; cursor: default; }
 .agenda-people-cell:disabled:hover, .agenda-people-cell:disabled:focus-visible { border-color: transparent; background: transparent; }
-.agenda-table--people-month { min-width: max-content; }
-.agenda-table--people-month .agenda-room-head { min-width: 88px; }
-.agenda-table--people-month .agenda-people-cell { min-width: 28px; }
-.agenda-table--people-month .agenda-people-cell-room { max-width: 44px; font-size: var(--font-size-xs); }
+.agenda-table--people-month { min-width: 0; width: 100%; table-layout: fixed; }
+.agenda-table--people-month .agenda-team-head, .agenda-table--people-month .agenda-team-cell { width: 22px; }
+.agenda-table--people-month .agenda-corner, .agenda-table--people-month .agenda-room-head { width: 110px; min-width: 110px; max-width: 110px; }
+.agenda-table--people-month .agenda-day-head { width: 30px; min-width: 0; padding: 2px 1px; }
+.agenda-table--people-month .agenda-half-subhead { width: 15px; padding: 1px; font-size: 8px; }
+.agenda-table--people-month .agenda-people-cell { min-width: 0; min-height: 18px; padding: 1px; gap: 1px; }
+.agenda-table--people-month .agenda-cell-btn { min-width: 0; min-height: 16px; padding: 1px; }
+.agenda-people-cell-dot { display: inline-block; width: 8px; height: 8px; border-radius: 2px; background: #16a34a; flex-shrink: 0; }
+.agenda-people-cell.is-compact.is-empty { min-width: 0; }
+.agenda-mini-icon { flex-shrink: 0; color: var(--color-text-secondary); }
 
 /* Synthèse agenda */
 .agenda-table--synthesis { min-width: 0; }
@@ -5730,6 +5736,8 @@
     table-layout: auto;
     width: auto;
   }
+  .agenda-table--people-month { min-width: 0; width: 100%; table-layout: fixed; }
+  .agenda-table--people-month .agenda-room-head { min-width: 72px; max-width: 72px; width: 72px; }
   .agenda-table--people .agenda-room-head {
     position: sticky;
     left: 24px;
@@ -5763,6 +5771,11 @@
   .agenda-table--people .agenda-corner { min-width: 56px; width: 56px; }
   .agenda-table--people .agenda-cell-btn { min-width: 52px; padding: 2px; }
   .agenda-table--people .agenda-person-head { min-width: 56px; }
+  .agenda-table--people-month .agenda-day-head { min-width: 0; }
+  .agenda-table--people-month .agenda-people-cell { min-width: 0; padding: 1px; }
+  .agenda-table--people-month .agenda-cell-btn { min-width: 0; min-height: 16px; padding: 1px; }
+  .agenda-table--people-month .agenda-corner { min-width: 72px; width: 72px; }
+  .agenda-table--people-month .agenda-person-head { min-width: 0; }
 }
 
 /* Domotique */

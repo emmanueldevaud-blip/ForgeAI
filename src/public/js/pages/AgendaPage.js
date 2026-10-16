@@ -748,11 +748,26 @@ export class AgendaPage {
     } else if (editable) {
       details.push(`Inscrire ${person.name} — ${formatDayLabel(iso)} · ${halfLabel}`);
     }
+    const title = details.join(' · ') || `${person.name} — ${formatDayLabel(iso)} · ${halfLabel}`;
+    if (isMonth) {
+      const laptopSvg = '<svg class="agenda-mini-icon" width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><rect x="3" y="4" width="18" height="12" rx="1"/><path d="M2 20h20"/></svg>';
+      const plateSvg = '<svg class="agenda-mini-icon" width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="4"/></svg>';
+      return `
+      <td class="agenda-cell agenda-cell--${half} ${dayIndex === 0 ? 'agenda-cell--day-first ' : ''}${entry ? 'has-presence' : ''}">
+        <span class="agenda-cell-btn agenda-people-cell ${entry ? 'has-presence' : 'is-empty'} is-compact"
+          title="${escapeHtml(title)}"
+          aria-label="${escapeHtml(title)}">
+          ${entry
+            ? `<span class="agenda-people-cell-dot"></span>${entry.presence.needs_meal ? plateSvg : ''}${entry.presence.needs_workstation ? laptopSvg : ''}`
+            : ''}
+        </span>
+      </td>`;
+    }
     return `
       <td class="agenda-cell agenda-cell--${half} ${dayIndex === 0 ? 'agenda-cell--day-first ' : ''}${entry ? 'has-presence' : ''}">
-        <span class="agenda-cell-btn agenda-people-cell ${entry ? 'has-presence' : 'is-empty'} ${isMonth ? 'is-compact' : ''}"
-          title="${escapeHtml(details.join(' · '))}"
-          aria-label="${escapeHtml(details.join(' · ') || `${person.name} — ${formatDayLabel(iso)} · ${halfLabel}`)}">
+        <span class="agenda-cell-btn agenda-people-cell ${entry ? 'has-presence' : 'is-empty'}"
+          title="${escapeHtml(title)}"
+          aria-label="${escapeHtml(title)}">
           ${entry
             ? `<span class="agenda-people-cell-room">${escapeHtml(label)}</span>${entry.presence.needs_meal ? '<span class="agenda-people-cell-flag">repas</span>' : ''}${entry.presence.needs_workstation ? '<span class="agenda-people-cell-flag">poste</span>' : ''}`
             : ''}

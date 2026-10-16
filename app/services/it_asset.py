@@ -1842,25 +1842,6 @@ class NetworkDiscoveryService:
                                     # Ne pas faire échouer tout le scan pour une observation
                                     await self.db.rollback()
                                     scan_errors.append(f"{ip}: observation: {obs_err}"[:300])
-                    else:
-                        # Un hôte déjà inventorié doit aussi être actualisé lorsqu'il
-                        # ne répond plus : sinon il reste indéfiniment affiché online.
-                        async with self._db_lock:
-                            existing = await self.asset_service.get_it_asset_by_ip(ip)
-                            if existing:
-                                if existing.status != "maintenance":
-                                    await self.asset_service.update_it_asset(existing.id, {
-                                        "status": "offline",
-                                        "last_check": datetime.now(UTC),
-                                    })
-                                await self.asset_service.create_observation(
-                                    existing.id,
-                                    "offline",
-                                    None,
-                                    "ping",
-                                    {"ip": ip},
-                                )
-
                     # Suivi en direct : publier la progression toutes les 5 hôtes
                     # scannés, et immédiatement lorsqu'un hôte est trouvé
                     if reachable or hosts_scanned % 5 == 0:

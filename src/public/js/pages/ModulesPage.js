@@ -67,6 +67,10 @@ export class ModulesPage {
       const response = await modulesApi.post(`/${module.code}/${action}`);
       module.status = response.module?.status || (checked ? 'active' : 'inactive');
       this.showToast(response.message || `Module ${checked ? 'activé' : 'désactivé'}`, 'success');
+      // Intendance pilote ses sous-modules (cascade) : recharger pour refléter leurs statuts.
+      if (module.code === 'gestion_bureaux') {
+        await this.loadModules();
+      }
       window.dispatchEvent(new CustomEvent('modules:changed', { detail: { code: module.code, status: module.status } }));
     } catch (error) {
       console.error('Erreur bascule module:', error);

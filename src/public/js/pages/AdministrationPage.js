@@ -65,7 +65,7 @@ export class AdministrationPage {
     await this.auditPage.initialize();
     this.tabs[4].component = this.auditPage;
 
-    const { createModulesPage } = await import('./ModulesPage.js?v=1');
+    const { createModulesPage } = await import('./ModulesPage.js?v=2');
     this.modulesPage = createModulesPage(this.router);
     await this.modulesPage.initialize();
     this.tabs[5].component = this.modulesPage;

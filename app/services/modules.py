@@ -10,6 +10,17 @@ from app.models import Module, ModuleConfig, ModuleStatus, User
 from app.modules import module_registry
 from app.services.audit import AuditService, get_audit_service
 
+# Lien parent/enfants : Intendance (gestion_bureaux) pilote ses sous-modules.
+# Activation/désactivation en cascade, et un enfant ne s'active pas sans son parent.
+MODULE_PARENT_CHILDREN = {
+    "gestion_bureaux": ["buildings", "equipment", "housing", "volunteers"],
+}
+MODULE_CHILD_PARENTS = {
+    child: parent
+    for parent, children in MODULE_PARENT_CHILDREN.items()
+    for child in children
+}
+
 
 class ModuleService:
     def __init__(self, db: AsyncSession, audit: AuditService | None = None, current_user: User | None = None):
@@ -167,16 +178,31 @@ class ModuleService:
     async def enable_module(self, code: str) -> Module | None:
         module = await self.get_module(code)
         if module:
+            parent_code = MODULE_CHILD_PARENTS.get(code)
+            if parent_code:
+                parent = await self.get_module(parent_code)
+                if parent and parent.status != ModuleStatus.ACTIVE:
+                    raise ValueError(
+                        f"Le module parent '{parent_code}' (Intendance) doit être activé en premier"
+                    )
             old_status = module.status.value if hasattr(module.status, 'value') else module.status
-            module.status = ModuleStatus.ACTIVE
-            reg_module = module_registry.get(code)
-            if reg_module:
-                reg_module.info.status = ModuleStatus.ACTIVE
-                await reg_module.on_enable(self.db)
+            await self._apply_status(module, ModuleStatus.ACTIVE)
+
+            # Cascade : activer Intendance active aussi ses sous-modules.
+            enabled_children = []
+            for child_code in MODULE_PARENT_CHILDREN.get(code, []):
+                child = await self.get_module(child_code)
+                if child and child.status != ModuleStatus.ACTIVE:
+                    await self._apply_status(child, ModuleStatus.ACTIVE)
+                    enabled_children.append(child_code)
+
             await self.db.commit()
             await self.db.refresh(module)
 
             if self.audit:
+                new_values = {"status": "active"}
+                if enabled_children:
+                    new_values["children_activated"] = enabled_children
                 await self.audit.log(
                     action="module_enable",
                     module="modules",
@@ -185,7 +211,7 @@ class ModuleService:
                     object_id=str(module.id),
                     object_repr=module.code,
                     old_values={"status": old_status},
-                    new_values={"status": "active"},
+                    new_values=new_values,
                     status="success",
                 )
         return module
@@ -194,15 +220,23 @@ class ModuleService:
         module = await self.get_module(code)
         if module:
             old_status = module.status.value if hasattr(module.status, 'value') else module.status
-            module.status = ModuleStatus.INACTIVE
-            reg_module = module_registry.get(code)
-            if reg_module:
-                reg_module.info.status = ModuleStatus.INACTIVE
-                await reg_module.on_disable(self.db)
+            await self._apply_status(module, ModuleStatus.INACTIVE)
+
+            # Cascade : désactiver Intendance désactive aussi ses sous-modules.
+            disabled_children = []
+            for child_code in MODULE_PARENT_CHILDREN.get(code, []):
+                child = await self.get_module(child_code)
+                if child and child.status != ModuleStatus.INACTIVE:
+                    await self._apply_status(child, ModuleStatus.INACTIVE)
+                    disabled_children.append(child_code)
+
             await self.db.commit()
             await self.db.refresh(module)
 
             if self.audit:
+                new_values = {"status": "inactive"}
+                if disabled_children:
+                    new_values["children_deactivated"] = disabled_children
                 await self.audit.log(
                     action="module_disable",
                     module="modules",
@@ -211,10 +245,20 @@ class ModuleService:
                     object_id=str(module.id),
                     object_repr=module.code,
                     old_values={"status": old_status},
-                    new_values={"status": "inactive"},
+                    new_values=new_values,
                     status="success",
                 )
         return module
+
+    async def _apply_status(self, module: Module, target: ModuleStatus) -> None:
+        module.status = target
+        reg_module = module_registry.get(module.code)
+        if reg_module:
+            reg_module.info.status = target
+            if target == ModuleStatus.ACTIVE:
+                await reg_module.on_enable(self.db)
+            else:
+                await reg_module.on_disable(self.db)
 
     async def update_module_config(self, module_code: str, configs: dict[str, Any]) -> Module:
         module = await self.get_module(module_code)

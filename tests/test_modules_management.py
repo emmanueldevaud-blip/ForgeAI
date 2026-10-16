@@ -283,15 +283,160 @@ async def test_disabled_parent_module_blocks_children_api():
         response = await client.post("/modules/gestion_bureaux/disable", headers=headers)
         assert response.status_code == 200
 
-        # Le module enfant buildings est actif, mais le parent est desactive
+        # La cascade a desactive buildings en meme temps que le parent
         response = await client.get("/buildings", headers=headers)
         assert response.status_code == 403
-        assert "gestion_bureaux" in response.json()["detail"]
+        assert "désactivé" in response.json()["detail"]
 
         response = await client.post("/modules/gestion_bureaux/enable", headers=headers)
         assert response.status_code == 200
 
         response = await client.get("/buildings", headers=headers)
         assert response.status_code == 200
+
+    await engine.dispose()
+
+
+async def _get_module_statuses(async_session):
+    async with async_session() as check_db:
+        result = await check_db.execute(select(Module))
+        return {m.code: m.status for m in result.scalars()}
+
+
+@pytest.mark.asyncio
+async def test_intendance_disable_cascades_to_children():
+    """Desactiver Intendance desactive aussi ses 4 sous-modules."""
+    engine = create_async_engine(
+        'sqlite+aiosqlite:///:memory:',
+        poolclass=StaticPool,
+        connect_args={'check_same_thread': False},
+        echo=False,
+    )
+
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+
+    async_session = async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
+    async with async_session() as db:
+        await _setup_env(db)
+
+    def override_get_db():
+        yield db
+
+    app.dependency_overrides[get_db] = override_get_db
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.post("/auth/login", json={
+            "username": "modadmin",
+            "password": "password123",
+        })
+        access_token = response.cookies.get("access_token")
+        headers = {"Authorization": f"Bearer {access_token}"}
+
+        response = await client.post("/modules/gestion_bureaux/disable", headers=headers)
+        assert response.status_code == 200
+        assert "sous-modules" in response.json()["message"]
+
+        statuses = await _get_module_statuses(async_session)
+        assert statuses["gestion_bureaux"] == ModuleStatus.INACTIVE
+        for child in ("buildings", "equipment", "housing", "volunteers"):
+            assert statuses[child] == ModuleStatus.INACTIVE, child
+
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_intendance_enable_cascades_to_children():
+    """Activer Intendance active aussi ses 4 sous-modules."""
+    engine = create_async_engine(
+        'sqlite+aiosqlite:///:memory:',
+        poolclass=StaticPool,
+        connect_args={'check_same_thread': False},
+        echo=False,
+    )
+
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+
+    async_session = async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
+    async with async_session() as db:
+        await _setup_env(db)
+
+    def override_get_db():
+        yield db
+
+    app.dependency_overrides[get_db] = override_get_db
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.post("/auth/login", json={
+            "username": "modadmin",
+            "password": "password123",
+        })
+        access_token = response.cookies.get("access_token")
+        headers = {"Authorization": f"Bearer {access_token}"}
+
+        # Etat initial coherent : tout desactive
+        await client.post("/modules/gestion_bureaux/disable", headers=headers)
+
+        response = await client.post("/modules/gestion_bureaux/enable", headers=headers)
+        assert response.status_code == 200
+        assert "sous-modules" in response.json()["message"]
+
+        statuses = await _get_module_statuses(async_session)
+        assert statuses["gestion_bureaux"] == ModuleStatus.ACTIVE
+        for child in ("buildings", "equipment", "housing", "volunteers"):
+            assert statuses[child] == ModuleStatus.ACTIVE, child
+
+        # Les sous-modules figurent a nouveau dans /modules/enabled
+        response = await client.get("/modules/enabled", headers=headers)
+        enabled = response.json()["modules"]
+        for child in ("buildings", "equipment", "housing", "volunteers"):
+            assert child in enabled, child
+
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_child_enable_requires_active_parent():
+    """Impossible d'activer un sous-module si Intendance est desactive."""
+    engine = create_async_engine(
+        'sqlite+aiosqlite:///:memory:',
+        poolclass=StaticPool,
+        connect_args={'check_same_thread': False},
+        echo=False,
+    )
+
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+
+    async_session = async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
+    async with async_session() as db:
+        await _setup_env(db)
+
+    def override_get_db():
+        yield db
+
+    app.dependency_overrides[get_db] = override_get_db
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.post("/auth/login", json={
+            "username": "modadmin",
+            "password": "password123",
+        })
+        access_token = response.cookies.get("access_token")
+        headers = {"Authorization": f"Bearer {access_token}"}
+
+        await client.post("/modules/gestion_bureaux/disable", headers=headers)
+
+        response = await client.post("/modules/buildings/enable", headers=headers)
+        assert response.status_code == 400
+        assert "gestion_bureaux" in response.json()["detail"]
+
+        # L'enfant est toujours inactif
+        statuses = await _get_module_statuses(async_session)
+        assert statuses["buildings"] == ModuleStatus.INACTIVE
+
+        # Restaurer pour les tests suivants
+        await client.post("/modules/gestion_bureaux/enable", headers=headers)
 
     await engine.dispose()

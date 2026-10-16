@@ -7,7 +7,7 @@ from app.api.deps import get_current_active_user, require_permission
 from app.db.session import get_db
 from app.models import ModuleStatus
 from app.modules import module_registry
-from app.services.modules import get_module_service
+from app.services.modules import MODULE_PARENT_CHILDREN, get_module_service
 from app.services.rbac import RBACService
 
 router = APIRouter(prefix="/modules", tags=["modules"])
@@ -163,10 +163,16 @@ async def enable_module(
     db: AsyncSession = Depends(get_db),
 ):
     service = await get_module_service(db)
-    module = await service.enable_module(module_code)
+    try:
+        module = await service.enable_module(module_code)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
     if not module:
         raise HTTPException(status_code=404, detail="Module non trouvé")
-    return {"message": f"Module {module_code} activé", "module": ModuleResponse.model_validate(module)}
+    message = f"Module {module_code} activé"
+    if module_code in MODULE_PARENT_CHILDREN:
+        message += " (avec ses sous-modules : bâtiments, équipements, hébergements, volontaires)"
+    return {"message": message, "module": ModuleResponse.model_validate(module)}
 
 
 @router.post("/{module_code}/disable")
@@ -179,7 +185,10 @@ async def disable_module(
     module = await service.disable_module(module_code)
     if not module:
         raise HTTPException(status_code=404, detail="Module non trouvé")
-    return {"message": f"Module {module_code} désactivé", "module": ModuleResponse.model_validate(module)}
+    message = f"Module {module_code} désactivé"
+    if module_code in MODULE_PARENT_CHILDREN:
+        message += " (avec ses sous-modules)"
+    return {"message": message, "module": ModuleResponse.model_validate(module)}
 
 
 @router.get("/{module_code}/config")

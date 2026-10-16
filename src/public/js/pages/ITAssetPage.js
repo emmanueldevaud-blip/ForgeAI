@@ -71,6 +71,8 @@ export class ITAssetPage {
     this.search = '';
     this.assetTypeFilter = '';
     this.statusFilter = '';
+    this.sortBy = 'created_at';
+    this.sortOrder = 'desc';
     this.selectedAssetId = null;
     this.selectedAssetName = null;
     this.alertFilter = null;
@@ -90,14 +92,14 @@ export class ITAssetPage {
   async initialize() {
     this.table = new Table({
       columns: [
-        { key: 'reference', label: 'Référence' },
-        { key: 'name', label: 'Nom' },
-        { key: 'asset_type', label: 'Type' },
-        { key: 'ip_address', label: 'Adresse IP' },
-        { key: 'mac_address', label: 'Adresse MAC' },
-        { key: 'serial_number', label: 'Série' },
+        { key: 'reference', label: 'Référence', sortable: true },
+        { key: 'name', label: 'Nom', sortable: true },
+        { key: 'asset_type', label: 'Type', sortable: true },
+        { key: 'ip_address', label: 'Adresse IP', sortable: true },
+        { key: 'mac_address', label: 'Adresse MAC', sortable: true },
+        { key: 'serial_number', label: 'Série', sortable: true },
         { key: 'room_name', label: 'Salle' },
-        { key: 'status', label: 'Statut', render: (item) => this._renderStatus(item.status) },
+        { key: 'status', label: 'Statut', sortable: true, render: (item) => this._renderStatus(item.status) },
       ],
       actions: [
         { key: 'edit', label: 'Modifier', icon: 'edit', permission: 'it_asset.update' },
@@ -106,7 +108,7 @@ export class ITAssetPage {
       ],
       getItemId: (item) => item.id,
       onAction: (action, item) => this._handleAction(action, item),
-      onSort: () => {},
+      onSort: (sortKey, sortDirection) => this._sortAssets(sortKey, sortDirection),
       emptyMessage: 'Aucun asset trouvé. Ajoutez un nouvel asset ou lancez une découverte réseau.',
     });
 
@@ -138,6 +140,13 @@ export class ITAssetPage {
     const value = String(status || 'unknown').toLowerCase();
     const label = ASSET_STATUS_LABELS[value] || 'Inconnu';
     return `<span class="asset-status status-badge ${this._escape(value)}"><span class="asset-status-dot" aria-hidden="true"></span>${this._escape(label)}</span>`;
+  }
+
+  async _sortAssets(sortKey, sortDirection) {
+    this.sortBy = sortKey;
+    this.sortOrder = sortDirection;
+    this.page = 1;
+    await this.loadAssets();
   }
 
   async loadData() {
@@ -186,6 +195,8 @@ export class ITAssetPage {
       if (this.search) params.search = this.search;
       if (this.assetTypeFilter) params.asset_type = this.assetTypeFilter;
       if (this.statusFilter) params.status = this.statusFilter;
+      params.sort_by = this.sortBy;
+      params.sort_order = this.sortOrder;
       const data = await listItAssets(params);
       this.assets = data.items || [];
       this.page = data.page || this.page;
@@ -238,6 +249,8 @@ export class ITAssetPage {
       items: this.assets,
       page: this.page,
       pageSize: this.pageSize,
+      sortBy: this.sortBy,
+      sortOrder: this.sortOrder,
       total: this.assets.length,
       totalPages: Math.ceil(this.assets.length / this.pageSize) || 1,
     });

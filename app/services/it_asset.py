@@ -655,6 +655,8 @@ class ITAssetService:
             "asset_type": ITAsset.asset_type,
             "status": ITAsset.status,
             "ip_address": ITAsset.ip_address,
+            "mac_address": ITAsset.mac_address,
+            "serial_number": ITAsset.serial_number,
             "created_at": ITAsset.created_at,
             "updated_at": ITAsset.updated_at,
             "last_seen": ITAsset.last_seen,

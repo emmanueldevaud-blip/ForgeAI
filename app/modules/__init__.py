@@ -54,21 +54,25 @@ class GestionBureauxModule(BaseModule):
             elif not all(p in user_permissions for p in self.info.required_permissions):
                 return []
 
-        children = [
-            {
+        def _child_active(code: str) -> bool:
+            child = module_registry.get(code)
+            return child is None or child.info.status == ModuleStatus.ACTIVE
+
+        children = []
+        if _child_active("buildings"):
+            children.append({
                 "code": "buildings-sites",
                 "name": "Bâtiments",
                 "icon": "building",
                 "route": "/buildings",
                 "order": 0,
-            },
-        ]
+            })
 
         has_equipment = (
             "*" in user_permissions
             or "equipment.view" in user_permissions
         )
-        if has_equipment:
+        if has_equipment and _child_active("equipment"):
             children.append({
                 "code": "equipment-list",
                 "name": "Équipements",
@@ -81,7 +85,7 @@ class GestionBureauxModule(BaseModule):
             "*" in user_permissions
             or "housing.view" in user_permissions
         )
-        if has_housing:
+        if has_housing and _child_active("housing"):
             children.append({
                 "code": "housing-list",
                 "name": "Hébergements",
@@ -94,7 +98,7 @@ class GestionBureauxModule(BaseModule):
             "*" in user_permissions
             or "volunteers.view" in user_permissions
         )
-        if has_volunteers:
+        if has_volunteers and _child_active("volunteers"):
             children.append({
                 "code": "volunteers-list",
                 "name": "Volontaires",
@@ -102,6 +106,9 @@ class GestionBureauxModule(BaseModule):
                 "route": "/volunteers",
                 "order": 3,
             })
+
+        if not children:
+            return []
 
         return [{
             "code": self.info.code,

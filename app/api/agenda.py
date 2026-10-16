@@ -6,7 +6,7 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import get_db, require_permission
+from app.api.deps import get_db, require_module_enabled, require_permission
 from app.models.module import Module
 from app.models.rbac import Group, UserGroup
 from app.models.user import User
@@ -27,7 +27,11 @@ from app.schemas.agenda import (
 from app.services.agenda import AgendaService
 from app.services.rbac import RBACService
 
-router = APIRouter(prefix="/agenda", tags=["agenda"])
+router = APIRouter(
+    prefix="/agenda",
+    tags=["agenda"],
+    dependencies=[Depends(require_module_enabled("agenda"))],
+)
 
 
 class AgendaPresenceUpdate(BaseModel):

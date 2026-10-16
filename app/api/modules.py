@@ -125,6 +125,14 @@ async def get_navigation(
     return {"navigation": nav}
 
 
+@router.get("/enabled")
+async def list_enabled_modules(
+    current_user = Depends(get_current_active_user),
+):
+    """Codes des modules actifs (usage frontend : gardes de routes SPA)."""
+    return {"modules": [m.info.code for m in module_registry.get_active()]}
+
+
 @router.get("/{module_code}", response_model=ModuleResponse)
 async def get_module(
     module_code: str,

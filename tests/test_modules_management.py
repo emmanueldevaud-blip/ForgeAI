@@ -190,3 +190,108 @@ async def test_enable_disable_unknown_module_returns_404():
         assert response.status_code == 404
 
     await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_disabled_module_blocks_its_api():
+    """Un module désactivé bloque l'accès à ses routes API (403)."""
+    engine = create_async_engine(
+        'sqlite+aiosqlite:///:memory:',
+        poolclass=StaticPool,
+        connect_args={'check_same_thread': False},
+        echo=False,
+    )
+
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+
+    async_session = async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
+    async with async_session() as db:
+        await _setup_env(db)
+
+    def override_get_db():
+        yield db
+
+    app.dependency_overrides[get_db] = override_get_db
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.post("/auth/login", json={
+            "username": "modadmin",
+            "password": "password123",
+        })
+        access_token = response.cookies.get("access_token")
+        headers = {"Authorization": f"Bearer {access_token}"}
+
+        # Actif par défaut : accessible + present dans /modules/enabled
+        response = await client.get("/dashboard/widgets", headers=headers)
+        assert response.status_code == 200
+        response = await client.get("/modules/enabled", headers=headers)
+        assert response.status_code == 200
+        assert "dashboard" in response.json()["modules"]
+
+        # Desactiver le module : API bloquee + absent de /modules/enabled
+        response = await client.post("/modules/dashboard/disable", headers=headers)
+        assert response.status_code == 200
+
+        response = await client.get("/dashboard/widgets", headers=headers)
+        assert response.status_code == 403
+        assert "désactivé" in response.json()["detail"]
+
+        response = await client.get("/modules/enabled", headers=headers)
+        assert "dashboard" not in response.json()["modules"]
+
+        # Re-activer : accessible a nouveau
+        response = await client.post("/modules/dashboard/enable", headers=headers)
+        assert response.status_code == 200
+
+        response = await client.get("/dashboard/widgets", headers=headers)
+        assert response.status_code == 200
+
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_disabled_parent_module_blocks_children_api():
+    """Desactiver Intendance (gestion_bureaux) bloque aussi /buildings."""
+    engine = create_async_engine(
+        'sqlite+aiosqlite:///:memory:',
+        poolclass=StaticPool,
+        connect_args={'check_same_thread': False},
+        echo=False,
+    )
+
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+
+    async_session = async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
+    async with async_session() as db:
+        await _setup_env(db)
+
+    def override_get_db():
+        yield db
+
+    app.dependency_overrides[get_db] = override_get_db
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.post("/auth/login", json={
+            "username": "modadmin",
+            "password": "password123",
+        })
+        access_token = response.cookies.get("access_token")
+        headers = {"Authorization": f"Bearer {access_token}"}
+
+        response = await client.post("/modules/gestion_bureaux/disable", headers=headers)
+        assert response.status_code == 200
+
+        # Le module enfant buildings est actif, mais le parent est desactive
+        response = await client.get("/buildings", headers=headers)
+        assert response.status_code == 403
+        assert "gestion_bureaux" in response.json()["detail"]
+
+        response = await client.post("/modules/gestion_bureaux/enable", headers=headers)
+        assert response.status_code == 200
+
+        response = await client.get("/buildings", headers=headers)
+        assert response.status_code == 200
+
+    await engine.dispose()

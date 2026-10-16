@@ -1,9 +1,11 @@
 
 from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordBearer
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import get_db
+from app.models.module import Module, ModuleStatus
 from app.models.user import User
 from app.core.config import get_settings
 from app.services.auth import (
@@ -118,6 +120,32 @@ def require_all_permissions(*permission_codes: str):
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail=f"Toutes les permissions suivantes sont requises: {', '.join(permission_codes)}"
             )
+        return current_user
+    return dependency
+
+
+def require_module_enabled(*module_codes: str):
+    """Dependency bloquant l'accès si l'un des modules est désactivé.
+
+    La base est la source de vérité (statut `modules.status`). Un code sans
+    ligne en base n'est pas bloqué (module non synchronisé).
+    """
+    async def dependency(
+        current_user: User = Depends(get_current_active_user),
+        db: AsyncSession = Depends(get_db),
+    ) -> User:
+        if module_codes:
+            result = await db.execute(
+                select(Module.code, Module.status).where(Module.code.in_(module_codes))
+            )
+            statuses = {code: st for code, st in result.all()}
+            for code in module_codes:
+                module_status = statuses.get(code)
+                if module_status is not None and module_status != ModuleStatus.ACTIVE:
+                    raise HTTPException(
+                        status_code=status.HTTP_403_FORBIDDEN,
+                        detail=f"Module '{code}' désactivé",
+                    )
         return current_user
     return dependency
 

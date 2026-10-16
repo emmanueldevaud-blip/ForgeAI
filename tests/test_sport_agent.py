@@ -538,7 +538,7 @@ async def test_ai_chat_routes_sport_question_to_agent(client, admin_headers, db_
     use_gateway(monkeypatch, responder_for(agent_fn))
 
     response = await client.post(
-        "/maintenance/ai/chat",
+        "/ai/chat",
         json={"message": "Quel est mon objectif de la semaine ?"},
         headers=admin_headers,
     )

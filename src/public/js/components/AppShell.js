@@ -3,6 +3,7 @@ import { Header } from './Header.js?v=3';
 import { MainContent } from './MainContent.js';
 import { MobileSidebar } from './MobileSidebar.js?v=3';
 import { authStore } from '../stores/auth.js';
+import { modulesStore } from '../stores/modules.js';
 import { modulesApi } from '../services/api.js';
 
 export class AppShell {
@@ -89,6 +90,7 @@ export class AppShell {
     /* Resynchronise la navigation apres un changement d'etat de module
        (activation/desactivation depuis l'administration). */
     this._onModulesChanged = () => {
+      modulesStore.invalidate();
       if (authStore.authenticated) {
         this.sidebar.loadNavigation().then(() => {
           this.mobileSidebar.setNavigation(this.sidebar.navigation);

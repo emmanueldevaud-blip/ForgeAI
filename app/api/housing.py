@@ -6,7 +6,7 @@ from fastapi.responses import HTMLResponse
 from uuid import UUID
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import require_permission
+from app.api.deps import require_module_enabled, require_permission
 from app.db.session import get_db
 from app.models.user import User
 from app.schemas.housing import (
@@ -57,7 +57,8 @@ from app.services.housing import HousingService
 
 router = APIRouter(
     prefix="/housing",
-    tags=["housing"]
+    tags=["housing"],
+    dependencies=[Depends(require_module_enabled("housing", "gestion_bureaux"))],
 )
 
 

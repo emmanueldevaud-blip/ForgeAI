@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import get_db, require_permission
+from app.api.deps import get_db, require_module_enabled, require_permission
 from app.models.administrative import AdministrativeCapability, AdministrativeProgramType, AdministrativeRoleType, VolunteerUnavailability
 from app.schemas.administrative import (
     AssignmentCreate, AssignmentResponse, AssignmentUpdate, CapabilityCreate, CapabilityResponse,
@@ -13,7 +13,11 @@ from app.schemas.administrative import (
 )
 from app.services.administrative import AdministrativeService
 
-router = APIRouter(prefix="/administration", tags=["administration-programs"])
+router = APIRouter(
+    prefix="/administration",
+    tags=["administration-programs"],
+    dependencies=[Depends(require_module_enabled("administratif"))],
+)
 
 
 def service_for(permission: str):

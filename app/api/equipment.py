@@ -3,7 +3,7 @@ import math
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import require_permission
+from app.api.deps import require_module_enabled, require_permission
 from app.db.session import get_db
 from app.models.user import User
 from app.schemas.equipment import (
@@ -26,6 +26,7 @@ from app.services.equipment import EquipmentService
 router = APIRouter(
     prefix="/equipment",
     tags=["equipment"],
+    dependencies=[Depends(require_module_enabled("equipment", "gestion_bureaux"))],
 )
 
 

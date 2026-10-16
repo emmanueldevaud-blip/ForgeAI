@@ -3,13 +3,17 @@ from typing import Any
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 
-from app.api.deps import get_current_active_user
+from app.api.deps import get_current_active_user, require_module_enabled
 from app.db.session import get_db
 from app.models.user import User
 from app.services.dashboard import dashboard_registry
 from app.services.rbac import RBACService
 
-router = APIRouter(prefix="/dashboard", tags=["dashboard"])
+router = APIRouter(
+    prefix="/dashboard",
+    tags=["dashboard"],
+    dependencies=[Depends(require_module_enabled("dashboard"))],
+)
 
 
 class WidgetMeta(BaseModel):

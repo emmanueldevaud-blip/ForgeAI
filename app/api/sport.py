@@ -7,7 +7,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from xml.etree.ElementTree import ParseError
 
-from app.api.deps import get_db, require_permission
+from app.api.deps import get_db, require_module_enabled, require_permission
 from app.db.session import get_db_context
 from app.models.sport import SportAnalysis
 from app.models.user import User
@@ -37,7 +37,11 @@ from app.services.sport import SportService
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/sport", tags=["sport"])
+router = APIRouter(
+    prefix="/sport",
+    tags=["sport"],
+    dependencies=[Depends(require_module_enabled("sport"))],
+)
 
 
 async def get_sport_service(

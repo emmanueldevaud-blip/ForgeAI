@@ -208,7 +208,7 @@ async def test_routing_detection():
     """Test de la détection de mots-clés de développement."""
     import re
     
-    _DEVELOPMENT_QUESTION_RE = __import__("app.api.maintenance", fromlist=["_DEVELOPMENT_QUESTION_RE"])._DEVELOPMENT_QUESTION_RE
+    _DEVELOPMENT_QUESTION_RE = __import__("app.api.ai", fromlist=["_DEVELOPMENT_QUESTION_RE"])._DEVELOPMENT_QUESTION_RE
     
     # Mots-clés qui doivent déclencher
     assert _DEVELOPMENT_QUESTION_RE.search("Ajoute une fonctionnalité")

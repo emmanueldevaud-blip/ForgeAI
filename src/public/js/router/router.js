@@ -28,6 +28,7 @@ class Router {
         requiresAuth: false,
         permissions: [],
         roles: [],
+        module: null,
         ...meta,
       },
     };
@@ -193,7 +194,7 @@ class Router {
   }
 }
 
-function createAuthGuard(authStore) {
+function createAuthGuard(authStore, modulesStore) {
   return async (route) => {
     if (!route.meta.requiresAuth) return true;
 
@@ -215,6 +216,16 @@ function createAuthGuard(authStore) {
       const hasRole = route.meta.roles.some(r => authStore.hasRole(r));
       if (!hasRole) {
         return new RouterError('Rôle requis', 403, '/403');
+      }
+    }
+
+    if (route.meta.module && modulesStore) {
+      const codes = Array.isArray(route.meta.module)
+        ? route.meta.module
+        : [route.meta.module];
+      await modulesStore.ensureLoaded();
+      if (!modulesStore.areModulesActive(codes)) {
+        return new RouterError('Module désactivé', 403, '/403');
       }
     }
 

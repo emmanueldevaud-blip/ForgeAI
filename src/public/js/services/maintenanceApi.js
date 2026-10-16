@@ -235,26 +235,3 @@ export async function createPlan(data) {
 export async function updatePlan(id, data) {
   return maintenanceApi.patch(`/plans/${id}`, data);
 }
-
-// ============================================================
-// AI ASSISTANT
-// ============================================================
-
-export async function sendAIMessage(data) {
-  return maintenanceApi.post('/ai/chat', data);
-}
-
-export async function listAIConversations(params = {}) {
-  const query = new URLSearchParams();
-  if (params.module) query.append('module', params.module);
-  const endpoint = `/ai/conversations${query.toString() ? '?' + query.toString() : ''}`;
-  return maintenanceApi.get(endpoint);
-}
-
-export async function getAIConversation(id) {
-  return maintenanceApi.get(`/ai/conversations/${id}`);
-}
-
-export async function getAIOptions() {
-  return maintenanceApi.get('/ai/options');
-}

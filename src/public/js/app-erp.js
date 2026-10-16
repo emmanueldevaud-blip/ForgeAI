@@ -1,6 +1,7 @@
-import { router, createAuthGuard, createNotFoundPage, createForbiddenPage } from './router/router.js';
+import { router, createAuthGuard, createNotFoundPage, createForbiddenPage } from './router/router.js?v=2';
 import { authStore } from './stores/auth.js';
-import { AppShell } from './components/AppShell.js?v=9';
+import { modulesStore } from './stores/modules.js';
+import { AppShell } from './components/AppShell.js?v=10';
 import { createModulePlaceholderPage } from './pages/ModulePlaceholder.js?v=3';
 import { createLoginPage } from './pages/LoginPage.js';
 import { createRegisterPage } from './pages/RegisterPage.js';
@@ -17,7 +18,7 @@ import { createMaintenanceProvidersPage } from './pages/MaintenanceProvidersPage
 import { createMaintenanceContractsPage } from './pages/MaintenanceContractsPage.js';
 import { createMaintenanceRefsPage } from './pages/MaintenanceRefsPage.js';
 import { createMaintenanceCalendarPage } from './pages/MaintenanceCalendarPage.js';
-import { createAIAssistantPage } from './pages/AIAssistantPage.js?v=26';
+import { createAIAssistantPage } from './pages/AIAssistantPage.js?v=27';
 import { createHousingPage } from './pages/HousingPage.js';
 import { createProfilePage } from './pages/ProfilePage.js?v=2';
 import { createSettingsPage } from './pages/UserSettingsPage.js?v=1';
@@ -118,7 +119,7 @@ async function initializeApp() {
   appShell = new AppShell(router);
   await appShell.initialize();
 
-  const authGuard = createAuthGuard(authStore);
+  const authGuard = createAuthGuard(authStore, modulesStore);
 
   const initialPath = window.location.pathname;
 
@@ -141,7 +142,7 @@ async function initializeApp() {
     })
     .addRoute('/dashboard', async (route) => {
       await showDashboardPage(route);
-    }, { requiresAuth: true })
+    }, { requiresAuth: true, module: 'dashboard' })
     .addRoute('/profile', async () => {
       const profilePage = createProfilePage(router);
       appShell.showContent(profilePage.render());
@@ -183,124 +184,124 @@ async function initializeApp() {
     }, { requiresAuth: true, permissions: ['settings_view'] })
     .addRoute('/administration/programs', async (route) => {
       await showAdministrativeProgramsPage(route);
-    }, { requiresAuth: true, permissions: ['administration.programs.view'] })
+    }, { requiresAuth: true, permissions: ['administration.programs.view'], module: 'administratif' })
     .addRoute('/administratif', async (route) => {
       await showAdministrativeProgramsPage(route);
-    }, { requiresAuth: true, permissions: ['administration.programs.view'] })
+    }, { requiresAuth: true, permissions: ['administration.programs.view'], module: 'administratif' })
     .addRoute('/administratif/programs', async (route) => {
       await showAdministrativeProgramsPage(route);
-    }, { requiresAuth: true, permissions: ['administration.programs.view'] })
+    }, { requiresAuth: true, permissions: ['administration.programs.view'], module: 'administratif' })
     .addRoute('/buildings', async (route) => {
       await showBuildingsPage(route);
-    }, { requiresAuth: true, permissions: ['building.view'] })
+    }, { requiresAuth: true, permissions: ['building.view'], module: ['buildings', 'gestion_bureaux'] })
     .addRoute('/buildings/refs', async (route) => {
       await showBuildingRefsPage(route);
-    }, { requiresAuth: true, permissions: ['building.view'] })
+    }, { requiresAuth: true, permissions: ['building.view'], module: ['buildings', 'gestion_bureaux'] })
     .addRoute('/equipment', async (route) => {
       await showEquipmentPage(route);
-    }, { requiresAuth: true, permissions: ['equipment.view'] })
+    }, { requiresAuth: true, permissions: ['equipment.view'], module: ['equipment', 'gestion_bureaux'] })
     .addRoute('/equipment/refs', async (route) => {
       await showEquipmentRefsPage(route);
-    }, { requiresAuth: true, permissions: ['equipment.view'] })
+    }, { requiresAuth: true, permissions: ['equipment.view'], module: ['equipment', 'gestion_bureaux'] })
     .addRoute('/maintenance', async (route) => {
       await showMaintenanceRequestsPage(route);
-    }, { requiresAuth: true, permissions: ['maintenance.view'] })
+    }, { requiresAuth: true, permissions: ['maintenance.view'], module: 'maintenance' })
     .addRoute('/maintenance/requests', async (route) => {
       await showMaintenanceRequestsPage(route);
-    }, { requiresAuth: true, permissions: ['maintenance.view'] })
+    }, { requiresAuth: true, permissions: ['maintenance.view'], module: 'maintenance' })
     .addRoute('/maintenance/work-orders', async (route) => {
       await showMaintenanceWorkOrdersPage(route);
-    }, { requiresAuth: true, permissions: ['maintenance.view'] })
+    }, { requiresAuth: true, permissions: ['maintenance.view'], module: 'maintenance' })
     .addRoute('/maintenance/preventive', async (route) => {
       await showMaintenancePreventivePage(route);
-    }, { requiresAuth: true, permissions: ['maintenance.view'] })
+    }, { requiresAuth: true, permissions: ['maintenance.view'], module: 'maintenance' })
     .addRoute('/maintenance/providers', async (route) => {
       await showMaintenanceProvidersPage(route);
-    }, { requiresAuth: true, permissions: ['maintenance.manage_providers'] })
+    }, { requiresAuth: true, permissions: ['maintenance.manage_providers'], module: 'maintenance' })
     .addRoute('/maintenance/contracts', async (route) => {
       await showMaintenanceContractsPage(route);
-    }, { requiresAuth: true, permissions: ['maintenance.manage_contracts'] })
+    }, { requiresAuth: true, permissions: ['maintenance.manage_contracts'], module: 'maintenance' })
     .addRoute('/maintenance/refs', async (route) => {
       await showMaintenanceRefsPage(route);
-    }, { requiresAuth: true, permissions: ['maintenance.manage_referentials'] })
+    }, { requiresAuth: true, permissions: ['maintenance.manage_referentials'], module: 'maintenance' })
     .addRoute('/maintenance/calendar', async (route) => {
       await showMaintenanceCalendarPage(route);
-    }, { requiresAuth: true, permissions: ['maintenance.view'] })
+    }, { requiresAuth: true, permissions: ['maintenance.view'], module: 'maintenance' })
     .addRoute('/ai', async (route) => {
       await showAIAssistantPage(route);
-    }, { requiresAuth: true, permissions: ['ai.use'] })
+    }, { requiresAuth: true, permissions: ['ai.use'], module: 'ai_assistant' })
     .addRoute('/housing', async (route) => {
       await showHousingPage(route);
-    }, { requiresAuth: true, permissions: ['housing.view'] })
+    }, { requiresAuth: true, permissions: ['housing.view'], module: ['housing', 'gestion_bureaux'] })
     .addRoute('/sport', async (route) => {
       await showSportDashboardPage(route);
-    }, { requiresAuth: true, permissions: ['sport.access'] })
+    }, { requiresAuth: true, permissions: ['sport.access'], module: 'sport' })
     .addRoute('/sport/activities', async (route) => {
       await showSportActivitiesPage(route);
-    }, { requiresAuth: true, permissions: ['sport.activities.read'] })
+    }, { requiresAuth: true, permissions: ['sport.activities.read'], module: 'sport' })
     .addRoute('/sport/goals', async (route) => {
       await showSportGoalsPage(route);
-    }, { requiresAuth: true, permissions: ['sport.goals.read'] })
+    }, { requiresAuth: true, permissions: ['sport.goals.read'], module: 'sport' })
     .addRoute('/sport/garmin', async (route) => {
       await showSportGarminPage(route);
-    }, { requiresAuth: true, permissions: ['sport.activities.write'] })
+    }, { requiresAuth: true, permissions: ['sport.activities.write'], module: 'sport' })
     .addRoute('/sport/health', async (route) => {
       await showSportHealthPage(route);
-    }, { requiresAuth: true, permissions: ['sport.access'] })
+    }, { requiresAuth: true, permissions: ['sport.access'], module: 'sport' })
     .addRoute('/sport/analyses', async (route) => {
       await showSportAnalysesPage(route);
-    }, { requiresAuth: true, permissions: ['sport.analysis.read'] })
+    }, { requiresAuth: true, permissions: ['sport.analysis.read'], module: 'sport' })
     .addRoute('/domotique', async (route) => {
       await showDomotiquePage(route);
-    }, { requiresAuth: true, permissions: ['domotique.view'] })
+    }, { requiresAuth: true, permissions: ['domotique.view'], module: 'domotique' })
     .addRoute('/domotique/config', async (route) => {
       await showDomotiqueConfigPage(route);
-    }, { requiresAuth: true, permissions: ['domotique.configure'] })
+    }, { requiresAuth: true, permissions: ['domotique.configure'], module: 'domotique' })
     .addRoute('/agenda', async (route) => {
       await showAgendaPage(route);
-    }, { requiresAuth: true, permissions: ['agenda.access'] })
+    }, { requiresAuth: true, permissions: ['agenda.access'], module: 'agenda' })
     .addRoute('/agenda/inscriptions', async (route) => {
       await showAgendaPage(route);
-    }, { requiresAuth: true, permissions: ['agenda.access'] })
+    }, { requiresAuth: true, permissions: ['agenda.access'], module: 'agenda' })
     .addRoute('/agenda/settings', async (route) => {
       await showAgendaSettingsPage(route);
-    }, { requiresAuth: true, permissions: ['agenda.manage'] })
+    }, { requiresAuth: true, permissions: ['agenda.manage'], module: 'agenda' })
     .addRoute('/agenda/synthese', async (route) => {
       await showAgendaSynthesisPage(route);
-    }, { requiresAuth: true, permissions: ['agenda.access'] })
+    }, { requiresAuth: true, permissions: ['agenda.access'], module: 'agenda' })
     .addRoute('/volunteers', async (route) => {
       await showVolunteersPage(route);
-    }, { requiresAuth: true, permissions: ['volunteers.view'] })
+    }, { requiresAuth: true, permissions: ['volunteers.view'], module: ['volunteers', 'gestion_bureaux'] })
     .addRoute('/photos', async (route) => {
       await showPhotosPage(route);
-    }, { requiresAuth: true, permissions: ['photos.view'] })
+    }, { requiresAuth: true, permissions: ['photos.view'], module: 'photos' })
     .addRoute('/photos/albums', async (route) => {
       await showPhotosPage(route);
-    }, { requiresAuth: true, permissions: ['photos.view'] })
+    }, { requiresAuth: true, permissions: ['photos.view'], module: 'photos' })
     .addRoute('/photos/people', async (route) => {
       await showPhotosPage(route);
-    }, { requiresAuth: true, permissions: ['photos.view'] })
+    }, { requiresAuth: true, permissions: ['photos.view'], module: 'photos' })
     .addRoute('/photos/places', async (route) => {
       await showPhotosPage(route);
-    }, { requiresAuth: true, permissions: ['photos.view'] })
+    }, { requiresAuth: true, permissions: ['photos.view'], module: 'photos' })
     .addRoute('/photos/favorites', async (route) => {
       await showPhotosPage(route);
-    }, { requiresAuth: true, permissions: ['photos.view'] })
+    }, { requiresAuth: true, permissions: ['photos.view'], module: 'photos' })
     .addRoute('/photos/trash', async (route) => {
       await showPhotosPage(route);
-    }, { requiresAuth: true, permissions: ['photos.delete'] })
+    }, { requiresAuth: true, permissions: ['photos.delete'], module: 'photos' })
     .addRoute('/it-assets', async (route) => {
       await showITAssetPage(route);
-    }, { requiresAuth: true, permissions: ['it_asset.view'] })
+    }, { requiresAuth: true, permissions: ['it_asset.view'], module: 'it_asset' })
     .addRoute('/it-assets/discovery', async (route) => {
       await showITAssetPage(route);
-    }, { requiresAuth: true, permissions: ['it_asset.view'] })
+    }, { requiresAuth: true, permissions: ['it_asset.view'], module: 'it_asset' })
     .addRoute('/it-assets/alerts', async (route) => {
       await showITAssetPage(route);
-    }, { requiresAuth: true, permissions: ['it_asset.view'] })
+    }, { requiresAuth: true, permissions: ['it_asset.view'], module: 'it_asset' })
     .addRoute('/it-assets/network-ranges', async (route) => {
       await showITAssetPage(route);
-    }, { requiresAuth: true, permissions: ['it_asset.view'] })
+    }, { requiresAuth: true, permissions: ['it_asset.view'], module: 'it_asset' })
 
   // Modules with explicit routes (registered above) - skip in module loop
   const explicitModuleRoutes = ['dashboard', 'administration', 'administratif',
@@ -314,7 +315,7 @@ async function initializeApp() {
 
   router.addRoute(`/${module}`, async (route) => {
       await showModulePage(route);
-    }, { requiresAuth: true, permissions: moduleRoutePermissions[module] || [] });
+    }, { requiresAuth: true, permissions: moduleRoutePermissions[module] || [], module });
   });
 
   router

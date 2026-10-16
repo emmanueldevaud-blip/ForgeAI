@@ -17,7 +17,7 @@ from fastapi import (
 from fastapi.responses import FileResponse, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import get_db, require_permission
+from app.api.deps import get_db, require_module_enabled, require_permission
 from app.core.config import get_settings
 from app.models.user import User
 from app.schemas.photos import (
@@ -83,7 +83,11 @@ from app.services.photo.storage import PhotoStorageError, get_photo_storage
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/photos", tags=["photos"])
+router = APIRouter(
+    prefix="/photos",
+    tags=["photos"],
+    dependencies=[Depends(require_module_enabled("photos"))],
+)
 
 
 # ================================ Dépendances ================================

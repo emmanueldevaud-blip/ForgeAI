@@ -1,4 +1,4 @@
-"""Tests de l'API chat du module Assistant IA (/maintenance/ai/chat)."""
+"""Tests de l'API chat du module Assistant IA (/ai/chat)."""
 
 import pytest
 from sqlalchemy import select
@@ -40,7 +40,7 @@ def fake_gateway(monkeypatch):
 
 async def test_ai_chat_calls_gateway_and_persists(client, admin_headers, db_session, fake_gateway):
     response = await client.post(
-        "/maintenance/ai/chat",
+        "/ai/chat",
         json={"message": "Bonjour", "module": "maintenance"},
         headers=admin_headers,
     )
@@ -65,14 +65,14 @@ async def test_ai_chat_calls_gateway_and_persists(client, admin_headers, db_sess
 
 async def test_ai_chat_second_call_sends_history(client, admin_headers, fake_gateway):
     first = await client.post(
-        "/maintenance/ai/chat",
+        "/ai/chat",
         json={"message": "Première question", "module": "maintenance"},
         headers=admin_headers,
     )
     conversation_id = first.json()["conversation_id"]
 
     second = await client.post(
-        "/maintenance/ai/chat",
+        "/ai/chat",
         json={
             "message": "Deuxième question",
             "module": "maintenance",
@@ -93,7 +93,7 @@ async def test_ai_chat_gateway_error_returns_502(client, admin_headers, db_sessi
     fake_gateway.error = AINoProviderAvailable("Aucun fournisseur IA configuré et disponible")
 
     response = await client.post(
-        "/maintenance/ai/chat",
+        "/ai/chat",
         json={"message": "Test erreur", "module": "maintenance"},
         headers=admin_headers,
     )
@@ -107,7 +107,7 @@ async def test_ai_chat_gateway_error_returns_502(client, admin_headers, db_sessi
 
 async def test_ai_chat_rejects_blank_message(client, admin_headers, fake_gateway):
     response = await client.post(
-        "/maintenance/ai/chat",
+        "/ai/chat",
         json={"message": "   ", "module": "maintenance"},
         headers=admin_headers,
     )
@@ -124,12 +124,12 @@ async def test_ai_chat_sport_question_uses_sport_context(client, admin_headers, 
             assert context.get("weekly_summary")
             return {"available": True, "provider": "ai-gateway", "answer": "Réponse du coach", "sources": ["weekly_summary"]}
 
-    monkeypatch.setattr("app.api.maintenance._build_sport_context", fake_context)
-    monkeypatch.setattr("app.api.maintenance.get_sport_ai_provider", lambda: FakeSportProvider())
-    monkeypatch.setattr("app.api.maintenance.agent_enabled", lambda: False)
+    monkeypatch.setattr("app.api.ai._build_sport_context", fake_context)
+    monkeypatch.setattr("app.api.ai.get_sport_ai_provider", lambda: FakeSportProvider())
+    monkeypatch.setattr("app.api.ai.agent_enabled", lambda: False)
 
     response = await client.post(
-        "/maintenance/ai/chat",
+        "/ai/chat",
         json={"message": "Analyse mon activité sportive de la semaine", "module": "maintenance"},
         headers=admin_headers,
     )

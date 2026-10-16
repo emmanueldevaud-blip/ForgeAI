@@ -2,13 +2,17 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
-from app.api.deps import get_db, get_current_active_user, require_any_permission, require_permission
+from app.api.deps import get_db, get_current_active_user, require_any_permission, require_module_enabled, require_permission
 from app.models.volunteer import Volunteer
 from app.models.user import User
 from app.schemas.volunteer import VolunteerCreate, VolunteerUpdate, VolunteerResponse
 from app.services.volunteer import VolunteerService
 
-router = APIRouter(prefix="/volunteers", tags=["volunteers"])
+router = APIRouter(
+    prefix="/volunteers",
+    tags=["volunteers"],
+    dependencies=[Depends(require_module_enabled("volunteers", "gestion_bureaux"))],
+)
 
 volunteer_service = VolunteerService()
 

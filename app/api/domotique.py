@@ -7,7 +7,7 @@ from pydantic import BaseModel
 from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import get_db, require_permission
+from app.api.deps import get_db, require_module_enabled, require_permission
 from app.models.domotique import (
     DomotiqueCycle,
     DomotiqueDevice,
@@ -48,7 +48,11 @@ from app.services.domotique import raspberry
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/domotique", tags=["domotique"])
+router = APIRouter(
+    prefix="/domotique",
+    tags=["domotique"],
+    dependencies=[Depends(require_module_enabled("domotique"))],
+)
 
 _DEFAULT_DEVICE_CODE = "sechoir-saucisson"
 

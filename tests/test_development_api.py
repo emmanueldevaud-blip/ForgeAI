@@ -237,7 +237,7 @@ async def test_dev_mode_triggers_development_agent(client, admin_headers, monkey
     )
 
     response = await client.post(
-        "/maintenance/ai/chat",
+        "/ai/chat",
         json={"message": "Corrige cette erreur", "module": "development"},
         headers=admin_headers,
     )
@@ -261,7 +261,7 @@ async def test_dev_mode_uses_development_conversation(client, admin_headers, db_
     )
 
     response = await client.post(
-        "/maintenance/ai/chat",
+        "/ai/chat",
         json={"message": "Analyse ce fichier", "module": "development"},
         headers=admin_headers,
     )
@@ -286,7 +286,7 @@ async def test_dev_mode_without_permission_is_rejected(client, ai_only_headers, 
     )
 
     response = await client.post(
-        "/maintenance/ai/chat",
+        "/ai/chat",
         json={"message": "Ajoute cette fonctionnalité", "module": "development"},
         headers=ai_only_headers,
     )
@@ -310,7 +310,7 @@ async def test_assistant_mode_does_not_trigger_development_agent(
     )
 
     response = await client.post(
-        "/maintenance/ai/chat",
+        "/ai/chat",
         json={"message": "Corrige cette erreur"},
         headers=admin_headers,
     )
@@ -329,7 +329,7 @@ async def test_dev_mode_agent_disabled_returns_reason(client, admin_headers, mon
     )
 
     response = await client.post(
-        "/maintenance/ai/chat",
+        "/ai/chat",
         json={"message": "Ajoute un test", "module": "development"},
         headers=admin_headers,
     )

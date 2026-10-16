@@ -1,5 +1,5 @@
 import { authStore } from '../stores/auth.js';
-import { sendAIMessage, listAIConversations, getAIConversation, getAIOptions } from '../services/maintenanceApi.js';
+import { sendAIMessage, listAIConversations, getAIConversation, getAIOptions, deleteAIConversation } from '../services/aiApi.js';
 import { getDevelopmentStatus, commitDevelopment, deployDevelopment } from '../services/developmentApi.js';
 import { ConfirmDialog } from '../components/ConfirmDialog.js';
 
@@ -971,7 +971,7 @@ render() {
   async _deleteConversation(convId) {
     if (!confirm('Supprimer cette conversation ?')) return;
     try {
-      await import('../services/maintenanceApi.js').then(m => m.default?.delete?.(`/maintenance/ai/conversations/${convId}`) || fetch(`/maintenance/ai/conversations/${convId}`, { method: 'DELETE', credentials: 'include' }));
+      await deleteAIConversation(convId);
       // Reload conversations
       await this._loadConversations();
       this._renderConversationList();

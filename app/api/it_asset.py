@@ -4,7 +4,7 @@ from typing import Optional
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import require_permission
+from app.api.deps import require_module_enabled, require_permission
 from app.db.session import get_db
 from app.models import DiscoveryLog
 from app.models.user import User
@@ -38,6 +38,7 @@ from app.services.it_asset import (
 router = APIRouter(
     prefix="/it-assets",
     tags=["it-assets"],
+    dependencies=[Depends(require_module_enabled("it_asset"))],
 )
 
 

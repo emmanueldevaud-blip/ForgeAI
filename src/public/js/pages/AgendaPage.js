@@ -663,7 +663,7 @@ export class AgendaPage {
           }).join('')}
         </tr>
         <tr>
-          ${dates.map((iso, di) => `<th class="agenda-half-subhead ${di === 0 ? 'agenda-half-first' : ''}" scope="col">Matin</th><th class="agenda-half-subhead agenda-half-last" scope="col">Après-midi</th>`).join('')}
+          ${dates.map((iso, di) => `<th class="agenda-half-subhead ${di === 0 ? 'agenda-half-first' : ''}" scope="col">${isMonth ? 'M' : 'Matin'}</th><th class="agenda-half-subhead agenda-half-last" scope="col">${isMonth ? 'AM' : 'Après-midi'}</th>`).join('')}
         </tr>
       </thead>`;
 

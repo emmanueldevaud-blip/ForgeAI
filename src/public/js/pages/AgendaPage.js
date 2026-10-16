@@ -210,10 +210,6 @@ export class AgendaPage {
               <button class="btn btn-sm ${this.view === value ? 'btn-primary' : 'btn-secondary'}" data-view="${value}" aria-pressed="${this.view === value}">${label}</button>
             `).join('')}
           </div>
-          <a href="/agenda/synthese" class="btn btn-secondary btn-sm" style="margin-left:auto;" title="Voir la synthèse par bureau">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
-            <span>Synthèse</span>
-          </a>
           ${isInscriptionsTab ? `
           <div class="agenda-search-wrap" style="margin-left:auto; min-width:200px;">
             <label for="agenda-search" class="visually-hidden">Filtrer par nom</label>

@@ -914,7 +914,10 @@ class ITAssetService:
         sort_by: str = "created_at",
         sort_order: str = "desc",
     ) -> Tuple[List[NetworkRange], int]:
-        query = select(NetworkRange).options(selectinload(NetworkRange.site))
+        query = select(NetworkRange).options(
+            selectinload(NetworkRange.site),
+            selectinload(NetworkRange.room),
+        )
         conditions = []
 
         if search:
@@ -957,7 +960,10 @@ class ITAssetService:
     async def get_network_range(self, range_id: int) -> Optional[NetworkRange]:
         result = await self.db.execute(
             select(NetworkRange)
-            .options(selectinload(NetworkRange.site))
+            .options(
+                selectinload(NetworkRange.site),
+                selectinload(NetworkRange.room),
+            )
             .where(NetworkRange.id == range_id)
         )
         return result.scalar_one_or_none()
@@ -993,7 +999,7 @@ class ITAssetService:
                 status="success",
             )
 
-        return network_range
+        return await self.get_network_range(network_range.id)
 
     async def update_network_range(self, range_id: int, data: dict) -> Optional[NetworkRange]:
         network_range = await self.get_network_range(range_id)
@@ -1012,7 +1018,7 @@ class ITAssetService:
         old_values = {k: getattr(network_range, k) for k in data.keys() if hasattr(network_range, k)}
 
         for key, value in data.items():
-            if value is not None and hasattr(network_range, key):
+            if hasattr(network_range, key):
                 setattr(network_range, key, value)
 
         try:
@@ -1035,7 +1041,7 @@ class ITAssetService:
                 status="success",
             )
 
-        return network_range
+        return await self.get_network_range(network_range.id)
 
     async def delete_network_range(self, range_id: int) -> bool:
         network_range = await self.get_network_range(range_id)
@@ -1714,6 +1720,7 @@ class NetworkDiscoveryService:
         # accès concurrent depuis gather déclencherait des lazy-load en conflit
         log_id = log.id
         cidr = network_range.cidr
+        network_range_room_id = network_range.room_id
         snmp_enabled = network_range.snmp_enabled
         snmp_community = network_range.snmp_community
         snmp_version = network_range.snmp_version
@@ -1841,6 +1848,8 @@ class NetworkDiscoveryService:
                                         asset_data["asset_type"] = inferred_type
                                 if existing.mac_address is None and mac:
                                     asset_data["mac_address"] = mac
+                                if existing.room_id is None and network_range_room_id:
+                                    asset_data["room_id"] = network_range_room_id
                                 await self.asset_service.update_it_asset(existing.id, asset_data)
                                 assets_updated += 1
                                 asset_for_obs = existing
@@ -1848,7 +1857,7 @@ class NetworkDiscoveryService:
                                 asset_data["name"] = chosen_name
                                 asset_data["asset_type"] = inferred_type or "other"
                                 asset_data["mac_address"] = mac
-                                asset_data["room_id"] = None
+                                asset_data["room_id"] = network_range_room_id
                                 asset_for_obs = await self.asset_service.create_it_asset(asset_data)
                                 if asset_for_obs:
                                     assets_created += 1

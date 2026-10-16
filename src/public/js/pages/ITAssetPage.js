@@ -119,6 +119,18 @@ export class ITAssetPage {
         { key: 'name', label: 'Nom' },
         { key: 'cidr', label: 'CIDR' },
         {
+          key: 'room',
+          label: 'Local',
+          render: (item) => {
+            if (item.room) return this._escape(`${item.room.reference} — ${item.room.name}`);
+            if (item.room_id) {
+              const r = this.rooms.find(rm => rm.id === item.room_id);
+              if (r) return this._escape(`${r.reference} — ${r.name}`);
+            }
+            return 'Non renseigné';
+          },
+        },
+        {
           key: 'is_active',
           label: 'Active',
           render: (item) => `<span class="status-badge ${item.is_active ? 'active' : 'inactive'}">${item.is_active ? 'Oui' : 'Non'}</span>`,
@@ -1275,6 +1287,11 @@ export class ITAssetPage {
       return v !== null && v !== undefined ? v : fallback;
     };
 
+    const roomOptions = [
+      '<option value="">Aucun local associé</option>',
+      ...this.rooms.map(r => `<option value="${r.id}" ${range?.room_id === r.id ? 'selected' : ''}>${this._escape(r.reference)} — ${this._escape(r.name)}</option>`)
+    ].join('');
+
     const modal = document.createElement('div');
     modal.className = 'modal-overlay';
     modal.innerHTML = `
@@ -1291,7 +1308,10 @@ export class ITAssetPage {
                 <label><span>CIDR *</span><input type="text" name="cidr" value="${value('cidr')}" placeholder="192.168.1.0/24" required maxlength="50"></label>
               </div>
               <div class="form-row">
+                <label><span>Local (salle)</span><select name="room_id">${roomOptions}</select></label>
                 <label><span>VLAN</span><input type="number" name="vlan_id" value="${num('vlan_id')}" min="0" max="4094"></label>
+              </div>
+              <div class="form-row">
                 <label><span>Intervalle de scan (min)</span><input type="number" name="scan_interval_minutes" value="${num('scan_interval_minutes', 60)}" min="1" max="10080"></label>
               </div>
               <div class="form-row">
@@ -1333,9 +1353,12 @@ export class ITAssetPage {
       const form = modal.querySelector('[data-form]');
       const fd = new FormData(form);
       const data = {};
-      const intFields = ['vlan_id', 'scan_interval_minutes', 'snmp_port'];
+      const intFields = ['vlan_id', 'scan_interval_minutes', 'snmp_port', 'room_id'];
       for (const [k, v] of fd.entries()) {
-        if (v === '') continue;
+        if (v === '') {
+          if (k === 'room_id' && isEdit) data.room_id = null;
+          continue;
+        }
         data[k] = intFields.includes(k) ? parseInt(v, 10) : v;
       }
       data.scan_enabled = fd.get('scan_enabled') === 'on';

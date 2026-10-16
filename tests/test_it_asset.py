@@ -533,3 +533,37 @@ async def test_scan_skips_resolver_when_not_configured(db_session, monkeypatch):
     assert walk_calls["n"] == 0  # aucun sondage SNMP routeur
     asset = await service.get_it_asset_by_ip("192.168.82.1")
     assert asset.mac_address is None
+
+
+async def test_scan_assigns_network_range_room_to_discovered_asset(db_session, monkeypatch):
+    """Vérifier que la plage réseau retient son local et que les équipements découverts en héritent."""
+    room = await _create_room(db_session)
+    service = ITAssetService(db_session)
+    network_range = await service.create_network_range({
+        "name": "Plage Salle 101",
+        "cidr": "192.168.83.0/30",
+        "room_id": room.id,
+        "snmp_enabled": False,
+    })
+
+    assert network_range.room_id == room.id
+    assert network_range.room is not None
+    assert network_range.room.reference == "R-101"
+
+    discovery = await _mock_discovery(
+        db_session,
+        monkeypatch,
+        reachable_ips={"192.168.83.1"},
+        mac_by_ip={"192.168.83.1": "aa:bb:cc:dd:ee:83"},
+        snmp_by_ip={},
+    )
+
+    result = await discovery.scan_network_range(network_range.id)
+    assert result["assets_created"] == 1
+
+    asset = await service.get_it_asset_by_ip("192.168.83.1")
+    assert asset is not None
+    assert asset.room_id == room.id
+    assert asset.room is not None
+    assert asset.room.reference == "R-101"
+

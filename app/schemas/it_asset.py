@@ -282,6 +282,7 @@ class NetworkRangeBase(BaseModel):
     description: Optional[str] = None
     vlan_id: Optional[int] = None
     site_id: Optional[int] = None
+    room_id: Optional[int] = None
     scan_enabled: bool = True
     scan_interval_minutes: int = Field(60, ge=1, le=10080)
     snmp_enabled: bool = False
@@ -311,6 +312,7 @@ class NetworkRangeUpdate(BaseModel):
     description: Optional[str] = None
     vlan_id: Optional[int] = None
     site_id: Optional[int] = None
+    room_id: Optional[int] = None
     scan_enabled: Optional[bool] = None
     scan_interval_minutes: Optional[int] = Field(None, ge=1, le=10080)
     snmp_enabled: Optional[bool] = None
@@ -329,6 +331,8 @@ class NetworkRangeResponse(BaseModel):
     description: Optional[str] = None
     vlan_id: Optional[int] = None
     site_id: Optional[int] = None
+    room_id: Optional[int] = None
+    room: Optional[RoomSummaryResponse] = None
     scan_enabled: bool
     scan_interval_minutes: int
     snmp_enabled: bool

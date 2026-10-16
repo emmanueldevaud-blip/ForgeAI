@@ -144,6 +144,7 @@ class NetworkRange(Base):
     description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     vlan_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     site_id: Mapped[Optional[int]] = mapped_column(ForeignKey("sites.id", ondelete="SET NULL"), nullable=True, index=True)
+    room_id: Mapped[Optional[int]] = mapped_column(ForeignKey("rooms.id", ondelete="SET NULL"), nullable=True, index=True)
     scan_enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     scan_interval_minutes: Mapped[int] = mapped_column(Integer, default=60, nullable=False)
     snmp_enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
@@ -157,11 +158,13 @@ class NetworkRange(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
 
     site: Mapped[Optional["Site"]] = relationship("Site")
+    room: Mapped[Optional["Room"]] = relationship("Room")
     discovery_logs: Mapped[List["DiscoveryLog"]] = relationship("DiscoveryLog", back_populates="network_range", cascade="all, delete-orphan")
 
     __table_args__ = (
         UniqueConstraint("cidr", name="uq_network_range_cidr"),
         Index("ix_network_ranges_site_active", "site_id", "is_active"),
+        Index("ix_network_ranges_room_active", "room_id", "is_active"),
     )
 
     def __repr__(self) -> str:

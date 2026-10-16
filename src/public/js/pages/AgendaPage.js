@@ -758,7 +758,7 @@ export class AgendaPage {
           title="${escapeHtml(title)}"
           aria-label="${escapeHtml(title)}">
           ${entry
-            ? `<span class="agenda-people-cell-dot"></span>${entry.presence.needs_meal ? plateSvg : ''}${entry.presence.needs_workstation ? laptopSvg : ''}`
+            ? `<span class="agenda-people-cell-icons">${entry.presence.needs_meal ? plateSvg : ''}${entry.presence.needs_workstation ? laptopSvg : ''}</span>`
             : ''}
         </span>
       </td>`;

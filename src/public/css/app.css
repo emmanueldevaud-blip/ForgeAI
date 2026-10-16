@@ -5497,6 +5497,9 @@
 .agenda-table--people-month .agenda-half-subhead { width: 15px; padding: 1px; font-size: 8px; }
 .agenda-table--people-month .agenda-people-cell { min-width: 0; min-height: 18px; padding: 1px; gap: 1px; }
 .agenda-table--people-month .agenda-cell-btn { min-width: 0; min-height: 16px; padding: 1px; }
+.agenda-table--people-month td.agenda-cell.has-presence { background: #dcfce7; }
+.agenda-table--people-month td.agenda-cell.has-presence .agenda-people-cell { background: transparent; border-color: transparent; display: flex; align-items: center; justify-content: center; width: 100%; height: 100%; }
+.agenda-people-cell-icons { display: inline-flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; width: 100%; height: 100%; min-height: 18px; }
 .agenda-people-cell-dot { display: inline-block; width: 8px; height: 8px; border-radius: 2px; background: #16a34a; flex-shrink: 0; }
 .agenda-people-cell.is-compact.is-empty { min-width: 0; }
 .agenda-mini-icon { flex-shrink: 0; color: var(--color-text-secondary); }

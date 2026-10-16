@@ -85,7 +85,7 @@ class ITAssetBase(BaseModel):
     snmp_firmware_version: Optional[str] = Field(None, max_length=100)  # Collecté via SNMP
     snmp_contact: Optional[str] = Field(None, max_length=200)  # Collecté via SNMP
     snmp_location: Optional[str] = Field(None, max_length=500)  # Collecté via SNMP
-    room_id: int
+    room_id: Optional[int] = None
     meshcentral_id: Optional[str] = Field(None, max_length=100)
     wol_enabled: bool = False
     wol_mac: Optional[str] = Field(None, max_length=17)
@@ -229,7 +229,7 @@ class ITAssetResponse(BaseModel):
     snmp_firmware_version: Optional[str] = None  # Collecté via SNMP
     snmp_contact: Optional[str] = None  # Collecté via SNMP
     snmp_location: Optional[str] = None  # Collecté via SNMP
-    room_id: int
+    room_id: Optional[int] = None
     room: Optional[RoomSummaryResponse] = None
     building: Optional[BuildingSummaryResponse] = None
     site: Optional[SiteSummaryResponse] = None

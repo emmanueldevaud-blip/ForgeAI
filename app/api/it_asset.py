@@ -191,9 +191,10 @@ async def create_it_asset(
     service: ITAssetService = Depends(_get_asset_service),
 ):
     from app.models.buildings import Room
-    room = await service.db.get(Room, data.room_id)
-    if not room:
-        raise HTTPException(status_code=422, detail="La pièce spécifiée n'existe pas")
+    if data.room_id is not None:
+        room = await service.db.get(Room, data.room_id)
+        if not room:
+            raise HTTPException(status_code=422, detail="La pièce spécifiée n'existe pas")
 
     if data.mac_address:
         existing = await service.get_it_asset_by_mac(data.mac_address)

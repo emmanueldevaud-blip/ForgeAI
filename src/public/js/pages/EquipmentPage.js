@@ -49,6 +49,7 @@ export class EquipmentPage {
     this.currentView = 'equipments';
     this.equipments = [];
     this.equipmentTypes = [];
+    this.rooms = [];
     this.total = 0;
     this.page = 1;
     this.pageSize = 20;
@@ -58,6 +59,7 @@ export class EquipmentPage {
     this.search = '';
     this.filters = {
       equipment_type_id: '',
+      room_id: '',
       status: '',
       is_active: '',
     };
@@ -150,6 +152,8 @@ export class EquipmentPage {
     });
 
     this._authUnsubscribe = authStore.subscribe(() => this._updateButtonVisibility());
+    const roomsResponse = await listRooms({ page_size: 1000, is_active: true, sort_by: 'reference', sort_order: 'asc' });
+    this.rooms = roomsResponse.items || [];
   }
 
   _getColumns() {
@@ -210,6 +214,7 @@ export class EquipmentPage {
         };
         if (this.search) params.search = this.search;
         if (this.filters.equipment_type_id) params.equipment_type_id = this.filters.equipment_type_id;
+        if (this.filters.room_id) params.room_id = this.filters.room_id;
         if (this.filters.status) params.status = this.filters.status;
         if (this.filters.is_active !== '') params.is_active = this.filters.is_active;
 
@@ -311,6 +316,13 @@ export class EquipmentPage {
            <select id="equipment-status-filter" class="form-select" data-filter="status">
             <option value="">Tous les statuts</option>
             ${EQUIPMENT_STATUSES.map(s => `<option value="${s.value}" ${this.filters.status === s.value ? 'selected' : ''}>${s.label}</option>`).join('')}
+          </select>
+        </div>
+        <div class="filter-group">
+           <label class="sr-only" for="equipment-room-filter">Filtrer par local</label>
+           <select id="equipment-room-filter" class="form-select" data-filter="room_id">
+            <option value="" ${!this.filters.room_id ? 'selected' : ''}>Tous les locaux</option>
+            ${this.rooms.map(room => `<option value="${room.id}" ${this.filters.room_id == room.id ? 'selected' : ''}>${room.reference} — ${room.name}</option>`).join('')}
           </select>
         </div>
         <div class="filter-group">

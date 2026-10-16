@@ -99,7 +99,7 @@ export class ITAssetPage {
         { key: 'asset_type', label: 'Type', sortable: true },
         { key: 'ip_address', label: 'Adresse IP', sortable: true },
         { key: 'mac_address', label: 'Adresse MAC', sortable: true },
-        { key: 'room_name', label: 'Local', render: (item) => this._escape(item.room?.name || '-') },
+        { key: 'room_name', label: 'Local', render: (item) => this._escape(item.room?.name || 'Non renseigné') },
         { key: 'status', label: 'Statut', sortable: true, render: (item) => this._renderStatus(item.status) },
       ],
       actions: [
@@ -856,7 +856,7 @@ export class ITAssetPage {
   _showAssetInfoModal(asset) {
     if (!asset) return;
     const value = (field, fallback = '-') => this._escape(asset[field] ?? fallback);
-    const room = asset.room?.name || '-';
+    const room = asset.room?.name || 'Non renseigné';
     const rows = (items) => items.map(([label, field, fallback]) => `
       <div class="asset-info-row"><dt>${label}</dt><dd>${value(field, fallback)}</dd></div>
     `).join('');

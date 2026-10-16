@@ -1848,7 +1848,7 @@ class NetworkDiscoveryService:
                                 asset_data["name"] = chosen_name
                                 asset_data["asset_type"] = inferred_type or "other"
                                 asset_data["mac_address"] = mac
-                                asset_data["room_id"] = 1
+                                asset_data["room_id"] = None
                                 asset_for_obs = await self.asset_service.create_it_asset(asset_data)
                                 if asset_for_obs:
                                     assets_created += 1

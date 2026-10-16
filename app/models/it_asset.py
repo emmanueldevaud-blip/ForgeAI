@@ -107,7 +107,7 @@ class ITAsset(Base):
     snmp_firmware_version: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)  # Collecté via SNMP
     snmp_contact: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)  # Collecté via SNMP
     snmp_location: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)  # Collecté via SNMP
-    room_id: Mapped[int] = mapped_column(ForeignKey("rooms.id", ondelete="RESTRICT"), nullable=False, index=True)
+    room_id: Mapped[Optional[int]] = mapped_column(ForeignKey("rooms.id", ondelete="SET NULL"), nullable=True, index=True)
     meshcentral_id: Mapped[Optional[str]] = mapped_column(String(100), nullable=True, unique=True, index=True)
     wol_enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     wol_mac: Mapped[Optional[str]] = mapped_column(String(17), nullable=True)
@@ -118,7 +118,7 @@ class ITAsset(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
 
-    room: Mapped["Room"] = relationship("Room", back_populates="it_assets")
+    room: Mapped[Optional["Room"]] = relationship("Room", back_populates="it_assets")
     observations: Mapped[List["AssetObservation"]] = relationship("AssetObservation", back_populates="asset", cascade="all, delete-orphan", order_by="desc(AssetObservation.checked_at)")
     alerts: Mapped[List["ITAlert"]] = relationship("ITAlert", back_populates="asset", cascade="all, delete-orphan", order_by="desc(ITAlert.created_at)")
     history: Mapped[List["ITAssetHistory"]] = relationship("ITAssetHistory", back_populates="asset", cascade="all, delete-orphan", order_by="desc(ITAssetHistory.created_at)")

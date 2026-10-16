@@ -48,8 +48,11 @@ function toISODate(date) {
 }
 
 function parseISODate(value) {
-  const [y, m, d] = String(value).split('-').map(Number);
-  return new Date(y, m - 1, d);
+  const raw = value instanceof Date ? value : String(value ?? '').slice(0, 10);
+  if (raw instanceof Date) return new Date(raw.getFullYear(), raw.getMonth(), raw.getDate());
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(raw);
+  if (!match) return new Date(NaN);
+  return new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
 }
 
 function addDays(date, days) {
@@ -71,6 +74,9 @@ function startOfMonth(date) {
 
 function formatDayLabel(iso) {
   const date = parseISODate(iso);
+  if (Number.isNaN(date.getTime()) || MONTH_LABELS[date.getMonth()] === undefined) {
+    return 'Date inconnue';
+  }
   return `${DAY_LABELS_LONG[date.getDay()]} ${date.getDate()} ${MONTH_LABELS[date.getMonth()].toLowerCase()} ${date.getFullYear()}`;
 }
 
@@ -422,9 +428,28 @@ export class AgendaPage {
   }
 
   _mineGridDates() {
-    const days = this.data?.days || [];
-    if (days.length) return days.map(day => day.date);
+    const days = (this.data?.days || [])
+      .map(day => typeof day === 'string' ? day : day?.date)
+      .map(value => String(value ?? '').slice(0, 10))
+      .filter(value => !Number.isNaN(parseISODate(value).getTime()));
+    if (days.length) {
+      // En mode mois, ne garder que du Lundi au Vendredi
+      if (this.view === 'month') return days.filter(iso => {
+        const date = parseISODate(iso);
+        return date.getDay() !== 0 && date.getDay() !== 6; // exclure Dimanche et Samedi
+      });
+    }
     return weekdaysOfAnchor(this.view === 'week' ? this.anchor : new Date());
+  }
+
+  _isAfterWeekend(iso, dates) {
+    const index = dates.indexOf(iso);
+    if (index <= 0) return false;
+    const previous = parseISODate(dates[index - 1]);
+    const current = parseISODate(iso);
+    const previousDay = Date.UTC(previous.getFullYear(), previous.getMonth(), previous.getDate());
+    const currentDay = Date.UTC(current.getFullYear(), current.getMonth(), current.getDate());
+    return (currentDay - previousDay) > 24 * 60 * 60 * 1000;
   }
 
   _minePresenceForDate(iso, roomId = null) {
@@ -498,7 +523,7 @@ export class AgendaPage {
             ${dates.map(iso => {
               const date = parseISODate(iso);
               return `
-                <span class="agenda-mine-matrix-day ${iso === today ? 'is-today' : ''}">
+                <span class="agenda-mine-matrix-day ${iso === today ? 'is-today' : ''} ${this._isAfterWeekend(iso, dates) ? 'is-after-weekend' : ''}">
                   <span class="agenda-mine-day-name">${DAY_LABELS_SHORT[date.getDay() === 0 ? 6 : date.getDay() - 1]}</span>
                   <span class="agenda-mine-day-num">${date.getDate()}</span>
                 </span>`;
@@ -533,7 +558,7 @@ export class AgendaPage {
                   title = enabled ? 'Repas' : 'Sélectionnez d’abord une présence ce jour-là';
                 }
                 return `
-                  <button type="button" class="agenda-mine-cell ${on ? 'is-on' : ''} ${row.field === 'desk' ? 'agenda-mine-cell--desk' : ''} ${row.field === 'meal' ? 'agenda-mine-cell--meal' : ''}"
+                    <button type="button" class="agenda-mine-cell ${on ? 'is-on' : ''} ${this._isAfterWeekend(iso, dates) ? 'is-after-weekend' : ''} ${row.field === 'desk' ? 'agenda-mine-cell--desk' : ''} ${row.field === 'meal' ? 'agenda-mine-cell--meal' : ''}"
                     data-mine-toggle="${row.field}" data-room-id="${room.id}" data-date="${iso}"
                     aria-pressed="${on}" ${enabled ? '' : 'disabled'}
                     aria-label="${row.label} — ${escapeHtml(formatDayLabel(iso))} — ${escapeHtml(room.name)}"
@@ -558,7 +583,7 @@ export class AgendaPage {
                 if (!inMonth) title = 'Hors mois affiché';
                 const halfLabel = half === 'morning' ? 'matin' : 'après-midi';
                 return `
-                  <button type="button" class="agenda-mine-cell agenda-mine-cell--remote ${on ? 'is-on' : ''} agenda-mine-cell--half"
+                  <button type="button" class="agenda-mine-cell agenda-mine-cell--remote ${on ? 'is-on' : ''} ${this._isAfterWeekend(iso, dates) ? 'is-after-weekend' : ''} agenda-mine-cell--half"
                     data-mine-toggle="remote" data-half="${half}" data-date="${iso}"
                     aria-pressed="${on}" ${enabled ? '' : 'disabled'}
                     aria-label="Télétravail ${halfLabel} — ${escapeHtml(formatDayLabel(iso))}"
@@ -656,14 +681,14 @@ export class AgendaPage {
           ${dates.map((iso, di) => {
             const dayDate = parseISODate(iso);
             const known = dayByIso.has(iso);
-            return `<th class="agenda-day-head ${iso === today ? 'is-today' : ''} ${di === 0 ? 'agenda-day-first' : ''} ${di === dates.length - 1 ? 'agenda-day-last' : ''}" colspan="2" scope="col" ${known ? `data-day="${iso}"` : ''} title="${escapeHtml(formatDayLabel(iso))}">
+            return `<th class="agenda-day-head ${iso === today ? 'is-today' : ''} ${this._isAfterWeekend(iso, dates) ? 'is-after-weekend' : ''} ${di === 0 ? 'agenda-day-first' : ''} ${di === dates.length - 1 ? 'agenda-day-last' : ''}" colspan="2" scope="col" ${known ? `data-day="${iso}"` : ''} title="${escapeHtml(formatDayLabel(iso))}">
               <span class="agenda-day-name">${DAY_LABELS_SHORT[(dayDate.getDay() + 6) % 7]}</span>
               <span class="agenda-day-num">${dayDate.getDate()}</span>
             </th>`;
           }).join('')}
         </tr>
         <tr>
-          ${dates.map((iso, di) => `<th class="agenda-half-subhead ${di === 0 ? 'agenda-half-first' : ''}" scope="col">${isMonth ? 'M' : 'Matin'}</th><th class="agenda-half-subhead agenda-half-last" scope="col">${isMonth ? 'AM' : 'Après-midi'}</th>`).join('')}
+          ${dates.map((iso, di) => `<th class="agenda-half-subhead ${this._isAfterWeekend(iso, dates) ? 'is-after-weekend' : ''} ${di === 0 ? 'agenda-half-first' : ''}" scope="col">${isMonth ? 'M' : 'Matin'}</th><th class="agenda-half-subhead agenda-half-last" scope="col">${isMonth ? 'AM' : 'Après-midi'}</th>`).join('')}
         </tr>
       </thead>`;
 
@@ -753,7 +778,7 @@ export class AgendaPage {
       const laptopSvg = '<svg class="agenda-mini-icon" width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><rect x="3" y="4" width="18" height="12" rx="1"/><path d="M2 20h20"/></svg>';
       const plateSvg = '<svg class="agenda-mini-icon" width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="4"/></svg>';
       return `
-      <td class="agenda-cell agenda-cell--${half} ${dayIndex === 0 ? 'agenda-cell--day-first ' : ''}${entry ? 'has-presence' : ''}">
+      <td class="agenda-cell agenda-cell--${half} ${half === 'morning' && this._isAfterWeekend(iso, this._mineGridDates()) ? 'is-after-weekend ' : ''}${dayIndex === 0 ? 'agenda-cell--day-first ' : ''}${entry ? 'has-presence' : ''}">
         <span class="agenda-cell-btn agenda-people-cell ${entry ? 'has-presence' : 'is-empty'} is-compact"
           title="${escapeHtml(title)}"
           aria-label="${escapeHtml(title)}">
@@ -764,7 +789,7 @@ export class AgendaPage {
       </td>`;
     }
     return `
-      <td class="agenda-cell agenda-cell--${half} ${dayIndex === 0 ? 'agenda-cell--day-first ' : ''}${entry ? 'has-presence' : ''}">
+      <td class="agenda-cell agenda-cell--${half} ${half === 'morning' && this._isAfterWeekend(iso, this._mineGridDates()) ? 'is-after-weekend ' : ''}${dayIndex === 0 ? 'agenda-cell--day-first ' : ''}${entry ? 'has-presence' : ''}">
         <span class="agenda-cell-btn agenda-people-cell ${entry ? 'has-presence' : 'is-empty'}"
           title="${escapeHtml(title)}"
           aria-label="${escapeHtml(title)}">
@@ -1215,7 +1240,7 @@ export class AgendaPage {
                   flags: draft[`${iso}|${room.id}`] || {},
                 });
                 return `
-                  <button type="button" class="agenda-mine-cell ${state.on ? 'is-on' : ''} ${row.field === 'desk' ? 'agenda-mine-cell--desk' : ''} ${row.field === 'meal' ? 'agenda-mine-cell--meal' : ''}"
+                  <button type="button" class="agenda-mine-cell ${state.on ? 'is-on' : ''} ${this._isAfterWeekend(iso, dates) ? 'is-after-weekend' : ''} ${row.field === 'desk' ? 'agenda-mine-cell--desk' : ''} ${row.field === 'meal' ? 'agenda-mine-cell--meal' : ''}"
                     data-week-person="${escapeHtml(person.key)}" data-week-date="${iso}" data-week-room="${room.id}" data-week-field="${row.field}"
                     aria-pressed="${state.on}" ${state.enabled ? '' : 'disabled'}
                     aria-label="${row.label} — ${escapeHtml(formatDayLabel(iso))} — ${escapeHtml(room.name)}"
@@ -1242,7 +1267,7 @@ export class AgendaPage {
                 const enabled = state.enabled && canRemote;
                 const halfLabel = half === 'morning' ? 'matin' : 'après-midi';
                 return `
-                  <button type="button" class="agenda-mine-cell agenda-mine-cell--remote ${state.on ? 'is-on' : ''} agenda-mine-cell--half"
+                  <button type="button" class="agenda-mine-cell agenda-mine-cell--remote ${state.on ? 'is-on' : ''} ${this._isAfterWeekend(iso, dates) ? 'is-after-weekend' : ''} agenda-mine-cell--half"
                     data-week-person="${escapeHtml(person.key)}" data-week-date="${iso}" data-week-room="remote" data-week-field="remote" data-week-half="${half}"
                     aria-pressed="${state.on}" ${enabled ? '' : 'disabled'}
                     aria-label="Télétravail ${halfLabel} — ${escapeHtml(formatDayLabel(iso))}"

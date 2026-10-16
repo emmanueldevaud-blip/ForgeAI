@@ -8,10 +8,7 @@ const MONTH_LABELS = [
   'Juillet', 'Aout', 'Septembre', 'Octobre', 'Novembre', 'Decembre',
 ];
 
-const VIEW_LABELS = {
-  week: 'Semaine',
-  month: 'Mois',
-};
+const VIEW_LABELS = { week: 'Semaine', month: 'Mois' };
 
 function escapeHtml(value) {
   return String(value ?? '').replace(/[&<>'"]/g, char => ({
@@ -70,6 +67,12 @@ function _monthDates(anchor) {
   }
   return days;
 }
+
+const METRICS = [
+  { key: 'person_count', totalKey: 'total_persons', grandKey: 'grand_total_persons', label: 'Personnes presentes', color: 'persons', unit: 'pers.' },
+  { key: 'meal_count', totalKey: 'total_meals', grandKey: 'grand_total_meals', label: 'Repas', color: 'meals', unit: 'repas' },
+  { key: 'workstation_count', totalKey: 'total_workstations', grandKey: 'grand_total_workstations', label: 'Postes de travail', color: 'workstations', unit: 'postes' },
+];
 
 export class AgendaSynthesisPage {
   constructor(router) {
@@ -132,19 +135,17 @@ export class AgendaSynthesisPage {
     }
 
     const data = this.data || {};
-    const days = data.days || [];
     const isMonth = this.view === 'month';
     const dates = isMonth ? _monthDates(this.anchor) : weekdaysOfAnchor(this.anchor);
     const today = toISODate(new Date());
-
-    const dayByIso = new Map(days.map(day => [day.date, day]));
-    const rooms = this._collectRooms(days);
+    const dayByIso = new Map((data.days || []).map(day => [day.date, day]));
+    const rooms = this._collectRooms(data.days || []);
 
     this.element.innerHTML = `
       <div class="page-header agenda-header">
         <div class="page-header-left">
           <h1>Synthese agenda</h1>
-          <p class="page-subtitle">Compteurs personnes / repas / postes par bureau.</p>
+          <p class="page-subtitle">Personnes / repas / postes par bureau.</p>
         </div>
         <div class="page-header-right agenda-toolbar">
           <div class="agenda-nav" role="group" aria-label="Navigation">
@@ -161,30 +162,20 @@ export class AgendaSynthesisPage {
         </div>
       </div>
 
-      ${rooms.length === 0 ? this._noRoomsHtml() : `
-        <div class="agenda-scroll">
-          <table class="agenda-table agenda-table--synthesis ${isMonth ? 'agenda-table--synthesis-month' : ''}" role="grid" aria-label="Synthese des presences par bureau">
-            ${this._tableHead(dates, today, rooms)}
-            ${this._tableBody(dates, today, rooms, dayByIso)}
-            ${this._tableFoot(dates, rooms, data)}
-          </table>
-        </div>
-      `}
-
-      <div class="agenda-synthesis-summary">
-        <div class="summary-card">
-          <span class="summary-label">Total personnes</span>
-          <span class="summary-value">${data.grand_total_persons ?? 0}</span>
-        </div>
-        <div class="summary-card">
-          <span class="summary-label">Total repas</span>
-          <span class="summary-value">${data.grand_total_meals ?? 0}</span>
-        </div>
-        <div class="summary-card">
-          <span class="summary-label">Total postes</span>
-          <span class="summary-value">${data.grand_total_workstations ?? 0}</span>
-        </div>
-      </div>
+      ${rooms.length === 0 ? this._noRoomsHtml() : METRICS.map(metric => `
+        <section class="card agenda-card" aria-label="${escapeHtml(metric.label)}">
+          <header class="agenda-section-header">
+            <h2>${escapeHtml(metric.label)}</h2>
+          </header>
+          <div class="card-body agenda-section-body" style="padding:0;overflow-x:auto;">
+            <table class="agenda-table agenda-table--synthesis ${isMonth ? 'agenda-table--synthesis-month' : ''}" role="grid">
+              ${this._tableHead(dates, today)}
+              ${this._tableBody(dates, rooms, dayByIso, metric)}
+              ${this._tableFoot(dates, data, metric)}
+            </table>
+          </div>
+        </section>
+      `).join('')}
     `;
 
     this._bindCommon();
@@ -235,95 +226,62 @@ export class AgendaSynthesisPage {
       </div>`;
   }
 
-  _tableHead(dates, today, rooms) {
+  _tableHead(dates, today) {
     return `
       <thead>
         <tr>
-          <th class="agenda-synthesis-corner" rowspan="2" scope="col" colspan="2">
-            <span>Local</span>
-            <span class="agenda-synthesis-capacity-label">Capacite</span>
-          </th>
-          ${dates.map((iso, di) => `
-            <th class="agenda-synthesis-day-head ${iso === today ? 'is-today' : ''} ${di === 0 ? 'agenda-day-first' : ''} ${di === dates.length - 1 ? 'agenda-day-last' : ''}" colspan="3" scope="colgroup" title="${escapeHtml(formatDayLabel(iso))}">
-              <span class="agenda-day-name">${DAY_LABELS_SHORT[parseISODate(iso).getDay() === 0 ? 6 : parseISODate(iso).getDay() - 1]}</span>
-              <span class="agenda-day-num">${parseISODate(iso).getDate()}</span>
-            </th>
-          `).join('')}
-          <th class="agenda-synthesis-total-head" rowspan="2" scope="col" colspan="3">Total</th>
-        </tr>
-        <tr>
-          ${dates.map(() => `
-            <th class="agenda-synthesis-subhead" scope="col">Pers.</th>
-            <th class="agenda-synthesis-subhead" scope="col">Repas</th>
-            <th class="agenda-synthesis-subhead" scope="col">Postes</th>
-          `).join('')}
-          <th class="agenda-synthesis-subhead" scope="col">Pers.</th>
-          <th class="agenda-synthesis-subhead" scope="col">Repas</th>
-          <th class="agenda-synthesis-subhead" scope="col">Postes</th>
+          <th class="agenda-synthesis-corner" rowspan="2" scope="col">Local</th>
+          <th class="agenda-synthesis-capacity-head" rowspan="2" scope="col">Capacite</th>
+          ${dates.map((iso, di) => {
+            const d = parseISODate(iso);
+            return `<th class="agenda-synthesis-day-head ${iso === today ? 'is-today' : ''} ${di === 0 ? 'agenda-day-first' : ''} ${di === dates.length - 1 ? 'agenda-day-last' : ''}" scope="col" title="${escapeHtml(formatDayLabel(iso))}">
+              <span class="agenda-day-name">${DAY_LABELS_SHORT[d.getDay() === 0 ? 6 : d.getDay() - 1]}</span>
+              <span class="agenda-day-num">${d.getDate()}</span>
+            </th>`;
+          }).join('')}
+          <th class="agenda-synthesis-total-head" rowspan="2" scope="col">Total</th>
         </tr>
       </thead>`;
   }
 
-  _tableBody(dates, today, rooms, dayByIso) {
+  _tableBody(dates, rooms, dayByIso, metric) {
     return `
       <tbody>
         ${rooms.map(room => {
-          let totalPersons = 0;
-          let totalMeals = 0;
-          let totalWorkstations = 0;
+          let rowTotal = 0;
           const cells = dates.map(iso => {
             const day = dayByIso.get(iso);
             const roomData = day?.rooms?.find(r => r.room_id === room.id);
-            const persons = roomData?.person_count ?? 0;
-            const meals = roomData?.meal_count ?? 0;
-            const workstations = roomData?.workstation_count ?? 0;
+            const value = roomData?.[metric.key] ?? 0;
             const capacity = room.capacity || 0;
-            totalPersons += persons;
-            totalMeals += meals;
-            totalWorkstations += workstations;
-            const personPct = capacity ? Math.round((persons / capacity) * 100) : 0;
-            const workstationPct = capacity ? Math.round((workstations / capacity) * 100) : 0;
-            return `
-              <td class="agenda-synthesis-cell agenda-synthesis-cell--persons ${persons > capacity ? 'over-capacity' : ''}" title="${persons} / ${capacity} (${personPct}%)">${persons}</td>
-              <td class="agenda-synthesis-cell agenda-synthesis-cell--meals" title="${meals} repas">${meals}</td>
-              <td class="agenda-synthesis-cell agenda-synthesis-cell--workstations ${workstations > capacity ? 'over-capacity' : ''}" title="${workstations} / ${capacity} (${workstationPct}%)">${workstations}</td>
-            `;
+            rowTotal += value;
+            const isOver = value > capacity;
+            const pct = capacity ? Math.round((value / capacity) * 100) : 0;
+            return `<td class="agenda-synthesis-cell agenda-synthesis-cell--${metric.color} ${isOver ? 'over-capacity' : ''}" title="${value} / ${capacity} (${pct}%)">${value}</td>`;
           }).join('');
           return `
             <tr>
               <td class="agenda-synthesis-room-name" title="${escapeHtml(room.building_name || '')}">${escapeHtml(room.name)}</td>
               <td class="agenda-synthesis-capacity">${room.capacity}</td>
               ${cells}
-              <td class="agenda-synthesis-total agenda-synthesis-total--persons">${totalPersons}</td>
-              <td class="agenda-synthesis-total agenda-synthesis-total--meals">${totalMeals}</td>
-              <td class="agenda-synthesis-total agenda-synthesis-total--workstations">${totalWorkstations}</td>
+              <td class="agenda-synthesis-total agenda-synthesis-total--${metric.color}">${rowTotal}</td>
             </tr>`;
         }).join('')}
       </tbody>`;
   }
 
-  _tableFoot(dates, rooms, data) {
+  _tableFoot(dates, data, metric) {
     const dayTotals = dates.map(iso => {
       const day = data.days?.find(d => d.date === iso);
-      return day ? {
-        persons: day.total_persons ?? 0,
-        meals: day.total_meals ?? 0,
-        workstations: day.total_workstations ?? 0,
-      } : { persons: 0, meals: 0, workstations: 0 };
+      return day?.[metric.totalKey] ?? 0;
     });
 
     return `
       <tfoot>
         <tr class="agenda-synthesis-grand-total">
           <th class="agenda-synthesis-corner" colspan="2" scope="row">Total general</th>
-          ${dayTotals.map(t => `
-            <td class="agenda-synthesis-total agenda-synthesis-total--persons">${t.persons}</td>
-            <td class="agenda-synthesis-total agenda-synthesis-total--meals">${t.meals}</td>
-            <td class="agenda-synthesis-total agenda-synthesis-total--workstations">${t.workstations}</td>
-          `).join('')}
-          <th class="agenda-synthesis-grand-total-cell agenda-synthesis-total--persons">${data.grand_total_persons ?? 0}</th>
-          <th class="agenda-synthesis-grand-total-cell agenda-synthesis-total--meals">${data.grand_total_meals ?? 0}</th>
-          <th class="agenda-synthesis-grand-total-cell agenda-synthesis-total--workstations">${data.grand_total_workstations ?? 0}</th>
+          ${dayTotals.map(v => `<td class="agenda-synthesis-total agenda-synthesis-total--${metric.color}">${v}</td>`).join('')}
+          <th class="agenda-synthesis-grand-total-cell agenda-synthesis-total--${metric.color}">${data[metric.grandKey] ?? 0}</th>
         </tr>
       </tfoot>`;
   }

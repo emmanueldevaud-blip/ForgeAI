@@ -252,6 +252,15 @@ _renderActions(item) {
       });
     });
 
+    this.element.querySelectorAll('[data-action="scan"]').forEach(btn => {
+      if (btn.disabled) return;
+      btn.addEventListener('click', () => {
+        const id = parseInt(btn.dataset.id, 10);
+        const item = this.data.items.find(row => row.id === id);
+        if (item) this.onAction('scan', item);
+      });
+    });
+
     return this.element;
   }
 

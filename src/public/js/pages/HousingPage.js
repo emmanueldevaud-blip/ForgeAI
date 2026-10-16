@@ -85,6 +85,9 @@ export class HousingPage {
   _switchTab(tabId) {
     this.currentTab = tabId;
 
+    const pageTitle = this.element?.querySelector('[data-housing-page-title]');
+    if (pageTitle) pageTitle.textContent = tabId === 'planning' ? "Planning d'occupation" : tabId === 'cleaning' ? 'Planning des ménages' : tabId === 'occupants' ? 'Occupants' : tabId === 'email-templates' ? 'Modèles d’e-mails' : tabId === 'housings' ? 'Configuration des logements' : '';
+
     this.element?.querySelectorAll('[data-tab]').forEach(el => {
       el.classList.toggle('admin-tab--active', el.dataset.tab === tabId);
       el.setAttribute('aria-selected', el.dataset.tab === tabId);
@@ -132,12 +135,13 @@ export class HousingPage {
     const allowedTabs = this.tabs.filter(t => authStore.hasPermission(t.permission));
 
     this.element.innerHTML = `
-      <div class="page-header">
-        <div class="page-header-left">
-          <h1>Hébergements</h1>
-          <p class="page-subtitle">Planning d’occupation, ménage, occupants et configuration</p>
+      ${this.currentTab === 'planning' || this.currentTab === 'cleaning' || this.currentTab === 'occupants' || this.currentTab === 'email-templates' || this.currentTab === 'housings' ? `
+        <div class="page-header">
+          <div class="page-header-left">
+            <h1 data-housing-page-title>${this.currentTab === 'planning' ? "Planning d'occupation" : this.currentTab === 'cleaning' ? 'Planning des ménages' : this.currentTab === 'occupants' ? 'Occupants' : this.currentTab === 'email-templates' ? 'Modèles d’e-mails' : 'Configuration des logements'}</h1>
+          </div>
         </div>
-      </div>
+      ` : ''}
 
       ${allowedTabs.length > 1 ? `
         <div class="admin-tabs" role="tablist" aria-label="Sections d’hébergement">

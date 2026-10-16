@@ -109,17 +109,9 @@ export class HousingOccupantsPage {
     this.element = document.createElement('div');
     this.element.className = 'page-content housing-page';
     this.element.innerHTML = `
-      <div class="page-header">
-        <div class="page-header-left">
-          <h1>Occupants</h1>
-          <p class="page-subtitle">Gestion des occupants</p>
-        </div>
-        <div class="page-header-right">
-          ${authStore.hasPermission('housing.manage_occupants') ? '<button class="btn btn-primary" data-action="create">+ Nouvel occupant</button>' : ''}
-        </div>
-      </div>
-      <div class="page-filters">
-        <input type="text" class="form-input" placeholder="Rechercher..." data-filter="search" value="${this.search}">
+      <div class="page-filters" style="display:flex;align-items:center;justify-content:space-between;gap:var(--spacing-3);">
+        <input type="text" class="form-input" style="width:min(100%, 320px);" placeholder="Rechercher..." data-filter="search" value="${this.search}">
+        ${authStore.hasPermission('housing.manage_occupants') ? '<button class="btn btn-primary" data-action="create">+ Nouvel occupant</button>' : ''}
       </div>
       <div class="page-info"><span data-count>${this.total} occupant${this.total > 1 ? 's' : ''}</span></div>
       <div data-table></div>

@@ -1184,6 +1184,28 @@ class ITAssetService:
         message: str,
         details: Optional[dict] = None,
     ) -> ITAlert:
+        # Une supervision peut être déclenchée simultanément par le contrôle
+        # manuel et la boucle automatique. Une seule alerte ouverte doit
+        # exister pour un équipement et un type donné.
+        existing_result = await self.db.execute(
+            select(ITAlert)
+            .where(
+                ITAlert.asset_id == asset_id,
+                ITAlert.alert_type == alert_type,
+                ITAlert.resolved.is_(False),
+            )
+            .order_by(ITAlert.created_at.desc())
+            .limit(1)
+        )
+        existing = existing_result.scalar_one_or_none()
+        if existing:
+            existing.severity = severity
+            existing.message = message
+            existing.details = details
+            await self.db.commit()
+            await self.db.refresh(existing)
+            return existing
+
         alert = ITAlert(
             asset_id=asset_id,
             alert_type=alert_type,

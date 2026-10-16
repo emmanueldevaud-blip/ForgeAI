@@ -284,17 +284,13 @@ export class EquipmentPage {
       <div class="page-header">
         <div class="page-header-left">
           <h1>${isParamsView ? 'Paramètres — Types d\'équipements' : 'Équipements'}</h1>
-          <p class="page-subtitle">${isParamsView ? 'Référentiel des types d\'équipements' : 'Gestion du patrimoine des équipements'}</p>
-        </div>
-        <div class="page-header-right">
-          ${!isParamsView && canCreateEquip ? '<button class="btn btn-primary" data-action="create">+ Nouvel équipement</button>' : ''}
-          ${isParamsView && canManageRefs ? '<button class="btn btn-primary" data-action="create-type">+ Nouveau type</button>' : ''}
+          ${isParamsView ? '<p class="page-subtitle">Référentiel des types d\'équipements</p>' : ''}
         </div>
       </div>
 
-      <div class="buildings-tabs" role="tablist" aria-label="Navigation équipements">
-        <button role="tab" class="tab-button ${!isParamsView ? 'tab-button--active' : ''}" data-tab="equipments" aria-selected="${!isParamsView}" aria-controls="panel-equipments">Équipements</button>
-        ${canManageRefs ? `<button role="tab" class="tab-button ${isParamsView ? 'tab-button--active' : ''}" data-tab="params" aria-selected="${isParamsView}" aria-controls="panel-params">Paramètres</button>` : ''}
+      <div class="admin-tabs" role="tablist" aria-label="Navigation équipements">
+        <button role="tab" class="admin-tab" data-tab="equipments" aria-selected="${!isParamsView}" aria-controls="panel-equipments">Équipements</button>
+        ${canManageRefs ? `<button role="tab" class="admin-tab" data-tab="params" aria-selected="${isParamsView}" aria-controls="panel-params">Paramètres</button>` : ''}
       </div>
 
       <div class="page-filters">
@@ -326,6 +322,10 @@ export class EquipmentPage {
           </select>
         </div>
         ` : ''}
+        <div style="margin-left:auto;">
+          ${!isParamsView && canCreateEquip ? '<button class="btn btn-primary" data-action="create">+ Nouvel équipement</button>' : ''}
+          ${isParamsView && canManageRefs ? '<button class="btn btn-primary" data-action="create-type">+ Nouveau type</button>' : ''}
+        </div>
       </div>
 
       <div class="page-info">
@@ -385,7 +385,7 @@ export class EquipmentPage {
       if (this.page < this.totalPages) { this.page++; this._loadDataForView(); }
     });
 
-    this.element.querySelectorAll('.tab-button')?.forEach((btn) => {
+    this.element.querySelectorAll('.admin-tab')?.forEach((btn) => {
       btn.addEventListener('click', (e) => {
         const tab = btn.dataset.tab;
         this.currentView = tab;

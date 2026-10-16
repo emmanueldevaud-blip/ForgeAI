@@ -87,9 +87,6 @@ export class HousingListPage {
     this.element.className = 'page-content housing-page';
     this.element.style.cssText = 'display:flex;flex-direction:column;min-height:calc(100vh - var(--header-height) - var(--spacing-6) * 2);';
     this.element.innerHTML = `
-      <div class="page-header">
-        <div class="page-header-left"><h1>Configuration des logements</h1><p class="page-subtitle">Configuration des logements — chambres, lits et capacités</p></div>
-      </div>
       <div class="page-filters">
         <input type="text" class="form-input" placeholder="Rechercher..." data-filter="search" value="${this.search}">
       </div>

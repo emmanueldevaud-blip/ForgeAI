@@ -537,7 +537,7 @@ export class BuildingsPage {
     if (prev) prev.disabled = this.page <= 1;
     if (next) next.disabled = this.page >= this.totalPages;
 
-    const count = this.element.querySelector('.users-count');
+    const count = this.element.querySelector('.page-header-right .page-info');
     if (count) {
       count.textContent = this._getCountText();
     }
@@ -546,7 +546,7 @@ export class BuildingsPage {
   render() {
     if (!this.element) {
       this.element = document.createElement('div');
-      this.element.className = 'buildings-page';
+      this.element.className = 'page-content buildings-page';
     }
 
     const canCreate = authStore.hasPermission('building.create');
@@ -555,32 +555,34 @@ export class BuildingsPage {
     const canManageRefs = authStore.hasPermission('building.manage_refs');
 
     this.element.innerHTML = `
-      <div class="users-header">
-        <div class="users-title-area">
+      <div class="page-header">
+        <div class="page-header-left">
           ${breadcrumbs.length > 0 ? `
             <div class="breadcrumb">
               <a href="#" data-action="breadcrumb-root" class="breadcrumb-link">Bâtiments</a>
               ${breadcrumbs.map((b, i) => `<span class="breadcrumb-separator">›</span>${i < breadcrumbs.length - 1 ? `<a href="#" data-action="breadcrumb" data-index="${i}" class="breadcrumb-link">${this._escapeHtml(b.label)}</a>` : `<span>${this._escapeHtml(b.label)}</span>`}`).join('')}
             </div>
           ` : ''}
-          <h1 class="users-title">${this._getTitle()}</h1>
-          <p class="users-count">${this._getCountText()}</p>
+          <h1>${this._getTitle()}</h1>
         </div>
-        <div class="users-header-actions">
+        <div class="page-header-right">
+           <span class="page-info">${this._getCountText()}</span>
            ${breadcrumbs.length > 0 ? `<button type="button" class="btn btn-secondary" data-action="back" aria-label="Retour au niveau précédent">← Retour</button>` : ''}
-           ${!isParamsView && canCreate ? `<button type="button" class="btn btn-primary" data-action="create">+ Nouveau</button>` : ''}
-           ${isParamsView && canManageRefs ? `<button type="button" class="btn btn-primary" data-action="create">+ Nouveau</button>` : ''}
         </div>
       </div>
 
-      <div class="buildings-tabs" role="tablist" aria-label="Navigation bâtiments">
-        <button role="tab" class="tab-button ${!isParamsView ? 'tab-button--active' : ''}" data-tab="sites" aria-selected="${!isParamsView}" aria-controls="panel-sites">Bâtiments</button>
-        ${canManageRefs ? `<button role="tab" class="tab-button ${isParamsView ? 'tab-button--active' : ''}" data-tab="params" aria-selected="${isParamsView}" aria-controls="panel-params">Paramètres</button>` : ''}
+      <div class="admin-tabs" role="tablist" aria-label="Navigation bâtiments">
+        <button role="tab" class="admin-tab" data-tab="sites" aria-selected="${!isParamsView}" aria-controls="panel-sites">Bâtiments</button>
+        ${canManageRefs ? `<button role="tab" class="admin-tab" data-tab="params" aria-selected="${isParamsView}" aria-controls="panel-params">Paramètres</button>` : ''}
       </div>
 
       <div class="users-toolbar">
          <label class="sr-only" for="buildings-search">Rechercher dans les ${isParamsView ? 'références' : 'bâtiments'}</label>
          <input id="buildings-search" type="search" class="form-input" placeholder="Rechercher..." value="${this._escapeHtml(this.search)}" data-action="search">
+         <div style="margin-left:auto;">
+           ${!isParamsView && canCreate ? '<button type="button" class="btn btn-primary" data-action="create">+ Nouveau</button>' : ''}
+           ${isParamsView && canManageRefs ? '<button type="button" class="btn btn-primary" data-action="create">+ Nouveau</button>' : ''}
+         </div>
       </div>
       <div data-table-container></div>
       <div class="users-pagination" data-pagination>
@@ -621,7 +623,7 @@ export class BuildingsPage {
     });
 
     // Gestion des tabs en haut de page
-    this.element.querySelectorAll('.tab-button')?.forEach((btn) => {
+    this.element.querySelectorAll('.admin-tab')?.forEach((btn) => {
       btn.addEventListener('click', (e) => {
         const tab = btn.dataset.tab;
         this.currentTab = tab;

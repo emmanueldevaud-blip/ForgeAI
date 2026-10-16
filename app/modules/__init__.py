@@ -707,27 +707,6 @@ class ITAssetModule(BaseModule):
                 "route": "/it-assets",
                 "order": 0,
             },
-            {
-                "code": "it-asset-discovery",
-                "name": "Découverte",
-                "icon": "search",
-                "route": "/it-assets/discovery",
-                "order": 1,
-            },
-            {
-                "code": "it-asset-alerts",
-                "name": "Alertes",
-                "icon": "alert-triangle",
-                "route": "/it-assets/alerts",
-                "order": 2,
-            },
-            {
-                "code": "it-asset-network-ranges",
-                "name": "Plages Réseau",
-                "icon": "globe",
-                "route": "/it-assets/network-ranges",
-                "order": 3,
-            },
         ]
 
         return [{

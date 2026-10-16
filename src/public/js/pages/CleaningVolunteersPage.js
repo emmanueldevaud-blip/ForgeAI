@@ -131,19 +131,16 @@ export class CleaningVolunteersPage {
       <div class="page-header">
         <div class="page-header-left">
           <h1>Volontaires</h1>
-          <p class="page-subtitle">Gestion des volontaires ménage et maintenance</p>
-        </div>
-        <div class="page-header-right">
-          ${authStore.hasPermission('volunteers.manage') ? '<button class="btn btn-primary" data-action="create">+ Ajouter un volontaire</button>' : ''}
         </div>
       </div>
-      <div class="page-filters" style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;">
+      <div class="users-toolbar" style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;">
+        <input type="text" class="form-input" placeholder="Rechercher..." data-filter="search" value="${this.search}" style="max-width:280px;">
         <div style="display:flex;gap:0;border:1px solid var(--color-border-light);border-radius:var(--radius-md);overflow:hidden;">
           <button class="btn btn-sm" data-filter-usage="all" style="border:none;border-radius:0;padding:6px 14px;${this.usageFilter === 'all' ? 'background:var(--color-primary);color:white;' : 'background:var(--color-bg-secondary);'}">Tous</button>
           <button class="btn btn-sm" data-filter-usage="cleaning" style="border:none;border-radius:0;padding:6px 14px;border-left:1px solid var(--color-border-light);${this.usageFilter === 'cleaning' ? 'background:var(--color-primary);color:white;' : 'background:var(--color-bg-secondary);'}">🧹 Ménage</button>
           <button class="btn btn-sm" data-filter-usage="maintenance" style="border:none;border-radius:0;padding:6px 14px;border-left:1px solid var(--color-border-light);${this.usageFilter === 'maintenance' ? 'background:var(--color-primary);color:white;' : 'background:var(--color-bg-secondary);'}">🔧 Maintenance</button>
         </div>
-        <input type="text" class="form-input" placeholder="Rechercher..." data-filter="search" value="${this.search}" style="max-width:280px;">
+        ${authStore.hasPermission('volunteers.manage') ? '<button class="btn btn-primary" data-action="create" style="margin-left:auto;">+ Ajouter un volontaire</button>' : ''}
       </div>
       <div class="page-info"><span data-count>${this.total} volontaire${this.total > 1 ? 's' : ''}</span></div>
       <div data-table></div>

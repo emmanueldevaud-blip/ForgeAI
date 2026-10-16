@@ -63,11 +63,13 @@ export class ITAssetPage {
     this.observations = [];
     this.alerts = [];
     this.networkRanges = [];
+    this.rangeSearch = '';
     this.rooms = [];
     this.loading = false;
     this.loadingAlerts = false;
     this.page = 1;
     this.pageSize = 20;
+    this.total = 0;
     this.search = '';
     this.assetTypeFilter = '';
     this.statusFilter = '';
@@ -108,7 +110,7 @@ export class ITAssetPage {
       getItemId: (item) => item.id,
       onAction: (action, item) => this._handleAction(action, item),
       onSort: (sortKey, sortDirection) => this._sortAssets(sortKey, sortDirection),
-      emptyMessage: 'Aucun asset trouvé. Ajoutez un nouvel asset ou lancez une découverte réseau.',
+      emptyMessage: 'Aucun équipement trouvé. Ajoutez un nouvel équipement ou lancez un scan réseau.',
     });
 
     this.rangeTable = new Table({
@@ -198,6 +200,7 @@ export class ITAssetPage {
       params.sort_order = this.sortOrder;
       const data = await listItAssets(params);
       this.assets = data.items || [];
+      this.total = data.total || 0;
       this.page = data.page || this.page;
       this.pageSize = data.page_size || this.pageSize;
       this._renderTable();
@@ -250,8 +253,8 @@ export class ITAssetPage {
       pageSize: this.pageSize,
       sortBy: this.sortBy,
       sortOrder: this.sortOrder,
-      total: this.assets.length,
-      totalPages: Math.ceil(this.assets.length / this.pageSize) || 1,
+      total: this.total,
+      totalPages: Math.ceil(this.total / this.pageSize) || 1,
     });
     container.innerHTML = '';
     container.appendChild(this.table.render());
@@ -261,11 +264,13 @@ export class ITAssetPage {
     if (!this.rangeTable || !this.element) return;
     const container = this.element.querySelector('[data-range-table]');
     if (!container) return;
+    const query = this.rangeSearch.trim().toLowerCase();
+    const ranges = query ? this.networkRanges.filter(range => `${range.name || ''} ${range.cidr || ''}`.toLowerCase().includes(query)) : this.networkRanges;
     this.rangeTable.setData({
-      items: this.networkRanges,
+      items: ranges,
       page: 1,
       pageSize: this.networkRanges.length || 20,
-      total: this.networkRanges.length,
+      total: ranges.length,
       totalPages: 1,
     });
     container.innerHTML = '';
@@ -278,14 +283,12 @@ export class ITAssetPage {
         this._showAssetModal(item);
         break;
       case 'view':
-        this.currentSection = 'asset-detail';
-        this.render();
-        this.loadAssetDetails(item.id);
+        this._showAssetInfoModal(item);
         break;
       case 'delete':
         this.confirmDialog.open({
-          title: 'Supprimer l\'asset',
-          message: `Êtes-vous sûr de vouloir supprimer l'asset "${item.name}" ?`,
+          title: 'Supprimer l\'équipement',
+          message: `Êtes-vous sûr de vouloir supprimer l'équipement "${item.name}" ?`,
           variant: 'danger',
           onConfirm: async () => {
             await deleteItAsset(item.id);
@@ -319,7 +322,7 @@ export class ITAssetPage {
   render() {
     if (!this.element) {
       this.element = document.createElement('div');
-      this.element.className = 'it-asset-page';
+      this.element.className = 'page-content housing-page it-asset-page';
     }
     this.element.innerHTML = this._getHTML();
     this._bindEvents();
@@ -380,54 +383,41 @@ export class ITAssetPage {
         <h1>Parc Informatique</h1>
         ${filterLabels.length > 0 ? `<p class="filter-bar">${filterLabels.join(' | ')}</p>` : ''}
       </div>
-      <nav class="page-tabs">
-        <button class="page-tab ${this.currentSection === 'list' ? 'active' : ''}" data-section="list">Liste</button>
-        <button class="page-tab ${this.currentSection === 'discovery' ? 'active' : ''}" data-section="discovery">Découverte</button>
-        <button class="page-tab ${this.currentSection === 'alerts' ? 'active' : ''}" data-section="alerts">Alertes</button>
-        <button class="page-tab ${this.currentSection === 'network-ranges' ? 'active' : ''}" data-section="network-ranges">Plages réseau</button>
-        <button class="page-tab ${this.currentSection === 'general' ? 'active' : ''}" data-section="general">Général</button>
-        <button class="page-tab ${this.currentSection === 'hardware' ? 'active' : ''}" data-section="hardware">Matériel</button>
-        <button class="page-tab ${this.currentSection === 'network' ? 'active' : ''}" data-section="network">Réseau</button>
-        <button class="page-tab ${this.currentSection === 'system' ? 'active' : ''}" data-section="system">Système & logiciels</button>
-        <button class="page-tab ${this.currentSection === 'user-domain' ? 'active' : ''}" data-section="user-domain">Utilisateur & domaine</button>
-        <button class="page-tab ${this.currentSection === 'supervision' ? 'active' : ''}" data-section="supervision">Supervision</button>
-        <button class="page-tab ${this.currentSection === 'history' ? 'active' : ''}" data-section="history">Historique</button>
+      <nav class="admin-tabs" role="tablist" aria-label="Sections du parc informatique">
+        <button class="admin-tab" role="tab" data-section="list" aria-selected="${this.currentSection === 'list'}">Liste</button>
+        <button class="admin-tab" role="tab" data-section="network-ranges" aria-selected="${this.currentSection === 'network-ranges'}">Plages réseau</button>
       </nav>
-      <div data-scan-progress>${this._scanProgressHtml()}</div>
       ${content}
     `;
   }
 
   _renderListView(filterLabels) {
     return `
-      <div class="page-actions">
-        <button class="btn btn-primary" data-action="create-asset">Nouvel asset</button>
-        <button class="btn btn-secondary" data-action="create-range">Nouvelle plage</button>
-        <button class="btn btn-secondary" data-action="monitor-all">Surveiller tout</button>
-      </div>
-      <div class="search-bar">
-        <input type="text" class="form-control" placeholder="Rechercher..." data-search value="${this._escape(this.search)}">
-        <select class="form-control" data-asset-type-filter>
+      <div class="page-filters">
+        <div class="filter-group"><label class="sr-only" for="it-asset-search">Rechercher</label><input id="it-asset-search" type="text" class="form-input" placeholder="Rechercher..." data-search value="${this._escape(this.search)}"></div>
+        <div class="filter-group"><label class="sr-only" for="it-asset-type-filter">Filtrer par type</label><select id="it-asset-type-filter" class="form-select" data-asset-type-filter>
           <option value="">Tous les types</option>
           <option value="server" ${this.assetTypeFilter === 'server' ? 'selected' : ''}>Serveur</option>
           <option value="workstation" ${this.assetTypeFilter === 'workstation' ? 'selected' : ''}>Poste de travail</option>
           <option value="network" ${this.assetTypeFilter === 'network' ? 'selected' : ''}>Équipement réseau</option>
           <option value="printer" ${this.assetTypeFilter === 'printer' ? 'selected' : ''}>Imprimante</option>
           <option value="other" ${this.assetTypeFilter === 'other' ? 'selected' : ''}>Autre</option>
-        </select>
-        <select class="form-control" data-status-filter>
+        </select></div>
+        <div class="filter-group"><label class="sr-only" for="it-asset-status-filter">Filtrer par statut</label><select id="it-asset-status-filter" class="form-select" data-status-filter>
           <option value="">Tous les statuts</option>
-          <option value="en_service" ${this.statusFilter === 'en_service' ? 'selected' : ''}>En service</option>
-          <option value="hors_service" ${this.statusFilter === 'hors_service' ? 'selected' : ''}>Hors service</option>
-          <option value="en_panne" ${this.statusFilter === 'en_panne' ? 'selected' : ''}>En panne</option>
-          <option value="en_maintenance" ${this.statusFilter === 'en_maintenance' ? 'selected' : ''}>En maintenance</option>
-        </select>
+          ${ASSET_STATUSES.map(status => `<option value="${status.value}" ${this.statusFilter === status.value ? 'selected' : ''}>${status.label}</option>`).join('')}
+        </select></div>
+        <div style="display:flex;align-items:center;gap:var(--spacing-2);margin-left:auto;">
+          <button class="btn btn-secondary" data-action="monitor-all">Actualiser tout</button>
+          <button class="btn btn-primary" data-action="create-asset">Nouvel équipement</button>
+        </div>
       </div>
-      <div class="table-container" data-table></div>
+      <div class="page-info"><span>${this.total} équipement${this.total > 1 ? 's' : ''}</span></div>
+      <div data-table></div>
       <div class="pagination">
         <button class="btn btn-secondary" data-page="prev" ${this.page <= 1 ? 'disabled' : ''}>Précédent</button>
-        <span>Page ${this.page} / ${Math.ceil(this.assets.length / this.pageSize) || 1}</span>
-        <button class="btn btn-secondary" data-page="next" ${this.page >= (Math.ceil(this.assets.length / this.pageSize) || 1) ? 'disabled' : ''}>Suivant</button>
+        <span>Page ${this.page} / ${Math.ceil(this.total / this.pageSize) || 1}</span>
+        <button class="btn btn-secondary" data-page="next" ${this.page >= (Math.ceil(this.total / this.pageSize) || 1) ? 'disabled' : ''}>Suivant</button>
       </div>
     `;
   }
@@ -615,7 +605,7 @@ export class ITAssetPage {
   _renderAlertsView() {
     if (!this.selectedAssetId) {
       return `
-        <p>Sélectionnez un asset dans la liste pour voir ses alertes.</p>
+        <p>Sélectionnez un équipement dans la liste pour voir ses alertes.</p>
         <button class="btn btn-primary" data-section="list">Retour à la liste</button>
       `;
     }
@@ -634,7 +624,7 @@ export class ITAssetPage {
         ${this.loadingAlerts
           ? '<p class="loading">Chargement des alertes...</p>'
           : filteredAlerts.length === 0
-            ? '<p>Aucune alerte pour cet asset.</p>'
+            ? '<p>Aucune alerte pour cet équipement.</p>'
             : `
               <div class="alerts-list">
                 ${filteredAlerts.map(alert => `
@@ -665,18 +655,22 @@ export class ITAssetPage {
     return `
       <div class="network-ranges-panel">
         <h3>Plages réseau</h3>
-        <div class="table-container" data-range-table></div>
-        <div class="page-actions">
-          <button class="btn btn-primary" data-action="create-range">Nouvelle plage</button>
-          <button class="btn btn-secondary" data-section="discovery">Nouvelle découverte</button>
+        <div class="page-filters">
+          <input type="search" class="form-input" style="width:min(100%, 320px);" placeholder="Rechercher une plage..." data-range-search value="${this._escape(this.rangeSearch)}">
+          <div style="display:flex;align-items:center;gap:var(--spacing-2);margin-left:auto;">
+            <button class="btn btn-secondary" data-action="discover-all" ${this.networkRanges.length === 0 || this.activeScan ? 'disabled' : ''}>Scanner toutes les plages</button>
+            <button class="btn btn-primary" data-action="create-range">Nouvelle plage</button>
+          </div>
         </div>
+        <div class="table-container" data-range-table></div>
+        <div data-scan-progress>${this._scanProgressHtml()}</div>
       </div>
     `;
   }
 
   _renderGeneralView(filterLabels) {
     if (!this.selectedAssetId || this.assets.length === 0) {
-      return '<p>Sélectionnez un asset dans la liste.</p>';
+      return '<p>Sélectionnez un équipement dans la liste.</p>';
     }
     const asset = this.assets[0];
     return `
@@ -697,7 +691,7 @@ export class ITAssetPage {
 
   _renderHardwareView(filterLabels) {
     if (!this.selectedAssetId || this.assets.length === 0) {
-      return '<p>Sélectionnez un asset dans la liste.</p>';
+      return '<p>Sélectionnez un équipement dans la liste.</p>';
     }
     const asset = this.assets[0];
     return `
@@ -719,7 +713,7 @@ export class ITAssetPage {
 
   _renderNetworkView(filterLabels) {
     if (!this.selectedAssetId || this.assets.length === 0) {
-      return '<p>Sélectionnez un asset dans la liste.</p>';
+      return '<p>Sélectionnez un équipement dans la liste.</p>';
     }
     const asset = this.assets[0];
     return `
@@ -738,7 +732,7 @@ export class ITAssetPage {
 
   _renderSystemView(filterLabels) {
     if (!this.selectedAssetId || this.assets.length === 0) {
-      return '<p>Sélectionnez un asset dans la liste.</p>';
+      return '<p>Sélectionnez un équipement dans la liste.</p>';
     }
     const asset = this.assets[0];
     return `
@@ -758,7 +752,7 @@ export class ITAssetPage {
 
   _renderUserDomainView(filterLabels) {
     if (!this.selectedAssetId || this.assets.length === 0) {
-      return '<p>Sélectionnez un asset dans la liste.</p>';
+      return '<p>Sélectionnez un équipement dans la liste.</p>';
     }
     const asset = this.assets[0];
     return `
@@ -777,7 +771,7 @@ export class ITAssetPage {
 
   _renderSupervisionView() {
     if (!this.selectedAssetId || this.assets.length === 0) {
-      return '<p>Sélectionnez un asset dans la liste.</p>';
+      return '<p>Sélectionnez un équipement dans la liste.</p>';
     }
     const asset = this.assets[0];
     const lastCheck = asset.last_check ? new Date(asset.last_check).toLocaleString('fr-FR') : 'Jamais';
@@ -799,7 +793,7 @@ export class ITAssetPage {
 
   _renderHistoryView() {
     if (!this.selectedAssetId || this.assets.length === 0) {
-      return '<p>Sélectionnez un asset dans la liste.</p>';
+      return '<p>Sélectionnez un équipement dans la liste.</p>';
     }
     const asset = this.assets[0];
     return `
@@ -859,6 +853,95 @@ export class ITAssetPage {
     `;
   }
 
+  _showAssetInfoModal(asset) {
+    if (!asset) return;
+    const value = (field, fallback = '-') => this._escape(asset[field] ?? fallback);
+    const room = asset.room?.name || '-';
+    const rows = (items) => items.map(([label, field, fallback]) => `
+      <div class="asset-info-row"><dt>${label}</dt><dd>${value(field, fallback)}</dd></div>
+    `).join('');
+
+    const modal = document.createElement('div');
+    modal.className = 'modal-overlay asset-info-modal-overlay';
+    modal.innerHTML = `
+      <div class="modal-content modal-lg">
+          <div class="modal-header">
+            <h2>${value('name')}</h2>
+            <button class="modal-close" data-action="close" aria-label="Fermer">&times;</button>
+          </div>
+          <div class="modal-body asset-info-modal">
+            <div class="admin-tabs asset-modal-tabs" role="tablist" aria-label="Informations de l’équipement">
+              <button class="admin-tab admin-tab--active" data-asset-tab="general" aria-selected="true" role="tab">Général</button>
+              <button class="admin-tab" data-asset-tab="software" aria-selected="false" role="tab">Système logiciel</button>
+              <button class="admin-tab" data-asset-tab="user" aria-selected="false" role="tab">Utilisateur</button>
+              <button class="admin-tab" data-asset-tab="monitoring" aria-selected="false" role="tab">Supervision</button>
+              <button class="admin-tab" data-asset-tab="alerts" aria-selected="false" role="tab">Alertes</button>
+              <button class="admin-tab" data-asset-tab="history" aria-selected="false" role="tab">Historique</button>
+            </div>
+            <div class="asset-modal-panel active" data-asset-panel="general"><section><h3>Identité</h3><dl class="asset-info">
+              ${rows([['Référence', 'reference'], ['Type', 'asset_type']])}
+              <div class="asset-info-row"><dt>Local</dt><dd>${this._escape(room)}</dd></div>
+              <div class="asset-info-row"><dt>Statut</dt><dd>${this._renderStatus(asset.status)}</dd></div>
+              ${rows([['Description', 'description']])}
+            </dl></section><section><h3>Réseau</h3><dl class="asset-info">
+              ${rows([['Adresse IP', 'ip_address'], ['Adresse MAC', 'mac_address'], ['Nom AD', 'computer_name_ad'], ['Domaine', 'domain'], ['Unité organisationnelle', 'organizational_unit']])}
+            </dl></section><section><h3>Matériel</h3><dl class="asset-info">
+              ${rows([['Fabricant', 'manufacturer'], ['Modèle', 'model'], ['Numéro de série', 'serial_number'], ['Fabricant système', 'manufacturer_system'], ['Processeur', 'cpu_name'], ['Cœurs', 'cpu_cores'], ['RAM totale (Mo)', 'ram_total_mb'], ['RAM libre (Mo)', 'ram_free_mb'], ['Disque total (Mo)', 'disk_total_mb'], ['Disque libre (Mo)', 'disk_free_mb'], ['BIOS', 'bios_version']])}
+            </dl></section><section><h3>Notes</h3><p>${value('notes')}</p></section></div>
+            <div class="asset-modal-panel" data-asset-panel="software"><section><h3>Système logiciel</h3><dl class="asset-info">
+              ${rows([['Système', 'os'], ['Version OS', 'os_version'], ['Build OS', 'os_build'], ['Architecture', 'os_architecture'], ['Version agent', 'agent_version'], ['Source découverte', 'discovery_source'], ['Dernière collecte', 'last_collection'], ['Dernier contrôle', 'last_check'], ['Dernière présence', 'last_seen']])}
+            </dl></section></div>
+            <div class="asset-modal-panel" data-asset-panel="user"><section><h3>Utilisateur</h3><p class="asset-tab-placeholder">Aucun utilisateur n’est actuellement associé à cet équipement.</p></section></div>
+            <div class="asset-modal-panel" data-asset-panel="monitoring"><section><h3>Supervision</h3><div data-asset-monitoring>Chargement des contrôles...</div></section></div>
+            <div class="asset-modal-panel" data-asset-panel="alerts"><section><h3>Alertes</h3><div data-asset-alerts>Chargement des alertes...</div></section></div>
+            <div class="asset-modal-panel" data-asset-panel="history"><section><h3>Historique</h3><div data-asset-history>Chargement de l’historique...</div></section></div>
+          </div>
+          <div class="modal-footer">
+            <button class="btn btn-secondary" data-action="close">Fermer</button>
+            ${authStore.hasPermission('it_asset.update') ? `<button class="btn btn-primary" data-action="edit">Modifier</button>` : ''}
+          </div>
+      </div>
+    `;
+    document.body.appendChild(modal);
+    const close = () => modal.remove();
+    modal.querySelectorAll('[data-action="close"]').forEach(button => button.addEventListener('click', close));
+    modal.addEventListener('click', (event) => { if (event.target === modal) close(); });
+    modal.querySelectorAll('[data-asset-tab]').forEach(tab => tab.addEventListener('click', () => {
+      const target = tab.dataset.assetTab;
+      modal.querySelectorAll('[data-asset-tab]').forEach(item => {
+        const active = item === tab;
+        item.classList.toggle('admin-tab--active', active);
+        item.setAttribute('aria-selected', String(active));
+      });
+      modal.querySelectorAll('[data-asset-panel]').forEach(panel => panel.classList.toggle('active', panel.dataset.assetPanel === target));
+    }));
+    Promise.all([
+      getAssetAlerts(asset.id, null),
+      getAssetObservations(asset.id, 20),
+      getAssetHistory(asset.id, 50),
+    ]).then(([alerts, observations, history]) => {
+      const alertItems = Array.isArray(alerts) ? alerts : (alerts.items || []);
+      const observationItems = observations.items || observations || [];
+      const historyItems = history.items || history || [];
+      const formatDate = (value) => value ? new Date(value).toLocaleString('fr-FR') : '-';
+      const alertTarget = modal.querySelector('[data-asset-alerts]');
+      const monitoringTarget = modal.querySelector('[data-asset-monitoring]');
+      const historyTarget = modal.querySelector('[data-asset-history]');
+      if (alertTarget) alertTarget.innerHTML = alertItems.length ? alertItems.map(item => `<p><strong>${this._escape(item.severity || '-')}</strong> — ${this._escape(item.message || '-')} <small>${formatDate(item.created_at)}</small></p>`).join('') : '<p>Aucune alerte.</p>';
+      if (monitoringTarget) monitoringTarget.innerHTML = observationItems.length ? observationItems.map(item => `<p><strong>${this._escape(item.status || '-')}</strong> — ${this._escape(item.check_method || '-')} — ${item.response_time_ms ?? '-'} ms <small>${formatDate(item.checked_at)}</small></p>`).join('') : '<p>Aucun contrôle enregistré.</p>';
+      if (historyTarget) historyTarget.innerHTML = historyItems.length ? historyItems.map(item => `<p><strong>${this._escape(item.field_name || '-')}</strong> : ${this._escape(item.old_value || '-')} → ${this._escape(item.new_value || '-')} <small>${formatDate(item.created_at)}</small></p>`).join('') : '<p>Aucun historique.</p>';
+    }).catch(() => {
+      ['[data-asset-alerts]', '[data-asset-monitoring]', '[data-asset-history]'].forEach(selector => {
+        const target = modal.querySelector(selector);
+        if (target) target.textContent = 'Informations indisponibles.';
+      });
+    });
+    modal.querySelector('[data-action="edit"]')?.addEventListener('click', () => {
+      close();
+      this._showAssetModal(asset);
+    });
+  }
+
   _bindEvents() {
     if (!this.element) return;
 
@@ -907,6 +990,13 @@ export class ITAssetPage {
     }
 
     const rangeSelect = this.element.querySelector('[data-range-select]');
+    const rangeSearch = this.element.querySelector('[data-range-search]');
+    if (rangeSearch) {
+      rangeSearch.addEventListener('input', () => {
+        this.rangeSearch = rangeSearch.value;
+        this._renderRangeTable();
+      });
+    }
     if (rangeSelect) {
       rangeSelect.addEventListener('change', () => {
         this.selectedRangeId = rangeSelect.value ? parseInt(rangeSelect.value) : null;
@@ -1004,7 +1094,7 @@ export class ITAssetPage {
         if (direction === 'prev' && this.page > 1) {
           this.page--;
           this.loadAssets();
-        } else if (direction === 'next' && this.page < Math.ceil(this.assets.length / this.pageSize)) {
+        } else if (direction === 'next' && this.page < Math.ceil(this.total / this.pageSize)) {
           this.page++;
           this.loadAssets();
         }
@@ -1030,12 +1120,12 @@ export class ITAssetPage {
     };
 
     const modal = document.createElement('div');
-    modal.className = 'modal-overlay';
+    modal.className = 'modal-overlay it-asset-form-modal-overlay';
     modal.innerHTML = `
       <div class="modal modal-lg">
-        <div class="modal-content">
+        <div class="modal-content it-asset-form-modal">
           <div class="modal-header">
-            <h2>${isEdit ? `Modifier l'asset ${this._escape(asset.reference)}` : 'Nouvel asset'}</h2>
+            <h2>${isEdit ? `Modifier l'équipement ${this._escape(asset.reference)}` : 'Nouvel équipement'}</h2>
             <button class="modal-close" data-action="close" aria-label="Fermer">&times;</button>
           </div>
           <div class="modal-body">
@@ -1121,7 +1211,7 @@ export class ITAssetPage {
                 </div>
                 ${isEdit ? `
                 <div class="form-row">
-                  <label class="ad-check"><input type="checkbox" name="is_active" ${asset?.is_active !== false ? 'checked' : ''}><span>Asset actif</span></label>
+                  <label class="ad-check"><input type="checkbox" name="is_active" ${asset?.is_active !== false ? 'checked' : ''}><span>Équipement actif</span></label>
                 </div>` : ''}
               </fieldset>
             </form>

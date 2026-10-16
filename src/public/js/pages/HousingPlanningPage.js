@@ -1723,29 +1723,20 @@ export class HousingPlanningPage {
     this.element = document.createElement('div');
     this.element.className = 'page-content housing-page';
     this.element.innerHTML = `
-      <div class="page-header">
-        <div class="page-header-left">
-          <h1>Planning d'occupation</h1>
-          <p class="page-subtitle">Vue calendrier des réservations</p>
-        </div>
-        <div class="page-header-right" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
-          <div class="btn-group" style="display:flex;border:1px solid var(--border-color);border-radius:var(--radius-md);overflow:hidden;">
-            <button class="btn btn-secondary btn-sm" data-view="week" style="border-radius:0;border:none;">Semaine</button>
-            <button class="btn btn-secondary btn-sm active" data-view="month" style="border-radius:0;border:none;">Mois</button>
-            <button class="btn btn-secondary btn-sm" data-view="quarter" style="border-radius:0;border:none;">Trimestre</button>
-          </div>
+      <div class="calendar-nav" style="display:flex;align-items:center;justify-content:center;gap:8px;margin-bottom:8px;">
+        <button class="btn btn-secondary btn-sm" data-action="prev">◀</button>
+        <h2 data-month-label style="margin:0;min-width:180px;text-align:center;font-size:var(--font-size-base);"></h2>
+        <button class="btn btn-secondary btn-sm" data-action="next">▶</button>
+        <button class="btn btn-secondary btn-sm" data-action="today">Aujourd'hui</button>
+        <div style="display:flex;align-items:center;gap:8px;margin-left:auto;">
+          <button class="btn btn-secondary btn-sm" data-view="month">Mois</button>
+          <button class="btn btn-secondary btn-sm" data-view="quarter">Trimestre</button>
           <select class="form-control" id="status-filter" style="width:auto;padding:4px 8px;font-size:13px;">
             <option value="">Tous les statuts</option>
             <option value="pre_reserved">Pré-réservé</option>
             <option value="confirmed">Confirmé</option>
           </select>
         </div>
-      </div>
-      <div class="calendar-nav" style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
-        <button class="btn btn-secondary btn-sm" data-action="prev">◀</button>
-        <h2 data-month-label style="margin:0;min-width:180px;text-align:center;font-size:var(--font-size-base);"></h2>
-        <button class="btn btn-secondary btn-sm" data-action="next">▶</button>
-        <button class="btn btn-secondary btn-sm" data-action="today">Aujourd'hui</button>
       </div>
       <div data-planning style="flex:1;min-height:0;"></div>
     `;

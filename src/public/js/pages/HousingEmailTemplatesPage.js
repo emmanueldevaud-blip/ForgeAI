@@ -69,6 +69,7 @@ export class HousingEmailTemplatesPage {
     this.templates = [];
     this.housings = [];
     this.editingId = null;
+    this.search = '';
   }
 
   async initialize() {
@@ -88,18 +89,20 @@ export class HousingEmailTemplatesPage {
   }
 
   _renderList() {
+    const query = this.search.trim().toLocaleLowerCase();
+    const filteredTemplates = query
+      ? this.templates.filter(template => [template.name, template.template_type, template.subject]
+        .some(value => String(value || '').toLocaleLowerCase().includes(query)))
+      : this.templates;
     this.element.innerHTML = `
-      <div class="page-header">
-        <div>
-          <h1>Modèles d’e-mails</h1>
-          <p class="text-muted">Créez des modèles avec variables et pièces jointes par logement.</p>
-        </div>
+      <div class="page-filters" style="display:flex;align-items:center;justify-content:space-between;gap:var(--spacing-3);">
+        <input type="search" class="form-input" style="width:min(100%, 320px);" placeholder="Rechercher..." data-template-search value="${this._escape(this.search)}">
         <button class="btn btn-primary" data-action="new-template">Nouveau modèle</button>
       </div>
       <div class="card-grid">
-        ${this.templates.length === 0
+        ${filteredTemplates.length === 0
           ? '<div class="card"><p class="text-muted">Aucun modèle d’e-mail.</p></div>'
-          : this.templates.map(template => `
+          : filteredTemplates.map(template => `
             <article class="card">
               <div class="card-header" style="display:flex;justify-content:space-between;gap:12px;">
                 <div><h2>${this._escape(template.name)}</h2><p class="text-muted">${this._escape(template.template_type)}</p></div>
@@ -117,6 +120,16 @@ export class HousingEmailTemplatesPage {
             </article>`).join('')}
       </div>
     `;
+    this.element.querySelector('[data-template-search]')?.addEventListener('input', event => {
+      const cursorPosition = event.target.selectionStart;
+      this.search = event.target.value;
+      this._renderList();
+      const searchInput = this.element.querySelector('[data-template-search]');
+      if (searchInput) {
+        searchInput.focus();
+        searchInput.setSelectionRange(cursorPosition, cursorPosition);
+      }
+    });
     this.element.querySelector('[data-action="new-template"]')?.addEventListener('click', () => this._openEditor());
     this.element.querySelectorAll('[data-action="edit-template"]').forEach(button => {
       button.addEventListener('click', () => this._openEditor(this.templates.find(t => t.id === Number(button.dataset.id))));

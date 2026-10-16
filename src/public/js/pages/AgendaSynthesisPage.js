@@ -69,9 +69,9 @@ function _monthDates(anchor) {
 }
 
 const METRICS = [
-  { key: 'person_count', totalKey: 'total_persons', grandKey: 'grand_total_persons', label: 'Personnes presentes', color: 'persons', unit: 'pers.' },
-  { key: 'meal_count', totalKey: 'total_meals', grandKey: 'grand_total_meals', label: 'Repas', color: 'meals', unit: 'repas' },
-  { key: 'workstation_count', totalKey: 'total_workstations', grandKey: 'grand_total_workstations', label: 'Postes de travail', color: 'workstations', unit: 'postes' },
+  { key: 'person_count', totalKey: 'total_persons', grandKey: 'grand_total_persons', label: 'Personnes presentes', color: 'persons', showCapacity: false },
+  { key: 'meal_count', totalKey: 'total_meals', grandKey: 'grand_total_meals', label: 'Repas', color: 'meals', showCapacity: false },
+  { key: 'workstation_count', totalKey: 'total_workstations', grandKey: 'grand_total_workstations', label: 'Postes de travail', color: 'workstations', showCapacity: true },
 ];
 
 export class AgendaSynthesisPage {
@@ -169,7 +169,7 @@ export class AgendaSynthesisPage {
           </header>
           <div class="card-body agenda-section-body" style="padding:0;overflow-x:auto;">
             <table class="agenda-table agenda-table--synthesis ${isMonth ? 'agenda-table--synthesis-month' : ''}" role="grid">
-              ${this._tableHead(dates, today)}
+              ${this._tableHead(dates, today, metric.showCapacity)}
               ${this._tableBody(dates, rooms, dayByIso, metric)}
               ${this._tableFoot(dates, data, metric)}
             </table>
@@ -226,12 +226,12 @@ export class AgendaSynthesisPage {
       </div>`;
   }
 
-  _tableHead(dates, today) {
+  _tableHead(dates, today, showCapacity) {
     return `
       <thead>
         <tr>
           <th class="agenda-synthesis-corner" rowspan="2" scope="col">Local</th>
-          <th class="agenda-synthesis-capacity-head" rowspan="2" scope="col">Capacite</th>
+          ${showCapacity ? '<th class="agenda-synthesis-capacity-head" rowspan="2" scope="col">Capacite</th>' : ''}
           ${dates.map((iso, di) => {
             const d = parseISODate(iso);
             return `<th class="agenda-synthesis-day-head ${iso === today ? 'is-today' : ''} ${di === 0 ? 'agenda-day-first' : ''} ${di === dates.length - 1 ? 'agenda-day-last' : ''}" scope="col" title="${escapeHtml(formatDayLabel(iso))}">
@@ -245,6 +245,7 @@ export class AgendaSynthesisPage {
   }
 
   _tableBody(dates, rooms, dayByIso, metric) {
+    const showCapacity = metric.showCapacity;
     return `
       <tbody>
         ${rooms.map(room => {
@@ -255,14 +256,14 @@ export class AgendaSynthesisPage {
             const value = roomData?.[metric.key] ?? 0;
             const capacity = room.capacity || 0;
             rowTotal += value;
-            const isOver = value > capacity;
+            const isOver = showCapacity && value > capacity;
             const pct = capacity ? Math.round((value / capacity) * 100) : 0;
-            return `<td class="agenda-synthesis-cell agenda-synthesis-cell--${metric.color} ${isOver ? 'over-capacity' : ''}" title="${value} / ${capacity} (${pct}%)">${value}</td>`;
+            return `<td class="agenda-synthesis-cell agenda-synthesis-cell--${metric.color} ${isOver ? 'over-capacity' : ''}" title="${showCapacity ? `${value} / ${capacity} (${pct}%)` : `${value} ${metric.unit || ''}`}">${value}</td>`;
           }).join('');
           return `
             <tr>
               <td class="agenda-synthesis-room-name" title="${escapeHtml(room.building_name || '')}">${escapeHtml(room.name)}</td>
-              <td class="agenda-synthesis-capacity">${room.capacity}</td>
+              ${showCapacity ? `<td class="agenda-synthesis-capacity">${room.capacity}</td>` : ''}
               ${cells}
               <td class="agenda-synthesis-total agenda-synthesis-total--${metric.color}">${rowTotal}</td>
             </tr>`;
@@ -279,7 +280,7 @@ export class AgendaSynthesisPage {
     return `
       <tfoot>
         <tr class="agenda-synthesis-grand-total">
-          <th class="agenda-synthesis-corner" colspan="2" scope="row">Total general</th>
+          <th class="agenda-synthesis-corner" colspan="${metric.showCapacity ? 2 : 1}" scope="row">Total general</th>
           ${dayTotals.map(v => `<td class="agenda-synthesis-total agenda-synthesis-total--${metric.color}">${v}</td>`).join('')}
           <th class="agenda-synthesis-grand-total-cell agenda-synthesis-total--${metric.color}">${data[metric.grandKey] ?? 0}</th>
         </tr>

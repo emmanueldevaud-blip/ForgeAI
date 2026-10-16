@@ -5422,7 +5422,7 @@
 .agenda-free-grid .form-control-wrap > span { display: block; margin-bottom: var(--spacing-1); color: var(--color-text-secondary); font-size: var(--font-size-sm); font-weight: var(--font-weight-medium); }
 .agenda-period-label { color: var(--color-text-secondary); font-size: var(--font-size-sm); font-weight: var(--font-weight-medium); }
 .agenda-card { overflow: hidden; }
-.agenda-scroll { overflow-x: auto; }
+.agenda-scroll { overflow: auto; max-height: calc(100dvh - var(--header-height, 64px) - 220px); }
 .agenda-table { width: 100%; border-collapse: collapse; min-width: 0; }
 .agenda-table--half { min-width: 1100px; }
 .agenda-half-head, .agenda-half-corner { min-width: 72px; font-size: var(--font-size-xs); font-weight: var(--font-weight-medium); text-transform: none; letter-spacing: 0; color: var(--color-text-secondary); background: var(--color-bg-secondary); white-space: nowrap; }
@@ -5449,10 +5449,13 @@
 .agenda-cell-name-text { display: block; max-width: 90px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--color-text-primary); font-weight: var(--font-weight-medium); }
 .agenda-cell-name .agenda-badge { padding: 0 4px; font-size: 9px; }
 .agenda-period-wrap { min-width: 130px; }
-.agenda-table--people { min-width: 0; }
+.agenda-table--people { min-width: 0; --agenda-head-row1-h: 34px; }
 .agenda-table--people th[data-day] { cursor: pointer; }
-.agenda-table--people .agenda-room-head { position: sticky; left: 32px; z-index: 2; min-width: 100px; max-width: 160px; box-shadow: 1px 0 0 var(--color-border-light); }
-.agenda-table--people thead .agenda-room-head { z-index: 4; }
+.agenda-table--people thead th { position: sticky; z-index: 5; }
+.agenda-table--people thead tr:first-child th { top: 0; height: var(--agenda-head-row1-h); }
+.agenda-table--people thead tr:nth-child(2) th { top: var(--agenda-head-row1-h); }
+.agenda-table--people .agenda-room-head { position: sticky; left: 32px; z-index: 6; min-width: 100px; max-width: 160px; box-shadow: 1px 0 0 var(--color-border-light); }
+.agenda-table--people thead .agenda-room-head { z-index: 7; }
 .agenda-table--people td { padding: 1px 2px; }
 /* Ligne de compteurs planning (Prés / Repas / Postes) */
 .agenda-planning-counter-row { background: var(--color-bg-secondary); border-top: 1px solid var(--color-border-light); }
@@ -5490,7 +5493,7 @@
 .agenda-people-cell.is-empty .agenda-people-cell-flag.is-add { color: var(--color-primary); font-size: var(--font-size-sm); font-weight: var(--font-weight-semibold); }
 .agenda-people-cell:disabled { opacity: .8; cursor: default; }
 .agenda-people-cell:disabled:hover, .agenda-people-cell:disabled:focus-visible { border-color: transparent; background: transparent; }
-.agenda-table--people-month { min-width: 0; width: 100%; table-layout: fixed; }
+.agenda-table--people-month { min-width: 0; width: 100%; table-layout: fixed; --agenda-head-row1-h: 26px; }
 .agenda-table--people-month .agenda-team-head, .agenda-table--people-month .agenda-team-cell { width: 22px; }
 .agenda-table--people-month .agenda-corner, .agenda-table--people-month .agenda-room-head { width: 110px; min-width: 110px; max-width: 110px; }
 .agenda-table--people-month .agenda-day-head { width: 30px; min-width: 0; padding: 2px 1px; }
@@ -5739,18 +5742,17 @@
     table-layout: auto;
     width: auto;
   }
-  .agenda-table--people-month { min-width: 0; width: 100%; table-layout: fixed; }
   .agenda-table--people-month .agenda-room-head { min-width: 72px; max-width: 72px; width: 72px; }
   .agenda-table--people .agenda-room-head {
     position: sticky;
     left: 24px;
-    z-index: 2;
+    z-index: 6;
     min-width: 56px;
     max-width: 64px;
     width: 56px;
     box-shadow: 1px 0 0 var(--color-border-light);
   }
-  .agenda-table--people thead .agenda-room-head { z-index: 4; }
+  .agenda-table--people thead .agenda-room-head { z-index: 7; }
   .agenda-table--people .agenda-team-cell { width: 20px; min-width: 20px; max-width: 24px; }
   .agenda-table--people .agenda-team-name { font-size: 7px; }
   .agenda-table--people .agenda-room-head .agenda-room-name {
@@ -7201,7 +7203,7 @@
 /* Séparateurs d'équipe : bandeau vertical coloré avec nom d'équipe. */
 .agenda-team-cell { width: 28px; min-width: 28px; max-width: 32px; padding: var(--spacing-2) 0; text-align: center; vertical-align: middle; border-left: 4px solid transparent; position: sticky; left: 0; z-index: 3; box-shadow: 1px 0 0 var(--color-border-light); }
 .agenda-team-name { display: inline-block; writing-mode: vertical-rl; transform: rotate(180deg); font-size: var(--font-size-xs); font-weight: var(--font-weight-semibold); text-transform: uppercase; letter-spacing: .06em; color: var(--color-white); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-height: 100%; }
-.agenda-team-head { background: var(--color-bg-secondary); position: sticky; left: 0; z-index: 4; }
+.agenda-team-head { background: var(--color-bg-secondary); position: sticky; left: 0; top: 0; z-index: 7; }
 .agenda-person-head { border-left: 0; }
 .agenda-team-0 .agenda-team-cell { background: var(--color-primary); border-left-color: var(--color-primary-dark); }
 .agenda-team-1 .agenda-team-cell { background: #15803d; border-left-color: #166534; }

@@ -84,6 +84,7 @@ export class ITAssetPage {
     this.discoveryLogs = [];
     this.discoveryLastScan = null;
     this.activeScan = null;
+    this.monitoringSummary = '';
     this._scanPollTimer = null;
     this.confirmDialog = new ConfirmDialog();
     this.table = null;
@@ -408,11 +409,12 @@ export class ITAssetPage {
           ${ASSET_STATUSES.map(status => `<option value="${status.value}" ${this.statusFilter === status.value ? 'selected' : ''}>${status.label}</option>`).join('')}
         </select></div>
         <div style="display:flex;align-items:center;gap:var(--spacing-2);margin-left:auto;">
-          <button class="btn btn-secondary" data-action="monitor-all">Actualiser tout</button>
+          <button class="btn btn-secondary" data-action="monitor-all" ${this.loading ? 'disabled' : ''}>${this.loading ? 'Actualisation en cours…' : 'Actualiser tout'}</button>
           <button class="btn btn-primary" data-action="create-asset">Nouvel équipement</button>
         </div>
       </div>
       <div class="page-info"><span>${this.total} équipement${this.total > 1 ? 's' : ''}</span></div>
+      ${this.monitoringSummary ? `<div class="it-monitoring-summary" role="status">${this._escape(this.monitoringSummary)}</div>` : ''}
       <div data-table></div>
       <div class="pagination">
         <button class="btn btn-secondary" data-page="prev" ${this.page <= 1 ? 'disabled' : ''}>Précédent</button>
@@ -1041,11 +1043,18 @@ export class ITAssetPage {
     this.element.querySelectorAll('[data-action="monitor-all"]').forEach(btn => {
       btn.addEventListener('click', async () => {
         this.loading = true;
+        this.monitoringSummary = 'Actualisation des équipements en cours…';
         this.render();
-        await monitorAllAssets();
-        await this.loadAssets();
-        this.loading = false;
-        this.render();
+        try {
+          const result = await monitorAllAssets();
+          this.monitoringSummary = `${result.checked || 0} équipement(s) contrôlé(s) : ${result.online || 0} en ligne, ${result.offline || 0} hors ligne.`;
+          await this.loadAssets();
+        } catch (error) {
+          this.monitoringSummary = `Échec de l’actualisation : ${error.message || 'erreur inconnue'}`;
+        } finally {
+          this.loading = false;
+          this.render();
+        }
       });
     });
 

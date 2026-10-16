@@ -97,8 +97,7 @@ export class ITAssetPage {
         { key: 'asset_type', label: 'Type', sortable: true },
         { key: 'ip_address', label: 'Adresse IP', sortable: true },
         { key: 'mac_address', label: 'Adresse MAC', sortable: true },
-        { key: 'serial_number', label: 'Série', sortable: true },
-        { key: 'room_name', label: 'Salle' },
+        { key: 'room_name', label: 'Local', render: (item) => this._escape(item.room?.name || '-') },
         { key: 'status', label: 'Statut', sortable: true, render: (item) => this._renderStatus(item.status) },
       ],
       actions: [

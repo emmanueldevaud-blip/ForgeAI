@@ -5660,6 +5660,8 @@
   .agenda-day-body { padding: var(--spacing-4); }
   .agenda-day-footer { padding: var(--spacing-3) var(--spacing-4); }
   .agenda-day-footer .btn { width: 100%; }
+  .agenda-table--synthesis .agenda-synthesis-total { position: static; }
+  .agenda-table--synthesis .agenda-synthesis-total-head { position: static; }
 }
 
 @media (max-width: 639px) {

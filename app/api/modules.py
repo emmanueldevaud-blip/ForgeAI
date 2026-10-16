@@ -182,7 +182,10 @@ async def disable_module(
     db: AsyncSession = Depends(get_db),
 ):
     service = await get_module_service(db)
-    module = await service.disable_module(module_code)
+    try:
+        module = await service.disable_module(module_code)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
     if not module:
         raise HTTPException(status_code=404, detail="Module non trouvé")
     message = f"Module {module_code} désactivé"

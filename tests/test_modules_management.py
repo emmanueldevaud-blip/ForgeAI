@@ -440,3 +440,44 @@ async def test_child_enable_requires_active_parent():
         await client.post("/modules/gestion_bureaux/enable", headers=headers)
 
     await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_parametres_generaux_cannot_be_disabled():
+    """Le module Paramètres généraux ne peut pas être désactivé."""
+    engine = create_async_engine(
+        'sqlite+aiosqlite:///:memory:',
+        poolclass=StaticPool,
+        connect_args={'check_same_thread': False},
+        echo=False,
+    )
+
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+
+    async_session = async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
+    async with async_session() as db:
+        await _setup_env(db)
+
+    def override_get_db():
+        yield db
+
+    app.dependency_overrides[get_db] = override_get_db
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.post("/auth/login", json={
+            "username": "modadmin",
+            "password": "password123",
+        })
+        access_token = response.cookies.get("access_token")
+        headers = {"Authorization": f"Bearer {access_token}"}
+
+        response = await client.post("/modules/parametres_generaux/disable", headers=headers)
+        assert response.status_code == 400
+        assert "Paramètres généraux" in response.json()["detail"]
+
+        # Toujours actif en base
+        statuses = await _get_module_statuses(async_session)
+        assert statuses["parametres_generaux"] == ModuleStatus.ACTIVE
+
+    await engine.dispose()

@@ -46,6 +46,8 @@ export class ModulesPage {
 
   _canToggle(module) {
     if (module.status === 'installing' || module.status === 'error') return false;
+    // Les Paramètres généraux sont vitaux : désactivation impossible.
+    if (module.code === 'parametres_generaux') return false;
     const permission = module.status === 'active' ? 'module_disable' : 'module_enable';
     return authStore.hasPermission(permission);
   }

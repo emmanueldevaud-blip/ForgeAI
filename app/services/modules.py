@@ -20,6 +20,8 @@ MODULE_CHILD_PARENTS = {
     for parent, children in MODULE_PARENT_CHILDREN.items()
     for child in children
 }
+# Modules qui ne peuvent jamais être désactivés.
+MODULES_CANNOT_DISABLE = {"parametres_generaux"}
 
 
 class ModuleService:
@@ -217,6 +219,10 @@ class ModuleService:
         return module
 
     async def disable_module(self, code: str) -> Module | None:
+        if code in MODULES_CANNOT_DISABLE:
+            raise ValueError(
+                "Le module 'Paramètres généraux' ne peut pas être désactivé"
+            )
         module = await self.get_module(code)
         if module:
             old_status = module.status.value if hasattr(module.status, 'value') else module.status

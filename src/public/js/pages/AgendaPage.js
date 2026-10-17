@@ -213,9 +213,9 @@ export class AgendaPage {
             `).join('')}
           </div>
           ${isInscriptionsTab ? `
-          <div class="agenda-search-wrap" style="margin-left:auto; min-width:200px;">
+          <div class="agenda-search-wrap">
             <label for="agenda-search" class="visually-hidden">Filtrer par nom</label>
-            <input type="search" id="agenda-search" class="agenda-search" placeholder="Filtrer par nom..." value="${escapeHtml(this.searchQuery)}" aria-label="Filtrer par nom" style="min-width:150px; flex:1;">
+            <input type="search" id="agenda-search" class="agenda-search" placeholder="Filtrer par nom..." value="${escapeHtml(this.searchQuery)}" aria-label="Filtrer par nom">
           </div>` : ''}
         </div>
       </div>
@@ -321,37 +321,40 @@ export class AgendaPage {
     return uniqueRooms;
   }
 
-  // Présence existante d'une personne pour un jour/local donné.
-  _findPersonPresence(personKey, date, roomId) {
-    const dayData = (this.data?.days || []).find(d => d.date === date);
-    if (!dayData) return null;
-    for (const counter of dayData.rooms || []) {
-      if (String(counter.room_id) !== String(roomId)) continue;
-      const p = (counter.presences || []).find(pres => this._presencePersonKey(pres) === personKey);
-      if (p) return p;
-      break;
-    }
-    for (const p of dayData.integrated || []) {
-      if (String(p.room_id) === String(roomId) && this._presencePersonKey(p) === personKey) return p;
+  // Présence existante d'une personne pour un jour/local donné. Lit le tableau
+  // fusionné person.presences — la même source que la grille d'inscription —
+  // pour que modal et grille affichent exactement les mêmes présences.
+  _findPersonPresence(person, date, roomId) {
+    if (!person) return null;
+    for (const entry of person.presences || []) {
+      if (entry.date !== date) continue;
+      if (String(entry.roomId) !== String(roomId)) continue;
+      if (entry.presence?.is_remote) continue;
+      // Une ligne utilisateur n'expose que ses propres présences (même filtre
+      // que _presenceCovering) : les occupations fusionnées par nom ignorées.
+      if (person.type === 'user' && entry.presence?.person_type !== 'user') continue;
+      return entry.presence || null;
     }
     return null;
   }
 
   // Brouillon local du modal : état souhaité par jour/local, sans appel API.
   // La clé `${iso}|remote` porte la ligne « Télétravail » (sans local).
-  _buildPersonWeekDraft(personKey) {
+  _buildPersonWeekDraft(person) {
     const draft = {};
     const rooms = this.data?.rooms || [];
+    const personEntries = person?.presences || [];
     for (const iso of this._mineGridDates()) {
-      const day = (this.data?.days || []).find(d => d.date === iso);
-      const remote = (day?.remote || []).find(p => this._presencePersonKey(p) === personKey);
+      // Télétravail : seules les entrées utilisateur sans local (jour.remote).
+      const remote = personEntries.find(entry =>
+        entry.date === iso && entry.roomId == null && entry.presence?.person_type === 'user');
       const remotePeriod = remote ? (remote.period || 'full') : null;
       draft[`${iso}|remote`] = {
         morning: remotePeriod === 'morning' || remotePeriod === 'full',
         afternoon: remotePeriod === 'afternoon' || remotePeriod === 'full',
       };
       for (const room of rooms) {
-        const presence = this._findPersonPresence(personKey, iso, room.id);
+        const presence = this._findPersonPresence(person, iso, room.id);
         const period = presence ? (presence.period || 'full') : null;
         draft[`${iso}|${room.id}`] = {
           morning: period === 'morning' || period === 'full',
@@ -374,7 +377,7 @@ export class AgendaPage {
   _weekCellState({ iso, roomId, field, flags, half }) {
     const labels = { morning: 'Matin', afternoon: 'Après-midi', meal: 'Repas', desk: 'Poste', remote: 'Télétravail' };
     const inMonth = (this.data?.days || []).some(d => d.date === iso);
-    const presence = this._findPersonPresence(this.personWeekModal?.personKey, iso, roomId);
+    const presence = this._findPersonPresence(this.personWeekModal?.person, iso, roomId);
     const willHavePresence = !!flags.morning || !!flags.afternoon;
 
     if (!inMonth) return { on: false, enabled: false, title: 'Hors mois affiché' };
@@ -1242,7 +1245,7 @@ export class AgendaPage {
     // Construit une fois à l'ouverture, édité par les clics, envoyé au serveur
     // uniquement via « Enregistrer ».
     if (!this.personWeekModal.draft) {
-      this.personWeekModal.draft = this._buildPersonWeekDraft(person.key);
+      this.personWeekModal.draft = this._buildPersonWeekDraft(person);
       this.personWeekModal.initialDraft = JSON.stringify(this.personWeekModal.draft);
     }
     const draft = this.personWeekModal.draft;
@@ -1514,7 +1517,7 @@ export class AgendaPage {
     });
     for (const date of dates) {
       if (this._isLockedWeek(date)) continue;
-      const existing = this._findPersonPresence(person.key, date, roomId);
+      const existing = this._findPersonPresence(person, date, roomId);
       if (existing && existing.id == null) continue; // ligne d'occupation : non modifiable
       const flags = draft[`${date}|${roomId}`] || { morning: false, afternoon: false, meal: false, desk: false };
       if (field === 'desk') {
@@ -1610,7 +1613,7 @@ export class AgendaPage {
       if (this._isLockedWeek(iso)) continue;
       for (const room of this.data?.rooms || []) {
         const flags = draft[`${iso}|${room.id}`] || {};
-        const existing = this._findPersonPresence(person.key, iso, room.id);
+        const existing = this._findPersonPresence(person, iso, room.id);
         if (existing && existing.id == null) continue; // ligne d'occupation : non modifiable
         const desired = periodOf(flags);
         if (!desired) {

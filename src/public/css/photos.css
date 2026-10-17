@@ -754,6 +754,12 @@
   }
 }
 
+@media (max-width: 540px) {
+  .photos-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
 /* ------------------------------------------------ stockage (V3) */
 
 .photos-storage-panel {

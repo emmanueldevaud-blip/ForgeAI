@@ -217,7 +217,9 @@ export class AIAssistantPage {
         const deltaX = startX - currentX;
         if (deltaX > 0 && deltaX < 100) {
           e.preventDefault();
-          el.style.transform = `translateX(-${deltaX}px)`;
+          // On déplace le contenu (et non la ligne entière) pour découvrir
+          // le bouton de suppression sans décaler toute la rangée.
+          content.style.transform = `translateX(-${deltaX}px)`;
         }
       }, { passive: false });
 
@@ -227,11 +229,11 @@ export class AIAssistantPage {
         const deltaX = startX - currentX;
         if (deltaX > 60) {
           // Swipe threshold reached - show delete button
-          el.style.transform = 'translateX(-80px)';
+          content.style.transform = 'translateX(-80px)';
           el.classList.add('swipe-open');
         } else {
           // Swipe cancelled - reset
-          el.style.transform = '';
+          content.style.transform = '';
           el.classList.remove('swipe-open');
         }
       });

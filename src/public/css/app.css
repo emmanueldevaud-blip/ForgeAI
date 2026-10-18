@@ -6763,8 +6763,16 @@
   color: var(--color-white);
   border-radius: 0 var(--radius-md) var(--radius-md) 0;
   cursor: pointer;
-  transition: background-color 0.2s;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s, background-color 0.2s;
   z-index: 2;
+}
+
+/* La suppression n'apparaît qu'après un swipe vers la gauche. */
+.conversation-item.swipe-open .conversation-delete-btn {
+  opacity: 1;
+  pointer-events: auto;
 }
 
 .conversation-delete-btn:hover {
@@ -7287,60 +7295,108 @@
     flex-direction: column;
   }
 
+  /* Mobile : on réduit fortement tout le "chrome" (liste de conversations,
+     titre, sélecteurs, barre de saisie) pour privilégier la conversation. */
   .ai-sidebar {
     width: 100%;
     height: auto;
-    max-height: 300px;
+    max-height: 152px;
     border-right: none;
     border-bottom: 1px solid var(--color-border-light);
     flex-shrink: 0;
   }
 
   .ai-sidebar-header {
-    padding: var(--spacing-3) var(--spacing-4);
+    padding: var(--spacing-2) var(--spacing-3);
+  }
+
+  .ai-sidebar-header h3 {
+    font-size: var(--font-size-xs);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+
+  .ai-sidebar-header .btn {
+    min-height: 30px;
+    padding: var(--spacing-1) var(--spacing-3);
+    font-size: var(--font-size-xs);
   }
 
   .ai-conversations-list {
-    max-height: 250px;
+    max-height: 112px;
+    padding: var(--spacing-1) var(--spacing-2);
   }
 
   .conversation-item {
-    padding: var(--spacing-3) var(--spacing-4);
-    min-height: 44px;
+    padding: var(--spacing-2) var(--spacing-3);
+    min-height: 40px;
+  }
+
+  .conversation-meta {
+    margin-top: 0;
   }
 
   .ai-header {
-    padding: var(--spacing-3) var(--spacing-4);
+    padding: var(--spacing-2) var(--spacing-3);
+  }
+
+  .ai-header-main {
+    flex-wrap: nowrap;
+    gap: var(--spacing-2);
   }
 
   .ai-title {
-    font-size: var(--font-size-lg);
+    font-size: var(--font-size-base);
+    white-space: nowrap;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
 
   .ai-mode-switch {
-    width: 100%;
-    justify-content: center;
+    width: auto;
+    flex-shrink: 0;
+    justify-content: flex-end;
+    padding: 2px;
   }
 
   .ai-mode-btn {
-    flex: 1;
+    flex: 0 0 auto;
     justify-content: center;
-    min-height: 44px;
-    padding: var(--spacing-2) var(--spacing-3);
-    font-size: var(--font-size-sm);
+    min-width: 0;
+    min-height: 32px;
+    padding: var(--spacing-1) var(--spacing-3);
+    font-size: var(--font-size-xs);
   }
 
   .ai-config-section-wrapper {
-    padding: var(--spacing-3) var(--spacing-4);
+    padding: var(--spacing-2) var(--spacing-3);
   }
 
   .ai-config-section {
-    padding: var(--spacing-4);
+    padding: var(--spacing-2);
+    background: transparent;
+    border: none;
+  }
+
+  .ai-config-title {
+    display: none;
   }
 
   .ai-config-grid {
-    grid-template-columns: 1fr;
-    gap: var(--spacing-4);
+    grid-template-columns: 1fr 1fr;
+    gap: var(--spacing-2);
+    margin-bottom: 0;
+  }
+
+  .ai-config-label {
+    font-size: var(--font-size-xs);
+  }
+
+  .ai-config-select {
+    height: 36px;
+    padding: 0 var(--spacing-2);
+    font-size: var(--font-size-base);
   }
 
   .ai-current-usage-grid {
@@ -7349,18 +7405,25 @@
   }
 
   .ai-dev-actions {
-    flex-direction: column;
-    width: 100%;
+    flex-direction: row;
+    width: auto;
+    padding: var(--spacing-2) var(--spacing-3);
+    gap: var(--spacing-2);
   }
 
   .ai-dev-actions .btn {
-    width: 100%;
-    min-height: 44px;
+    width: auto;
+    min-height: 34px;
+    padding: var(--spacing-1) var(--spacing-3);
+  }
+
+  .ai-dev-status {
+    padding: var(--spacing-2) var(--spacing-3);
   }
 
   .ai-messages {
-    padding: var(--spacing-4);
-    gap: var(--spacing-3);
+    padding: var(--spacing-3);
+    gap: var(--spacing-2);
   }
 
   .ai-message {
@@ -7368,31 +7431,43 @@
   }
 
   .ai-input-footer {
-    padding: var(--spacing-3) var(--spacing-4);
+    padding: var(--spacing-2) var(--spacing-3);
   }
 
   .ai-input-area {
-    flex-direction: column;
-    align-items: stretch;
+    flex-direction: row;
+    align-items: flex-end;
     gap: var(--spacing-2);
+    padding: 0;
   }
 
   .ai-input {
-    width: 100%;
-    min-height: 44px;
+    width: auto;
+    min-height: 40px;
+    max-height: 120px;
+    font-size: 16px;
+    padding: var(--spacing-2) var(--spacing-3);
   }
 
-  .ai-send-btn {
-    width: 100%;
-    min-height: 48px;
+  .ai-input-area .ai-send-btn {
+    width: auto;
+    min-width: 76px;
+    min-height: 40px;
+    height: 40px;
+    padding: 0 var(--spacing-3);
+    font-size: var(--font-size-sm);
   }
+}
 
+/* Écrans courts (iPhone SE / mini) : on réduit encore la liste de
+   conversations pour conserver de la place à la discussion. */
+@media (max-width: 768px) and (max-height: 700px) {
   .ai-sidebar {
-    max-height: 250px;
+    max-height: 112px;
   }
 
   .ai-conversations-list {
-    max-height: 200px;
+    max-height: 72px;
   }
 }
 
@@ -7402,7 +7477,7 @@
   }
 
   .ai-config-section {
-    padding: var(--spacing-3);
+    padding: var(--spacing-2);
   }
 
   .ai-message {
@@ -7417,8 +7492,9 @@
     gap: var(--spacing-2);
   }
 
-  .ai-send-btn {
-    min-height: 48px;
+  .ai-input-area .ai-send-btn {
+    min-height: 40px;
+    height: 40px;
   }
 }
 

@@ -3,7 +3,7 @@ import { authStore } from './stores/auth.js';
 import { modulesStore } from './stores/modules.js';
 import { AppShell } from './components/AppShell.js?v=10';
 import { createModulePlaceholderPage } from './pages/ModulePlaceholder.js?v=3';
-import { createLoginPage } from './pages/LoginPage.js';
+import { createLoginPage } from './pages/LoginPage.js?v=1';
 import { createRegisterPage } from './pages/RegisterPage.js';
 import { createAdministrationPage } from './pages/AdministrationPage.js?v=6';
 import { createBuildingsPage } from './pages/BuildingsPage.js?v=5';
@@ -18,7 +18,7 @@ import { createMaintenanceProvidersPage } from './pages/MaintenanceProvidersPage
 import { createMaintenanceContractsPage } from './pages/MaintenanceContractsPage.js';
 import { createMaintenanceRefsPage } from './pages/MaintenanceRefsPage.js';
 import { createMaintenanceCalendarPage } from './pages/MaintenanceCalendarPage.js';
-import { createAIAssistantPage } from './pages/AIAssistantPage.js?v=27';
+import { createAIAssistantPage } from './pages/AIAssistantPage.js?v=28';
 import { createHousingPage } from './pages/HousingPage.js';
 import { createProfilePage } from './pages/ProfilePage.js?v=2';
 import { createSettingsPage } from './pages/UserSettingsPage.js?v=1';

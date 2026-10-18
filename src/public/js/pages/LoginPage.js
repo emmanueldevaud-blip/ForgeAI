@@ -113,11 +113,11 @@ export class LoginPage {
             // No session, show form
           }
           
-          if (error instanceof ApiError && error.status === 401) {
-            this._showSSOStatus('Connexion automatique non disponible, utilisez le formulaire ci-dessous.', 'warning');
-          } else if (error instanceof ApiError && error.status === 403) {
+          // 401 : la connexion automatique n'est pas disponible pour cet
+          // utilisateur, on affiche simplement le formulaire de connexion.
+          if (error instanceof ApiError && error.status === 403) {
             this._showSSOStatus('Accès SSO non autorisé, utilisez le formulaire ci-dessous.', 'warning');
-          } else {
+          } else if (!(error instanceof ApiError && error.status === 401)) {
             this._showSSOStatus('Erreur connexion automatique, utilisez le formulaire ci-dessous.', 'warning');
           }
         }

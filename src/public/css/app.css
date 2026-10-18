@@ -7558,7 +7558,7 @@
 .souvenirs-stage:hover .souvenirs-controls, .souvenirs-stage:focus-within .souvenirs-controls { opacity: 1; }
 .souvenirs-control { display: flex; align-items: center; gap: 6px; color: #fff; font-size: var(--font-size-xs); }
 .souvenirs-control input[type="range"] { width: 90px; }
-.souvenirs-empty { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; padding: var(--spacing-6); color: #fff; text-align: center; }
+.souvenirs-empty:not([hidden]) { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; padding: var(--spacing-6); color: #fff; text-align: center; }
 .souvenirs-help, .souvenirs-credits { margin: 0; color: var(--color-text-tertiary); font-size: var(--font-size-xs); }
 .souvenirs-credits a { color: var(--color-text-tertiary); }
 .souvenirs-stage:fullscreen { width: 100vw; height: 100vh; max-height: none; aspect-ratio: auto; border-radius: 0; }

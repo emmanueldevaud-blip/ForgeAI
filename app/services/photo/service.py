@@ -650,12 +650,20 @@ class PhotoService:
             )
 
         # --- Aléatoire : toutes photos, y compris anciennes ---------------
-        # Les photos isolées (sans visage, sans lieu, trop espacées pour
-        # former un « événement ») n'apparaissent jamais dans les pools
-        # ci-dessus. On puise dans TOUTES les photos (toutes dates) pour
-        # qu'elles puissent aussi défiler, même les plus anciennes.
-        random_items = list(meta_rows)  # (id, taken_at)
-        rng.shuffle(random_items)
+        # Pool dédié, distinct de ``meta_rows`` (limité à 8 000 lignes les
+        # plus récentes). On échantillonne au hasard dans TOUTE la base
+        # (2004 → 2026) pour que les photos isolées ET les plus anciennes
+        # puissent aussi défiler. ``RAND()`` (MySQL) trie sur le serves
+        # l'échantillon, la limite ne s'applique donc qu'au tirage final.
+        random_rows = (
+            await self.db.execute(
+                select(Photo.id, Photo.taken_at)
+                .where(*base_filters)
+                .order_by(func.random())
+                .limit(count * max_photos)
+            )
+        ).all()
+        random_items = [(photo_id, taken_at) for photo_id, taken_at in random_rows]
         for i in range(0, len(random_items), max_photos):
             chunk = random_items[i : i + max_photos]
             if not chunk:

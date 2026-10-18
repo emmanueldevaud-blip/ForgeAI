@@ -1,14 +1,55 @@
 import { getSouvenirs, photoFileUrl } from '../services/photosApi.js?v=8';
 
-const INTRO_MS = 3200;
-const KIND_LABELS = { person: 'Personne', place: 'Lieu', event: 'Événement' };
 const KB_VARIANTS = ['kb-1', 'kb-2', 'kb-3', 'kb-4'];
 
-// Musique embarquée (CC0, voir /music/CREDITS.txt) + fichier local optionnel.
-const MUSIC_TRACKS = [
-  { value: '/music/lovely-piano.mp3', label: 'Piano doux' },
-  { value: '/music/calm-piano.mp3', label: 'Piano calme' },
-  { value: '/music/infinite-peace.mp3', label: 'Paix infinie' },
+// Ambiances : filtre visuel CSS + musique par défaut + durée de slide.
+const AMBIANCES = [
+  {
+    value: 'douce',
+    label: 'Douce',
+    slideMs: 7000,
+    tracks: [
+      { value: '/music/lovely-piano.mp3', label: 'Piano doux' },
+      { value: '/music/calm-piano.mp3', label: 'Piano calme' },
+      { value: '/music/infinite-peace.mp3', label: 'Paix infinie' },
+    ],
+  },
+  {
+    value: 'nostalgie',
+    label: 'Nostalgie',
+    slideMs: 8000,
+    tracks: [
+      { value: '/music/nostalgia-piano.mp3', label: 'Piano nostalgique' },
+      { value: '/music/calm-piano.mp3', label: 'Piano calme' },
+    ],
+  },
+  {
+    value: 'energie',
+    label: 'Énergie',
+    slideMs: 4500,
+    tracks: [
+      { value: '/music/city-sunshine.mp3', label: 'Soleil urbain' },
+      { value: '/music/happy-ukulele.mp3', label: 'Ukulélé joyeux' },
+    ],
+  },
+  {
+    value: 'voyage',
+    label: 'Voyage',
+    slideMs: 6000,
+    tracks: [
+      { value: '/music/nomadic-sunset.mp3', label: 'Coucher nomade' },
+      { value: '/music/space-ambience.mp3', label: 'Ambiance spatiale' },
+    ],
+  },
+  {
+    value: 'mystere',
+    label: 'Mystère',
+    slideMs: 9000,
+    tracks: [
+      { value: '/music/mysterious-lights.mp3', label: 'Lumières mystérieuses' },
+      { value: '/music/space-ambience.mp3', label: 'Ambiance spatiale' },
+    ],
+  },
 ];
 
 function esc(value) {
@@ -17,11 +58,8 @@ function esc(value) {
   }[c]));
 }
 
-function formatDate(value) {
-  if (!value) return '';
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return '';
-  return date.toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' });
+function ambianceByValue(value) {
+  return AMBIANCES.find((a) => a.value === value) || AMBIANCES[0];
 }
 
 export class SouvenirsPage {
@@ -34,13 +72,20 @@ export class SouvenirsPage {
     this.photoIndex = -1;
     this.playing = false;
     this.timer = null;
-    this.slideMs = 6000;
+    this.slideMs = 7000;
     this.layerIndex = 0;
-    this.introPending = false;
+    this.ambiance = 'douce';
     this.musicUrl = null;
     this.localMusicUrl = null;
     this.loading = false;
     this._onKey = this._onKey.bind(this);
+    this._onFullscreenChange = () => {
+      const active = !!document.fullscreenElement;
+      const headerBtn = this.element?.querySelector('[data-action="fullscreen"]');
+      if (headerBtn) headerBtn.textContent = active ? 'Quitter le plein écran' : 'Plein écran';
+      const stageBtn = this.element?.querySelector('[data-action="fullscreen-stage"]');
+      if (stageBtn) stageBtn.textContent = active ? '✕' : '⛶';
+    };
   }
 
   async initialize() {}
@@ -48,11 +93,12 @@ export class SouvenirsPage {
   render() {
     this.element = document.createElement('div');
     this.element.className = 'page-content souvenirs-page';
+    const amb = ambianceByValue(this.ambiance);
     this.element.innerHTML = `
       <div class="page-header">
         <div class="page-header-left">
           <h1>Souvenirs</h1>
-          <p class="page-subtitle">Vos photos regroupées en histoires : personnes, lieux, événements.</p>
+          <p class="page-subtitle" data-subtitle>Vos photos, y compris les plus anciennes, en histoires aléatoires : visages, lieux, événements et souvenirs au hasard.</p>
         </div>
         <div class="page-header-actions">
           <button type="button" class="btn btn-secondary" data-action="regen">Régénérer</button>
@@ -63,18 +109,9 @@ export class SouvenirsPage {
 
       <div class="souvenirs-chips" data-chips></div>
 
-      <div class="souvenirs-stage" data-stage tabindex="-1">
+      <div class="souvenirs-stage souvenirs-amb-${esc(this.ambiance)}" data-stage tabindex="-1">
         <div class="souvenirs-layer" data-layer="0"></div>
         <div class="souvenirs-layer" data-layer="1"></div>
-        <div class="souvenirs-intro" data-intro hidden>
-          <span class="souvenirs-intro-kind" data-intro-kind></span>
-          <h2 data-intro-title></h2>
-          <p data-intro-meta></p>
-        </div>
-        <div class="souvenirs-caption" data-caption hidden>
-          <span class="souvenirs-caption-title" data-caption-title></span>
-          <span class="souvenirs-caption-meta" data-caption-meta></span>
-        </div>
         <div class="souvenirs-dots" data-dots></div>
         <p class="souvenirs-empty" data-empty hidden>
           Aucun souvenir à afficher. Importez d’abord des photos dans Photos.
@@ -83,18 +120,26 @@ export class SouvenirsPage {
           <button type="button" class="btn btn-secondary btn-sm" data-action="prev" title="Photo précédente">◀</button>
           <button type="button" class="btn btn-primary btn-sm" data-action="play">Lancer</button>
           <button type="button" class="btn btn-secondary btn-sm" data-action="next" title="Photo suivante">▶</button>
+          <label class="souvenirs-control">Ambiance
+            <select class="form-control form-control-sm" data-ambiance>
+              ${AMBIANCES.map((a) => `<option value="${esc(a.value)}"${a.value === this.ambiance ? ' selected' : ''}>${esc(a.label)}</option>`).join('')}
+            </select>
+          </label>
           <label class="souvenirs-control">Durée
             <select class="form-control form-control-sm" data-duration>
-              <option value="4000">4 s</option>
-              <option value="6000" selected>6 s</option>
-              <option value="8000">8 s</option>
-              <option value="10000">10 s</option>
+              <option value="3000">3 s</option>
+              <option value="4500"${amb.slideMs === 4500 ? ' selected' : ''}>4,5 s</option>
+              <option value="6000">6 s</option>
+              <option value="7000"${amb.slideMs === 7000 ? ' selected' : ''}>7 s</option>
+              <option value="8000"${amb.slideMs === 8000 ? ' selected' : ''}>8 s</option>
+              <option value="9000"${amb.slideMs === 9000 ? ' selected' : ''}>9 s</option>
+              <option value="12000">12 s</option>
             </select>
           </label>
           <label class="souvenirs-control">Musique
             <select class="form-control form-control-sm" data-music>
               <option value="">Aucune</option>
-              ${MUSIC_TRACKS.map((track) => `<option value="${track.value}">${esc(track.label)}</option>`).join('')}
+              ${amb.tracks.map((track) => `<option value="${track.value}">${esc(track.label)}</option>`).join('')}
               <option value="local">Fichier local…</option>
             </select>
           </label>
@@ -102,14 +147,16 @@ export class SouvenirsPage {
             <input type="range" data-volume min="0" max="1" step="0.05" value="0.7">
           </label>
           <button type="button" class="btn btn-secondary btn-sm" data-action="mute">Son</button>
+          <button type="button" class="btn btn-secondary btn-sm" data-action="fullscreen-stage" title="Plein écran">⛶</button>
           <input type="file" accept="audio/*" data-music-file hidden>
         </div>
       </div>
 
-      <p class="souvenirs-help">Espace : lecture / pause · ← → : photo · F : plein écran</p>
+      <p class="souvenirs-help">Espace : lecture / pause · ← → : photo · F ou double-clic : plein écran</p>
       <p class="souvenirs-credits">Musique libre de droits (CC0) — <a href="/music/CREDITS.txt" target="_blank" rel="noopener">crédits</a></p>
       <audio data-audio loop preload="none"></audio>
     `;
+    this.slideMs = amb.slideMs;
     this._bind();
     return this.element;
   }
@@ -124,6 +171,7 @@ export class SouvenirsPage {
       this.localMusicUrl = null;
     }
     document.removeEventListener('keydown', this._onKey);
+    document.removeEventListener('fullscreenchange', this._onFullscreenChange);
     this.element?.remove();
     this.element = null;
   }
@@ -147,8 +195,8 @@ export class SouvenirsPage {
         return;
       }
       empty.hidden = true;
-      if (subtitle) subtitle.textContent = `${this.stories.length} souvenir(s) — lecture aléatoire, personnes, lieux et événements.`;
-      this._openStory(0, { intro: true });
+      if (subtitle) subtitle.textContent = `${this.stories.length} souvenir(s) — lecture aléatoire.`;
+      this._openStory(0);
       if (options.autoplay) this._play();
     } catch (error) {
       console.error('[souvenirs] chargement impossible:', error);
@@ -159,24 +207,16 @@ export class SouvenirsPage {
   }
 
   // ------------------------------------------------------------- lecture
-  _openStory(index, { intro = true } = {}) {
+  _openStory(index) {
     const story = this.stories[index];
     if (!story || !story.photo_ids?.length) return;
     this.storyIndex = index;
     this.current = story;
     this.photoIndex = -1;
-    this.introPending = intro;
-    this._showIntro(story);
     this._renderChips();
-    this._renderCaption(story);
     this._renderDots(story);
     this._prefetch(story, 0);
-    if (intro) {
-      this._showIntro(story);
-      this._schedule(INTRO_MS);
-    } else {
-      this._advance();
-    }
+    this._advance();
   }
 
   _advance() {
@@ -185,11 +225,10 @@ export class SouvenirsPage {
     this.photoIndex += 1;
     if (this.photoIndex >= story.photo_ids.length) {
       const next = (this.storyIndex + 1) % this.stories.length;
-      this._openStory(next, { intro: true });
+      this._openStory(next);
       return;
     }
     this._paint(story.photo_ids[this.photoIndex]);
-    this._renderCaption(story);
     this._renderDots(story);
     this._prefetch(story, this.photoIndex + 1);
     this._schedule(this.slideMs);
@@ -201,10 +240,6 @@ export class SouvenirsPage {
     if (!this.element?.isConnected) {
       this._stop();
       return;
-    }
-    if (this.introPending) {
-      this.introPending = false;
-      this._hideIntro();
     }
     this._advance();
   }
@@ -226,8 +261,7 @@ export class SouvenirsPage {
     if (!this.current) return;
     this.playing = true;
     this._updatePlayButton();
-    if (this.introPending) this._schedule(INTRO_MS);
-    else this._schedule(this.slideMs);
+    this._schedule(this.slideMs);
     const audio = this._audio();
     if (audio.src) audio.play().catch(() => {});
   }
@@ -251,22 +285,6 @@ export class SouvenirsPage {
   }
 
   // ------------------------------------------------------------- rendu
-  _showIntro(story) {
-    const intro = this.element.querySelector('[data-intro]');
-    if (!intro) return;
-    this.element.querySelector('[data-intro-kind]').textContent = KIND_LABELS[story.kind] || 'Souvenir';
-    this.element.querySelector('[data-intro-title]').textContent = story.title;
-    const meta = [story.count ? `${story.count} photos` : '', formatDate(story.date_from)]
-      .filter(Boolean).join(' · ');
-    this.element.querySelector('[data-intro-meta]').textContent = meta;
-    intro.hidden = false;
-  }
-
-  _hideIntro() {
-    const intro = this.element.querySelector('[data-intro]');
-    if (intro) intro.hidden = true;
-  }
-
   _paint(photoId) {
     const stage = this.element.querySelector('[data-stage]');
     if (!stage) return;
@@ -291,20 +309,11 @@ export class SouvenirsPage {
     this.layerIndex = nextIndex;
   }
 
-  _renderCaption(story) {
-    const caption = this.element.querySelector('[data-caption]');
-    if (!caption || !story) return;
-    this.element.querySelector('[data-caption-title]').textContent = story.title;
-    const meta = [KIND_LABELS[story.kind], formatDate(story.date_from)].filter(Boolean).join(' · ');
-    this.element.querySelector('[data-caption-meta]').textContent = meta;
-    caption.hidden = false;
-  }
-
   _renderDots(story) {
     const dots = this.element.querySelector('[data-dots]');
     if (!dots || !story) return;
     const total = story.photo_ids.length;
-    const position = Math.min(this.photoIndex + (this.introPending ? 1 : 0), total);
+    const position = this.photoIndex + 1;
     dots.innerHTML = Array.from({ length: total }, (_, i) =>
       `<span class="souvenirs-dot ${i === this.photoIndex ? 'is-current' : ''} ${i < position ? 'is-seen' : ''}"></span>`
     ).join('');
@@ -316,12 +325,12 @@ export class SouvenirsPage {
     chips.innerHTML = this.stories.map((story, index) => `
       <button type="button" class="souvenirs-chip ${index === this.storyIndex ? 'is-current' : ''}"
               data-story="${index}" title="${esc(story.title)}">
-        <span class="souvenirs-chip-kind">${esc(KIND_LABELS[story.kind] || '')}</span>
+        <span class="souvenirs-chip-kind">${esc(story.kind === 'person' ? 'Visage' : story.kind === 'place' ? 'Lieu' : story.kind === 'random' ? 'Aléatoire' : 'Événement')}</span>
         <span class="souvenirs-chip-title">${esc(story.title)}</span>
       </button>`).join('');
     chips.querySelectorAll('[data-story]').forEach((btn) => {
       btn.addEventListener('click', () => {
-        this._openStory(Number(btn.dataset.story), { intro: true });
+        this._openStory(Number(btn.dataset.story));
         if (!this.playing) this._play();
       });
     });
@@ -336,6 +345,42 @@ export class SouvenirsPage {
 
   _audio() {
     return this.element.querySelector('[data-audio]');
+  }
+
+  // ------------------------------------------------------------- ambiance
+  _setAmbiance(value) {
+    const amb = ambianceByValue(value);
+    this.ambiance = amb.value;
+    this.slideMs = amb.slideMs;
+    const stage = this.element.querySelector('[data-stage]');
+    if (stage) {
+      AMBIANCES.forEach((a) => stage.classList.remove(`souvenirs-amb-${a.value}`));
+      stage.classList.add(`souvenirs-amb-${amb.value}`);
+    }
+    const durationSelect = this.element.querySelector('[data-duration]');
+    if (durationSelect) {
+      const option = Array.from(durationSelect.options).find((o) => Number(o.value) === amb.slideMs);
+      if (option) durationSelect.value = option.value;
+    }
+    // Repeupler le select musique avec les pistes de l'ambiance.
+    const musicSelect = this.element.querySelector('[data-music]');
+    if (musicSelect) {
+      const current = musicSelect.value;
+      const keepLocal = current === 'local';
+      const isAmbTrack = amb.tracks.some((t) => t.value === current);
+      musicSelect.innerHTML = `
+        <option value="">Aucune</option>
+        ${amb.tracks.map((track) => `<option value="${track.value}">${esc(track.label)}</option>`).join('')}
+        <option value="local">Fichier local…</option>
+      `;
+      if (keepLocal) {
+        musicSelect.value = 'local';
+      } else if (!isAmbTrack) {
+        musicSelect.value = amb.tracks[0].value;
+        this._setMusic(amb.tracks[0].value);
+      }
+    }
+    if (this.playing) this._schedule(this.slideMs);
   }
 
   // ------------------------------------------------------------- musique
@@ -354,6 +399,12 @@ export class SouvenirsPage {
     if (this.playing) audio.play().catch(() => {});
   }
 
+  _toggleFullscreen() {
+    const stage = this.element?.querySelector('[data-stage]');
+    if (document.fullscreenElement) document.exitFullscreen?.();
+    else stage?.requestFullscreen?.();
+  }
+
   // ------------------------------------------------------------- events
   _bind() {
     this.element.querySelector('[data-action="back"]')?.addEventListener('click', () => {
@@ -367,14 +418,18 @@ export class SouvenirsPage {
     this.element.querySelector('[data-action="regen"]')?.addEventListener('click', () => {
       this.load({ seed: Math.floor(Math.random() * 1e9), autoplay: this.playing });
     });
-    this.element.querySelector('[data-action="fullscreen"]')?.addEventListener('click', () => {
-      const stage = this.element.querySelector('[data-stage]');
-      if (document.fullscreenElement) document.exitFullscreen?.();
-      else stage?.requestFullscreen?.();
+    this.element.querySelector('[data-action="fullscreen"]')?.addEventListener('click', () => this._toggleFullscreen());
+    this.element.querySelector('[data-action="fullscreen-stage"]')?.addEventListener('click', () => this._toggleFullscreen());
+    this.element.querySelector('[data-stage]')?.addEventListener('dblclick', (event) => {
+      if (event.target.closest('.souvenirs-controls')) return;
+      this._toggleFullscreen();
+    });
+    this.element.querySelector('[data-ambiance]')?.addEventListener('change', (e) => {
+      this._setAmbiance(e.target.value);
     });
     this.element.querySelector('[data-duration]')?.addEventListener('change', (e) => {
-      this.slideMs = Number(e.target.value) || 6000;
-      if (this.playing && !this.introPending) this._schedule(this.slideMs);
+      this.slideMs = Number(e.target.value) || 7000;
+      if (this.playing) this._schedule(this.slideMs);
     });
     this.element.querySelector('[data-volume]')?.addEventListener('input', (e) => {
       this._audio().volume = Number(e.target.value);
@@ -405,27 +460,25 @@ export class SouvenirsPage {
       this._setMusic(this.localMusicUrl);
     });
     document.addEventListener('keydown', this._onKey);
+    document.addEventListener('fullscreenchange', this._onFullscreenChange);
   }
 
   _jump(delta) {
     if (!this.current) return;
     const story = this.current;
-    let index = this.photoIndex + delta;
+    const index = this.photoIndex + delta;
     if (index < 0) {
       const prev = (this.storyIndex - 1 + this.stories.length) % this.stories.length;
-      this._openStory(prev, { intro: false });
+      this._openStory(prev);
       return;
     }
     if (index >= story.photo_ids.length) {
       const next = (this.storyIndex + 1) % this.stories.length;
-      this._openStory(next, { intro: false });
+      this._openStory(next);
       return;
     }
-    this.introPending = false;
-    this._hideIntro();
     this.photoIndex = index;
     this._paint(story.photo_ids[index]);
-    this._renderCaption(story);
     this._renderDots(story);
     this._prefetch(story, index + 1);
     if (this.playing) this._schedule(this.slideMs);
@@ -446,9 +499,7 @@ export class SouvenirsPage {
     } else if (event.key === 'ArrowLeft') {
       this._jump(-1);
     } else if (event.key === 'f' || event.key === 'F') {
-      const stage = this.element.querySelector('[data-stage]');
-      if (document.fullscreenElement) document.exitFullscreen?.();
-      else stage?.requestFullscreen?.();
+      this._toggleFullscreen();
     }
   }
 }

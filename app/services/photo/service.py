@@ -565,7 +565,12 @@ class PhotoService:
                 "count": min(len(ids), max_photos),
             }
 
-        pools: dict[str, list[dict[str, Any]]] = {"person": [], "place": [], "event": []}
+        pools: dict[str, list[dict[str, Any]]] = {
+            "person": [],
+            "place": [],
+            "event": [],
+            "random": [],
+        }
 
         # --- Personnes (visages identifiés) --------------------------------
         person_filters = [PhotoPerson.owner_id == Photo.owner_id]
@@ -641,6 +646,27 @@ class PhotoService:
                     f"event:{first.strftime('%Y%m%d')}",
                     self._souvenir_span_label(first, last),
                     current,
+                )
+            )
+
+        # --- Aléatoire : toutes photos, y compris anciennes ---------------
+        # Les photos isolées (sans visage, sans lieu, trop espacées pour
+        # former un « événement ») n'apparaissent jamais dans les pools
+        # ci-dessus. On puise dans TOUTES les photos (toutes dates) pour
+        # qu'elles puissent aussi défiler, même les plus anciennes.
+        random_items = list(meta_rows)  # (id, taken_at)
+        rng.shuffle(random_items)
+        for i in range(0, len(random_items), max_photos):
+            chunk = random_items[i : i + max_photos]
+            if not chunk:
+                continue
+            dates = [taken for _, taken in chunk]
+            pools["random"].append(
+                _story(
+                    "random",
+                    f"random:{i}",
+                    self._souvenir_span_label(min(dates), max(dates)),
+                    chunk,
                 )
             )
 

@@ -381,33 +381,39 @@ export class AgendaPage {
     const willHavePresence = !!flags.morning || !!flags.afternoon;
 
     if (!inMonth) return { on: false, enabled: false, title: 'Hors mois affiché' };
-    if (this._isLockedWeek(iso)) return { on: false, enabled: false, title: this._lockedPlanningMessage() };
     if (presence && presence.id == null) return { on: false, enabled: false, title: 'Occupation en cours — non modifiable' };
 
-    if (field === 'morning' || field === 'afternoon') {
-      return { on: !!flags[field], enabled: true, title: labels[field] };
-    }
+    const locked = this._isLockedWeek(iso);
+    let state;
 
-    // Télétravail : présence sans local, inscription possible comme sur site
-    // (le serveur retire automatiquement la présence locale qui chevauche).
-    if (field === 'remote') {
+    if (field === 'morning' || field === 'afternoon') {
+      state = { on: !!flags[field], enabled: true, title: labels[field] };
+    } else if (field === 'remote') {
+      // Télétravail : présence sans local, inscription possible comme sur site
+      // (le serveur retire automatiquement la présence locale qui chevauche).
       const person = this.personWeekModal?.person;
       if (!person || person.type !== 'user' || person.personId == null) {
-        return { on: false, enabled: false, title: 'Télétravail réservé aux utilisateurs' };
+        state = { on: false, enabled: false, title: 'Télétravail réservé aux utilisateurs' };
+      } else {
+        const halfLabel = half === 'afternoon' ? 'après-midi' : 'matin';
+        state = { on: !!flags.remote, enabled: true, title: `Télétravail ${halfLabel}` };
       }
-      const halfLabel = half === 'afternoon' ? 'après-midi' : 'matin';
-      return { on: !!flags.remote, enabled: true, title: `Télétravail ${halfLabel}` };
+    } else {
+      // Repas / poste : cliquables dès que la personne sera présente ce jour-là
+      // (la présence locale suffit ; en télétravail il n'y a pas de présence locale).
+      // Le repas est unique par jour : le serveur le migre sur la case cochée.
+      const title = field === 'desk' ? 'Poste de travail' : 'Repas';
+      state = {
+        on: willHavePresence && !!flags[field],
+        enabled: willHavePresence,
+        title: willHavePresence ? title : 'Sélectionnez d’abord une présence ce jour-là',
+      };
     }
 
-    // Repas / poste : cliquables dès que la personne sera présente ce jour-là
-    // (la présence locale suffit ; en télétravail il n'y a pas de présence locale).
-    // Le repas est unique par jour : le serveur le migre sur la case cochée.
-    const title = field === 'desk' ? 'Poste de travail' : 'Repas';
-    return {
-      on: willHavePresence && !!flags[field],
-      enabled: willHavePresence,
-      title: willHavePresence ? title : 'Sélectionnez d’abord une présence ce jour-là',
-    };
+    // Semaine verrouillée : l'inscription existante reste affichée (coches
+    // conservées), la case n'est simplement plus modifiable.
+    if (locked) return { ...state, enabled: false, title: this._lockedPlanningMessage() };
+    return state;
   }
 
   _noRoomsHtml() {
@@ -527,7 +533,7 @@ export class AgendaPage {
             ${dates.map(iso => {
               const date = parseISODate(iso);
               return `
-                <span class="agenda-mine-matrix-day ${iso === today ? 'is-today' : ''} ${this._isAfterWeekend(iso, dates) ? 'is-after-weekend' : ''}">
+                <span class="agenda-mine-matrix-day ${iso === today ? 'is-today' : ''} ${this._isLockedWeek(iso) ? 'is-locked' : ''} ${this._isAfterWeekend(iso, dates) ? 'is-after-weekend' : ''}">
                   <span class="agenda-mine-day-name">${DAY_LABELS_SHORT[date.getDay() === 0 ? 6 : date.getDay() - 1]}</span>
                   <span class="agenda-mine-day-num">${date.getDate()}</span>
                 </span>`;
@@ -561,8 +567,13 @@ export class AgendaPage {
                   enabled = inRoom;
                   title = enabled ? 'Repas' : 'Sélectionnez d’abord une présence ce jour-là';
                 }
+                // Semaine verrouillée : la présence reste visible, la case n'est plus modifiable.
+                if (inMonth && this._isLockedWeek(iso)) {
+                  enabled = false;
+                  title = this._lockedPlanningMessage();
+                }
                 return `
-                    <button type="button" class="agenda-mine-cell ${on ? 'is-on' : ''} ${this._isAfterWeekend(iso, dates) ? 'is-after-weekend' : ''} ${row.field === 'desk' ? 'agenda-mine-cell--desk' : ''} ${row.field === 'meal' ? 'agenda-mine-cell--meal' : ''}"
+                    <button type="button" class="agenda-mine-cell ${on ? 'is-on' : ''} ${this._isLockedWeek(iso) ? 'is-locked' : ''} ${this._isAfterWeekend(iso, dates) ? 'is-after-weekend' : ''} ${row.field === 'desk' ? 'agenda-mine-cell--desk' : ''} ${row.field === 'meal' ? 'agenda-mine-cell--meal' : ''}"
                     data-mine-toggle="${row.field}" data-room-id="${room.id}" data-date="${iso}"
                     aria-pressed="${on}" ${enabled ? '' : 'disabled'}
                     aria-label="${row.label} — ${escapeHtml(formatDayLabel(iso))} — ${escapeHtml(room.name)}"
@@ -585,9 +596,14 @@ export class AgendaPage {
                 let enabled = inMonth;
                 let title = half === 'morning' ? 'Télétravail le matin' : 'Télétravail l\u2019après-midi';
                 if (!inMonth) title = 'Hors mois affiché';
+                // Semaine verrouillée : la présence reste visible, la case n'est plus modifiable.
+                else if (this._isLockedWeek(iso)) {
+                  enabled = false;
+                  title = this._lockedPlanningMessage();
+                }
                 const halfLabel = half === 'morning' ? 'matin' : 'après-midi';
                 return `
-                  <button type="button" class="agenda-mine-cell agenda-mine-cell--remote ${on ? 'is-on' : ''} ${this._isAfterWeekend(iso, dates) ? 'is-after-weekend' : ''} agenda-mine-cell--half"
+                  <button type="button" class="agenda-mine-cell agenda-mine-cell--remote ${on ? 'is-on' : ''} ${this._isLockedWeek(iso) ? 'is-locked' : ''} ${this._isAfterWeekend(iso, dates) ? 'is-after-weekend' : ''} agenda-mine-cell--half"
                     data-mine-toggle="remote" data-half="${half}" data-date="${iso}"
                     aria-pressed="${on}" ${enabled ? '' : 'disabled'}
                     aria-label="Télétravail ${halfLabel} — ${escapeHtml(formatDayLabel(iso))}"
@@ -1262,7 +1278,7 @@ export class AgendaPage {
             ${dates.map(iso => {
               const date = parseISODate(iso);
               return `
-                <span class="agenda-mine-matrix-day ${iso === today ? 'is-today' : ''}">
+                <span class="agenda-mine-matrix-day ${iso === today ? 'is-today' : ''} ${this._isLockedWeek(iso) ? 'is-locked' : ''}">
                   <span class="agenda-mine-day-name">${DAY_LABELS_SHORT[date.getDay() === 0 ? 6 : date.getDay() - 1]}</span>
                   <span class="agenda-mine-day-num">${date.getDate()}</span>
                 </span>`;
@@ -1283,7 +1299,7 @@ export class AgendaPage {
                   flags: draft[`${iso}|${room.id}`] || {},
                 });
                 return `
-                  <button type="button" class="agenda-mine-cell ${state.on ? 'is-on' : ''} ${this._isAfterWeekend(iso, dates) ? 'is-after-weekend' : ''} ${row.field === 'desk' ? 'agenda-mine-cell--desk' : ''} ${row.field === 'meal' ? 'agenda-mine-cell--meal' : ''}"
+                  <button type="button" class="agenda-mine-cell ${state.on ? 'is-on' : ''} ${this._isLockedWeek(iso) ? 'is-locked' : ''} ${this._isAfterWeekend(iso, dates) ? 'is-after-weekend' : ''} ${row.field === 'desk' ? 'agenda-mine-cell--desk' : ''} ${row.field === 'meal' ? 'agenda-mine-cell--meal' : ''}"
                     data-week-person="${escapeHtml(person.key)}" data-week-date="${iso}" data-week-room="${room.id}" data-week-field="${row.field}"
                     aria-pressed="${state.on}" ${state.enabled ? '' : 'disabled'}
                     aria-label="${row.label} — ${escapeHtml(formatDayLabel(iso))} — ${escapeHtml(room.name)}"
@@ -1310,7 +1326,7 @@ export class AgendaPage {
                 const enabled = state.enabled && canRemote;
                 const halfLabel = half === 'morning' ? 'matin' : 'après-midi';
                 return `
-                  <button type="button" class="agenda-mine-cell agenda-mine-cell--remote ${state.on ? 'is-on' : ''} ${this._isAfterWeekend(iso, dates) ? 'is-after-weekend' : ''} agenda-mine-cell--half"
+                  <button type="button" class="agenda-mine-cell agenda-mine-cell--remote ${state.on ? 'is-on' : ''} ${this._isLockedWeek(iso) ? 'is-locked' : ''} ${this._isAfterWeekend(iso, dates) ? 'is-after-weekend' : ''} agenda-mine-cell--half"
                     data-week-person="${escapeHtml(person.key)}" data-week-date="${iso}" data-week-room="remote" data-week-field="remote" data-week-half="${half}"
                     aria-pressed="${state.on}" ${enabled ? '' : 'disabled'}
                     aria-label="Télétravail ${halfLabel} — ${escapeHtml(formatDayLabel(iso))}"
@@ -1956,9 +1972,19 @@ export class AgendaPage {
     return toISODate(dateMonday) === todayISO;
   }
 
+  // Semaines verrouillées : passées, en cours, et la semaine suivante à
+  // partir du jeudi (le planning est figé jusqu'au lundi suivant).
+  // Comparaisons sur les dates ISO : startOfWeek conserve l'heure du jour,
+  // ce qui rend les comparaisons de Date fragiles.
   _isLockedWeek(iso) {
-    const todayMonday = startOfWeek(new Date());
-    return startOfWeek(parseISODate(iso)) <= todayMonday;
+    const today = new Date();
+    const todayMonday = toISODate(startOfWeek(today));
+    const weekMonday = toISODate(startOfWeek(parseISODate(iso)));
+    if (weekMonday <= todayMonday) return true;
+    if (weekMonday !== toISODate(addDays(parseISODate(todayMonday), 7))) return false;
+    // Jeudi (4), vendredi (5), samedi (6) et dimanche (0) de la semaine en cours.
+    const day = today.getDay();
+    return day >= 4 || day === 0;
   }
 
   _lockedPlanningMessage() {

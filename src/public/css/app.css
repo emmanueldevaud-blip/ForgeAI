@@ -5614,6 +5614,11 @@
 .agenda-mine-matrix--month .agenda-mine-cell-tag { font-size: 9px; }
 .agenda-mine-matrix--month .agenda-mine-cell-group .agenda-mine-cell::after { font-size: 10px; }
 .agenda-mine-cell:disabled { opacity: .45; cursor: not-allowed; }
+/* Semaines verrouillées : l'inscription reste visible en couleurs (coches
+   conservées), seule la case devient non cliquable ; l'en-tête de jour
+   signale la colonne figée. */
+.agenda-mine-cell.is-locked:disabled { opacity: 1; cursor: not-allowed; }
+.agenda-mine-matrix-day.is-locked { opacity: .6; }
 .agenda-mine-bulk { align-self: center; justify-self: center; margin: 4px; min-height: 32px; }
 .agenda-mine-footer { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--spacing-3); margin-top: var(--spacing-4); }
 .agenda-field-help { margin: 0; color: var(--color-text-tertiary); font-size: var(--font-size-xs); max-width: 70ch; }

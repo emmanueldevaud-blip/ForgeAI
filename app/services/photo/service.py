@@ -11,6 +11,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import logging
+import random
 from datetime import datetime, time, timedelta
 from pathlib import Path
 from typing import Any, Optional
@@ -489,6 +490,173 @@ class PhotoService:
             for key in sorted(counts, reverse=True)
         ]
         return groups, total
+
+    # ------------------------------------------------------------- souvenirs
+    _SOUVENIR_MONTHS = (
+        "janvier", "février", "mars", "avril", "mai", "juin",
+        "juillet", "août", "septembre", "octobre", "novembre", "décembre",
+    )
+
+    @staticmethod
+    def _souvenir_span_label(start: datetime, end: datetime) -> str:
+        months = PhotoService._SOUVENIR_MONTHS
+        if start.date() == end.date():
+            return f"{start.day} {months[start.month - 1]} {start.year}"
+        if start.year == end.year and start.month == end.month:
+            return f"{start.day} – {end.day} {months[start.month - 1]} {start.year}"
+        if start.year == end.year:
+            return (
+                f"{start.day} {months[start.month - 1]} – "
+                f"{end.day} {months[end.month - 1]} {end.year}"
+            )
+        return f"{start.date()} – {end.date()}"
+
+    async def build_souvenirs(
+        self,
+        *,
+        count: int = 6,
+        seed: int | None = None,
+        max_photos: int = 15,
+        min_photos: int = 3,
+    ) -> list[dict[str, Any]]:
+        """Des « souvenirs » aléatoires façon mémoires iOS : personnes,
+        lieux et événements.
+
+        Trois familles de groupes sont construites puis mélangées
+        aléatoirement (``seed`` rend le tirage reproductible) :
+
+        - ``person`` : photos rattachées à un visage identifié ;
+        - ``place``  : photos partageant le même lieu résolu ;
+        - ``event``  : photos prises à moins de 3 jours d'écart.
+        """
+        rng = random.Random(seed)
+        skip_owner = await self.can_manage_all()
+        base_filters = [
+            Photo.is_deleted.is_(False),
+            Photo.status == "ready",
+            Photo.mime_type.like("image/%"),
+        ]
+        if not skip_owner:
+            base_filters.append(self._owner_clause())
+
+        # Métadonnées légères (id + date) pour le regroupement par événement.
+        meta_rows = (
+            await self.db.execute(
+                select(Photo.id, Photo.taken_at)
+                .where(*base_filters)
+                .order_by(Photo.taken_at.desc())
+                .limit(8000)
+            )
+        ).all()
+        if not meta_rows:
+            return []
+
+        def _story(kind: str, key: str, title: str, items: list[tuple[int, datetime]]) -> dict[str, Any]:
+            ids = [photo_id for photo_id, _ in items]
+            rng.shuffle(ids)
+            dates = [taken for _, taken in items]
+            return {
+                "id": key,
+                "kind": kind,
+                "title": title,
+                "date_from": min(dates),
+                "date_to": max(dates),
+                "photo_ids": ids[:max_photos],
+                "count": min(len(ids), max_photos),
+            }
+
+        pools: dict[str, list[dict[str, Any]]] = {"person": [], "place": [], "event": []}
+
+        # --- Personnes (visages identifiés) --------------------------------
+        person_filters = [PhotoPerson.owner_id == Photo.owner_id]
+        if not skip_owner:
+            person_filters.append(PhotoPerson.owner_id == self.current_user.id)
+        person_rows = (
+            await self.db.execute(
+                select(PhotoPerson.id, PhotoPerson.name, Photo.id, Photo.taken_at)
+                .join(PhotoFace, PhotoFace.person_id == PhotoPerson.id)
+                .join(Photo, Photo.id == PhotoFace.photo_id)
+                .where(*base_filters, *person_filters, PhotoFace.person_id.is_not(None))
+                .order_by(Photo.taken_at.asc())
+                .limit(20000)
+            )
+        ).all()
+        by_person: dict[int, dict[str, Any]] = {}
+        for person_id, name, photo_id, taken_at in person_rows:
+            if is_auto_name(name):
+                continue
+            bucket = by_person.setdefault(person_id, {"name": name, "items": []})
+            bucket["items"].append((photo_id, taken_at))
+        for person_id, bucket in by_person.items():
+            items = bucket["items"]
+            if len(items) < min_photos:
+                continue
+            pools["person"].append(
+                _story("person", f"person:{person_id}", bucket["name"], items)
+            )
+
+        # --- Lieux (cellule de lieu résolue) ------------------------------
+        place_rows = (
+            await self.db.execute(
+                select(Photo.id, Photo.taken_at, PhotoPlace.id, PhotoPlace.label)
+                .join(PhotoPlace, Photo.place_id == PhotoPlace.id)
+                .where(*base_filters, PhotoPlace.label != "")
+                .order_by(Photo.taken_at.asc())
+                .limit(20000)
+            )
+        ).all()
+        by_place: dict[int, dict[str, Any]] = {}
+        for photo_id, taken_at, place_id, label in place_rows:
+            bucket = by_place.setdefault(place_id, {"label": label, "items": []})
+            bucket["items"].append((photo_id, taken_at))
+        for place_id, bucket in by_place.items():
+            items = bucket["items"]
+            if len(items) < min_photos:
+                continue
+            pools["place"].append(
+                _story("place", f"place:{place_id}", bucket["label"], items)
+            )
+
+        # --- Événements (photos rapprochées dans le temps) ----------------
+        current: list[tuple[int, datetime]] = []
+        for photo_id, taken_at in reversed(meta_rows):
+            if current and (taken_at - current[-1][1]) > timedelta(days=3):
+                if len(current) >= min_photos:
+                    first, last = current[0][1], current[-1][1]
+                    pools["event"].append(
+                        _story(
+                            "event",
+                            f"event:{first.strftime('%Y%m%d')}",
+                            self._souvenir_span_label(first, last),
+                            current,
+                        )
+                    )
+                current = []
+            current.append((photo_id, taken_at))
+        if len(current) >= min_photos:
+            first, last = current[0][1], current[-1][1]
+            pools["event"].append(
+                _story(
+                    "event",
+                    f"event:{first.strftime('%Y%m%d')}",
+                    self._souvenir_span_label(first, last),
+                    current,
+                )
+            )
+
+        # --- Sélection mixte : une part de chaque famille, au hasard ------
+        for pool in pools.values():
+            rng.shuffle(pool)
+        stories: list[dict[str, Any]] = []
+        kinds = [kind for kind in pools if pools[kind]]
+        while kinds and len(stories) < count:
+            kinds = [kind for kind in kinds if pools[kind]]
+            for kind in list(kinds):
+                stories.append(pools[kind].pop())
+                if len(stories) >= count:
+                    break
+        rng.shuffle(stories)
+        return stories
 
     async def search_natural(self, query_text: str, params: PhotoListParams):
         filters = await build_search_filters(self.db, self.current_user.id, query_text)

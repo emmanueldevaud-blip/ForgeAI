@@ -35,7 +35,7 @@ import {
   updatePerson,
   updatePhoto,
   uploadPhotos,
-} from '../services/photosApi.js?v=7';
+} from '../services/photosApi.js?v=8';
 import { authStore } from '../stores/auth.js';
 
 const PAGE_SIZE = 60;
@@ -639,16 +639,23 @@ export class PhotosPage {
       && this._can('photos.upload');
     const showCreate = ['albums', 'people'].includes(this.view);
     const showStorage = this._can('photos.view');
+    const showSouvenirs = this._can('photos.view');
     const showGeocode = this.view === 'places' && this._can('photos.update');
     const showTrash = this.view === 'trash' && this._can('photos.delete');
     container.innerHTML = `
       ${showUpload ? '<button type="button" class="btn btn-primary" data-action="upload">Importer</button>' : ''}
       ${showCreate ? '<button type="button" class="btn btn-primary" data-action="create">Créer</button>' : ''}
+      ${showSouvenirs ? '<button type="button" class="btn btn-secondary" data-action="souvenirs">Souvenirs</button>' : ''}
       ${showStorage ? '<button type="button" class="btn btn-secondary" data-action="storage">Stockage</button>' : ''}
       ${showGeocode ? '<button type="button" class="btn btn-secondary" data-action="geocode">Résoudre les lieux</button>' : ''}
       ${showTrash ? '<button type="button" class="btn btn-danger" data-action="empty-trash">Vider la corbeille</button>' : ''}
       <input type="file" accept="image/*" multiple data-upload-input hidden>
     `;
+    if (showSouvenirs) {
+      container
+        .querySelector('[data-action="souvenirs"]')
+        .addEventListener('click', () => this.router.navigate('/photos/souvenirs'));
+    }
     if (showUpload) {
       const input = container.querySelector('[data-upload-input]');
       container.querySelector('[data-action="upload"]').addEventListener('click', () => input.click());

@@ -35,6 +35,7 @@ import { createAgendaSettingsPage } from './pages/AgendaSettingsPage.js?v=3';
 import { createDomotiquePage } from './pages/DomotiquePage.js?v=8';
 import { createDomotiqueConfigPage } from './pages/DomotiqueConfigPage.js?v=8';
 import { createPhotosPage } from './pages/PhotosPage.js?v=9';
+import { createSouvenirsPage } from './pages/SouvenirsPage.js?v=1';
 import { createITAssetPage } from './pages/ITAssetPage.js?v=4';
 
 const moduleRoutes = [
@@ -103,6 +104,7 @@ let agendaSettingsPage = null;
 let domotiquePage = null;
 let domotiqueConfigPage = null;
 let photosPage = null;
+let souvenirsPage = null;
 let itAssetPage = null;
 
 async function initializeApp() {
@@ -290,6 +292,9 @@ async function initializeApp() {
     .addRoute('/photos/trash', async (route) => {
       await showPhotosPage(route);
     }, { requiresAuth: true, permissions: ['photos.delete'], module: 'photos' })
+    .addRoute('/photos/souvenirs', async (route) => {
+      await showSouvenirsPage(route);
+    }, { requiresAuth: true, permissions: ['photos.view'], module: 'photos' })
     .addRoute('/it-assets', async (route) => {
       await showITAssetPage(route);
     }, { requiresAuth: true, permissions: ['it_asset.view'], module: 'it_asset' })
@@ -1010,6 +1015,28 @@ async function showPhotosPage(route) {
     page.loadData();
   } catch (error) {
     console.error('Erreur affichage photos:', error);
+    appShell.showError(error);
+  }
+}
+
+async function ensureSouvenirsPage() {
+  if (!souvenirsPage) {
+    souvenirsPage = createSouvenirsPage(router);
+    await souvenirsPage.initialize();
+  }
+  return souvenirsPage;
+}
+
+async function showSouvenirsPage(route) {
+  if (!appShell) return;
+  appShell.showLoading();
+  try {
+    const page = await ensureSouvenirsPage();
+    const content = page.render();
+    appShell.showContent(content);
+    page.load({ autoplay: false });
+  } catch (error) {
+    console.error('Erreur affichage souvenirs:', error);
     appShell.showError(error);
   }
 }

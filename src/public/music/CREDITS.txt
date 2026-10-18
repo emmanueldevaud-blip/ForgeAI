@@ -1,0 +1,18 @@
+Musique du diaporama « Souvenirs »
+==================================
+
+Pistes embarquées (dans ce dossier), toutes sous licence CC0 1.0
+Universel (Domaine public) — aucune attribution requise, usage libre
+y compris commercial, modification autorisée.
+
+Source : FreePD.com (Kevin MacLeod et contributeurs), redistribuée via
+le miroir GitHub « 0lhi/FreePD » (branche stream, licence CC0-1.0).
+
+Fichiers (extraits de 2 minutes, encodés MP3 96 kb/s stéréo) :
+
+- lovely-piano.mp3    — « Lovely Piano Song »    (Romance)
+- calm-piano.mp3      — « Calm Sketch for Piano » (Zoned)
+- infinite-peace.mp3  — « Infinite Peace »        (Miscellaneous)
+
+Licence : https://creativecommons.org/publicdomain/zero/1.0/
+Dépôt source : https://github.com/0lhi/FreePD

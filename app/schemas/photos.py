@@ -82,6 +82,23 @@ class PhotoTimelineResponse(BaseModel):
     total: int = 0
 
 
+class PhotoSouvenirStory(BaseModel):
+    """Un « souvenir » (album auto) : personnes, lieu ou événement."""
+
+    id: str
+    kind: str  # person | place | event
+    title: str
+    date_from: Optional[datetime] = None
+    date_to: Optional[datetime] = None
+    photo_ids: List[int] = []
+    count: int = 0
+
+
+class PhotoSouvenirsResponse(BaseModel):
+    stories: List[PhotoSouvenirStory] = []
+    total: int = 0
+
+
 class PhotoTagLinkResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

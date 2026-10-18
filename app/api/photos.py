@@ -51,6 +51,7 @@ from app.schemas.photos import (
     PhotoSearchParams,
     PhotoSimilarItem,
     PhotoSimilarResponse,
+    PhotoSouvenirsResponse,
     PhotoStorageStatusResponse,
     PhotoTagCreate,
     PhotoTagListResponse,
@@ -239,6 +240,17 @@ async def photos_timeline(
         groups=[PhotoTimelineGroup(**g) for g in groups],
         total=total,
     )
+
+
+@router.get("/souvenirs", response_model=PhotoSouvenirsResponse)
+async def photos_souvenirs(
+    count: int = Query(6, ge=1, le=24),
+    seed: int | None = Query(None),
+    service: PhotoService = Depends(_service),
+):
+    """Souvenirs aléatoires (personnes / lieux / événements) pour le diaporama."""
+    stories = await service.build_souvenirs(count=count, seed=seed)
+    return PhotoSouvenirsResponse(stories=stories, total=len(stories))
 
 
 @router.get("/duplicates", response_model=PhotoDuplicateListResponse)

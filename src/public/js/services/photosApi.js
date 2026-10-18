@@ -25,6 +25,12 @@ export async function getTimeline(params = {}) {
   return photosApi.get(`/timeline${qs ? `?${qs}` : ''}`);
 }
 
+// Souvenirs aléatoires (personnes / lieux / événements) pour le diaporama.
+export async function getSouvenirs(params = {}) {
+  const qs = buildQuery(params);
+  return photosApi.get(`/souvenirs${qs ? `?${qs}` : ''}`);
+}
+
 export async function searchPhotos(q, params = {}) {
   const qs = buildQuery({ ...params, q });
   return photosApi.get(`/search?${qs}`);

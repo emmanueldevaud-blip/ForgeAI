@@ -360,6 +360,9 @@ if os.path.exists(frontend_path):
     icons_dir = os.path.join(frontend_path, "icons")
     if os.path.isdir(icons_dir):
         app.mount("/icons", StaticFiles(directory=icons_dir), name="icons")
+    music_dir = os.path.join(frontend_path, "music")
+    if os.path.isdir(music_dir):
+        app.mount("/music", StaticFiles(directory=music_dir), name="music")
 
     @app.get("/")
     async def serve_index():

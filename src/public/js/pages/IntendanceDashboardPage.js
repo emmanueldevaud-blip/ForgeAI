@@ -1,5 +1,5 @@
 import { authStore } from '../stores/auth.js';
-import { listExpenses } from '../services/intendanceApi.js';
+import { getExpenseDashboard, listAliases, listSites } from '../services/intendanceApi.js';
 
 const CATEGORY_COLORS = {
   'matriel': '#4F46E5',
@@ -23,10 +23,13 @@ export class IntendanceDashboardPage {
     this.filterUser = '';
     this.filterSite = '';
     this.page = 1;
+    this.refreshTimer = null;
   }
 
   async init() {
     await this.loadDashboard();
+    clearInterval(this.refreshTimer);
+    this.refreshTimer = setInterval(() => this.loadDashboard(), 30000);
   }
 
   async loadDashboard() {
@@ -36,16 +39,11 @@ export class IntendanceDashboardPage {
     if (this.filterUser) params.append('user_name', this.filterUser);
     if (this.filterSite) params.append('site_id', this.filterSite);
 
-    const data = await listExpenses(params);
-    const categories = {};
-    
-    for (const expense of data.items || []) {
-      const cat = expense.category || 'Non classé';
-      categories[cat] = (categories[cat] || 0) + expense.amount;
-    }
+    const categories = (await getExpenseDashboard(Object.fromEntries(params))) || {};
 
-    this.categories = Object.keys(categories).sort((a, b) => categories[b] - categories[a]);
-    this.amounts = this.categories.map(cat => categories[cat] || 0);
+    this.categories = Object.keys(categories).filter(category => category && category !== 'undefined');
+    this.categories.sort((a, b) => Number(categories[b] || 0) - Number(categories[a] || 0));
+    this.amounts = this.categories.map(cat => Number(categories[cat]) || 0);
     this.maxAmount = Math.max(...this.amounts, 1);
 
     this.render();
@@ -102,7 +100,7 @@ export class IntendanceDashboardPage {
 
         <!-- Histogramme -->
         <div class="histogram-container">
-          <canvas id="category-histogram"></canvas>
+          <canvas id="category-histogram" style="display:block;width:100%;height:300px"></canvas>
           <div class="histogram-legend"></div>
         </div>
       </div>
@@ -111,6 +109,7 @@ export class IntendanceDashboardPage {
     this._bind();
     this._renderHistogram();
     this._loadUsersSites();
+    return this.element;
   }
 
   _bind() {
@@ -139,6 +138,7 @@ export class IntendanceDashboardPage {
 
     // Close button
     this.element.querySelector('[data-close-dashboard]').onclick = () => {
+      clearInterval(this.refreshTimer);
       this.element.remove();
     };
   }
@@ -151,11 +151,20 @@ export class IntendanceDashboardPage {
 
     const width = canvas.clientWidth || 400;
     const height = 300;
+    canvas.width = width;
+    canvas.height = height;
     const padding = { top: 40, right: 40, bottom: 60, left: 60 };
     const chartWidth = width - padding.left - padding.right;
     const chartHeight = height - padding.top - padding.bottom;
 
     ctx.clearRect(0, 0, width, height);
+    if (!this.categories.length) {
+      ctx.fillStyle = '#6B7280';
+      ctx.font = '14px system-ui';
+      ctx.textAlign = 'center';
+      ctx.fillText('Aucune dépense pour les filtres sélectionnés', width / 2, height / 2);
+      return;
+    }
 
     // Échelles
     const xScale = (i) => padding.left + (chartWidth / (this.categories.length - 1)) * i;
@@ -204,14 +213,16 @@ export class IntendanceDashboardPage {
       );
     });
 
-    // Légende
-    const legendCtx = this.element.querySelector('.histogram-legend')?.getContext('2d') || {};
-    // On peut ajouter une légende SVG si nécessaire
   }
 
   _loadUsersSites() {
-    // Charger les utilisateurs et sites uniques depuis les dépenses
-    // Cela se fait via l'API au chargement
+    Promise.all([listAliases(), listSites()]).then(([aliases, sites]) => {
+      const users = [...new Set((aliases.items || []).map(item => item.user_name).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'fr'));
+      const userSelect = this.element.querySelector('#user-filter');
+      const siteSelect = this.element.querySelector('#site-filter');
+      if (userSelect) userSelect.innerHTML = '<option value="">Tous</option>' + users.map(user => `<option value="${user}">${user}</option>`).join('');
+      if (siteSelect) siteSelect.innerHTML = '<option value="">Tous</option>' + (sites.items || []).map(site => `<option value="${site.id}">${site.name}</option>`).join('');
+    });
   }
 }
 

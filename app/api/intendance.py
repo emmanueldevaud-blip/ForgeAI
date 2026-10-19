@@ -94,23 +94,26 @@ async def list_expenses(
         sort_column = sort_columns.get(sort_by, IntendanceExpense.expense_date)
     order_clause = sort_column.asc() if sort_order == "asc" else sort_column.desc()
     rows = (await db.execute(query.order_by(order_clause, IntendanceExpense.id.desc()).offset((page - 1) * page_size).limit(page_size))).scalars().all()
-    return ExpenseListResponse(items=[_expense_response(row) for row in rows], total=total, page=page, page_size=page_size, total_pages=_pages(total, page_size)),
+    return ExpenseListResponse(items=[_expense_response(row) for row in rows], total=total, page=page, page_size=page_size, total_pages=_pages(total, page_size))
 
 
 @router.get("/dashboard", response_model=dict)
 async def expense_dashboard(
     expense_date_from: date | None = None, expense_date_to: date | None = None,
+    user_name: str | None = None, site_id: int | None = None,
     current_user: User = Depends(require_permission("intendance.expenses.view")),
     db: AsyncSession = Depends(get_db),
 ):
     """Retourne un histogramme des dépenses par catégorie."""
-    query = select(IntendanceExpense.category, func.sum(IntendanceExpense.amount).label("total_amount")).where(
-        IntendanceExpense.category.is_not(None)
-    )
+    query = select(IntendanceExpense.category, func.sum(IntendanceExpense.amount).label("total_amount"))
     if expense_date_from is not None:
         query = query.where(IntendanceExpense.expense_date >= expense_date_from)
     if expense_date_to is not None:
         query = query.where(IntendanceExpense.expense_date <= expense_date_to)
+    if user_name:
+        query = query.where(IntendanceExpense.user_name == user_name)
+    if site_id is not None:
+        query = query.where(IntendanceExpense.site_id == site_id)
     query = query.group_by(IntendanceExpense.category).order_by(func.sum(IntendanceExpense.amount).desc())
     rows = (await db.execute(query)).all()
     return {cat or "Non classé": float(total) for cat, total in rows}

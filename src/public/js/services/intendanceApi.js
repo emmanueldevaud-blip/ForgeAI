@@ -3,6 +3,7 @@ import { ApiClient } from './api.js';
 const api = new ApiClient('/intendance/expenses');
 
 export const listExpenses = (params = {}) => api.get(`?${new URLSearchParams(params)}`);
+export const getExpenseDashboard = (params = {}) => api.get(`/dashboard?${new URLSearchParams(params)}`);
 export const updateExpense = (id, data) => api.patch(`/${id}`, data);
 export const deleteExpense = id => api.delete(`/${id}`);
 export const listSites = () => api.get('/sites');

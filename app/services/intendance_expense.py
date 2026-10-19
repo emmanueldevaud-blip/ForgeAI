@@ -1,11 +1,4 @@
-"""Import et normalisation des dépenses de l'Intendance.
-
-L'empreinte est calculée sur toutes les colonnes métier importées : numéro de
-demande, date, carte, libellé, quantité, unité, montant, société, centre de
-coût, code comptable, libellé comptable et préparateur. Elle ne dépend donc
-pas du seul numéro de demande et conserve deux lignes distinctes partageant
-ce numéro.
-"""
+"""Import et normalisation des dépenses de l'Intendance."""
 
 from __future__ import annotations
 
@@ -102,12 +95,20 @@ def parse_excel_row(values: dict[str, Any], line_number: int) -> dict[str, Any]:
 
 
 def expense_fingerprint(row: dict[str, Any]) -> str:
-    fields = (
-        row.get("req_number"), row.get("expense_date"), row.get("bank_card"),
-        row.get("item_description"), row.get("quantity"), row.get("uom"),
-        row.get("amount"), row.get("corporation"), row.get("cost_center"),
-        row.get("account_code"), row.get("account_label"), row.get("prepared_by"),
-    )
-    payload = "\x1f".join(normalize_text(v.isoformat() if isinstance(v, date) else v) for v in fields)
+    payload = "\x1f".join(expense_duplicate_key(row))
     return sha256(payload.encode("utf-8")).hexdigest()
+
+
+def expense_duplicate_key(row: Any) -> tuple[str, str, str, str]:
+    """Clé métier : date, libellé comptable, désignation et montant."""
+    if isinstance(row, dict):
+        get_value = row.get
+    else:
+        get_value = lambda name: getattr(row, name, None)
+    label = normalize_text(get_value("account_label")).casefold()
+    designation = normalize_text(get_value("item_description")).casefold()
+    amount = normalize_text(normalize_decimal(get_value("amount")) or get_value("amount"))
+    expense_date = get_value("expense_date")
+    normalized_date = normalize_date(expense_date)
+    return normalized_date.isoformat() if normalized_date else "", label, designation, amount
 

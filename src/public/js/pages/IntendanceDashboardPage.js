@@ -61,6 +61,11 @@ export class IntendanceDashboardPage {
     
     const dateFromStr = dateFrom.toISOString().split('T')[0];
     const dateToStr = dateTo.toISOString().split('T')[0];
+    const rangeStart = new Date('2020-01-01');
+    const dayValue = date => Math.round((date - rangeStart) / 86400000);
+    const dateFromValue = dayValue(dateFrom);
+    const dateToValue = this.filterDateTo ? dayValue(dateTo) : dayValue(dateTo);
+    const rangeMax = dayValue(today);
 
     this.element.innerHTML = `
       <div class="page-header">
@@ -79,9 +84,8 @@ export class IntendanceDashboardPage {
           <div class="filter-group">
             <label class="filter-label">Période</label>
             <div class="slider-wrapper">
-              <input type="date" id="date-from" class="form-input" value="${dateFromStr}" />
-              <span class="slider-separator">–</span>
-              <input type="date" id="date-to" class="form-input" value="${dateToStr}" />
+              <div class="date-range-values"><span data-date-from-label>${dateFromStr}</span><span>–</span><span data-date-to-label>${dateToStr}</span></div>
+              <div class="date-range-sliders"><input type="range" id="date-from" min="0" max="${rangeMax}" value="${dateFromValue}" aria-label="Date de début"><input type="range" id="date-to" min="0" max="${rangeMax}" value="${dateToValue}" aria-label="Date de fin"></div>
             </div>
           </div>
           <div class="filter-group">
@@ -118,8 +122,14 @@ export class IntendanceDashboardPage {
     // Date filter
     this.element.querySelectorAll('#date-from, #date-to').forEach(input => {
       input.onchange = () => {
-        this.filterDateFrom = document.getElementById('date-from').value;
-        this.filterDateTo = document.getElementById('date-to').value;
+        const start = new Date('2020-01-01');
+        const toDate = value => new Date(start.getTime() + Number(value) * 86400000).toISOString().split('T')[0];
+        const fromValue = Number(document.getElementById('date-from').value);
+        const toValue = Number(document.getElementById('date-to').value);
+        this.filterDateFrom = toDate(Math.min(fromValue, toValue));
+        this.filterDateTo = toDate(Math.max(fromValue, toValue));
+        this.element.querySelector('[data-date-from-label]').textContent = this.filterDateFrom;
+        this.element.querySelector('[data-date-to-label]').textContent = this.filterDateTo;
         this.loadDashboard();
       };
     });

@@ -18,6 +18,15 @@ from app.models.it_asset import (
     ITAssetHistory,
 )
 from app.models.housing import Housing, Occupant, Occupancy, OccupancyStatusHistory, HousingStatusHistory, Unavailability, Cleaning, CleaningInvitationLog, EmailTemplate, EmailTemplateAttachment, EmailLog
+from app.models.intendance_expense import (
+    IntendanceAccountCode,
+    IntendanceCardAlias,
+    IntendanceExpense,
+    IntendanceExpenseHistory,
+    IntendanceImportBatch,
+    IntendanceImportStagedRow,
+    IntendanceSite,
+)
 from app.models.module import Module, ModuleConfig, ModuleStatus
 from app.models.maintenance import (
     AIConversation,
@@ -206,4 +215,11 @@ __all__ = [
     "ITAlertSeverity",
     "ITAssetHistory",
     "ITAssetSummary",  # added for V2 inventory fields
+    "IntendanceAccountCode",
+    "IntendanceCardAlias",
+    "IntendanceExpense",
+    "IntendanceExpenseHistory",
+    "IntendanceImportBatch",
+    "IntendanceImportStagedRow",
+    "IntendanceSite",
 ]

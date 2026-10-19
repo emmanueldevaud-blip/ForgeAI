@@ -7,6 +7,7 @@ import { createLoginPage } from './pages/LoginPage.js?v=1';
 import { createRegisterPage } from './pages/RegisterPage.js';
 import { createAdministrationPage } from './pages/AdministrationPage.js?v=6';
 import { createBuildingsPage } from './pages/BuildingsPage.js?v=5';
+import { createIntendanceExpensesPage } from './pages/IntendanceExpensesPage.js';
 import { createBuildingRefsPage } from './pages/BuildingRefsPage.js';
 import { createEquipmentPage } from './pages/EquipmentPage.js?v=2';
 import { createEquipmentRefsPage } from './pages/EquipmentRefsPage.js';
@@ -196,6 +197,12 @@ async function initializeApp() {
     .addRoute('/buildings', async (route) => {
       await showBuildingsPage(route);
     }, { requiresAuth: true, permissions: ['building.view'], module: ['buildings', 'gestion_bureaux'] })
+    .addRoute('/intendance/expenses', async () => {
+      if (!appShell) return;
+      const page = createIntendanceExpensesPage();
+      appShell.showContent(page.render());
+      await page.load();
+    }, { requiresAuth: true, permissions: ['intendance.expenses.view'], module: 'gestion_bureaux' })
     .addRoute('/buildings/refs', async (route) => {
       await showBuildingRefsPage(route);
     }, { requiresAuth: true, permissions: ['building.view'], module: ['buildings', 'gestion_bureaux'] })

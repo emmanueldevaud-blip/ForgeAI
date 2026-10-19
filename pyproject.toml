@@ -40,6 +40,7 @@ dependencies = [
     # Collecte SNMP du module IT Asset (inventaire réseau). pysnmp 7.x
     # (package "pysnmp" sur PyPI) fournit l'API hlapi async-compatible.
     "pysnmp>=7.1,<8",
+    "openpyxl>=3.1.5",
 ]
 
 [tool.pytest.ini_options]

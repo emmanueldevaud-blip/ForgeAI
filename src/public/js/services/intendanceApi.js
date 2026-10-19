@@ -3,6 +3,8 @@ import { ApiClient } from './api.js';
 const api = new ApiClient('/intendance/expenses');
 
 export const listExpenses = (params = {}) => api.get(`?${new URLSearchParams(params)}`);
+export const updateExpense = (id, data) => api.patch(`/${id}`, data);
+export const deleteExpense = id => api.delete(`/${id}`);
 export const listSites = () => api.get('/sites');
 export const listAccountCodes = () => api.get('/account-codes');
 export const listAliases = () => api.get('/aliases');
@@ -21,3 +23,4 @@ export const analyzeImport = (file) => {
   return api.post('/imports', form);
 };
 export const validateImport = (id) => api.post(`/imports/${id}/validate`, {});
+export const reassignReferences = () => api.post('/reassign', {});

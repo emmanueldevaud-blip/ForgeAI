@@ -13,11 +13,12 @@
 .intendance-expenses-page [data-tab-content] > .page-filters [data-search] { width: 100%; min-width: 0; }
 .intendance-expenses-page [data-tab-content] > .page-filters [data-missing] { width: 100%; min-width: 0; }
 .intendance-expenses-page [data-tab-content] > .page-filters [data-refresh] { width: auto; white-space: nowrap; }
-.intendance-expenses-page [data-tab-content] > .page-filters:has([data-site]) { grid-template-columns: minmax(220px, 1fr) 220px auto 260px auto; }
+.intendance-expenses-page [data-tab-content] > .page-filters:has([data-site]) { grid-template-columns: minmax(220px, 1fr) auto 260px auto; }
 .intendance-expenses-page [data-tab-content] > .page-filters [data-site] { width: 100%; min-width: 0; }
 .intendance-expenses-page [data-tab-content] > .page-filters [data-bulk] { width: auto; white-space: nowrap; }
 .intendance-expenses-page .table-sort-button { padding: 0; border: 0; background: transparent; color: inherit; font: inherit; font-weight: inherit; cursor: pointer; text-align: left; }
 .intendance-expenses-page th[data-ref-sort] { cursor: pointer; }
+.intendance-expenses-page .table-pagination { display: flex; align-items: center; justify-content: center; gap: var(--spacing-3); padding: var(--spacing-3) 0; }
 @media (max-width: 720px) {
   .intendance-expenses-page [data-tab-content] > .page-filters { grid-template-columns: 1fr auto; }
   .intendance-expenses-page [data-tab-content] > .page-filters:has([data-site]) { grid-template-columns: 1fr auto; }

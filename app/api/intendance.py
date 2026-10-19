@@ -85,6 +85,14 @@ async def update_expense(expense_id: int, data: ExpenseUpdate, current_user: Use
     return _expense_response(expense)
 
 
+@router.delete("/{expense_id}", status_code=204)
+async def delete_expense(expense_id: int, current_user: User = Depends(require_permission("intendance.expenses.edit")), db: AsyncSession = Depends(get_db)):
+    expense = await db.get(IntendanceExpense, expense_id)
+    if not expense: raise HTTPException(404, "Dépense introuvable")
+    await db.delete(expense)
+    await db.commit()
+
+
 @router.post("/sites/bulk", response_model=BulkSiteResponse)
 async def bulk_site(data: BulkSiteAssign, current_user: User = Depends(require_permission("intendance.expenses.edit")), db: AsyncSession = Depends(get_db)):
     if not await db.get(IntendanceSite, data.site_id): raise HTTPException(404, "Site introuvable")
@@ -233,4 +241,26 @@ async def validate_import(batch_id: int, current_user: User = Depends(require_pe
         db.add(IntendanceExpense(fingerprint=row.fingerprint, req_number=row.req_number, expense_date=row.expense_date, bank_card=row.bank_card, item_description=row.item_description, quantity=row.quantity, uom=row.uom, amount=row.amount, corporation=row.corporation, cost_center=row.cost_center, account_code=row.account_code, account_label=row.account_label, prepared_by=row.prepared_by, category=code.category if code else None, user_name=aliases.get(row.bank_card), import_batch_id=batch.id, created_by=current_user.id)); created += 1
     batch.status = "validated"; batch.validated_at = datetime.now(timezone.utc); batch.created_count = created; await db.commit()
     return ImportValidateResponse(reference=batch.reference, created_count=created, skipped_duplicates=len(rows) - created)
+
+
+@router.post("/reassign", response_model=dict)
+async def reassign_references(current_user: User = Depends(require_permission("intendance.expenses.import")), db: AsyncSession = Depends(get_db)):
+    """Réapplique les référentiels configurés sans écraser les corrections manuelles."""
+    expenses = (await db.execute(select(IntendanceExpense).with_for_update())).scalars().all()
+    aliases = {x.alias: x.user_name for x in (await db.execute(select(IntendanceCardAlias))).scalars().all()}
+    codes = {x.code: x.category for x in (await db.execute(select(IntendanceAccountCode))).scalars().all()}
+    categories = users = 0
+    for expense in expenses:
+        if not expense.category_is_manual:
+            category = codes.get(expense.account_code or "")
+            if expense.category != category:
+                expense.category = category
+                categories += 1
+        if not expense.user_is_manual:
+            user_name = aliases.get(expense.bank_card)
+            if expense.user_name != user_name:
+                expense.user_name = user_name
+                users += 1
+    await db.commit()
+    return {"categories_updated": categories, "users_updated": users}
 

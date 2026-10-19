@@ -33,14 +33,12 @@ router = APIRouter(
 def _build_equipment_response(equipment) -> EquipmentResponse:
     resp = EquipmentResponse.model_validate(equipment)
     if equipment.room:
-        from app.schemas.equipment import RoomSummaryResponse, LevelSummaryResponse, BuildingSummaryResponse, SiteSummaryResponse
+        from app.schemas.equipment import RoomSummaryResponse, BuildingSummaryResponse, SiteSummaryResponse
         resp.room = RoomSummaryResponse.model_validate(equipment.room)
-        if equipment.room.level:
-            resp.level = LevelSummaryResponse.model_validate(equipment.room.level)
-            if equipment.room.level.building:
-                resp.building = BuildingSummaryResponse.model_validate(equipment.room.level.building)
-                if equipment.room.level.building.site:
-                    resp.site = SiteSummaryResponse.model_validate(equipment.room.level.building.site)
+        if equipment.room.building:
+            resp.building = BuildingSummaryResponse.model_validate(equipment.room.building)
+            if equipment.room.building.site:
+                resp.site = SiteSummaryResponse.model_validate(equipment.room.building.site)
     return resp
 
 

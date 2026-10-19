@@ -7,7 +7,7 @@ import { createLoginPage } from './pages/LoginPage.js?v=1';
 import { createRegisterPage } from './pages/RegisterPage.js';
 import { createAdministrationPage } from './pages/AdministrationPage.js?v=6';
 import { createBuildingsPage } from './pages/BuildingsPage.js?v=5';
-import { createIntendanceExpensesPage } from './pages/IntendanceExpensesPage.js';
+import { createIntendanceExpensesPage } from './pages/IntendanceExpensesPage.js?v=3';
 import { createBuildingRefsPage } from './pages/BuildingRefsPage.js';
 import { createEquipmentPage } from './pages/EquipmentPage.js?v=2';
 import { createEquipmentRefsPage } from './pages/EquipmentRefsPage.js';

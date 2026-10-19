@@ -1,13 +1,13 @@
 """API du suivi des dépenses de l'Intendance."""
 
-from __future__ import annotations
+from datetime import date, timedelta
 
 import math
 import uuid
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
-from sqlalchemy import func, select
+from sqlalchemy import String, cast, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -53,6 +53,8 @@ def _expense_response(expense: IntendanceExpense) -> ExpenseResponse:
 async def list_expenses(
     page: int = 1, page_size: int = 50, search: str | None = None,
     missing: str | None = None, site_id: int | None = None,
+    expense_date_from: date | None = None, expense_date_to: date | None = None,
+    sort_by: str = "expense_date", sort_order: str = "desc",
     current_user: User = Depends(require_permission("intendance.expenses.view")),
     db: AsyncSession = Depends(get_db),
 ):
@@ -60,15 +62,58 @@ async def list_expenses(
     query = select(IntendanceExpense).options(selectinload(IntendanceExpense.site), selectinload(IntendanceExpense.import_batch))
     if search:
         term = f"%{search.strip()}%"
-        query = query.where((IntendanceExpense.item_description.ilike(term)) | (IntendanceExpense.bank_card.ilike(term)))
+        query = query.where(
+            (IntendanceExpense.item_description.ilike(term))
+            | (cast(IntendanceExpense.req_number, String).ilike(term))
+            | (cast(IntendanceExpense.amount, String).ilike(term))
+        )
     if site_id is not None:
         query = query.where(IntendanceExpense.site_id == site_id)
     if missing == "site": query = query.where(IntendanceExpense.site_id.is_(None))
     if missing == "category": query = query.where(IntendanceExpense.category.is_(None))
     if missing == "user": query = query.where(IntendanceExpense.user_name.is_(None))
+    if expense_date_from is not None:
+        query = query.where(IntendanceExpense.expense_date >= expense_date_from)
+    if expense_date_to is not None:
+        query = query.where(IntendanceExpense.expense_date <= expense_date_to)
     total = (await db.execute(select(func.count()).select_from(query.subquery()))).scalar_one()
-    rows = (await db.execute(query.order_by(IntendanceExpense.expense_date.desc(), IntendanceExpense.id.desc()).offset((page - 1) * page_size).limit(page_size))).scalars().all()
-    return ExpenseListResponse(items=[_expense_response(row) for row in rows], total=total, page=page, page_size=page_size, total_pages=_pages(total, page_size))
+    sort_columns = {
+        "expense_date": IntendanceExpense.expense_date,
+        "req_number": IntendanceExpense.req_number,
+        "item_description": IntendanceExpense.item_description,
+        "amount": IntendanceExpense.amount,
+        "account_code": IntendanceExpense.account_code,
+        "category": IntendanceExpense.category,
+        "user_name": IntendanceExpense.user_name,
+        "id": IntendanceExpense.id,
+    }
+    if sort_by == "site.name":
+        query = query.outerjoin(IntendanceSite, IntendanceSite.id == IntendanceExpense.site_id)
+        sort_column = IntendanceSite.name
+    else:
+        sort_column = sort_columns.get(sort_by, IntendanceExpense.expense_date)
+    order_clause = sort_column.asc() if sort_order == "asc" else sort_column.desc()
+    rows = (await db.execute(query.order_by(order_clause, IntendanceExpense.id.desc()).offset((page - 1) * page_size).limit(page_size))).scalars().all()
+    return ExpenseListResponse(items=[_expense_response(row) for row in rows], total=total, page=page, page_size=page_size, total_pages=_pages(total, page_size)),
+
+
+@router.get("/dashboard", response_model=dict)
+async def expense_dashboard(
+    expense_date_from: date | None = None, expense_date_to: date | None = None,
+    current_user: User = Depends(require_permission("intendance.expenses.view")),
+    db: AsyncSession = Depends(get_db),
+):
+    """Retourne un histogramme des dépenses par catégorie."""
+    query = select(IntendanceExpense.category, func.sum(IntendanceExpense.amount).label("total_amount")).where(
+        IntendanceExpense.category.is_not(None)
+    )
+    if expense_date_from is not None:
+        query = query.where(IntendanceExpense.expense_date >= expense_date_from)
+    if expense_date_to is not None:
+        query = query.where(IntendanceExpense.expense_date <= expense_date_to)
+    query = query.group_by(IntendanceExpense.category).order_by(func.sum(IntendanceExpense.amount).desc())
+    rows = (await db.execute(query)).all()
+    return {cat or "Non classé": float(total) for cat, total in rows}
 
 
 @router.patch("/{expense_id}", response_model=ExpenseResponse)

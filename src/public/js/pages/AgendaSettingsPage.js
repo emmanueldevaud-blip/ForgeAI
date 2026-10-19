@@ -27,7 +27,7 @@ export class AgendaSettingsPage {
   }
 
   get canManage() {
-    return authStore.hasPermission('agenda.manage');
+    return authStore.hasAnyPermission(['agenda.settings', 'agenda.manage']);
   }
 
   async initialize() {
@@ -93,7 +93,7 @@ export class AgendaSettingsPage {
         <div class="card">
           <div class="card-body agenda-empty">
             <h2>Accès refusé</h2>
-            <p>La permission « agenda.manage » est requise pour configurer l’agenda.</p>
+            <p>La permission « agenda.settings » est requise pour configurer l’agenda.</p>
           </div>
         </div>`;
     }

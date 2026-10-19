@@ -518,6 +518,7 @@ async def seed_default_rbac(db: AsyncSession) -> None:
         ("administration.programs.validate", "Valider les programmes administratifs", "administration"),
         ("agenda.access", "Accéder au module Agenda", "agenda"),
         ("agenda.manage", "Gérer les présences d'autres personnes", "agenda"),
+        ("agenda.settings", "Configurer les paramètres de l'agenda", "agenda"),
         ("domotique.access", "Accéder au module Domotique", "domotique"),
         ("domotique.view", "Consulter les installations domotiques", "domotique"),
         ("domotique.control", "Commander les équipements domotiques", "domotique"),

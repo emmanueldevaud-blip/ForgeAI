@@ -682,6 +682,35 @@ async def test_agenda_settings_requires_manage(client, db_session):
 
 
 @pytest.mark.asyncio
+async def test_agenda_settings_permission_allows_settings_access(client, db_session):
+    # agenda.settings suffit a acceder a la configuration, sans agenda.manage.
+    await _create_user_with_permissions(db_session, "agenda-settings-only", ["agenda.access", "agenda.settings"])
+    headers = await _login_headers(client, "agenda-settings-only")
+
+    settings = await client.get("/agenda/settings", headers=headers)
+    assert settings.status_code == 200, settings.text
+
+    groups = await client.get("/agenda/groups", headers=headers)
+    assert groups.status_code == 200, groups.text
+
+    saved = await client.put("/agenda/settings", json={"planning_group_ids": []}, headers=headers)
+    assert saved.status_code == 200, saved.text
+
+
+@pytest.mark.asyncio
+async def test_agenda_settings_manage_still_allows_settings_access(client, db_session):
+    # Non-regression : agenda.manage ouvre aussi les parametres.
+    await _create_user_with_permissions(db_session, "agenda-manage-settings", ["agenda.access", "agenda.manage"])
+    headers = await _login_headers(client, "agenda-manage-settings")
+
+    settings = await client.get("/agenda/settings", headers=headers)
+    assert settings.status_code == 200, settings.text
+
+    groups = await client.get("/agenda/groups", headers=headers)
+    assert groups.status_code == 200, groups.text
+
+
+@pytest.mark.asyncio
 async def test_agenda_occupancy_not_double_counted(client, admin_headers, db_session, admin_user):
     """Une personne inscrite et presente en occupancy le meme jour compte une fois.
 

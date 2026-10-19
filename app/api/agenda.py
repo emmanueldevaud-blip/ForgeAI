@@ -6,7 +6,12 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import get_db, require_module_enabled, require_permission
+from app.api.deps import (
+    get_db,
+    require_any_permission,
+    require_module_enabled,
+    require_permission,
+)
 from app.models.module import Module
 from app.models.rbac import Group, UserGroup
 from app.models.user import User
@@ -118,7 +123,7 @@ async def get_planning(
 
 @router.get("/settings", response_model=AgendaSettingsResponse)
 async def get_settings(
-    current_user: User = Depends(require_permission("agenda.manage")),
+    current_user: User = Depends(require_any_permission("agenda.settings", "agenda.manage")),
     db: AsyncSession = Depends(get_db),
 ):
     group_ids = await _get_agenda_settings(db)
@@ -128,7 +133,7 @@ async def get_settings(
 @router.put("/settings", response_model=AgendaSettingsResponse)
 async def update_settings(
     payload: AgendaSettingsUpdate,
-    current_user: User = Depends(require_permission("agenda.manage")),
+    current_user: User = Depends(require_any_permission("agenda.settings", "agenda.manage")),
     db: AsyncSession = Depends(get_db),
 ):
     saved_ids = await _save_agenda_settings(db, payload.planning_group_ids)
@@ -137,7 +142,7 @@ async def update_settings(
 
 @router.get("/groups", response_model=AgendaGroupListResponse)
 async def list_groups(
-    current_user: User = Depends(require_permission("agenda.manage")),
+    current_user: User = Depends(require_any_permission("agenda.settings", "agenda.manage")),
     db: AsyncSession = Depends(get_db),
 ):
     result = await db.execute(

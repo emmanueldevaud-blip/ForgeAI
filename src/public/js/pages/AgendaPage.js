@@ -188,6 +188,7 @@ export class AgendaPage {
     const rooms = data.rooms || [];
     const days = data.days || [];
     const canManage = authStore.hasPermission('agenda.manage');
+    const canSettings = authStore.hasAnyPermission(['agenda.settings', 'agenda.manage']);
     const freeDate = this._defaultFreeDate(days);
 
     const isMineTab = this.activeTab === 'mine';
@@ -251,7 +252,7 @@ export class AgendaPage {
           </section>` : ''}
         </div>
 
-        ${canManage ? `
+        ${canSettings ? `
         <div role="tabpanel" id="panel-settings" aria-labelledby="tab-settings" ${isSettingsTab ? '' : 'hidden'}>
           <section class="card agenda-section" aria-labelledby="agenda-settings-title">
             <header class="agenda-section-header">
@@ -283,7 +284,7 @@ export class AgendaPage {
     if (this.editCell) this._bindCellEditor();
     if (this.addPersonOpen) this._bindAddPersonModal();
     if (this.personWeekModal) this._bindPersonWeekModal();
-    if (isSettingsTab && canManage) this._initSettingsTab();
+    if (isSettingsTab && canSettings) this._initSettingsTab();
   }
 
 // Lignes communes à la matrice « Ma présence » et au modal planning semaine.
@@ -1990,6 +1991,9 @@ export class AgendaPage {
   // Comparaisons sur les dates ISO : startOfWeek conserve l'heure du jour,
   // ce qui rend les comparaisons de Date fragiles.
   _isLockedWeek(iso) {
+    // Les gestionnaires (agenda.manage) peuvent modifier les dates passées
+    // et la semaine en cours.
+    if (authStore.hasPermission('agenda.manage')) return false;
     const today = new Date();
     const todayMonday = toISODate(startOfWeek(today));
     const weekMonday = toISODate(startOfWeek(parseISODate(iso)));

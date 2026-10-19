@@ -453,9 +453,12 @@ class KeaLeaseFileResolver:
             with open(self.lease_file_path, "r", encoding="utf-8") as f:
                 import csv
                 reader = csv.reader(f)
-                for row in reader:
+                for i, row in enumerate(reader):
                     # Ignorer lignes vides
                     if not row:
+                        continue
+                    # Ignorer la ligne d'en-tête (format Kea : "address,hwaddr,...")
+                    if i == 0 and row[0].strip().lower() == "address":
                         continue
                     # Format Kea CSV : address,hwaddr,client-id,valid-lifetime,expire,subnet-id,fqdn-fwd,fqdn-rev,hostname,...
                     if len(row) < 9:

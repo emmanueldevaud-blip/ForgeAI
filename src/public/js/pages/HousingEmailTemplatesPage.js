@@ -161,7 +161,7 @@ export class HousingEmailTemplatesPage {
     overlay.className = 'modal-overlay open';
     overlay.style.cssText = 'position:fixed;inset:0;z-index:1100;display:flex;align-items:center;justify-content:center;padding:16px;background:var(--color-overlay);';
     overlay.innerHTML = `
-      <div class="modal-content" style="width:min(900px,100%);max-height:90vh;overflow:auto;">
+      <div class="modal-content housing-email-template-modal">
         <div class="modal-header"><h2>${template ? 'Modifier' : 'Nouveau'} modèle</h2><button class="modal-close" data-close aria-label="Fermer">&times;</button></div>
         <form data-template-form class="modal-body">
           <div class="form-row">
@@ -169,15 +169,15 @@ export class HousingEmailTemplatesPage {
             <label><span>Type *</span><select name="template_type"><option value="confirmation">Confirmation réservation</option><option value="cancellation">Annulation réservation</option><option value="cleaning_invitation">Invitation ménage</option><option value="cleaning_confirmation">Confirmation ménage</option><option value="cleaning_not_selected">Volontaire non retenu</option><option value="cleaning_cancellation">Annulation ménage</option><option value="reminder">Rappel</option><option value="custom">Personnalisé</option></select></label>
           </div>
            <label><span>Sujet *</span><input name="subject" data-template-subject required maxlength="200" value="${this._attribute(template?.subject)}"></label>
-           <section data-variables-panel style="margin:12px 0;padding:12px;border:1px solid var(--color-border);border-radius:8px;background:var(--color-gray-50);">
+           <section data-variables-panel class="housing-email-variables-panel">
              <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;"><strong>Insérer une variable</strong><input type="search" data-variable-search placeholder="Rechercher une variable" style="min-width:220px;flex:1;max-width:320px;"></div>
-             <div data-variable-buttons style="display:flex;gap:6px;flex-wrap:wrap;margin-top:10px;">${VARIABLES.map(variable => `<button type="button" class="btn btn-sm btn-secondary" data-variable="${variable}" title="{{${variable}}}">${VARIABLE_LABELS[variable] || variable}</button>`).join('')}</div>
-             <small data-variable-empty hidden style="display:block;margin-top:8px;color:var(--color-text-secondary);">Aucune variable trouvée.</small>
+             <div data-variable-buttons class="housing-email-variable-buttons">${VARIABLES.map(variable => `<button type="button" class="btn btn-sm btn-secondary" data-variable="${variable}" title="{{${variable}}}">${VARIABLE_LABELS[variable] || variable}</button>`).join('')}</div>
+             <small data-variable-empty hidden class="housing-email-variable-empty">Aucune variable trouvée.</small>
            </section>
           <label><span>Contenu HTML *</span>
             <input type="hidden" name="body_html" value="">
-            <div data-rich-editor-wrapper style="border:1px solid var(--color-border);border-radius:6px;overflow:hidden;">
-              <div data-rich-toolbar style="display:flex;gap:4px;flex-wrap:wrap;padding:8px;background:var(--color-gray-50);border-bottom:1px solid var(--color-border);">
+            <div data-rich-editor-wrapper class="housing-email-editor-wrapper">
+              <div data-rich-toolbar class="housing-email-toolbar">
                 <button type="button" class="btn btn-sm btn-secondary" data-command="bold"><strong>Gras</strong></button>
                 <button type="button" class="btn btn-sm btn-secondary" data-command="italic"><em>Italique</em></button>
                 <button type="button" class="btn btn-sm btn-secondary" data-command="underline"><u>Souligné</u></button>
@@ -189,7 +189,7 @@ export class HousingEmailTemplatesPage {
                 <button type="button" class="btn btn-sm btn-secondary" data-action="insert-link">Lien</button>
                 <button type="button" class="btn btn-sm btn-secondary" data-command="removeFormat">Effacer le format</button>
               </div>
-               <div data-rich-editor contenteditable="true" role="textbox" aria-multiline="true" style="min-height:240px;padding:12px;outline:none;">${template?.body_html || ''}</div>
+               <div data-rich-editor class="housing-email-editor" contenteditable="true" role="textbox" aria-multiline="true">${template?.body_html || ''}</div>
              </div>
            </label>
            <div style="display:flex;gap:8px;margin-top:12px;">
@@ -224,6 +224,7 @@ export class HousingEmailTemplatesPage {
     };
     editor.addEventListener('keyup', saveRange);
     editor.addEventListener('mouseup', saveRange);
+    editor.addEventListener('input', saveRange);
     editor.addEventListener('input', updatePreview);
     editor.addEventListener('focus', () => { variableTarget = editor; });
     subjectInput.addEventListener('focus', () => { variableTarget = subjectInput; });
@@ -253,6 +254,9 @@ export class HousingEmailTemplatesPage {
       document.execCommand(button.dataset.command, false, null);
       saveRange();
     }));
+    overlay.querySelectorAll('[data-command], [data-format-block], [data-action="insert-link"], [data-variable]').forEach(button => {
+      button.addEventListener('mousedown', saveRange);
+    });
     overlay.querySelector('[data-format-block]').addEventListener('change', event => {
       editor.focus();
       document.execCommand('formatBlock', false, event.target.value);

@@ -7,7 +7,7 @@ import uuid
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
-from sqlalchemy import String, cast, func, select, update as sa_update
+from sqlalchemy import String, cast, func, or_, select, update as sa_update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -101,26 +101,81 @@ async def list_expenses(
 async def expense_dashboard(
     expense_date_from: date | None = None, expense_date_to: date | None = None,
     user_name: list[str] | None = Query(None), site_id: list[int] | None = Query(None),
+    category: list[str] | None = Query(None),
     current_user: User = Depends(require_permission("intendance.expenses.view")),
     db: AsyncSession = Depends(get_db),
 ):
-    """Retourne un histogramme des dépenses par catégorie."""
+    """Retourne les indicateurs agrégés du tableau de bord des dépenses."""
     excluded = (await db.execute(select(IntendanceCategory.name).where(IntendanceCategory.excluded_from_dashboard.is_(True)))).scalars().all()
-    query = select(IntendanceExpense.category, func.sum(IntendanceExpense.amount).label("total_amount")).where(
-        IntendanceExpense.category.is_not(None),
-        IntendanceExpense.category.notin_(excluded),
-    )
-    if expense_date_from is not None:
-        query = query.where(IntendanceExpense.expense_date >= expense_date_from)
-    if expense_date_to is not None:
-        query = query.where(IntendanceExpense.expense_date <= expense_date_to)
-    if user_name:
-        query = query.where(IntendanceExpense.user_name.in_(user_name))
-    if site_id:
-        query = query.where(IntendanceExpense.site_id.in_(site_id))
-    query = query.group_by(IntendanceExpense.category).order_by(func.sum(IntendanceExpense.amount).desc())
-    rows = (await db.execute(query)).all()
-    return {cat or "Non classé": float(total) for cat, total in rows}
+    def filtered(statement, from_date=expense_date_from, to_date=expense_date_to):
+        if from_date is not None:
+            statement = statement.where(IntendanceExpense.expense_date >= from_date)
+        if to_date is not None:
+            statement = statement.where(IntendanceExpense.expense_date <= to_date)
+        if user_name:
+            statement = statement.where(IntendanceExpense.user_name.in_(user_name))
+        if site_id:
+            statement = statement.where(IntendanceExpense.site_id.in_(site_id))
+        if category:
+            statement = statement.where(IntendanceExpense.category.in_(category))
+        return statement
+
+    visible_category = or_(IntendanceExpense.category.is_(None), IntendanceExpense.category.notin_(excluded))
+    base = filtered(select(IntendanceExpense).where(visible_category))
+    base_rows = base.subquery()
+    totals = (await db.execute(select(
+        func.coalesce(func.sum(base_rows.c.amount), 0),
+        func.count(base_rows.c.id),
+        func.coalesce(func.avg(base_rows.c.amount), 0),
+    ).select_from(base_rows))).one()
+    category_rows = (await db.execute(filtered(select(
+        IntendanceExpense.category,
+        func.count(IntendanceExpense.id).label("count"),
+        func.sum(IntendanceExpense.amount).label("amount"),
+        func.avg(IntendanceExpense.amount).label("average"),
+    ).where(visible_category).group_by(IntendanceExpense.category)
+    ))).all()
+    total_amount = float(totals[0] or 0)
+    categories = [{"name": row[0] or "Non classée", "count": row[1], "amount": float(row[2] or 0), "average": float(row[3] or 0)} for row in category_rows]
+    categories.sort(key=lambda row: row["amount"], reverse=True)
+
+    monthly_rows = (await db.execute(filtered(select(
+        func.extract("year", IntendanceExpense.expense_date).label("year"),
+        func.extract("month", IntendanceExpense.expense_date).label("month"),
+        func.sum(IntendanceExpense.amount).label("amount"),
+        func.count(IntendanceExpense.id).label("count"),
+    ).group_by("year", "month").order_by("year", "month")))).all()
+    monthly = [{"year": int(row[0]), "month": int(row[1]), "amount": float(row[2] or 0), "count": row[3]} for row in monthly_rows]
+    if expense_date_from is not None and expense_date_to is not None and expense_date_to >= expense_date_from:
+        monthly_by_key = {(item["year"], item["month"]): item for item in monthly}
+        cursor = expense_date_from.replace(day=1)
+        last = expense_date_to.replace(day=1)
+        complete_months = []
+        while cursor <= last:
+            complete_months.append(monthly_by_key.get((cursor.year, cursor.month), {"year": cursor.year, "month": cursor.month, "amount": 0, "count": 0}))
+            cursor = cursor.replace(year=cursor.year + (cursor.month == 12), month=1 if cursor.month == 12 else cursor.month + 1)
+        monthly = complete_months
+
+    user_rows = (await db.execute(filtered(select(
+        IntendanceExpense.user_name,
+        func.sum(IntendanceExpense.amount).label("amount"),
+        func.count(IntendanceExpense.id).label("count"),
+    ).where(IntendanceExpense.user_name.is_not(None)).group_by(IntendanceExpense.user_name).order_by(func.sum(IntendanceExpense.amount).desc())))).all()
+    users = [{"name": row[0], "amount": float(row[1] or 0), "count": row[2]} for row in user_rows]
+
+    top_rows = (await db.execute(filtered(select(
+        IntendanceExpense.id, IntendanceExpense.expense_date, IntendanceExpense.item_description,
+        IntendanceExpense.category, IntendanceExpense.user_name, IntendanceExpense.amount,
+    ).order_by(IntendanceExpense.amount.desc()).limit(10)))).all()
+    top_expenses = [{"id": row[0], "date": row[1].isoformat(), "description": row[2], "category": row[3] or "Non classée", "user_name": row[4], "amount": float(row[5] or 0)} for row in top_rows]
+
+    previous_amount = None
+    if expense_date_from is not None and expense_date_to is not None and expense_date_to >= expense_date_from:
+        span = (expense_date_to - expense_date_from).days + 1
+        previous_from = expense_date_from - timedelta(days=span)
+        previous_to = expense_date_from - timedelta(days=1)
+        previous_amount = float((await db.execute(filtered(select(func.coalesce(func.sum(IntendanceExpense.amount), 0)).where(visible_category), previous_from, previous_to))).scalar_one() or 0)
+    return {"kpis": {"total_amount": total_amount, "count": totals[1], "average_amount": float(totals[2] or 0), "previous_amount": previous_amount}, "categories": categories, "monthly": monthly, "users": users, "top_expenses": top_expenses}
 
 
 @router.patch("/{expense_id}", response_model=ExpenseResponse)

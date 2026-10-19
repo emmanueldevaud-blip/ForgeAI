@@ -892,8 +892,8 @@ export class HousingPlanningPage {
           <div class="form-group">
             <label>Message</label>
             <input type="hidden" id="email-body" value="">
-            <div style="border:1px solid var(--color-border);border-radius:6px;overflow:hidden;">
-              <div style="display:flex;gap:4px;flex-wrap:wrap;padding:8px;background:var(--color-gray-50);border-bottom:1px solid var(--color-border);">
+            <div class="housing-email-editor-wrapper">
+              <div class="housing-email-toolbar">
                 <button type="button" class="btn btn-sm btn-secondary" data-email-command="bold"><strong>Gras</strong></button>
                 <button type="button" class="btn btn-sm btn-secondary" data-email-command="italic"><em>Italique</em></button>
                 <button type="button" class="btn btn-sm btn-secondary" data-email-command="underline"><u>Souligné</u></button>
@@ -910,7 +910,7 @@ export class HousingPlanningPage {
                 <button type="button" class="btn btn-sm btn-secondary" data-email-action="link">Lien</button>
                 <button type="button" class="btn btn-sm btn-secondary" data-email-command="removeFormat">Effacer le format</button>
               </div>
-              <div id="email-body-editor" contenteditable="true" style="min-height:160px;padding:12px;outline:none;"></div>
+              <div id="email-body-editor" class="housing-email-editor" contenteditable="true"></div>
             </div>
           </div>
           <div class="modal-footer" style="margin-top:1rem;display:flex;gap:8px;justify-content:flex-end;">
@@ -1238,6 +1238,16 @@ export class HousingPlanningPage {
     const emailSendBtn = overlay.querySelector('#email-send');
     if (emailSendBtn) {
       const editor = overlay.querySelector('#email-body-editor');
+      let savedRange = null;
+      const saveRange = () => {
+        const selection = window.getSelection();
+        if (selection.rangeCount && editor.contains(selection.anchorNode)) {
+          savedRange = selection.getRangeAt(0).cloneRange();
+        }
+      };
+      editor.addEventListener('keyup', saveRange);
+      editor.addEventListener('mouseup', saveRange);
+      editor.addEventListener('input', saveRange);
       const templateType = overlay.querySelector('[data-template-type]')?.dataset.templateType || 'custom';
       const usesConfiguredTemplate = ['confirmation', 'cancellation'].includes(templateType);
       const applyTemplate = (template) => {
@@ -1295,17 +1305,36 @@ export class HousingPlanningPage {
 
       overlay.querySelectorAll('[data-email-command]').forEach(button => button.addEventListener('click', () => {
         editor.focus();
+        if (savedRange) {
+          const selection = window.getSelection();
+          selection.removeAllRanges();
+          selection.addRange(savedRange);
+        }
         document.execCommand(button.dataset.emailCommand, false, null);
+        saveRange();
       }));
+      overlay.querySelectorAll('[data-email-command], [data-email-format-block], [data-email-action="link"]').forEach(button => button.addEventListener('mousedown', saveRange));
       overlay.querySelector('[data-email-format-block]')?.addEventListener('change', event => {
         editor.focus();
+        if (savedRange) {
+          const selection = window.getSelection();
+          selection.removeAllRanges();
+          selection.addRange(savedRange);
+        }
         document.execCommand('formatBlock', false, event.target.value);
+        saveRange();
       });
       overlay.querySelector('[data-email-action="link"]')?.addEventListener('click', () => {
         const url = window.prompt('Adresse du lien :', 'https://');
         if (!url) return;
         editor.focus();
+        if (savedRange) {
+          const selection = window.getSelection();
+          selection.removeAllRanges();
+          selection.addRange(savedRange);
+        }
         document.execCommand('createLink', false, url);
+        saveRange();
       });
 
       emailSendBtn.addEventListener('click', async () => {

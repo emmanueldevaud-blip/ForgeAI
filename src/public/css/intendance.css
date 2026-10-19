@@ -7,3 +7,7 @@
 .intendance-expenses-page .page-filters .filter-group { flex: 1 1 220px; }
 .intendance-expenses-page .page-actions { justify-content: flex-end; }
 .intendance-expenses-page .btn input { display: none; }
+.intendance-expenses-page .import-progress { padding: var(--spacing-3); border: 1px solid var(--color-border-light); border-radius: var(--radius-md); background: var(--color-bg-secondary); color: var(--color-text-secondary); }
+.intendance-expenses-page .import-progress-bar { height: 8px; margin-top: var(--spacing-2); overflow: hidden; border-radius: 99px; background: var(--color-border-light); }
+.intendance-expenses-page .import-progress-bar span { display: block; height: 100%; background: var(--color-primary); transition: width .25s ease; }
+.intendance-expenses-page .import-summary { display: flex; flex-wrap: wrap; gap: var(--spacing-3); margin-top: var(--spacing-2); font-size: var(--font-size-sm); }

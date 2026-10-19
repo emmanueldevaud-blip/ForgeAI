@@ -22,7 +22,8 @@ from app.schemas.intendance_expense import (
     AccountCodeCreate, AccountCodeListResponse, AccountCodeResponse, AccountCodeUpdate,
     BulkSiteAssign, BulkSiteResponse, ExpenseListResponse, ExpenseResponse,
     ExpenseUpdate, ImportBatchResponse, ImportValidateResponse, SiteCreate,
-    SiteListResponse, SiteResponse, SiteUpdate, StagedRowListResponse, StagedRowResponse,
+    SiteListResponse, SiteResponse, SiteUpdate, StagedRowListResponse, StagedRowResponse, ImportBilan,
+    CardAliasCreate, CardAliasListResponse, CardAliasResponse, CardAliasUpdate,
 )
 from app.services.intendance_expense import expense_fingerprint, parse_excel_row
 
@@ -122,6 +123,28 @@ async def list_account_codes(current_user: User = Depends(require_permission("in
     return AccountCodeListResponse(items=[AccountCodeResponse.model_validate(x) for x in rows], total=len(rows), page=1, page_size=len(rows) or 1, total_pages=1)
 
 
+@router.get("/aliases", response_model=CardAliasListResponse)
+async def list_aliases(current_user: User = Depends(require_permission("intendance.expenses.view")), db: AsyncSession = Depends(get_db)):
+    rows = (await db.execute(select(IntendanceCardAlias).order_by(IntendanceCardAlias.alias))).scalars().all()
+    return CardAliasListResponse(items=[CardAliasResponse.model_validate(x) for x in rows], total=len(rows), page=1, page_size=len(rows) or 1, total_pages=1)
+
+
+@router.post("/aliases", response_model=CardAliasResponse, status_code=201)
+async def create_alias(data: CardAliasCreate, current_user: User = Depends(require_permission("intendance.expenses.manage_refs")), db: AsyncSession = Depends(get_db)):
+    alias = IntendanceCardAlias(**data.model_dump()); db.add(alias)
+    try: await db.commit()
+    except IntegrityError: await db.rollback(); raise HTTPException(409, "Cet alias existe déjà")
+    await db.refresh(alias); return CardAliasResponse.model_validate(alias)
+
+
+@router.patch("/aliases/{alias_id}", response_model=CardAliasResponse)
+async def update_alias(alias_id: int, data: CardAliasUpdate, current_user: User = Depends(require_permission("intendance.expenses.manage_refs")), db: AsyncSession = Depends(get_db)):
+    alias = await db.get(IntendanceCardAlias, alias_id)
+    if not alias: raise HTTPException(404, "Alias introuvable")
+    for key, value in data.model_dump(exclude_unset=True).items(): setattr(alias, key, value)
+    await db.commit(); await db.refresh(alias); return CardAliasResponse.model_validate(alias)
+
+
 @router.post("/account-codes", response_model=AccountCodeResponse, status_code=201)
 async def create_account_code(data: AccountCodeCreate, current_user: User = Depends(require_permission("intendance.expenses.manage_refs")), db: AsyncSession = Depends(get_db)):
     code = IntendanceAccountCode(**data.model_dump()); db.add(code)
@@ -161,7 +184,18 @@ async def analyze_import(file: UploadFile = File(...), current_user: User = Depe
     for row in staged: row.is_duplicate_existing = row.fingerprint in existing
     batch.rows_total = len(staged); batch.rows_new = sum(not r.invalid_reason and not r.is_duplicate_existing and not r.is_duplicate_in_file for r in staged); batch.rows_duplicate_existing = sum(r.is_duplicate_existing for r in staged); batch.rows_duplicate_in_file = sum(r.is_duplicate_in_file for r in staged); batch.rows_invalid = sum(bool(r.invalid_reason) for r in staged)
     await db.commit(); await db.refresh(batch)
-    return ImportBatchResponse.model_validate(batch)
+    return ImportBatchResponse(
+        id=batch.id, reference=batch.reference, file_name=batch.file_name, status=batch.status,
+        created_at=batch.created_at, uploaded_by=batch.uploaded_by,
+        bilan=ImportBilan(
+            rows_total=batch.rows_total, rows_new=batch.rows_new,
+            rows_duplicate_existing=batch.rows_duplicate_existing,
+            rows_duplicate_in_file=batch.rows_duplicate_in_file,
+            rows_unknown_codes=batch.rows_unknown_codes,
+            rows_unknown_users=batch.rows_unknown_users,
+            rows_invalid=batch.rows_invalid,
+        ),
+    )
 
 
 @router.post("/imports/{batch_id}/validate", response_model=ImportValidateResponse)

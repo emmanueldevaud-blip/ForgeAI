@@ -7528,15 +7528,15 @@
 .souvenirs-stage { position: relative; width: 100%; aspect-ratio: 16 / 9; max-height: 70vh; overflow: hidden; border-radius: var(--radius-lg); background: #0b0b0f; outline: none; }
 .souvenirs-layer { position: absolute; inset: 0; opacity: 0; transition: opacity 1.2s ease; }
 .souvenirs-layer.is-active { opacity: 1; }
-.souvenirs-photo { width: 100%; height: 100%; object-fit: cover; }
+.souvenirs-photo { width: 100%; height: 100%; object-fit: contain; }
 .souvenirs-photo.kb-1 { animation: souvenirsKb1 var(--slide-ms, 6000ms) linear forwards; }
 .souvenirs-photo.kb-2 { animation: souvenirsKb2 var(--slide-ms, 6000ms) linear forwards; }
 .souvenirs-photo.kb-3 { animation: souvenirsKb3 var(--slide-ms, 6000ms) linear forwards; }
 .souvenirs-photo.kb-4 { animation: souvenirsKb4 var(--slide-ms, 6000ms) linear forwards; }
-@keyframes souvenirsKb1 { from { transform: scale(1) translate(0, 0); } to { transform: scale(1.12) translate(-1.5%, -1%); } }
-@keyframes souvenirsKb2 { from { transform: scale(1.12) translate(1.5%, 1%); } to { transform: scale(1) translate(0, 0); } }
-@keyframes souvenirsKb3 { from { transform: scale(1) translate(1%, -1%); } to { transform: scale(1.12) translate(-1%, 1%); } }
-@keyframes souvenirsKb4 { from { transform: scale(1.12) translate(-1%, 1%); } to { transform: scale(1) translate(1%, -1%); } }
+@keyframes souvenirsKb1 { from { transform: scale(1) translate(0, 0); } to { transform: scale(1) translate(-1.5%, -1%); } }
+@keyframes souvenirsKb2 { from { transform: scale(1) translate(1.5%, 1%); } to { transform: scale(1) translate(0, 0); } }
+@keyframes souvenirsKb3 { from { transform: scale(1) translate(1%, -1%); } to { transform: scale(1) translate(-1%, 1%); } }
+@keyframes souvenirsKb4 { from { transform: scale(1) translate(-1%, 1%); } to { transform: scale(1) translate(1%, -1%); } }
 
 /* Ambiances : effets visuels appliqués aux photos + voile coloré du stage. */
 .souvenirs-stage::before { content: ''; position: absolute; inset: 0; z-index: 1; pointer-events: none; transition: background .6s ease; }

@@ -83,9 +83,9 @@ _CODES = [
 
 def upgrade() -> None:
     bind = op.get_bind()
-    op.alter_column("intendance_account_codes", "code", existing_type=sa.String(80), type_=sa.String(1000), existing_nullable=False)
-    op.alter_column("intendance_expenses", "account_code", existing_type=sa.String(80), type_=sa.String(1000), existing_nullable=True)
-    op.alter_column("intendance_import_staged_rows", "account_code", existing_type=sa.String(80), type_=sa.String(1000), existing_nullable=True)
+    op.alter_column("intendance_account_codes", "code", existing_type=sa.String(80), type_=sa.String(700), existing_nullable=False)
+    op.alter_column("intendance_expenses", "account_code", existing_type=sa.String(80), type_=sa.String(700), existing_nullable=True)
+    op.alter_column("intendance_import_staged_rows", "account_code", existing_type=sa.String(80), type_=sa.String(700), existing_nullable=True)
     for code, label, category in _CODES:
         bind.execute(
             sa.text("INSERT IGNORE INTO intendance_account_codes (code, label, category) VALUES (:code, :label, :category)"),

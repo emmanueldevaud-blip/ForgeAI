@@ -52,7 +52,7 @@ class IntendanceAccountCode(Base):
     __tablename__ = "intendance_account_codes"
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
-    code: Mapped[str] = mapped_column(String(1000), unique=True, nullable=False, index=True)
+    code: Mapped[str] = mapped_column(String(700), unique=True, nullable=False, index=True)
     label: Mapped[str | None] = mapped_column(Text, nullable=True)
     category: Mapped[str | None] = mapped_column(String(100), nullable=True, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
@@ -111,7 +111,7 @@ class IntendanceImportStagedRow(Base):
     amount: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False, default=0)
     corporation: Mapped[int | None] = mapped_column(Integer, nullable=True)
     cost_center: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    account_code: Mapped[str | None] = mapped_column(String(1000), nullable=True)
+    account_code: Mapped[str | None] = mapped_column(String(700), nullable=True)
     account_label: Mapped[str | None] = mapped_column(Text, nullable=True)
     prepared_by: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
@@ -140,7 +140,7 @@ class IntendanceExpense(Base):
     amount: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
     corporation: Mapped[int | None] = mapped_column(Integer, nullable=True)
     cost_center: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    account_code: Mapped[str | None] = mapped_column(String(1000), nullable=True, index=True)
+    account_code: Mapped[str | None] = mapped_column(String(700), nullable=True, index=True)
     account_label: Mapped[str | None] = mapped_column(Text, nullable=True)
     prepared_by: Mapped[str | None] = mapped_column(String(255), nullable=True)
 

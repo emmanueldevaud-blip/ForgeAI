@@ -77,7 +77,7 @@ class CardAliasListResponse(BaseModel):
 # ============================================================
 
 class AccountCodeCreate(BaseModel):
-    code: str = Field(..., min_length=1, max_length=1000)
+    code: str = Field(..., min_length=1, max_length=700)
     label: Optional[str] = Field(None, max_length=2000)
     category: Optional[str] = Field(None, max_length=100)
 
@@ -129,7 +129,7 @@ class ExpenseResponse(BaseModel):
     amount: Decimal
     corporation: Optional[int] = None
     cost_center: Optional[int] = None
-    account_code: Optional[str] = Field(None, max_length=1000)
+    account_code: Optional[str] = Field(None, max_length=700)
     account_label: Optional[str] = None
     prepared_by: Optional[str] = None
     category: Optional[str] = None

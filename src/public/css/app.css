@@ -1833,6 +1833,20 @@
   }
 }
 
+/* Harmonisation finale des pieds de tableaux legacy avec users-pagination. */
+:where(.pagination, .users-pagination) {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--spacing-4);
+  padding: var(--spacing-4);
+  border: 1px solid var(--color-border-light);
+  border-radius: var(--radius-xl);
+  background: var(--color-bg-primary);
+}
+:where(.pagination, .users-pagination) :where(.pagination-controls) { display: flex; gap: var(--spacing-2); }
+
 /* =========================================================
    ACTIVE DIRECTORY PAGE
    ========================================================= */

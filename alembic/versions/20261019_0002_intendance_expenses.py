@@ -16,6 +16,48 @@ depends_on = None
 
 
 def upgrade() -> None:
+    # La première tentative de cette migration peut avoir créé une partie
+    # des tables avant un échec MySQL (DDL non transactionnel). S'appuyer sur
+    # les modèles avec checkfirst rend la reprise sûre et évite tout DROP.
+    from app.models.intendance_expense import (
+        IntendanceAccountCode,
+        IntendanceCardAlias,
+        IntendanceExpense,
+        IntendanceExpenseHistory,
+        IntendanceImportBatch,
+        IntendanceImportStagedRow,
+        IntendanceSite,
+    )
+
+    bind = op.get_bind()
+    for model in (
+        IntendanceSite,
+        IntendanceCardAlias,
+        IntendanceAccountCode,
+        IntendanceImportBatch,
+        IntendanceExpense,
+        IntendanceImportStagedRow,
+        IntendanceExpenseHistory,
+    ):
+        model.__table__.create(bind=bind, checkfirst=True)
+
+    sites = [
+        "APPARTEMENTS RIOM TOULON APPT1", "APPARTEMENTS RIOM TOULON APPT2", "APPARTEMENTS RIOM TOULON APPT3",
+        "APPARTEMENT CLERMONT MOUCHET", "APPARTEMENT CLERMONT PUY", "APPARTEMENT CEBAZAT SOUVILLE",
+        "APPARTEMENT RIOM MARENGO 1", "APPARTEMENT RIOM MARENGO 2", "COMMUN RIOM/CEBAZAT",
+        "COMMUN APPARTEMENTS", "CEBAZAT", "RIOM", "PUTEAUX", "DEPLACEMENTS", "JPO",
+    ]
+    for index, name in enumerate(sites):
+        bind.execute(sa.text("INSERT IGNORE INTO intendance_sites (name, sort_order) VALUES (:name, :sort_order)"), {"name": name, "sort_order": index})
+    aliases = {
+        "(3013389) CB Le Gall S.": "LE GALL", "(3031084) CB Rosello M.": "ROSELLO",
+        "(3121424) CB E. Devaud": "DEVAUD", "(3031534) CB Partel C.": "PARTEL",
+        "(3019418) CB Berthoud M.": "BERTHOUD", "PUNCHOUT/HUB": "HUB",
+    }
+    for alias, user_name in aliases.items():
+        bind.execute(sa.text("INSERT IGNORE INTO intendance_card_aliases (alias, user_name) VALUES (:alias, :user_name)"), {"alias": alias, "user_name": user_name})
+    return
+
     op.create_table(
         "intendance_sites",
         sa.Column("id", sa.Integer(), primary_key=True, autoincrement=True),

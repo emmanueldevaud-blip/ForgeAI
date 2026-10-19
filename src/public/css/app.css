@@ -7611,3 +7611,11 @@
 .intendance-dashboard-page .date-range-sliders input:first-child { pointer-events: none; }
 .intendance-dashboard-page .date-range-sliders input::-webkit-slider-thumb,
 .intendance-dashboard-page .date-range-sliders input::-moz-range-thumb { pointer-events: auto; }
+.intendance-dashboard-page .date-range-sliders { isolation: isolate; }
+.intendance-dashboard-page .date-range-sliders::before { z-index: 0; }
+.intendance-dashboard-page .date-range-sliders input { position: relative; appearance: none; -webkit-appearance: none; background: transparent; }
+.intendance-dashboard-page .date-range-sliders input::-webkit-slider-runnable-track { height: 6px; border-radius: var(--radius-full); background: transparent; }
+.intendance-dashboard-page .date-range-sliders input::-moz-range-track { height: 6px; border-radius: var(--radius-full); background: transparent; }
+.intendance-dashboard-page .date-range-sliders input::-webkit-slider-thumb { width: 16px; height: 16px; margin-top: -5px; border: 2px solid var(--color-primary); border-radius: var(--radius-full); background: var(--color-surface-raised); cursor: grab; }
+.intendance-dashboard-page .date-range-sliders input::-moz-range-thumb { width: 16px; height: 16px; border: 2px solid var(--color-primary); border-radius: var(--radius-full); background: var(--color-surface-raised); cursor: grab; }
+.intendance-dashboard-page .filter-group select[multiple] { min-height: 96px; }

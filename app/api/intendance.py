@@ -6,7 +6,7 @@ import math
 import uuid
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
 from sqlalchemy import String, cast, func, select, update as sa_update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -100,7 +100,7 @@ async def list_expenses(
 @router.get("/dashboard", response_model=dict)
 async def expense_dashboard(
     expense_date_from: date | None = None, expense_date_to: date | None = None,
-    user_name: str | None = None, site_id: int | None = None,
+    user_name: list[str] | None = Query(None), site_id: list[int] | None = Query(None),
     current_user: User = Depends(require_permission("intendance.expenses.view")),
     db: AsyncSession = Depends(get_db),
 ):
@@ -115,9 +115,9 @@ async def expense_dashboard(
     if expense_date_to is not None:
         query = query.where(IntendanceExpense.expense_date <= expense_date_to)
     if user_name:
-        query = query.where(IntendanceExpense.user_name == user_name)
-    if site_id is not None:
-        query = query.where(IntendanceExpense.site_id == site_id)
+        query = query.where(IntendanceExpense.user_name.in_(user_name))
+    if site_id:
+        query = query.where(IntendanceExpense.site_id.in_(site_id))
     query = query.group_by(IntendanceExpense.category).order_by(func.sum(IntendanceExpense.amount).desc())
     rows = (await db.execute(query)).all()
     return {cat or "Non classé": float(total) for cat, total in rows}

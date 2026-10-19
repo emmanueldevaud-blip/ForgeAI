@@ -20,8 +20,8 @@ export class IntendanceDashboardPage {
     this.maxAmount = 0;
     this.filterDateFrom = '';
     this.filterDateTo = '';
-    this.filterUser = '';
-    this.filterSite = '';
+    this.filterUser = [];
+    this.filterSite = [];
     this.page = 1;
     this.refreshTimer = null;
   }
@@ -36,10 +36,10 @@ export class IntendanceDashboardPage {
     const params = new URLSearchParams();
     if (this.filterDateFrom) params.append('expense_date_from', this.filterDateFrom);
     if (this.filterDateTo) params.append('expense_date_to', this.filterDateTo);
-    if (this.filterUser) params.append('user_name', this.filterUser);
-    if (this.filterSite) params.append('site_id', this.filterSite);
+    this.filterUser.forEach(user => params.append('user_name', user));
+    this.filterSite.forEach(site => params.append('site_id', site));
 
-    const categories = (await getExpenseDashboard(Object.fromEntries(params))) || {};
+    const categories = (await getExpenseDashboard(params)) || {};
 
     this.categories = Object.keys(categories).filter(category => category && category !== 'undefined');
     this.categories.sort((a, b) => Number(categories[b] || 0) - Number(categories[a] || 0));
@@ -90,13 +90,13 @@ export class IntendanceDashboardPage {
           </div>
           <div class="filter-group">
             <label class="filter-label">Utilisateur</label>
-            <select class="form-select" id="user-filter">
+            <select class="form-select" id="user-filter" multiple size="4" aria-label="Utilisateurs">
               <option value="">Tous</option>
             </select>
           </div>
           <div class="filter-group">
             <label class="filter-label">Site</label>
-            <select class="form-select" id="site-filter">
+            <select class="form-select" id="site-filter" multiple size="4" aria-label="Sites">
               <option value="">Tous</option>
             </select>
           </div>
@@ -121,11 +121,14 @@ export class IntendanceDashboardPage {
     
     // Date filter
     this.element.querySelectorAll('#date-from, #date-to').forEach(input => {
+      input.oninput = () => {
+        this._updateDateRangeTrack();
+      };
       input.onchange = () => {
         const start = new Date('2020-01-01');
         const toDate = value => new Date(start.getTime() + Number(value) * 86400000).toISOString().split('T')[0];
-        const fromValue = Number(document.getElementById('date-from').value);
-        const toValue = Number(document.getElementById('date-to').value);
+        const fromValue = Number(this.element.querySelector('#date-from').value);
+        const toValue = Number(this.element.querySelector('#date-to').value);
         this.filterDateFrom = toDate(Math.min(fromValue, toValue));
         this.filterDateTo = toDate(Math.max(fromValue, toValue));
         this._updateDateRangeTrack();
@@ -142,13 +145,13 @@ export class IntendanceDashboardPage {
 
     // User filter
     this.element.querySelector('#user-filter').onchange = (e) => {
-      this.filterUser = e.target.value;
+      this.filterUser = Array.from(e.target.selectedOptions, option => option.value);
       this.loadDashboard();
     };
 
     // Site filter
     this.element.querySelector('#site-filter').onchange = (e) => {
-      this.filterSite = e.target.value;
+      this.filterSite = Array.from(e.target.selectedOptions, option => Number(option.value));
       this.loadDashboard();
     };
 
@@ -236,8 +239,14 @@ export class IntendanceDashboardPage {
       const users = [...new Set((aliases.items || []).map(item => item.user_name).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'fr'));
       const userSelect = this.element.querySelector('#user-filter');
       const siteSelect = this.element.querySelector('#site-filter');
-      if (userSelect) userSelect.innerHTML = '<option value="">Tous</option>' + users.map(user => `<option value="${user}">${user}</option>`).join('');
-      if (siteSelect) siteSelect.innerHTML = '<option value="">Tous</option>' + (sites.items || []).map(site => `<option value="${site.id}">${site.name}</option>`).join('');
+      if (userSelect) {
+        userSelect.innerHTML = users.map(user => `<option value="${user}">${user}</option>`).join('');
+        Array.from(userSelect.options).forEach(option => { option.selected = this.filterUser.includes(option.value); });
+      }
+      if (siteSelect) {
+        siteSelect.innerHTML = (sites.items || []).map(site => `<option value="${site.id}">${site.name}</option>`).join('');
+        Array.from(siteSelect.options).forEach(option => { option.selected = this.filterSite.includes(Number(option.value)); });
+      }
     });
     this._updateDateRangeTrack();
   }

@@ -5,7 +5,7 @@ import subprocess
 import platform
 import json
 import os
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from ipaddress import IPv4Network, IPv6Network, IPv4Address, IPv6Address
 from typing import Optional, List, Tuple
 
@@ -796,6 +796,252 @@ class ITAssetService:
         )
         self.db.add(history)
         await self.db.flush()
+
+    # ------------------------------------------------------------
+    # Interface web d'administration (URL de gestion)
+    # ------------------------------------------------------------
+
+    async def set_management_url(self, asset_id: int, url: Optional[str]) -> Optional[ITAsset]:
+        """Saisir, modifier ou effacer l'URL de gestion d'un équipement.
+
+        Une URL saisie manuellement est prioritaire : la détection automatique
+        ne l'écrasera jamais. L'effacement (champ vide) passe par cette
+        méthode dédiée — le verrou « update n'applique jamais None » du
+        service générique reste inchangé.
+        """
+        from app.services.web_detect import validate_management_url
+
+        asset = await self.get_it_asset(asset_id)
+        if not asset:
+            return None
+
+        normalized = validate_management_url(url)  # lève ValueError si invalide
+        old_url = asset.management_url
+
+        if normalized:
+            asset.management_url = normalized
+            asset.management_url_source = "manual"
+            asset.management_url_status = "to_check"
+            asset.management_url_detected_at = None
+        else:
+            asset.management_url = None
+            asset.management_url_source = None
+            asset.management_url_status = None
+            asset.management_url_detected_at = None
+
+        if self.audit and self.current_user:
+            await self.audit.log(
+                action="update",
+                module="it_asset",
+                user=self.current_user,
+                object_type="it_asset",
+                object_id=asset.id,
+                object_repr=f"{asset.reference} - {asset.name}",
+                old_values={"management_url": old_url},
+                new_values={"management_url": asset.management_url},
+                status="success",
+            )
+
+        if old_url != asset.management_url:
+            await self._log_history(asset_id, "management_url", old_url, asset.management_url)
+
+        try:
+            await self.db.commit()
+            await self.db.refresh(asset)
+        except IntegrityError:
+            await self.db.rollback()
+            return None
+        return await self.get_it_asset(asset.id)
+
+    async def probe_management_interface(
+        self,
+        detector,
+        ip_address: Optional[str],
+        asset_type,
+        management_url: Optional[str] = None,
+        management_url_source: Optional[str] = None,
+    ) -> Tuple[dict, bool]:
+        """Choisir la probe adaptée à l'état de l'URL (aucune écriture DB).
+
+        Retourne ``(probe, update_url)`` :
+        - URL manuelle → on vérifie SON état (l'URL n'est jamais modifiée) ;
+        - sinon → détection sur l'IP de l'équipement (URL auto écrivable).
+        """
+        from app.services.web_detect import STATUS_TO_CHECK
+
+        if management_url and management_url_source == "manual":
+            probe = await detector.probe_url(management_url)
+            return probe, False
+
+        if not ip_address:
+            return {
+                "checked_at": datetime.now(UTC).isoformat(),
+                "ip": None,
+                "url": None,
+                "status": STATUS_TO_CHECK,
+                "http_detected": False,
+                "error": "aucune adresse IP configurée",
+            }, False
+
+        type_value = getattr(asset_type, "value", asset_type)
+        probe = await detector.probe_asset(str(ip_address), str(type_value) if type_value else None)
+        return probe, True
+
+    async def record_management_probe(
+        self,
+        asset_id: int,
+        probe: dict,
+        update_url: bool = True,
+    ) -> Optional[ITAsset]:
+        """Conserver le résultat d'une probe HTTP(S).
+
+        - met à jour le statut et l'horodatage de dernière vérification ;
+        - fusionne les détails dans ``discovery_data["web"]`` (JSON existant,
+          aucune colonne supplémentaire) ;
+        - n'écrit ``management_url`` (source « auto ») que si ``update_url``
+          est autorisé ET que l'URL n'a pas été saisie manuellement ;
+        - l'historique n'est alimenté que si la valeur de l'URL change, pour
+          ne pas le remplir à chaque re-vérification périodique.
+        """
+        asset = await self.get_it_asset(asset_id)
+        if not asset:
+            return None
+
+        probe = dict(probe or {})
+        status = probe.get("status")
+        old_url = asset.management_url
+        is_manual = bool(asset.management_url and asset.management_url_source == "manual")
+
+        # Une URL n'est écrite que si l'interface est réellement confirmée
+        # (réponse HTTP ou certificat TLS signalé) : un timeout ou un port
+        # fermé ne doit pas laisser passer l'URL simplement tentée.
+        from app.services.web_detect import STATUS_TLS_UNTRUSTED
+
+        url_candidate = probe.get("url")
+        url_confirmed = bool(probe.get("http_detected")) or status == STATUS_TLS_UNTRUSTED
+        if url_candidate and url_confirmed and update_url and not is_manual:
+            asset.management_url = url_candidate
+            asset.management_url_source = "auto"
+
+        if status:
+            asset.management_url_status = status
+        asset.management_url_detected_at = datetime.now(UTC)
+
+        discovery_data = dict(asset.discovery_data or {})
+        discovery_data["web"] = probe
+        asset.discovery_data = discovery_data
+
+        if old_url != asset.management_url:
+            await self._log_history(asset_id, "management_url", old_url, asset.management_url)
+            if self.audit and self.current_user:
+                await self.audit.log(
+                    action="update",
+                    module="it_asset",
+                    user=self.current_user,
+                    object_type="it_asset",
+                    object_id=asset.id,
+                    object_repr=f"{asset.reference} - {asset.name}",
+                    old_values={"management_url": old_url},
+                    new_values={"management_url": asset.management_url},
+                    status="success",
+                )
+
+        try:
+            await self.db.commit()
+            await self.db.refresh(asset)
+        except IntegrityError:
+            await self.db.rollback()
+            return None
+        return await self.get_it_asset(asset.id)
+
+    async def detect_management_url(self, asset_id: int, detector=None) -> Optional[ITAsset]:
+        """Rechercher / actualiser l'interface web d'un équipement (action manuelle).
+
+        ``detector`` permet d'injecter un ``WebInterfaceDetector`` (tests :
+        magasin de confiance TLS personnalisé)."""
+        from app.services.web_detect import WebInterfaceDetector
+
+        asset = await self.get_it_asset(asset_id)
+        if not asset:
+            return None
+
+        if detector is None:
+            detector = WebInterfaceDetector(self.db)
+        await detector.warmup()
+        probe, update_url = await self.probe_management_interface(
+            detector,
+            asset.ip_address,
+            asset.asset_type,
+            asset.management_url,
+            asset.management_url_source,
+        )
+        return await self.record_management_probe(asset_id, probe, update_url=update_url)
+
+    async def check_management_url(self, asset_id: int, detector=None) -> Optional[ITAsset]:
+        """Tester l'URL de gestion existante sans jamais la modifier.
+
+        ``detector`` permet d'injecter un ``WebInterfaceDetector`` (tests)."""
+        from app.services.web_detect import WebInterfaceDetector
+
+        asset = await self.get_it_asset(asset_id)
+        if not asset:
+            return None
+        if not asset.management_url:
+            raise ValueError("Aucune URL de gestion à vérifier")
+
+        if detector is None:
+            detector = WebInterfaceDetector(self.db)
+        await detector.warmup()
+        probe = await detector.probe_url(asset.management_url)
+        return await self.record_management_probe(asset_id, probe, update_url=False)
+
+    async def refresh_due_management_urls(self) -> dict:
+        """Re-vérifier périodiquement les URL déjà détectées (peu fréquent).
+
+        Ne concerne QUE les équipements ayant déjà une URL, et seulement ceux
+        dont la dernière vérification dépasse IT_WEB_DETECT_REFRESH_HOURS :
+        aucun test HTTP en masse à chaque cycle de supervision de 5 minutes.
+        """
+        settings = get_settings()
+        if not settings.IT_WEB_DETECT_ENABLED:
+            return {"due": 0, "checked": 0, "failed": 0, "disabled": True}
+
+        from app.db.session import AsyncSessionLocal
+
+        cutoff = datetime.now(UTC) - timedelta(hours=settings.IT_WEB_DETECT_REFRESH_HOURS)
+        result = await self.db.execute(
+            select(ITAsset.id)
+            .where(ITAsset.is_active == True)  # noqa: E712
+            .where(ITAsset.management_url.isnot(None))
+            .where(or_(
+                ITAsset.management_url_detected_at.is_(None),
+                ITAsset.management_url_detected_at <= cutoff,
+            ))
+            .order_by(ITAsset.management_url_detected_at.asc())
+            .limit(settings.IT_WEB_DETECT_REFRESH_BATCH)
+        )
+        asset_ids = [row[0] for row in result.all()]
+        if not asset_ids:
+            return {"due": 0, "checked": 0, "failed": 0}
+
+        async def _check_one(aid: int) -> Optional[ITAsset]:
+            # Session dédiée par vérification (même pattern que check_all_assets)
+            async with AsyncSessionLocal() as db:
+                try:
+                    return await ITAssetService(db).check_management_url(aid)
+                except Exception as exc:
+                    print(f"[WEB-DETECT] Erreur refresh asset {aid}: {exc}")
+                    return None
+                finally:
+                    await db.close()
+
+        results = await asyncio.gather(*[_check_one(aid) for aid in asset_ids])
+        checked = sum(1 for item in results if item is not None)
+        return {
+            "due": len(asset_ids),
+            "checked": checked,
+            "failed": len(asset_ids) - checked,
+        }
 
     async def delete_it_asset(self, asset_id: int) -> bool:
         asset = await self.get_it_asset(asset_id)
@@ -1809,6 +2055,21 @@ class NetworkDiscoveryService:
         # Résolution DNS (AD) : hostname via PTR
         dns_resolver = await self._build_dns_resolver()
 
+        # Détection de l'interface web d'administration : construite et
+        # « réchauffée » (autorise-liste inventaire + plages) UNE fois avant les
+        # tâches parallèles, pour ne jamais requêter la session en concurrence.
+        # Lecture tolérante : un stub de settings partiel (tests) désactive la
+        # détection plutôt que de faire échouer le scan.
+        web_detector = None
+        if getattr(get_settings(), "IT_WEB_DETECT_ENABLED", False):
+            from app.services.web_detect import WebInterfaceDetector
+            try:
+                web_detector = WebInterfaceDetector(self.db)
+                await web_detector.warmup()
+            except Exception:
+                # La détection web ne doit jamais faire échouer un scan.
+                web_detector = None
+
         try:
             network = IPv4Network(cidr, strict=False) if ':' not in cidr else IPv6Network(cidr, strict=False)
             hosts = [str(ip) for ip in network.hosts()]
@@ -1880,6 +2141,7 @@ class NetworkDiscoveryService:
 
                         # Toutes les écritures DB sont sérialisées (verrou) car les
                         # tâches concurrentes partagent la même session SQLAlchemy
+                        web_target = None
                         async with self._db_lock:
                             if mac:
                                 existing = await self.asset_service.get_it_asset_by_mac(mac)
@@ -1936,6 +2198,16 @@ class NetworkDiscoveryService:
                                     assets_created += 1
 
                             if asset_for_obs:
+                                # Snapshot pour la détection web (probe hors
+                                # verrou) : après commit, les attributs expirent
+                                # et un accès concurrent forcerait un lazy-load.
+                                web_target = {
+                                    "id": asset_for_obs.id,
+                                    "ip_address": asset_for_obs.ip_address,
+                                    "asset_type": asset_for_obs.asset_type,
+                                    "management_url": asset_for_obs.management_url,
+                                    "management_url_source": asset_for_obs.management_url_source,
+                                }
                                 try:
                                     await self.asset_service.create_observation(
                                         asset_for_obs.id,
@@ -1948,6 +2220,31 @@ class NetworkDiscoveryService:
                                     # Ne pas faire échouer tout le scan pour une observation
                                     await self.db.rollback()
                                     scan_errors.append(f"{ip}: observation: {obs_err}"[:300])
+
+                        # Détection de l'interface web d'administration :
+                        # réseau HORS verrou (non bloquant, timeouts courts),
+                        # écriture DB sérialisée dans le verrou.
+                        if web_detector is not None and web_target is not None:
+                            try:
+                                web_probe, web_update = await self.asset_service.probe_management_interface(
+                                    web_detector,
+                                    web_target["ip_address"],
+                                    web_target["asset_type"],
+                                    web_target["management_url"],
+                                    web_target["management_url_source"],
+                                )
+                                async with self._db_lock:
+                                    await self.asset_service.record_management_probe(
+                                        web_target["id"], web_probe, update_url=web_update
+                                    )
+                            except Exception as web_err:
+                                # La détection web ne doit jamais faire échouer le scan.
+                                async with self._db_lock:
+                                    try:
+                                        await self.db.rollback()
+                                    except Exception:
+                                        pass
+                                    scan_errors.append(f"{ip}: interface web: {web_err}"[:300])
                     # Suivi en direct : publier la progression toutes les 5 hôtes
                     # scannés, et immédiatement lorsqu'un hôte est trouvé
                     if reachable or hosts_scanned % 5 == 0:
@@ -2017,6 +2314,10 @@ class AssetMonitoringService:
         self.asset_service = ITAssetService(db, audit, current_user)
         self.discovery_service = NetworkDiscoveryService(db, audit, current_user)
         self._semaphore = asyncio.Semaphore(100)
+
+    async def refresh_due_management_urls(self) -> dict:
+        """Actualiser périodiquement les URL de gestion périmées (délégué)."""
+        return await self.asset_service.refresh_due_management_urls()
 
     async def check_asset(self, asset_id: int) -> dict:
         asset = await self.asset_service.get_it_asset(asset_id)

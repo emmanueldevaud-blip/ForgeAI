@@ -103,6 +103,23 @@ def disable_opencode_provider():
     settings.OPENCODE_ENABLED = original
 
 
+@pytest.fixture(scope="function", autouse=True)
+def disable_web_detect_by_default():
+    """Détection d'interface web inactive par défaut pendant les tests.
+
+    Les tests existants de scan ne mockent pas la requête HTTP de détection :
+    elle serait un vrai essai réseau. Les tests dédiés (test_it_web_management)
+    la réactivent explicitement.
+    """
+    from app.core.config import get_settings
+
+    settings = get_settings()
+    original = settings.IT_WEB_DETECT_ENABLED
+    settings.IT_WEB_DETECT_ENABLED = False
+    yield
+    settings.IT_WEB_DETECT_ENABLED = original
+
+
 @pytest.fixture(scope="function")
 async def client(db_session):
     def override_get_db():

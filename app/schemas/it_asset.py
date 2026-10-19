@@ -239,6 +239,10 @@ class ITAssetResponse(BaseModel):
     last_seen: Optional[datetime] = None
     last_check: Optional[datetime] = None
     consecutive_failures: int = 0
+    management_url: Optional[str] = None
+    management_url_detected_at: Optional[datetime] = None
+    management_url_status: Optional[str] = None
+    management_url_source: Optional[str] = None
     notes: Optional[str] = None
     is_active: bool
     created_at: datetime
@@ -469,3 +473,27 @@ class ITAssetImportResponse(BaseModel):
 
 class MessageResponse(BaseModel):
     message: str
+
+
+class ManagementURLRequest(BaseModel):
+    """Saisie manuelle de l'URL de gestion (champ vide ou null = effacement)."""
+
+    management_url: Optional[str] = Field(None, max_length=500)
+
+    @field_validator("management_url")
+    @classmethod
+    def validate_url(cls, v: Optional[str]) -> Optional[str]:
+        # Seuls http/https, sans identifiants embarqués (réutilise la
+        # validation unique du service de détection).
+        from app.services.web_detect import validate_management_url
+        return validate_management_url(v)
+
+
+class ManagementURLResponse(BaseModel):
+    """État de l'URL de gestion après une action (détection / test / saisie)."""
+
+    management_url: Optional[str] = None
+    management_url_source: Optional[str] = None
+    management_url_status: Optional[str] = None
+    management_url_detected_at: Optional[datetime] = None
+    details: Optional[dict] = None

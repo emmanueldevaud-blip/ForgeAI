@@ -117,6 +117,12 @@ class ITAsset(Base):
     last_seen: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     last_check: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     consecutive_failures: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    # Interface web d'administration détectée ou saisie manuellement
+    management_url: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    management_url_detected_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    management_url_status: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
+    # "manual" : URL saisie par un utilisateur (prioritaire) ; "auto" : détection
+    management_url_source: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
     notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)

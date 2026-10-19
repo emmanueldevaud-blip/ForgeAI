@@ -276,6 +276,25 @@ class Settings(BaseSettings):
     # Durée de validité du cache DNS (secondes).
     IT_DNS_RESOLVER_CACHE_TTL: int = 300
 
+    # --- IT — Détection de l'interface web d'administration des équipements
+    # Désactivable globalement (aucun probe réseau n'est alors émis).
+    IT_WEB_DETECT_ENABLED: bool = True
+    # Timeout du contrôle TCP par port (secondes, court par volonté).
+    IT_WEB_DETECT_TCP_TIMEOUT: float = 1.0
+    # Timeout de la requête HTTP(S) légère (secondes).
+    IT_WEB_DETECT_HTTP_TIMEOUT: float = 3.0
+    # Concurrence maximale de détection (nombre d'équipements en parallèle).
+    IT_WEB_DETECT_CONCURRENCY: int = 8
+    # Ports candidats (CSV, ex. "8080,8443"). Vide = ports par type d'équipement
+    # (80/443 + ports connus : imprimante 631, réseau 8080/8443, serveur 8080).
+    IT_WEB_DETECT_PORTS: str = ""
+    # Nombre maximal de redirections suivies par requête.
+    IT_WEB_DETECT_MAX_REDIRECTS: int = 3
+    # Actualisation périodique : fréquence (heures) de re-vérification des URL
+    # déjà détectées, et nombre maximal d'équipements traités par cycle (5 min).
+    IT_WEB_DETECT_REFRESH_HOURS: int = 24
+    IT_WEB_DETECT_REFRESH_BATCH: int = 10
+
     @property
     def ad_url(self) -> str:
         protocol = "ldaps" if self.AD_USE_SSL else "ldap"

@@ -22,8 +22,11 @@ import {
   deleteNetworkRange,
   scanNetworkRange,
   getDiscoveryLogs,
-  discoverAllRanges
-} from '../services/itAssetApi.js';
+  discoverAllRanges,
+  setManagementUrl,
+  detectManagementUrl,
+  checkManagementUrl
+} from '../services/itAssetApi.js?v=2';
 
 const ASSET_TYPES = [
   { value: 'pc_windows', label: 'Poste Windows' },
@@ -46,6 +49,23 @@ const ASSET_STATUSES = [
 ];
 
 const ASSET_STATUS_LABELS = Object.fromEntries(ASSET_STATUSES.map(({ value, label }) => [value, label]));
+
+// États de l'interface web d'administration (management_url_status)
+const MGMT_STATUS_LABELS = {
+  accessible: 'Accessible',
+  auth_required: 'Authentification requise',
+  unreachable: 'Indisponible',
+  tls_untrusted: 'Certificat non fiable',
+  to_check: 'À vérifier',
+};
+
+const MGMT_STATUS_BADGES = {
+  accessible: 'badge-success',
+  auth_required: 'badge-warning',
+  unreachable: 'badge-danger',
+  tls_untrusted: 'badge-warning',
+  to_check: 'badge-muted',
+};
 
 const SECTION_ROUTES = {
   list: '/it-assets',
@@ -867,6 +887,92 @@ export class ITAssetPage {
     `;
   }
 
+  // Section « Interface d'administration » de la fiche équipement :
+  // URL + protocole, état, dernière vérification, ouverture de l'interface et
+  // actions (saisie manuelle, test, recherche) selon les permissions existantes.
+  _fillManagementSection(container, asset) {
+    if (!container || !asset) return;
+    const url = String(asset.management_url || '');
+    // Seules les URL http/https sont affichées et ouvrables (défense en
+    // profondeur : le backend valide déjà le schéma à la saisie).
+    const safeUrl = /^https?:\/\//i.test(url) ? url : '';
+    let protocol = '-';
+    if (safeUrl) {
+      try { protocol = new URL(safeUrl).protocol.replace(':', ''); } catch (err) { protocol = '-'; }
+    }
+    const status = String(asset.management_url_status || 'to_check').toLowerCase();
+    const statusLabel = MGMT_STATUS_LABELS[status] || MGMT_STATUS_LABELS.to_check;
+    const badge = MGMT_STATUS_BADGES[status] || MGMT_STATUS_BADGES.to_check;
+    const source = asset.management_url_source === 'manual' ? 'Saisie manuelle'
+      : asset.management_url_source === 'auto' ? 'Détection automatique' : '-';
+    const checkedAt = asset.management_url_detected_at
+      ? new Date(asset.management_url_detected_at).toLocaleString('fr-FR') : '-';
+    const canUpdate = authStore.hasPermission('it_asset.update');
+    const canDiscover = authStore.hasPermission('it_asset.manage_discovery');
+
+    container.innerHTML = `
+      <dl class="asset-info">
+        <div class="asset-info-row"><dt>URL</dt><dd>${url ? this._escape(url) : 'Aucune interface détectée'}</dd></div>
+        <div class="asset-info-row"><dt>Protocole</dt><dd>${this._escape(protocol)}</dd></div>
+        <div class="asset-info-row"><dt>État</dt><dd><span class="status-badge ${badge}">${this._escape(statusLabel)}</span></dd></div>
+        <div class="asset-info-row"><dt>Dernière vérification</dt><dd>${this._escape(checkedAt)}</dd></div>
+        <div class="asset-info-row"><dt>Source</dt><dd>${this._escape(source)}</dd></div>
+      </dl>
+      <div class="asset-actions">
+        ${safeUrl ? `<a class="btn btn-primary" href="${this._escapeAttr(safeUrl)}" target="_blank" rel="noopener noreferrer">Ouvrir l'interface</a>` : ''}
+        ${canDiscover ? '<button type="button" class="btn btn-secondary" data-action="detect-mgmt">Rechercher l\'interface Web</button>' : ''}
+        ${safeUrl && canDiscover ? '<button type="button" class="btn btn-secondary" data-action="check-mgmt">Tester le lien</button>' : ''}
+      </div>
+      ${canUpdate ? `
+      <div class="asset-actions">
+        <label class="sr-only" for="asset-mgmt-url">URL d'administration</label>
+        <input id="asset-mgmt-url" type="text" class="form-input" style="flex:1; min-width:200px;" placeholder="https://…" value="${this._escapeAttr(url)}" data-mgmt-url-input>
+        <button type="button" class="btn btn-secondary" data-action="save-mgmt">Enregistrer</button>
+      </div>` : ''}
+    `;
+
+    const applyResponse = (resp) => {
+      if (!resp) return;
+      asset.management_url = resp.management_url;
+      asset.management_url_source = resp.management_url_source;
+      asset.management_url_status = resp.management_url_status;
+      asset.management_url_detected_at = resp.management_url_detected_at;
+      if (resp.details) {
+        asset.discovery_data = { ...(asset.discovery_data || {}), web: resp.details };
+      }
+      this._fillManagementSection(container, asset);
+    };
+    const run = async (action, successMessage) => {
+      try {
+        applyResponse(await action());
+        this._showToast(successMessage);
+      } catch (err) {
+        this._showToast(err.message || 'Erreur', 'error');
+      }
+    };
+
+    container.querySelector('[data-action="detect-mgmt"]')?.addEventListener('click', (event) => {
+      const button = event.currentTarget;
+      button.disabled = true;
+      run(() => detectManagementUrl(asset.id), 'Recherche de l\'interface lancée')
+        .finally(() => { button.disabled = false; });
+    });
+    container.querySelector('[data-action="check-mgmt"]')?.addEventListener('click', (event) => {
+      const button = event.currentTarget;
+      button.disabled = true;
+      run(() => checkManagementUrl(asset.id), 'Lien testé')
+        .finally(() => { button.disabled = false; });
+    });
+    container.querySelector('[data-action="save-mgmt"]')?.addEventListener('click', (event) => {
+      const button = event.currentTarget;
+      const input = container.querySelector('[data-mgmt-url-input]');
+      const value = (input?.value || '').trim();
+      button.disabled = true;
+      run(() => setManagementUrl(asset.id, value), value ? 'URL enregistrée' : 'URL effacée')
+        .finally(() => { button.disabled = false; });
+    });
+  }
+
   _showAssetInfoModal(asset) {
     if (!asset) return;
     const value = (field, fallback = '-') => this._escape(asset[field] ?? fallback);
@@ -888,6 +994,7 @@ export class ITAssetPage {
               <button class="admin-tab admin-tab--active" data-asset-tab="general" aria-selected="true" role="tab">Général</button>
               <button class="admin-tab" data-asset-tab="software" aria-selected="false" role="tab">Système logiciel</button>
               <button class="admin-tab" data-asset-tab="user" aria-selected="false" role="tab">Utilisateur</button>
+              <button class="admin-tab" data-asset-tab="management" aria-selected="false" role="tab">Interface</button>
               <button class="admin-tab" data-asset-tab="monitoring" aria-selected="false" role="tab">Supervision</button>
               <button class="admin-tab" data-asset-tab="alerts" aria-selected="false" role="tab">Alertes</button>
               <button class="admin-tab" data-asset-tab="history" aria-selected="false" role="tab">Historique</button>
@@ -906,6 +1013,7 @@ export class ITAssetPage {
               ${rows([['Système', 'os'], ['Version OS', 'os_version'], ['Build OS', 'os_build'], ['Architecture', 'os_architecture'], ['Version agent', 'agent_version'], ['Source découverte', 'discovery_source'], ['Dernière collecte', 'last_collection'], ['Dernier contrôle', 'last_check'], ['Dernière présence', 'last_seen']])}
             </dl></section></div>
             <div class="asset-modal-panel" data-asset-panel="user"><section><h3>Utilisateur</h3><p class="asset-tab-placeholder">Aucun utilisateur n’est actuellement associé à cet équipement.</p></section></div>
+            <div class="asset-modal-panel" data-asset-panel="management"><section><h3>Interface d'administration</h3><div data-asset-management>Chargement...</div></section></div>
             <div class="asset-modal-panel" data-asset-panel="monitoring"><section><h3>Supervision</h3><div data-asset-monitoring>Chargement des contrôles...</div></section></div>
             <div class="asset-modal-panel" data-asset-panel="alerts"><section><h3>Alertes</h3><div data-asset-alerts>Chargement des alertes...</div></section></div>
             <div class="asset-modal-panel" data-asset-panel="history"><section><h3>Historique</h3><div data-asset-history>Chargement de l’historique...</div></section></div>
@@ -929,6 +1037,7 @@ export class ITAssetPage {
       });
       modal.querySelectorAll('[data-asset-panel]').forEach(panel => panel.classList.toggle('active', panel.dataset.assetPanel === target));
     }));
+    this._fillManagementSection(modal.querySelector('[data-asset-management]'), asset);
     Promise.all([
       getAssetAlerts(asset.id, null),
       getAssetObservations(asset.id, 20),
@@ -1384,9 +1493,9 @@ export class ITAssetPage {
     });
   }
 
-  _showToast(message) {
+  _showToast(message, variant = 'success') {
     const toast = document.createElement('div');
-    toast.className = 'toast toast-success';
+    toast.className = `toast toast-${variant}`;
     toast.textContent = message;
     document.body.appendChild(toast);
     setTimeout(() => toast.remove(), 3000);
@@ -1396,6 +1505,12 @@ export class ITAssetPage {
     const div = document.createElement('div');
     div.textContent = text;
     return div.innerHTML;
+  }
+
+  // Échappement pour valeur d'attribut (guillemets compris) — réutilise
+  // _escape puis échappe les " comme ailleurs dans le projet.
+  _escapeAttr(value) {
+    return this._escape(value).replace(/"/g, '&quot;');
   }
 
 

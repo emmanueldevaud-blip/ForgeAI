@@ -27,6 +27,8 @@ from app.schemas.it_asset import (
     NetworkRangeResponse,
     NetworkRangeUpdate,
     DiscoveryLogResponse,
+    ManagementURLRequest,
+    ManagementURLResponse,
 )
 from app.services.audit import get_audit_service
 from app.services.it_asset import (
@@ -550,3 +552,83 @@ async def monitor_all_assets(
     audit = await get_audit_service(db)
     service = AssetMonitoringService(db, audit=audit, current_user=current_user)
     return await service.check_all_assets()
+
+
+# ============================================================
+# INTERFACE WEB D'ADMINISTRATION (URL DE GESTION)
+# ============================================================
+
+def _management_response(asset) -> ManagementURLResponse:
+    """Réponse normalisée + détails de la dernière probe (discovery_data.web)."""
+    details = None
+    if asset.discovery_data and isinstance(asset.discovery_data, dict):
+        details = asset.discovery_data.get("web")
+    return ManagementURLResponse(
+        management_url=asset.management_url,
+        management_url_source=asset.management_url_source,
+        management_url_status=asset.management_url_status,
+        management_url_detected_at=asset.management_url_detected_at,
+        details=details,
+    )
+
+
+async def _get_management_service(
+    current_user: User,
+    db: AsyncSession,
+) -> ITAssetService:
+    from app.services.audit import get_audit_service
+    audit = await get_audit_service(db)
+    return ITAssetService(db, audit=audit, current_user=current_user)
+
+
+@router.patch("/{asset_id}/management-url", response_model=ManagementURLResponse)
+async def set_management_url(
+    asset_id: int,
+    data: ManagementURLRequest,
+    current_user: User = Depends(require_permission("it_asset.update")),
+    db: AsyncSession = Depends(get_db),
+):
+    """Saisir / modifier / effacer manuellement l'URL de gestion."""
+    service = await _get_management_service(current_user, db)
+    if not await service.get_it_asset(asset_id):
+        raise HTTPException(status_code=404, detail="Asset IT non trouvé")
+    try:
+        asset = await service.set_management_url(asset_id, data.management_url)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+    if not asset:
+        raise HTTPException(status_code=400, detail="Erreur lors de l'enregistrement de l'URL")
+    return _management_response(asset)
+
+
+@router.post("/{asset_id}/management-url/detect", response_model=ManagementURLResponse)
+async def detect_management_url(
+    asset_id: int,
+    current_user: User = Depends(require_permission("it_asset.manage_discovery")),
+    db: AsyncSession = Depends(get_db),
+):
+    """Rechercher l'interface web de l'équipement (action manuelle)."""
+    service = await _get_management_service(current_user, db)
+    asset = await service.detect_management_url(asset_id)
+    if not asset:
+        raise HTTPException(status_code=404, detail="Asset IT non trouvé")
+    return _management_response(asset)
+
+
+@router.post("/{asset_id}/management-url/check", response_model=ManagementURLResponse)
+async def check_management_url(
+    asset_id: int,
+    current_user: User = Depends(require_permission("it_asset.manage_discovery")),
+    db: AsyncSession = Depends(get_db),
+):
+    """Tester l'URL de gestion existante (sans la modifier)."""
+    service = await _get_management_service(current_user, db)
+    asset = await service.get_it_asset(asset_id)
+    if not asset:
+        raise HTTPException(status_code=404, detail="Asset IT non trouvé")
+    if not asset.management_url:
+        raise HTTPException(status_code=400, detail="Aucune URL de gestion à vérifier")
+    updated = await service.check_management_url(asset_id)
+    if not updated:
+        raise HTTPException(status_code=404, detail="Asset IT non trouvé")
+    return _management_response(updated)

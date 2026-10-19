@@ -227,6 +227,16 @@ async def _monitoring_loop() -> None:
         except Exception as exc:
             # Erreur de surveillance ne doit pas tuer l'application.
             print(f"[MONITORING] Boucle en échec: {exc}")
+        try:
+            # Actualisation peu fréquente des interfaces web déjà détectées
+            # (uniquement les URL périmées, lot borné) — voir IT_WEB_DETECT_*.
+            async for db in get_db():
+                await AssetMonitoringService(db).refresh_due_management_urls()
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            # Un échec de l'actualisation web ne doit pas tuer la boucle.
+            print(f"[MONITORING] Refresh interfaces web en échec: {exc}")
         await asyncio.sleep(300)  # Tous les 5 minutes
 
 

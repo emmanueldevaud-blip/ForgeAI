@@ -108,3 +108,15 @@ export async function getDiscoveryLogs(rangeId, limit = 50) {
 export async function discoverAllRanges() {
   return itAssetApi.post('/discover');
 }
+
+export async function setManagementUrl(assetId, managementUrl) {
+  return itAssetApi.patch(`/${assetId}/management-url`, { management_url: managementUrl });
+}
+
+export async function detectManagementUrl(assetId) {
+  return itAssetApi.post(`/${assetId}/management-url/detect`);
+}
+
+export async function checkManagementUrl(assetId) {
+  return itAssetApi.post(`/${assetId}/management-url/check`);
+}

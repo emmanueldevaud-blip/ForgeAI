@@ -7,6 +7,21 @@
 .intendance-expenses-page .page-filters .filter-group { flex: 1 1 220px; }
 .intendance-expenses-page .page-actions { justify-content: flex-end; }
 .intendance-expenses-page .btn input { display: none; }
+.intendance-expenses-page [data-tab-content] > .page-filters { display: grid; grid-template-columns: minmax(260px, 1fr) 240px auto; align-items: center; gap: var(--spacing-2); margin-bottom: var(--spacing-3); }
+.intendance-expenses-page [data-tab-content] > .page-filters [data-ref-search] { width: 100%; min-width: 0; }
+.intendance-expenses-page [data-tab-content] > .page-filters [data-add-ref] { flex: 0 0 auto; }
+.intendance-expenses-page [data-tab-content] > .page-filters [data-search] { width: 100%; min-width: 0; }
+.intendance-expenses-page [data-tab-content] > .page-filters [data-missing] { width: 100%; min-width: 0; }
+.intendance-expenses-page [data-tab-content] > .page-filters [data-refresh] { width: auto; white-space: nowrap; }
+.intendance-expenses-page [data-tab-content] > .page-filters:has([data-site]) { grid-template-columns: minmax(220px, 1fr) 220px auto 260px auto; }
+.intendance-expenses-page [data-tab-content] > .page-filters [data-site] { width: 100%; min-width: 0; }
+.intendance-expenses-page [data-tab-content] > .page-filters [data-bulk] { width: auto; white-space: nowrap; }
+@media (max-width: 720px) {
+  .intendance-expenses-page [data-tab-content] > .page-filters { grid-template-columns: 1fr auto; }
+  .intendance-expenses-page [data-tab-content] > .page-filters:has([data-site]) { grid-template-columns: 1fr auto; }
+  .intendance-expenses-page [data-tab-content] > .page-filters [data-site] { grid-column: 1 / -1; }
+  .intendance-expenses-page [data-tab-content] > .page-filters [data-missing] { grid-column: 1 / -1; }
+}
 .intendance-expenses-page .import-progress { padding: var(--spacing-3); border: 1px solid var(--color-border-light); border-radius: var(--radius-md); background: var(--color-bg-secondary); color: var(--color-text-secondary); }
 .intendance-expenses-page .import-progress-bar { height: 8px; margin-top: var(--spacing-2); overflow: hidden; border-radius: 99px; background: var(--color-border-light); }
 .intendance-expenses-page .import-progress-bar span { display: block; height: 100%; background: var(--color-primary); transition: width .25s ease; }

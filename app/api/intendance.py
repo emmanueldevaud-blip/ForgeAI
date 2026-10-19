@@ -25,7 +25,7 @@ from app.schemas.intendance_expense import (
     SiteListResponse, SiteResponse, SiteUpdate, StagedRowListResponse, StagedRowResponse, ImportBilan,
     CardAliasCreate, CardAliasListResponse, CardAliasResponse, CardAliasUpdate,
 )
-from app.services.intendance_expense import expense_fingerprint, parse_excel_row
+from app.services.intendance_expense import expense_fingerprint, normalize_text, parse_excel_row
 
 router = APIRouter(prefix="/intendance/expenses", tags=["intendance-expenses"])
 
@@ -200,13 +200,25 @@ async def analyze_import(file: UploadFile = File(...), current_user: User = Depe
     except Exception as exc: raise HTTPException(400, f"Fichier Excel invalide : {exc}")
     sheet = workbook.active
     headers = [cell.value for cell in next(sheet.iter_rows(max_row=1))]
-    expected = ["Req Number", "Detail Required Date", "Bank Card Description", "Item Description", "Quantity", "UOM Code", "DetailExpectedPrice", "Corporation", "Cost Center Code", "Detail Account Description", "Prepared By Name"]
-    if headers != expected: raise HTTPException(400, "En-têtes Excel inattendus")
+    header_aliases = {
+        "Req Number": "A", "Detail Required Date": "B", "Bank Card Description": "C",
+        "Item Description": "D", "Quantity": "E", "UOM Code": "F",
+        "DetailExpectedPrice": "G", "Corporation": "H", "Cost Center Code": "I",
+        "Cost Center": "I", "Detail Account Description": "J", "Prepared By Name": "K",
+    }
+    normalized_headers = {normalize_text(header).lower(): index for index, header in enumerate(headers) if header is not None}
+    required_headers = ["Req Number", "Detail Required Date", "Item Description", "Quantity", "UOM Code", "DetailExpectedPrice", "Corporation", "Detail Account Description", "Prepared By Name"]
+    missing_headers = [header for header in required_headers if header.lower() not in normalized_headers]
+    if missing_headers or not ("Cost Center Code".lower() in normalized_headers or "Cost Center".lower() in normalized_headers):
+        raise HTTPException(400, "En-têtes Excel inattendus")
+    column_indexes = {letter: normalized_headers.get(header.lower()) for header, letter in header_aliases.items() if header.lower() in normalized_headers}
     batch = IntendanceImportBatch(reference=uuid.uuid4().hex, file_name=file.filename, uploaded_by=current_user.id)
     db.add(batch); await db.flush()
     seen = set(); rows = list(sheet.iter_rows(min_row=2, values_only=True)); fingerprints = []
     for number, values in enumerate(rows, 2):
-        parsed = parse_excel_row(dict(zip("ABCDEFGHIJK", values)), number); fp = expense_fingerprint(parsed); parsed["fingerprint"] = fp
+        mapped_values = {letter: (values[index] if index is not None and index < len(values) else None) for letter, index in column_indexes.items()}
+        mapped_values.setdefault("C", None)
+        parsed = parse_excel_row(mapped_values, number); fp = expense_fingerprint(parsed); parsed["fingerprint"] = fp
         parsed["is_duplicate_in_file"] = fp in seen; seen.add(fp); fingerprints.append(fp)
         db.add(IntendanceImportStagedRow(batch_id=batch.id, **{k: v for k, v in parsed.items() if k in {"line_number","fingerprint","req_number","expense_date","bank_card","item_description","quantity","uom","amount","corporation","cost_center","account_code","account_label","prepared_by","invalid_reason","is_duplicate_in_file"}}))
     existing = set((await db.execute(select(IntendanceExpense.fingerprint).where(IntendanceExpense.fingerprint.in_(fingerprints)))).scalars())

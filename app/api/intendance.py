@@ -315,6 +315,9 @@ async def validate_import(batch_id: int, current_user: User = Depends(require_pe
     if batch.status == "validated": return ImportValidateResponse(reference=batch.reference, created_count=batch.created_count or 0, skipped_duplicates=batch.rows_total - (batch.created_count or 0))
     rows = (await db.execute(select(IntendanceImportStagedRow).where(IntendanceImportStagedRow.batch_id == batch.id))).scalars().all(); created = 0
     aliases = {x.alias: x.user_name for x in (await db.execute(select(IntendanceCardAlias))).scalars().all()}; codes = {x.code: x for x in (await db.execute(select(IntendanceAccountCode))).scalars().all()}
+    for account_code in {row.account_code for row in rows if row.account_code and row.account_code not in codes}:
+        code = IntendanceAccountCode(code=account_code, category="Non affecté")
+        db.add(code); codes[account_code] = code
     for row in rows:
         if row.invalid_reason or row.is_duplicate_existing or row.is_duplicate_in_file: continue
         code = codes.get(row.account_code or "")
@@ -329,6 +332,10 @@ async def reassign_references(current_user: User = Depends(require_permission("i
     expenses = (await db.execute(select(IntendanceExpense).with_for_update())).scalars().all()
     aliases = {x.alias: x.user_name for x in (await db.execute(select(IntendanceCardAlias))).scalars().all()}
     codes = {x.code: x.category for x in (await db.execute(select(IntendanceAccountCode))).scalars().all()}
+    missing_codes = {expense.account_code for expense in expenses if expense.account_code and expense.account_code not in codes}
+    for account_code in missing_codes:
+        db.add(IntendanceAccountCode(code=account_code, category="Non affecté"))
+        codes[account_code] = "Non affecté"
     categories = users = 0
     for expense in expenses:
         if not expense.category_is_manual:
@@ -342,5 +349,5 @@ async def reassign_references(current_user: User = Depends(require_permission("i
                 expense.user_name = user_name
                 users += 1
     await db.commit()
-    return {"categories_updated": categories, "users_updated": users}
+    return {"categories_updated": categories, "users_updated": users, "codes_created": len(missing_codes)}
 

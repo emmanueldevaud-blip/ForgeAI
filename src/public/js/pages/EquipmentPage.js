@@ -254,10 +254,21 @@ export class EquipmentPage {
           sortOrder: this.sortOrder,
         });
       }
+      this._renderTable();
       this._updatePagination();
     } catch (error) {
       console.error('Erreur chargement:', error);
     }
+  }
+
+  _renderTable() {
+    if (!this.element) return;
+    const container = this.element.querySelector('[data-table-container]');
+    if (!container) return;
+
+    const table = this.currentView === 'params' ? this.typeTable : this.equipmentTable;
+    container.innerHTML = '';
+    container.appendChild(table.render());
   }
 
   _updatePagination() {

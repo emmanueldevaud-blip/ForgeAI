@@ -116,7 +116,18 @@ export class ITAssetPage {
     this.table = new Table({
       columns: [
         { key: 'reference', label: 'Référence', sortable: true },
-        { key: 'name', label: 'Nom', sortable: true },
+        {
+          key: 'name',
+          label: 'Nom',
+          sortable: true,
+          render: (item) => {
+            const name = this._escape(item.name || '');
+            const url = String(item.management_url || '');
+            const safeUrl = /^https?:\/\//i.test(url) ? url : '';
+            if (!safeUrl) return name;
+            return `<a href="${this._escapeAttr(safeUrl)}" target="_blank" rel="noopener noreferrer" title="Ouvrir l'interface d'administration">${name}</a>`;
+          },
+        },
         { key: 'asset_type', label: 'Type', sortable: true },
         { key: 'ip_address', label: 'Adresse IP', sortable: true },
         { key: 'mac_address', label: 'Adresse MAC', sortable: true },

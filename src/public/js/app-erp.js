@@ -36,7 +36,7 @@ import { createDomotiquePage } from './pages/DomotiquePage.js?v=8';
 import { createDomotiqueConfigPage } from './pages/DomotiqueConfigPage.js?v=8';
 import { createPhotosPage } from './pages/PhotosPage.js?v=9';
 import { createSouvenirsPage } from './pages/SouvenirsPage.js?v=4';
-import { createITAssetPage } from './pages/ITAssetPage.js?v=5';
+import { createITAssetPage } from './pages/ITAssetPage.js?v=6';
 
 const moduleRoutes = [
   'dashboard',

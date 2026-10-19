@@ -381,9 +381,10 @@ export class AgendaPage {
     const willHavePresence = !!flags.morning || !!flags.afternoon;
 
     if (!inMonth) return { on: false, enabled: false, title: 'Hors mois affiché' };
-    if (presence && presence.id == null) return { on: false, enabled: false, title: 'Occupation en cours — non modifiable' };
-
     const locked = this._isLockedWeek(iso);
+    // En semaine figée, la case reste cliquable pour afficher le message de blocage.
+    if (presence && presence.id == null && !locked) return { on: false, enabled: false, title: 'Occupation en cours — non modifiable' };
+
     let state;
 
     if (field === 'morning' || field === 'afternoon') {
@@ -411,8 +412,9 @@ export class AgendaPage {
     }
 
     // Semaine verrouillée : l'inscription existante reste affichée (coches
-    // conservées), la case n'est simplement plus modifiable.
-    if (locked) return { ...state, enabled: false, title: this._lockedPlanningMessage() };
+    // conservées), la case n'est plus modifiable mais reste cliquable :
+    // le handler affiche alors le message de blocage.
+    if (locked) return { ...state, enabled: false, locked: true, title: this._lockedPlanningMessage() };
     return state;
   }
 
@@ -553,6 +555,7 @@ export class AgendaPage {
                 const period = inRoom ? (mine.period || 'full') : null;
                 let on = false;
                 let enabled = inMonth;
+                let lockedCell = false;
                 let title = row.label;
                 if (!inMonth) {
                   title = 'Hors mois affiché';
@@ -567,15 +570,17 @@ export class AgendaPage {
                   enabled = inRoom;
                   title = enabled ? 'Repas' : 'Sélectionnez d’abord une présence ce jour-là';
                 }
-                // Semaine verrouillée : la présence reste visible, la case n'est plus modifiable.
+                // Semaine verrouillée : la présence reste visible, la case n'est
+                // plus modifiable mais reste cliquable pour afficher le message.
                 if (inMonth && this._isLockedWeek(iso)) {
                   enabled = false;
+                  lockedCell = true;
                   title = this._lockedPlanningMessage();
                 }
                 return `
                     <button type="button" class="agenda-mine-cell ${on ? 'is-on' : ''} ${this._isLockedWeek(iso) ? 'is-locked' : ''} ${this._isAfterWeekend(iso, dates) ? 'is-after-weekend' : ''} ${row.field === 'desk' ? 'agenda-mine-cell--desk' : ''} ${row.field === 'meal' ? 'agenda-mine-cell--meal' : ''}"
                     data-mine-toggle="${row.field}" data-room-id="${room.id}" data-date="${iso}"
-                    aria-pressed="${on}" ${enabled ? '' : 'disabled'}
+                    aria-pressed="${on}" ${enabled || lockedCell ? '' : 'disabled'}
                     aria-label="${row.label} — ${escapeHtml(formatDayLabel(iso))} — ${escapeHtml(room.name)}"
                     title="${escapeHtml(title)}"></button>`;
               }).join('')}
@@ -594,18 +599,21 @@ export class AgendaPage {
               const halves = ['morning', 'afternoon'].map(half => {
                 const on = inMonth && (period === 'full' || period === half);
                 let enabled = inMonth;
+                let lockedCell = false;
                 let title = half === 'morning' ? 'Télétravail le matin' : 'Télétravail l\u2019après-midi';
                 if (!inMonth) title = 'Hors mois affiché';
-                // Semaine verrouillée : la présence reste visible, la case n'est plus modifiable.
+                // Semaine verrouillée : la présence reste visible, la case n'est
+                // plus modifiable mais reste cliquable pour afficher le message.
                 else if (this._isLockedWeek(iso)) {
                   enabled = false;
+                  lockedCell = true;
                   title = this._lockedPlanningMessage();
                 }
                 const halfLabel = half === 'morning' ? 'matin' : 'après-midi';
                 return `
                   <button type="button" class="agenda-mine-cell agenda-mine-cell--remote ${on ? 'is-on' : ''} ${this._isLockedWeek(iso) ? 'is-locked' : ''} ${this._isAfterWeekend(iso, dates) ? 'is-after-weekend' : ''} agenda-mine-cell--half"
                     data-mine-toggle="remote" data-half="${half}" data-date="${iso}"
-                    aria-pressed="${on}" ${enabled ? '' : 'disabled'}
+                    aria-pressed="${on}" ${enabled || lockedCell ? '' : 'disabled'}
                     aria-label="Télétravail ${halfLabel} — ${escapeHtml(formatDayLabel(iso))}"
                     title="${escapeHtml(title)}"></button>`;
               }).join('');
@@ -1301,7 +1309,7 @@ export class AgendaPage {
                 return `
                   <button type="button" class="agenda-mine-cell ${state.on ? 'is-on' : ''} ${this._isLockedWeek(iso) ? 'is-locked' : ''} ${this._isAfterWeekend(iso, dates) ? 'is-after-weekend' : ''} ${row.field === 'desk' ? 'agenda-mine-cell--desk' : ''} ${row.field === 'meal' ? 'agenda-mine-cell--meal' : ''}"
                     data-week-person="${escapeHtml(person.key)}" data-week-date="${iso}" data-week-room="${room.id}" data-week-field="${row.field}"
-                    aria-pressed="${state.on}" ${state.enabled ? '' : 'disabled'}
+                    aria-pressed="${state.on}" ${state.enabled || state.locked ? '' : 'disabled'}
                     aria-label="${row.label} — ${escapeHtml(formatDayLabel(iso))} — ${escapeHtml(room.name)}"
                     title="${escapeHtml(state.title)}"></button>`;
               }).join('')}
@@ -1328,7 +1336,7 @@ export class AgendaPage {
                 return `
                   <button type="button" class="agenda-mine-cell agenda-mine-cell--remote ${state.on ? 'is-on' : ''} ${this._isLockedWeek(iso) ? 'is-locked' : ''} ${this._isAfterWeekend(iso, dates) ? 'is-after-weekend' : ''} agenda-mine-cell--half"
                     data-week-person="${escapeHtml(person.key)}" data-week-date="${iso}" data-week-room="remote" data-week-field="remote" data-week-half="${half}"
-                    aria-pressed="${state.on}" ${enabled ? '' : 'disabled'}
+                    aria-pressed="${state.on}" ${state.locked || enabled ? '' : 'disabled'}
                     aria-label="Télétravail ${halfLabel} — ${escapeHtml(formatDayLabel(iso))}"
                     title="${escapeHtml(state.title)}"></button>`;
               }).join('');
@@ -1396,7 +1404,8 @@ export class AgendaPage {
         half,
       });
       btn.classList.toggle('is-on', state.on);
-      btn.disabled = !(state.enabled && (field === 'remote' ? canRemote : true));
+      // Semaine figée : la case reste cliquable pour afficher le message.
+      btn.disabled = !(state.locked || (state.enabled && (field === 'remote' ? canRemote : true)));
       btn.setAttribute('aria-pressed', String(state.on));
       btn.title = state.title;
     });
@@ -1484,6 +1493,10 @@ export class AgendaPage {
     this.element.querySelectorAll('[data-week-person]').forEach(btn => {
       btn.addEventListener('click', () => {
         if (btn.disabled) return;
+        if (this._isLockedWeek(btn.dataset.weekDate)) {
+          this._toast(this._lockedPlanningMessage(), 'info');
+          return;
+        }
         this._togglePersonWeekCell({
           date: btn.dataset.weekDate,
           roomId: btn.dataset.weekRoom === 'remote' ? 'remote' : Number(btn.dataset.weekRoom),
@@ -1988,7 +2001,7 @@ export class AgendaPage {
   }
 
   _lockedPlanningMessage() {
-    return "Il n'est pas possible de modifier ton inscription. Merci de prévenir le responsable de l'intendance";
+    return "Le planning est maintenant figé. Merci de prévenir directement le responsable de l'intendance";
   }
 
   async _toggleMineCell({ roomId, date, field, half }) {

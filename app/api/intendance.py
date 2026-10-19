@@ -117,6 +117,14 @@ async def update_site(site_id: int, data: SiteUpdate, current_user: User = Depen
     await db.commit(); await db.refresh(site); return SiteResponse.model_validate(site)
 
 
+@router.delete("/sites/{site_id}", status_code=204)
+async def delete_site(site_id: int, current_user: User = Depends(require_permission("intendance.expenses.manage_refs")), db: AsyncSession = Depends(get_db)):
+    site = await db.get(IntendanceSite, site_id)
+    if not site: raise HTTPException(404, "Site introuvable")
+    site.is_active = False
+    await db.commit()
+
+
 @router.get("/account-codes", response_model=AccountCodeListResponse)
 async def list_account_codes(current_user: User = Depends(require_permission("intendance.expenses.view")), db: AsyncSession = Depends(get_db)):
     rows = (await db.execute(select(IntendanceAccountCode).order_by(IntendanceAccountCode.code))).scalars().all()
@@ -145,6 +153,13 @@ async def update_alias(alias_id: int, data: CardAliasUpdate, current_user: User 
     await db.commit(); await db.refresh(alias); return CardAliasResponse.model_validate(alias)
 
 
+@router.delete("/aliases/{alias_id}", status_code=204)
+async def delete_alias(alias_id: int, current_user: User = Depends(require_permission("intendance.expenses.manage_refs")), db: AsyncSession = Depends(get_db)):
+    alias = await db.get(IntendanceCardAlias, alias_id)
+    if not alias: raise HTTPException(404, "Alias introuvable")
+    await db.delete(alias); await db.commit()
+
+
 @router.post("/account-codes", response_model=AccountCodeResponse, status_code=201)
 async def create_account_code(data: AccountCodeCreate, current_user: User = Depends(require_permission("intendance.expenses.manage_refs")), db: AsyncSession = Depends(get_db)):
     code = IntendanceAccountCode(**data.model_dump()); db.add(code)
@@ -159,6 +174,13 @@ async def update_account_code(code_id: int, data: AccountCodeUpdate, current_use
     if not code: raise HTTPException(404, "Code comptable introuvable")
     for key, value in data.model_dump(exclude_unset=True).items(): setattr(code, key, value)
     await db.commit(); await db.refresh(code); return AccountCodeResponse.model_validate(code)
+
+
+@router.delete("/account-codes/{code_id}", status_code=204)
+async def delete_account_code(code_id: int, current_user: User = Depends(require_permission("intendance.expenses.manage_refs")), db: AsyncSession = Depends(get_db)):
+    code = await db.get(IntendanceAccountCode, code_id)
+    if not code: raise HTTPException(404, "Code comptable introuvable")
+    await db.delete(code); await db.commit()
 
 
 @router.post("/imports", response_model=ImportBatchResponse, status_code=201)

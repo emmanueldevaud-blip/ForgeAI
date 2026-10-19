@@ -107,7 +107,7 @@ async def expense_dashboard(
     """Retourne un histogramme des dépenses par catégorie."""
     query = select(IntendanceExpense.category, func.sum(IntendanceExpense.amount).label("total_amount")).where(
         IntendanceExpense.category.is_not(None),
-        IntendanceExpense.category.notin_(["Projets divers", "Non classé"]),
+        func.lower(func.trim(IntendanceExpense.category)).notin_(["projets divers", "non classé"]),
     )
     if expense_date_from is not None:
         query = query.where(IntendanceExpense.expense_date >= expense_date_from)

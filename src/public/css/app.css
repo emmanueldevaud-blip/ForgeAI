@@ -7608,3 +7608,6 @@
   .souvenirs-photo { animation: none !important; }
   .souvenirs-layer { transform: none !important; filter: none !important; transition: opacity .6s ease !important; }
 }
+.intendance-dashboard-page .date-range-sliders input:first-child { pointer-events: none; }
+.intendance-dashboard-page .date-range-sliders input::-webkit-slider-thumb,
+.intendance-dashboard-page .date-range-sliders input::-moz-range-thumb { pointer-events: auto; }

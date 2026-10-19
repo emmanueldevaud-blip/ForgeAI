@@ -107,6 +107,19 @@ class GestionBureauxModule(BaseModule):
                 "order": 3,
             })
 
+        has_expenses = (
+            "*" in user_permissions
+            or "intendance.expenses.view" in user_permissions
+        )
+        if has_expenses:
+            children.append({
+                "code": "intendance-expenses",
+                "name": "Suivi des dépenses",
+                "icon": "receipt",
+                "route": "/intendance/expenses",
+                "order": 4,
+            })
+
         if not children:
             return []
 

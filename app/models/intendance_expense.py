@@ -62,6 +62,16 @@ class IntendanceAccountCode(Base):
         return f"<IntendanceAccountCode(code={self.code}, category={self.category})>"
 
 
+class IntendanceCategory(Base):
+    __tablename__ = "intendance_categories"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    name: Mapped[str] = mapped_column(String(100), unique=True, nullable=False, index=True)
+    excluded_from_dashboard: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
+
 class IntendanceImportBatch(Base):
     __tablename__ = "intendance_import_batches"
 

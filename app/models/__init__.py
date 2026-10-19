@@ -20,6 +20,7 @@ from app.models.it_asset import (
 from app.models.housing import Housing, Occupant, Occupancy, OccupancyStatusHistory, HousingStatusHistory, Unavailability, Cleaning, CleaningInvitationLog, EmailTemplate, EmailTemplateAttachment, EmailLog
 from app.models.intendance_expense import (
     IntendanceAccountCode,
+    IntendanceCategory,
     IntendanceCardAlias,
     IntendanceExpense,
     IntendanceExpenseHistory,

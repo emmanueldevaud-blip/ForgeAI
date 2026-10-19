@@ -7,7 +7,7 @@ import uuid
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
-from sqlalchemy import String, cast, func, select
+from sqlalchemy import String, cast, func, select, update as sa_update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -16,7 +16,7 @@ from app.api.deps import require_permission
 from app.db.session import get_db
 from app.models import (
     IntendanceAccountCode, IntendanceCardAlias, IntendanceExpense,
-    IntendanceImportBatch, IntendanceImportStagedRow, IntendanceSite, User,
+    IntendanceImportBatch, IntendanceImportStagedRow, IntendanceSite, IntendanceCategory, User,
 )
 from app.schemas.intendance_expense import (
     AccountCodeCreate, AccountCodeListResponse, AccountCodeResponse, AccountCodeUpdate,
@@ -105,9 +105,10 @@ async def expense_dashboard(
     db: AsyncSession = Depends(get_db),
 ):
     """Retourne un histogramme des dépenses par catégorie."""
+    excluded = (await db.execute(select(IntendanceCategory.name).where(IntendanceCategory.excluded_from_dashboard.is_(True)))).scalars().all()
     query = select(IntendanceExpense.category, func.sum(IntendanceExpense.amount).label("total_amount")).where(
         IntendanceExpense.category.is_not(None),
-        func.lower(func.trim(func.replace(IntendanceExpense.category, "\\t", ""))).notin_(["projets divers", "non classé"]),
+        IntendanceExpense.category.notin_(excluded),
     )
     if expense_date_from is not None:
         query = query.where(IntendanceExpense.expense_date >= expense_date_from)
@@ -188,6 +189,42 @@ async def delete_site(site_id: int, current_user: User = Depends(require_permiss
 async def list_account_codes(current_user: User = Depends(require_permission("intendance.expenses.view")), db: AsyncSession = Depends(get_db)):
     rows = (await db.execute(select(IntendanceAccountCode).order_by(IntendanceAccountCode.code))).scalars().all()
     return AccountCodeListResponse(items=[AccountCodeResponse.model_validate(x) for x in rows], total=len(rows), page=1, page_size=len(rows) or 1, total_pages=1)
+
+@router.get("/categories", response_model=list[dict])
+async def list_categories(current_user: User = Depends(require_permission("intendance.expenses.view")), db: AsyncSession = Depends(get_db)):
+    return [{"id": row.id, "name": row.name, "excluded_from_dashboard": row.excluded_from_dashboard} for row in (await db.execute(select(IntendanceCategory).order_by(IntendanceCategory.name))).scalars()]
+
+@router.post("/categories", response_model=dict, status_code=201)
+async def create_category(data: dict, current_user: User = Depends(require_permission("intendance.expenses.manage_refs")), db: AsyncSession = Depends(get_db)):
+    category = IntendanceCategory(name=str(data.get("name", "")).strip(), excluded_from_dashboard=bool(data.get("excluded_from_dashboard", False)))
+    if not category.name: raise HTTPException(422, "Le nom est obligatoire")
+    db.add(category)
+    try: await db.commit()
+    except IntegrityError: await db.rollback(); raise HTTPException(409, "Cette catégorie existe déjà")
+    await db.refresh(category); return {"id": category.id, "name": category.name}
+
+@router.patch("/categories/{category_id}", response_model=dict)
+async def update_category(category_id: int, data: dict, current_user: User = Depends(require_permission("intendance.expenses.manage_refs")), db: AsyncSession = Depends(get_db)):
+    category = await db.get(IntendanceCategory, category_id)
+    if not category: raise HTTPException(404, "Catégorie introuvable")
+    name = str(data.get("name", category.name)).strip()
+    if not name: raise HTTPException(422, "Le nom est obligatoire")
+    await db.execute(sa_update(IntendanceAccountCode).where(IntendanceAccountCode.category == category.name).values(category=name))
+    await db.execute(sa_update(IntendanceExpense).where(IntendanceExpense.category == category.name).values(category=name))
+    category.name = name
+    category.excluded_from_dashboard = bool(data.get("excluded_from_dashboard", category.excluded_from_dashboard))
+    try: await db.commit()
+    except IntegrityError: await db.rollback(); raise HTTPException(409, "Cette catégorie existe déjà")
+    return {"id": category.id, "name": category.name}
+
+@router.delete("/categories/{category_id}", status_code=204)
+async def delete_category(category_id: int, current_user: User = Depends(require_permission("intendance.expenses.manage_refs")), db: AsyncSession = Depends(get_db)):
+    category = await db.get(IntendanceCategory, category_id)
+    if not category: raise HTTPException(404, "Catégorie introuvable")
+    used = (await db.execute(select(func.count()).select_from(IntendanceAccountCode).where(IntendanceAccountCode.category == category.name))).scalar_one()
+    used += (await db.execute(select(func.count()).select_from(IntendanceExpense).where(IntendanceExpense.category == category.name))).scalar_one()
+    if used: raise HTTPException(409, "Cette catégorie est utilisée et ne peut pas être supprimée")
+    await db.delete(category); await db.commit()
 
 
 @router.get("/aliases", response_model=CardAliasListResponse)

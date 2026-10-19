@@ -16,6 +16,8 @@
 .intendance-expenses-page [data-tab-content] > .page-filters:has([data-site]) { grid-template-columns: minmax(220px, 1fr) 220px auto 260px auto; }
 .intendance-expenses-page [data-tab-content] > .page-filters [data-site] { width: 100%; min-width: 0; }
 .intendance-expenses-page [data-tab-content] > .page-filters [data-bulk] { width: auto; white-space: nowrap; }
+.intendance-expenses-page .table-sort-button { padding: 0; border: 0; background: transparent; color: inherit; font: inherit; font-weight: inherit; cursor: pointer; text-align: left; }
+.intendance-expenses-page th[data-ref-sort] { cursor: pointer; }
 @media (max-width: 720px) {
   .intendance-expenses-page [data-tab-content] > .page-filters { grid-template-columns: 1fr auto; }
   .intendance-expenses-page [data-tab-content] > .page-filters:has([data-site]) { grid-template-columns: 1fr auto; }

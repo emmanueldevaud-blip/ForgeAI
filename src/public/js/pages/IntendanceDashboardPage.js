@@ -84,7 +84,7 @@ export class IntendanceDashboardPage {
           <div class="filter-group">
             <label class="filter-label">Période</label>
             <div class="slider-wrapper">
-              <div class="date-range-values"><span data-date-from-label>${dateFromStr}</span><span>–</span><span data-date-to-label>${dateToStr}</span></div>
+              <div class="date-range-values"><input type="date" class="date-range-calendar" data-date-input="from" value="${dateFromStr}" aria-label="Date de début"><span>–</span><input type="date" class="date-range-calendar" data-date-input="to" value="${dateToStr}" aria-label="Date de fin"></div>
               <div class="date-range-sliders"><input type="range" id="date-from" min="0" max="${rangeMax}" value="${dateFromValue}" aria-label="Date de début"><input type="range" id="date-to" min="0" max="${rangeMax}" value="${dateToValue}" aria-label="Date de fin"></div>
             </div>
           </div>
@@ -128,10 +128,15 @@ export class IntendanceDashboardPage {
         const toValue = Number(document.getElementById('date-to').value);
         this.filterDateFrom = toDate(Math.min(fromValue, toValue));
         this.filterDateTo = toDate(Math.max(fromValue, toValue));
-        this.element.querySelector('[data-date-from-label]').textContent = this.filterDateFrom;
-        this.element.querySelector('[data-date-to-label]').textContent = this.filterDateTo;
+        this.element.querySelector('[data-date-input="from"]').value = this.filterDateFrom;
+        this.element.querySelector('[data-date-input="to"]').value = this.filterDateTo;
         this.loadDashboard();
       };
+    });
+    this.element.querySelectorAll('[data-date-input]').forEach(input => input.onchange = () => {
+      this.filterDateFrom = this.element.querySelector('[data-date-input="from"]').value;
+      this.filterDateTo = this.element.querySelector('[data-date-input="to"]').value;
+      this.loadDashboard();
     });
 
     // User filter

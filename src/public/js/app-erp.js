@@ -35,7 +35,7 @@ import { createAgendaSettingsPage } from './pages/AgendaSettingsPage.js?v=3';
 import { createDomotiquePage } from './pages/DomotiquePage.js?v=8';
 import { createDomotiqueConfigPage } from './pages/DomotiqueConfigPage.js?v=8';
 import { createPhotosPage } from './pages/PhotosPage.js?v=9';
-import { createSouvenirsPage } from './pages/SouvenirsPage.js?v=3';
+import { createSouvenirsPage } from './pages/SouvenirsPage.js?v=4';
 import { createITAssetPage } from './pages/ITAssetPage.js?v=4';
 
 const moduleRoutes = [

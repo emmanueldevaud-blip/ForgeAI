@@ -1,6 +1,10 @@
 import { getSouvenirs, photoFileUrl } from '../services/photosApi.js?v=8';
 
-const KB_VARIANTS = ['kb-1', 'kb-2', 'kb-3', 'kb-4'];
+const KB_VARIANTS = ['kb-1', 'kb-2', 'kb-3', 'kb-4', 'kb-5', 'kb-6'];
+
+// Transitions d'entrée entre deux photos, choisies au hasard.
+// Aucune ne dépasse scale(1) : la photo reste entière (visages non rognés).
+const FX_VARIANTS = ['fx-fade', 'fx-slide', 'fx-rise', 'fx-zoom', 'fx-blur'];
 
 // Ambiances : filtre visuel CSS + musique par défaut + durée de slide.
 const AMBIANCES = [
@@ -292,6 +296,7 @@ export class SouvenirsPage {
     const nextLayer = stage.querySelector(`[data-layer="${nextIndex}"]`);
     const prevLayer = stage.querySelector(`[data-layer="${this.layerIndex}"]`);
     if (!nextLayer) return;
+    nextLayer.className = `souvenirs-layer ${FX_VARIANTS[Math.floor(Math.random() * FX_VARIANTS.length)]}`;
     const img = document.createElement('img');
     img.className = `souvenirs-photo ${KB_VARIANTS[Math.floor(Math.random() * KB_VARIANTS.length)]}`;
     img.alt = '';

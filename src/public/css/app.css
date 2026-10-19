@@ -7533,10 +7533,27 @@
 .souvenirs-photo.kb-2 { animation: souvenirsKb2 var(--slide-ms, 6000ms) linear forwards; }
 .souvenirs-photo.kb-3 { animation: souvenirsKb3 var(--slide-ms, 6000ms) linear forwards; }
 .souvenirs-photo.kb-4 { animation: souvenirsKb4 var(--slide-ms, 6000ms) linear forwards; }
+.souvenirs-photo.kb-5 { animation: souvenirsKb5 var(--slide-ms, 6000ms) ease-in-out forwards; }
+.souvenirs-photo.kb-6 { animation: souvenirsKb6 var(--slide-ms, 6000ms) ease-in-out forwards; }
 @keyframes souvenirsKb1 { from { transform: scale(1) translate(0, 0); } to { transform: scale(1) translate(-1.5%, -1%); } }
 @keyframes souvenirsKb2 { from { transform: scale(1) translate(1.5%, 1%); } to { transform: scale(1) translate(0, 0); } }
 @keyframes souvenirsKb3 { from { transform: scale(1) translate(1%, -1%); } to { transform: scale(1) translate(-1%, 1%); } }
 @keyframes souvenirsKb4 { from { transform: scale(1) translate(-1%, 1%); } to { transform: scale(1) translate(1%, -1%); } }
+@keyframes souvenirsKb5 { from { transform: scale(1); } to { transform: scale(.96); } }
+@keyframes souvenirsKb6 { from { transform: scale(.96); } to { transform: scale(1); } }
+
+/* Transitions d'entrée entre deux photos (classe fx-* posée au hasard).
+   Le couple scale(<1) + translation garantit que la photo reste entière :
+   la marge créée par le scale absorbe le décalage, aucun visage n'est rogné. */
+.souvenirs-layer.fx-fade { transition: opacity 1.2s ease; }
+.souvenirs-layer.fx-slide { transition: opacity 1s ease, transform 1.1s cubic-bezier(.22, .61, .36, 1); transform: scale(.95) translateX(1%); }
+.souvenirs-layer.fx-slide.is-active { transform: scale(1) translateX(0); }
+.souvenirs-layer.fx-rise { transition: opacity 1s ease, transform 1.1s cubic-bezier(.22, .61, .36, 1); transform: scale(.96) translateY(1%); }
+.souvenirs-layer.fx-rise.is-active { transform: scale(1) translateY(0); }
+.souvenirs-layer.fx-zoom { transition: opacity .9s ease, transform 1.4s ease-out; transform: scale(.94); }
+.souvenirs-layer.fx-zoom.is-active { transform: scale(1); }
+.souvenirs-layer.fx-blur { transition: opacity .8s ease, filter 1.2s ease-out; filter: blur(18px); }
+.souvenirs-layer.fx-blur.is-active { filter: blur(0); }
 
 /* Ambiances : effets visuels appliqués aux photos + voile coloré du stage. */
 .souvenirs-stage::before { content: ''; position: absolute; inset: 0; z-index: 1; pointer-events: none; transition: background .6s ease; }
@@ -7571,4 +7588,5 @@
 }
 @media (prefers-reduced-motion: reduce) {
   .souvenirs-photo { animation: none !important; }
+  .souvenirs-layer { transform: none !important; filter: none !important; transition: opacity .6s ease !important; }
 }

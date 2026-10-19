@@ -105,7 +105,10 @@ async def expense_dashboard(
     db: AsyncSession = Depends(get_db),
 ):
     """Retourne un histogramme des dépenses par catégorie."""
-    query = select(IntendanceExpense.category, func.sum(IntendanceExpense.amount).label("total_amount"))
+    query = select(IntendanceExpense.category, func.sum(IntendanceExpense.amount).label("total_amount")).where(
+        IntendanceExpense.category.is_not(None),
+        IntendanceExpense.category.notin_(["Projets divers", "Non classé"]),
+    )
     if expense_date_from is not None:
         query = query.where(IntendanceExpense.expense_date >= expense_date_from)
     if expense_date_to is not None:

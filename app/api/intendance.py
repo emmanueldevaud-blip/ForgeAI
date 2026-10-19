@@ -25,7 +25,7 @@ from app.schemas.intendance_expense import (
     SiteListResponse, SiteResponse, SiteUpdate, StagedRowListResponse, StagedRowResponse, ImportBilan,
     CardAliasCreate, CardAliasListResponse, CardAliasResponse, CardAliasUpdate,
 )
-from app.services.intendance_expense import expense_fingerprint, normalize_text, parse_excel_row
+from app.services.intendance_expense import expense_fingerprint, normalize_date, normalize_text, parse_excel_row
 
 router = APIRouter(prefix="/intendance/expenses", tags=["intendance-expenses"])
 
@@ -214,10 +214,25 @@ async def analyze_import(file: UploadFile = File(...), current_user: User = Depe
     column_indexes = {letter: normalized_headers.get(header.lower()) for header, letter in header_aliases.items() if header.lower() in normalized_headers}
     batch = IntendanceImportBatch(reference=uuid.uuid4().hex, file_name=file.filename, uploaded_by=current_user.id)
     db.add(batch); await db.flush()
-    seen = set(); rows = list(sheet.iter_rows(min_row=2, values_only=True)); fingerprints = []
-    for number, values in enumerate(rows, 2):
+    seen = set(); rows = list(sheet.iter_rows(min_row=2, values_only=True)); fingerprints = []; previous_date = None
+    mapped_rows = []
+    for values in rows:
         mapped_values = {letter: (values[index] if index is not None and index < len(values) else None) for letter, index in column_indexes.items()}
         mapped_values.setdefault("C", None)
+        mapped_rows.append(mapped_values)
+    for offset, mapped_values in enumerate(mapped_rows):
+        number = offset + 2
+        current_date = normalize_date(mapped_values.get("B"))
+        if current_date is None and previous_date is not None:
+            mapped_values["B"] = previous_date
+        elif current_date is None:
+            for next_values in mapped_rows[offset + 1:]:
+                next_date = normalize_date(next_values.get("B"))
+                if next_date is not None:
+                    mapped_values["B"] = next_date
+                    break
+        elif current_date is not None:
+            previous_date = current_date
         parsed = parse_excel_row(mapped_values, number); fp = expense_fingerprint(parsed); parsed["fingerprint"] = fp
         parsed["is_duplicate_in_file"] = fp in seen; seen.add(fp); fingerprints.append(fp)
         db.add(IntendanceImportStagedRow(batch_id=batch.id, **{k: v for k, v in parsed.items() if k in {"line_number","fingerprint","req_number","expense_date","bank_card","item_description","quantity","uom","amount","corporation","cost_center","account_code","account_label","prepared_by","invalid_reason","is_duplicate_in_file"}}))

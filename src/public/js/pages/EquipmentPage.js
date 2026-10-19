@@ -568,8 +568,8 @@ export class EquipmentPage {
         }
       }
 
-      if (!data.reference || !data.name || !data.room_id) {
-        alert('Les champs Référence, Désignation et Pièce sont obligatoires');
+      if (!data.name || !data.room_id) {
+        alert('Les champs Désignation et Pièce sont obligatoires');
         return;
       }
 

@@ -50,6 +50,8 @@ const ASSET_STATUSES = [
 
 const ASSET_STATUS_LABELS = Object.fromEntries(ASSET_STATUSES.map(({ value, label }) => [value, label]));
 
+const ASSET_TYPE_LABELS = Object.fromEntries(ASSET_TYPES.map(({ value, label }) => [value, label]));
+
 // États de l'interface web d'administration (management_url_status)
 const MGMT_STATUS_LABELS = {
   accessible: 'Accessible',
@@ -121,14 +123,14 @@ export class ITAssetPage {
           label: 'Nom',
           sortable: true,
           render: (item) => {
-            const name = this._escape(item.name || '');
+            const name = this._escape(String(item.name || '').toUpperCase());
             const url = String(item.management_url || '');
             const safeUrl = /^https?:\/\//i.test(url) ? url : '';
             if (!safeUrl) return name;
             return `<a href="${this._escapeAttr(safeUrl)}" target="_blank" rel="noopener noreferrer" title="Ouvrir l'interface d'administration">${name}</a>`;
           },
         },
-        { key: 'asset_type', label: 'Type', sortable: true },
+        { key: 'asset_type', label: 'Type', sortable: true, render: (item) => this._escape(ASSET_TYPE_LABELS[item.asset_type] || item.asset_type || '') },
         { key: 'ip_address', label: 'Adresse IP', sortable: true },
         { key: 'mac_address', label: 'Adresse MAC', sortable: true },
         { key: 'room_name', label: 'Local', render: (item) => this._escape(item.room?.name || 'Non renseigné') },
@@ -379,7 +381,7 @@ export class ITAssetPage {
   _getHTML() {
     const filterLabels = [];
     if (this.search) filterLabels.push(`Recherche: "${this._escape(this.search)}"`);
-    if (this.assetTypeFilter) filterLabels.push(`Type: ${this._escape(this.assetTypeFilter)}`);
+    if (this.assetTypeFilter) filterLabels.push(`Type: ${this._escape(ASSET_TYPE_LABELS[this.assetTypeFilter] || this.assetTypeFilter)}`);
     if (this.statusFilter) filterLabels.push(`Statut: ${this._escape(this.statusFilter)}`);
 
     let content = '';
@@ -441,11 +443,7 @@ export class ITAssetPage {
         <div class="filter-group"><label class="sr-only" for="it-asset-search">Rechercher</label><input id="it-asset-search" type="text" class="form-input" placeholder="Rechercher..." data-search value="${this._escape(this.search)}"></div>
         <div class="filter-group"><label class="sr-only" for="it-asset-type-filter">Filtrer par type</label><select id="it-asset-type-filter" class="form-select" data-asset-type-filter>
           <option value="">Tous les types</option>
-          <option value="server" ${this.assetTypeFilter === 'server' ? 'selected' : ''}>Serveur</option>
-          <option value="workstation" ${this.assetTypeFilter === 'workstation' ? 'selected' : ''}>Poste de travail</option>
-          <option value="network" ${this.assetTypeFilter === 'network' ? 'selected' : ''}>Équipement réseau</option>
-          <option value="printer" ${this.assetTypeFilter === 'printer' ? 'selected' : ''}>Imprimante</option>
-          <option value="other" ${this.assetTypeFilter === 'other' ? 'selected' : ''}>Autre</option>
+          ${ASSET_TYPES.map(type => `<option value="${type.value}" ${this.assetTypeFilter === type.value ? 'selected' : ''}>${type.label}</option>`).join('')}
         </select></div>
         <div class="filter-group"><label class="sr-only" for="it-asset-status-filter">Filtrer par statut</label><select id="it-asset-status-filter" class="form-select" data-status-filter>
           <option value="">Tous les statuts</option>

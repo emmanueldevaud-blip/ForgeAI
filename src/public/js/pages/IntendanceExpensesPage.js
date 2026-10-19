@@ -5,7 +5,7 @@ import { createIntendanceDashboardPage } from './IntendanceDashboardPage.js';
 
 export class IntendanceExpensesPage {
   constructor() {
-    this.element = null; this.items = []; this.sites = []; this.accountCodes = []; this.aliases = []; this.categories = []; this.search = ''; this.missing = ''; this.activeTab = 'details'; this.importState = null; this.referenceSortColumn = ''; this.referenceSortOrder = 'asc';
+    this.element = null; this.items = []; this.sites = []; this.accountCodes = []; this.aliases = []; this.categories = []; this.search = ''; this.missing = ''; this.activeTab = 'dashboard'; this.importState = null; this.referenceSortColumn = ''; this.referenceSortOrder = 'asc';
     this.page = 1; this.sortBy = 'expense_date'; this.sortOrder = 'desc'; this.table = new Table({
       columns: [
         { key: 'expense_date', label: 'Date', sortable: true }, { key: 'req_number', label: 'Demande', sortable: true },

@@ -128,6 +128,7 @@ export class IntendanceDashboardPage {
         const toValue = Number(document.getElementById('date-to').value);
         this.filterDateFrom = toDate(Math.min(fromValue, toValue));
         this.filterDateTo = toDate(Math.max(fromValue, toValue));
+        this._updateDateRangeTrack();
         this.element.querySelector('[data-date-input="from"]').value = this.filterDateFrom;
         this.element.querySelector('[data-date-input="to"]').value = this.filterDateTo;
         this.loadDashboard();
@@ -238,6 +239,14 @@ export class IntendanceDashboardPage {
       if (userSelect) userSelect.innerHTML = '<option value="">Tous</option>' + users.map(user => `<option value="${user}">${user}</option>`).join('');
       if (siteSelect) siteSelect.innerHTML = '<option value="">Tous</option>' + (sites.items || []).map(site => `<option value="${site.id}">${site.name}</option>`).join('');
     });
+    this._updateDateRangeTrack();
+  }
+
+  _updateDateRangeTrack() {
+    const from = this.element.querySelector('#date-from'); const to = this.element.querySelector('#date-to'); const track = this.element.querySelector('.date-range-sliders');
+    if (!from || !to || !track) return;
+    const min = Number(from.min); const max = Number(from.max); const start = ((Math.min(Number(from.value), Number(to.value)) - min) / (max - min)) * 100; const end = ((Math.max(Number(from.value), Number(to.value)) - min) / (max - min)) * 100;
+    track.style.setProperty('--range-start', `${start}%`); track.style.setProperty('--range-end', `${end}%`);
   }
 }
 

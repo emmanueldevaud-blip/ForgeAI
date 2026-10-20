@@ -83,6 +83,7 @@ export class IntendanceDashboardPage {
       <div class="dashboard-container">
         <!-- Filtres -->
         <div class="dashboard-filters">
+          <div class="dashboard-filters-row dashboard-filters-row--top">
           <div class="filter-group">
             <label class="filter-label">Catégorie</label>
             <select class="form-select" id="category-filter">
@@ -97,6 +98,8 @@ export class IntendanceDashboardPage {
               <div class="date-range-sliders"><input type="range" id="date-from" min="0" max="${rangeMax}" value="${dateFromValue}" aria-label="Date de début"><input type="range" id="date-to" min="0" max="${rangeMax}" value="${dateToValue}" aria-label="Date de fin"></div>
             </div>
           </div>
+          </div>
+          <div class="dashboard-filters-row dashboard-filters-row--bottom">
           <div class="filter-group">
             <label class="filter-label">Utilisateur</label>
             <select class="form-select" id="user-filter" multiple size="4" aria-label="Utilisateurs">
@@ -110,6 +113,7 @@ export class IntendanceDashboardPage {
             </select>
           </div>
           <button type="button" class="btn btn-secondary" data-reset-filters>Réinitialiser</button>
+          </div>
         </div>
 
         <div class="intendance-kpi-grid">${this._renderKpis()}</div>
@@ -117,7 +121,6 @@ export class IntendanceDashboardPage {
           <section class="histogram-container chart-card"><div class="chart-heading"><div><h2>Évolution mensuelle</h2><p>Montant total dépensé par mois</p></div><div class="chart-legend"><span class="chart-legend-item"><i class="chart-swatch chart-swatch--primary"></i>Montant (€)</span></div></div><canvas id="monthly-chart" aria-label="Évolution mensuelle des dépenses"></canvas></section>
           <section class="histogram-container chart-card"><div class="chart-heading"><div><h2>Répartition par catégorie</h2><p>Cliquer sur une catégorie pour filtrer</p></div><div class="chart-legend"><span class="chart-legend-item"><i class="chart-swatch chart-swatch--category"></i>Part du total</span></div></div>${this._renderCategoryBars()}</section>
           <section class="histogram-container chart-card"><div class="chart-heading"><div><h2>Répartition par utilisateur</h2><p>Montant attribué et nombre de dépenses</p></div><div class="chart-legend"><span class="chart-legend-item"><i class="chart-swatch chart-swatch--user"></i>Montant (€)</span></div></div>${this._renderUserBars()}</section>
-          <section class="histogram-container"><h2>Principales dépenses</h2>${this._renderTopExpenses()}</section>
         </div>
         <section class="histogram-container intendance-summary"><h2>Synthèse par catégorie</h2>${this._renderSummary()}</section>
       </div>

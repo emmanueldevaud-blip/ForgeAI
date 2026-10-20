@@ -109,7 +109,12 @@ async def expense_dashboard(
     excluded = (await db.execute(select(IntendanceCategory.name).where(IntendanceCategory.excluded_from_dashboard.is_(True)))).scalars().all()
     dashboard_setting = await db.get(IntendanceDashboardSetting, 1)
     exclude_uncategorized = dashboard_setting.exclude_uncategorized if dashboard_setting else False
+    visible_category = IntendanceExpense.category.notin_(excluded)
+    if not exclude_uncategorized:
+        visible_category = or_(IntendanceExpense.category.is_(None), visible_category)
+
     def filtered(statement, from_date=expense_date_from, to_date=expense_date_to):
+        statement = statement.where(visible_category)
         if from_date is not None:
             statement = statement.where(IntendanceExpense.expense_date >= from_date)
         if to_date is not None:
@@ -122,10 +127,7 @@ async def expense_dashboard(
             statement = statement.where(IntendanceExpense.category.in_(category))
         return statement
 
-    visible_category = IntendanceExpense.category.notin_(excluded)
-    if not exclude_uncategorized:
-        visible_category = or_(IntendanceExpense.category.is_(None), visible_category)
-    base = filtered(select(IntendanceExpense).where(visible_category))
+    base = filtered(select(IntendanceExpense))
     base_rows = base.subquery()
     totals = (await db.execute(select(
         func.coalesce(func.sum(base_rows.c.amount), 0),

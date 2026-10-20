@@ -194,9 +194,10 @@ export class IntendanceDashboardPage {
     return `<div class="filter-group"><label class="filter-label">${label}</label><details class="dashboard-multi-filter" data-multi-filter="${key}"><summary data-filter-summary>${all ? 'Toutes' : `${selected.length} sélectionné(s)`}</summary><div class="dashboard-multi-filter-menu" data-filter-options><label><input type="checkbox" data-filter-all ${all ? 'checked' : ''}> Toutes</label>${options.map(option => `<label><input type="checkbox" data-filter-option value="${option}" ${selected.includes(option) ? 'checked' : ''}>${option}</label>`).join('')}</div></details></div>`;
   }
 
-  _bindMultiFilters() {
+  _bindMultiFilters(keys = null) {
     this.element.querySelectorAll('[data-multi-filter]').forEach(container => {
       const key = container.dataset.multiFilter;
+      if (keys && !keys.includes(key)) return;
       const allInput = container.querySelector('[data-filter-all]');
       const update = () => {
         const values = [...container.querySelectorAll('[data-filter-option]:checked')].map(input => input.value);
@@ -315,7 +316,7 @@ export class IntendanceDashboardPage {
       const siteOptions = this.element.querySelector('[data-multi-filter="site"] [data-filter-options]');
       if (userOptions) userOptions.innerHTML = `<label><input type="checkbox" data-filter-all ${this.filterUser.length ? '' : 'checked'}> Toutes</label>${users.map(user => `<label><input type="checkbox" data-filter-option value="${user}" ${this.filterUser.includes(user) ? 'checked' : ''}>${user}</label>`).join('')}`;
       if (siteOptions) siteOptions.innerHTML = `<label><input type="checkbox" data-filter-all ${this.filterSite.length ? '' : 'checked'}> Toutes</label>${(sites.items || []).map(site => `<label><input type="checkbox" data-filter-option value="${site.id}" ${this.filterSite.includes(Number(site.id)) ? 'checked' : ''}>${site.name}</label>`).join('')}`;
-      this._bindMultiFilters();
+      this._bindMultiFilters(['user', 'site']);
     });
     this._updateDateRangeTrack();
   }

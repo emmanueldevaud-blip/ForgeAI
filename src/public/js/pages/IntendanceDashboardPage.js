@@ -63,8 +63,11 @@ export class IntendanceDashboardPage {
 
   async loadDashboard() {
     const params = new URLSearchParams();
-    if (this.filterDateFrom) params.append('expense_date_from', this.filterDateFrom);
-    if (this.filterDateTo) params.append('expense_date_to', this.filterDateTo);
+    const today = new Date();
+    const effectiveDateFrom = this.filterDateFrom || `${today.getFullYear()}-01-01`;
+    const effectiveDateTo = this.filterDateTo || today.toISOString().split('T')[0];
+    params.append('expense_date_from', effectiveDateFrom);
+    params.append('expense_date_to', effectiveDateTo);
     this.filterUser.forEach(user => params.append('user_name', user));
     this.filterSite.forEach(site => params.append('site_id', site));
     const viewCategory = this.activeView === 'meals' ? 'Nourriture' : this.activeView === 'energy' ? 'Energie' : null;
@@ -145,10 +148,10 @@ export class IntendanceDashboardPage {
 
         <div class="intendance-kpi-grid">${this._renderKpis()}</div>
         <div class="intendance-dashboard-grid">
-          <section class="histogram-container chart-card"><div class="chart-heading"><div><h2>Répartition par catégorie</h2><p>Cliquer sur une catégorie pour filtrer</p></div><div class="chart-legend"><span class="chart-legend-item"><i class="chart-swatch chart-swatch--category"></i>Part du total</span></div></div>${this._renderCategoryBars()}</section>
+          ${generalView ? '<section class="histogram-container chart-card"><div class="chart-heading"><div><h2>Répartition par catégorie</h2><p>Cliquer sur une catégorie pour filtrer</p></div><div class="chart-legend"><span class="chart-legend-item"><i class="chart-swatch chart-swatch--category"></i>Part du total</span></div></div>' + this._renderCategoryBars() + '</section>' : ''}
           <section class="histogram-container chart-card"><div class="chart-heading"><div><h2>Répartition par utilisateur</h2><p>Montant attribué et nombre de dépenses</p></div><div class="chart-legend"><span class="chart-legend-item"><i class="chart-swatch chart-swatch--user"></i>Montant (€)</span></div></div>${this._renderUserBars()}</section>
-          <section class="histogram-container chart-card chart-card--monthly"><div class="chart-heading"><div><h2>Évolution ${this.activeView === 'meals' ? 'de la nourriture' : this.activeView === 'energy' ? 'de l’énergie' : 'mensuelle'}</h2><p>Montant total par catégorie</p></div><div class="chart-legend">${this._renderMonthlyLegend()}</div></div><canvas id="monthly-chart" aria-label="Évolution mensuelle des dépenses par catégorie"></canvas></section>
-          ${this.activeView === 'energy' ? '<section class="histogram-container chart-card"><div class="chart-heading"><div><h2>Coût de l’énergie par site</h2><p>Montant total et nombre d’opérations</p></div><div class="chart-legend"><span class="chart-legend-item"><i class="chart-swatch chart-swatch--user"></i>Montant (€)</span></div></div>' + this._renderSiteBars() + '</section>' : ''}
+          <section class="histogram-container chart-card"><div class="chart-heading"><div><h2>${this.activeView === 'energy' ? 'Coût de l’énergie par site' : 'Répartition par site'}</h2><p>Montant total et nombre de dépenses</p></div><div class="chart-legend"><span class="chart-legend-item"><i class="chart-swatch chart-swatch--user"></i>Montant (€)</span></div></div>${this._renderSiteBars()}</section>
+          <section class="histogram-container chart-card chart-card--monthly"><div class="chart-heading"><div><h2>${this.activeView === 'meals' ? 'Évolution des dépenses de nourriture' : this.activeView === 'energy' ? 'Évolution des dépenses d’énergie' : 'Évolution mensuelle'}</h2></div><div class="chart-legend">${this._renderMonthlyLegend()}</div></div><canvas id="monthly-chart" aria-label="Évolution mensuelle des dépenses par catégorie"></canvas></section>
         </div>
         <section class="histogram-container intendance-expense-list"><div class="chart-heading"><div><h2>Dépenses filtrées</h2><p>${this.expenseListMeta.total || 0} dépense(s) correspondant aux filtres</p></div></div>${this._renderExpenseList()}</section>
 

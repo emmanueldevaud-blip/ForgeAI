@@ -108,13 +108,6 @@ export class IntendanceDashboardPage {
         <div class="dashboard-filters">
           <div class="dashboard-filters-row dashboard-filters-row--top">
           <div class="filter-group">
-            <label class="filter-label">Catégorie</label>
-            <select class="form-select" id="category-filter">
-              <option value="">Toutes</option>
-              ${(this.dashboard.categories || []).map(item => `<option value="${item.name}" ${this.filterCategory.includes(item.name) ? 'selected' : ''}>${item.name}</option>`).join('')}
-            </select>
-          </div>
-          <div class="filter-group">
             <label class="filter-label">Période</label>
             <div class="slider-wrapper">
               <div class="date-range-values"><input type="date" class="date-range-calendar" data-date-input="from" value="${dateFromStr}" aria-label="Date de début"><span>–</span><input type="date" class="date-range-calendar" data-date-input="to" value="${dateToStr}" aria-label="Date de fin"></div>
@@ -123,18 +116,9 @@ export class IntendanceDashboardPage {
           </div>
           </div>
           <div class="dashboard-filters-row dashboard-filters-row--bottom">
-          <div class="filter-group">
-            <label class="filter-label">Utilisateur</label>
-            <select class="form-select" id="user-filter" multiple size="4" aria-label="Utilisateurs">
-              <option value="">Tous</option>
-            </select>
-          </div>
-          <div class="filter-group">
-            <label class="filter-label">Site</label>
-            <select class="form-select" id="site-filter" multiple size="4" aria-label="Sites">
-              <option value="">Tous</option>
-            </select>
-          </div>
+          ${this._renderMultiFilter('category', 'Catégorie', (this.dashboard.categories || []).map(item => item.name), this.filterCategory)}
+          ${this._renderMultiFilter('user', 'Utilisateur', [], this.filterUser)}
+          ${this._renderMultiFilter('site', 'Site', [], this.filterSite)}
           <button type="button" class="btn btn-secondary" data-reset-filters>Réinitialiser</button>
           </div>
         </div>
@@ -194,29 +178,44 @@ export class IntendanceDashboardPage {
       this._saveFilterState();
       this.loadDashboard();
     });
-    this.element.querySelector('#category-filter').onchange = event => { this.filterCategory = event.target.value ? [event.target.value] : []; this._saveFilterState(); this.loadDashboard(); };
     this.element.querySelectorAll('[data-category]').forEach(button => button.onclick = () => { this.filterCategory = [button.dataset.category]; this._saveFilterState(); this.loadDashboard(); });
     this.element.querySelector('[data-reset-filters]').onclick = () => { this.filterDateFrom = ''; this.filterDateTo = ''; this.filterUser = []; this.filterSite = []; this.filterCategory = []; localStorage.removeItem(this.filterStorageKey); this.loadDashboard(); };
-
-    // User filter
-    this.element.querySelector('#user-filter').onchange = (e) => {
-      this.filterUser = Array.from(e.target.selectedOptions, option => option.value);
-      this._saveFilterState();
-      this.loadDashboard();
-    };
-
-    // Site filter
-    this.element.querySelector('#site-filter').onchange = (e) => {
-      this.filterSite = Array.from(e.target.selectedOptions, option => Number(option.value));
-      this._saveFilterState();
-      this.loadDashboard();
-    };
+    this._bindMultiFilters();
 
     // Close button
     this.element.querySelector('[data-close-dashboard]').onclick = () => {
       clearInterval(this.refreshTimer);
       this.element.remove();
     };
+  }
+
+  _renderMultiFilter(key, label, options, selected) {
+    const all = !selected.length;
+    return `<div class="filter-group"><label class="filter-label">${label}</label><details class="dashboard-multi-filter" data-multi-filter="${key}"><summary data-filter-summary>${all ? 'Toutes' : `${selected.length} sélectionné(s)`}</summary><div class="dashboard-multi-filter-menu" data-filter-options><label><input type="checkbox" data-filter-all ${all ? 'checked' : ''}> Toutes</label>${options.map(option => `<label><input type="checkbox" data-filter-option value="${option}" ${selected.includes(option) ? 'checked' : ''}>${option}</label>`).join('')}</div></details></div>`;
+  }
+
+  _bindMultiFilters() {
+    this.element.querySelectorAll('[data-multi-filter]').forEach(container => {
+      const key = container.dataset.multiFilter;
+      const allInput = container.querySelector('[data-filter-all]');
+      const update = () => {
+        const values = [...container.querySelectorAll('[data-filter-option]:checked')].map(input => input.value);
+        if (key === 'category') this.filterCategory = values;
+        if (key === 'user') this.filterUser = values;
+        if (key === 'site') this.filterSite = values.map(Number);
+        container.querySelector('[data-filter-summary]').textContent = values.length ? `${values.length} sélectionné(s)` : 'Toutes';
+        this._saveFilterState();
+        this.loadDashboard();
+      };
+      allInput?.addEventListener('change', () => {
+        container.querySelectorAll('[data-filter-option]').forEach(input => { input.checked = false; });
+        update();
+      });
+      container.querySelectorAll('[data-filter-option]').forEach(input => input.addEventListener('change', () => {
+        if (input.checked && allInput) allInput.checked = false;
+        update();
+      }));
+    });
   }
 
   _renderHistogram() {
@@ -312,16 +311,11 @@ export class IntendanceDashboardPage {
   _loadUsersSites() {
     Promise.all([listAliases(), listSites()]).then(([aliases, sites]) => {
       const users = [...new Set((aliases.items || []).map(item => item.user_name).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'fr'));
-      const userSelect = this.element.querySelector('#user-filter');
-      const siteSelect = this.element.querySelector('#site-filter');
-      if (userSelect) {
-        userSelect.innerHTML = users.map(user => `<option value="${user}">${user}</option>`).join('');
-        Array.from(userSelect.options).forEach(option => { option.selected = this.filterUser.includes(option.value); });
-      }
-      if (siteSelect) {
-        siteSelect.innerHTML = (sites.items || []).map(site => `<option value="${site.id}">${site.name}</option>`).join('');
-        Array.from(siteSelect.options).forEach(option => { option.selected = this.filterSite.includes(Number(option.value)); });
-      }
+      const userOptions = this.element.querySelector('[data-multi-filter="user"] [data-filter-options]');
+      const siteOptions = this.element.querySelector('[data-multi-filter="site"] [data-filter-options]');
+      if (userOptions) userOptions.innerHTML = `<label><input type="checkbox" data-filter-all ${this.filterUser.length ? '' : 'checked'}> Toutes</label>${users.map(user => `<label><input type="checkbox" data-filter-option value="${user}" ${this.filterUser.includes(user) ? 'checked' : ''}>${user}</label>`).join('')}`;
+      if (siteOptions) siteOptions.innerHTML = `<label><input type="checkbox" data-filter-all ${this.filterSite.length ? '' : 'checked'}> Toutes</label>${(sites.items || []).map(site => `<label><input type="checkbox" data-filter-option value="${site.id}" ${this.filterSite.includes(Number(site.id)) ? 'checked' : ''}>${site.name}</label>`).join('')}`;
+      this._bindMultiFilters();
     });
     this._updateDateRangeTrack();
   }

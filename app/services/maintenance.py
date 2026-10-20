@@ -1,6 +1,9 @@
 from datetime import datetime, timezone, date
 from decimal import Decimal
 from typing import Any
+import os
+from uuid import uuid4
+from fastapi import UploadFile
 
 from sqlalchemy import select, func, and_, or_
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -20,6 +23,7 @@ from app.models.maintenance import (
     WorkOrderPart,
     MaintenanceCost,
     MaintenanceStatusHistory,
+    MaintenanceContractAttachment,
 )
 from app.models.equipment import Equipment
 from app.models.user import User
@@ -412,6 +416,88 @@ class MaintenanceService:
         )
         await self.db.commit()
         return await self.get_contract(contract_id)
+
+    # ============================================================
+    # CONTRACT ATTACHMENTS (Pièces jointes aux contrats)
+    # ============================================================
+
+    async def add_contract_attachment(self, contract_id: int, file: UploadFile):
+        contract = await self.get_contract(contract_id)
+        if not contract:
+            return None
+
+        upload_dir = os.getenv(
+            "MAINTENANCE_UPLOAD_DIR",
+            os.path.join("app", "data", "uploads", "maintenance_contracts"),
+        )
+        os.makedirs(upload_dir, exist_ok=True)
+        original_name = file.filename or "fichier"
+        ext = os.path.splitext(original_name)[1]
+        file_path = os.path.abspath(os.path.join(upload_dir, uuid4().hex + ext))
+        content = await file.read()
+        with open(file_path, "wb") as f:
+            f.write(content)
+
+        attachment = MaintenanceContractAttachment(
+            contract_id=contract_id,
+            filename=original_name[:255],
+            file_path=file_path,
+            mime_type=file.content_type,
+            file_size=len(content),
+            uploaded_by=self.current_user.id if self.current_user else None,
+        )
+        self.db.add(attachment)
+        await self.db.flush()
+
+        await self.audit.log(
+            action="contract_attachment_create", module="maintenance",
+            user=self.current_user, object_type="contract_attachment",
+            object_id=str(attachment.id), object_repr=attachment.filename,
+            new_values={"contract_id": contract_id, "filename": attachment.filename},
+        )
+        await self.db.commit()
+        await self.db.refresh(attachment)
+        return attachment
+
+    async def list_contract_attachments(self, contract_id: int):
+        contract = await self.db.get(MaintenanceContract, contract_id)
+        if not contract:
+            return None
+        result = await self.db.execute(
+            select(MaintenanceContractAttachment)
+            .where(MaintenanceContractAttachment.contract_id == contract_id)
+            .order_by(MaintenanceContractAttachment.created_at.asc(), MaintenanceContractAttachment.id.asc())
+        )
+        return list(result.scalars().all())
+
+    async def get_contract_attachment(self, attachment_id: int):
+        result = await self.db.execute(
+            select(MaintenanceContractAttachment).where(MaintenanceContractAttachment.id == attachment_id)
+        )
+        return result.scalar_one_or_none()
+
+    async def delete_contract_attachment(self, attachment_id: int) -> bool:
+        attachment = await self.get_contract_attachment(attachment_id)
+        if not attachment:
+            return False
+        contract_id = attachment.contract_id
+        file_path = attachment.file_path
+        filename = attachment.filename
+        try:
+            if file_path and os.path.exists(file_path):
+                os.remove(file_path)
+        except OSError:
+            pass
+        await self.db.delete(attachment)
+        await self.db.flush()
+        await self.audit.log(
+            action="contract_attachment_delete", module="maintenance",
+            user=self.current_user, object_type="contract_attachment",
+            object_id=str(attachment_id), object_repr=filename,
+            old_values={"contract_id": contract_id, "filename": filename},
+        )
+        await self.db.commit()
+        return True
 
     # ============================================================
     # MAINTENANCE REQUESTS

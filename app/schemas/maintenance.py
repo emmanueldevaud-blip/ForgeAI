@@ -197,6 +197,19 @@ class ContractListResponse(BaseModel):
     total_pages: int
 
 
+class ContractAttachmentResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    contract_id: int
+    filename: str
+    file_path: str
+    mime_type: Optional[str] = None
+    file_size: Optional[int] = None
+    uploaded_by: Optional[int] = None
+    created_at: datetime
+
+
 # ============================================================
 # MAINTENANCE REQUESTS
 # ============================================================

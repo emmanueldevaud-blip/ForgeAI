@@ -1,5 +1,7 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, File, UploadFile, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
+import os
+from fastapi.responses import FileResponse
 
 from app.api.deps import require_module_enabled, require_permission
 from app.db.session import get_db
@@ -47,6 +49,7 @@ from app.schemas.maintenance import (
     WorkOrderPartResponse,
     WorkOrderResponse,
     WorkOrderUpdate,
+    ContractAttachmentResponse,
 )
 from app.services.audit import get_audit_service
 from app.services.maintenance import MaintenanceService
@@ -273,6 +276,62 @@ async def update_contract(
     if not item:
         raise HTTPException(status_code=404, detail="Contrat non trouvé")
     return ContractResponse.model_validate(item, from_attributes=True)
+
+
+@router.get("/contracts/{contract_id}/attachments", response_model=list[ContractAttachmentResponse])
+async def list_contract_attachments(
+    contract_id: int,
+    service: MaintenanceService = Depends(get_maintenance_service),
+):
+    items = await service.list_contract_attachments(contract_id)
+    if items is None:
+        raise HTTPException(status_code=404, detail="Contrat non trouvé")
+    return items
+
+
+@router.post("/contracts/{contract_id}/attachments", response_model=ContractAttachmentResponse, status_code=201)
+async def add_contract_attachment(
+    contract_id: int,
+    file: UploadFile = File(...),
+    current_user: User = Depends(require_permission("maintenance.manage_contracts")),
+    db: AsyncSession = Depends(get_db),
+):
+    audit = await get_audit_service(db)
+    service = MaintenanceService(db, audit=audit, current_user=current_user)
+    item = await service.add_contract_attachment(contract_id, file)
+    if not item:
+        raise HTTPException(status_code=404, detail="Contrat non trouvé")
+    return ContractAttachmentResponse.model_validate(item, from_attributes=True)
+
+
+@router.get("/attachments/{attachment_id}/download")
+async def download_contract_attachment(
+    attachment_id: int,
+    service: MaintenanceService = Depends(get_maintenance_service),
+):
+    attachment = await service.get_contract_attachment(attachment_id)
+    if not attachment:
+        raise HTTPException(status_code=404, detail="Pièce jointe non trouvée")
+    if not attachment.file_path or not os.path.exists(attachment.file_path):
+        raise HTTPException(status_code=404, detail="Fichier introuvable sur le serveur")
+    return FileResponse(
+        attachment.file_path,
+        media_type=attachment.mime_type or "application/octet-stream",
+        filename=attachment.filename,
+    )
+
+
+@router.delete("/attachments/{attachment_id}", response_model=MessageResponse)
+async def delete_contract_attachment(
+    attachment_id: int,
+    current_user: User = Depends(require_permission("maintenance.manage_contracts")),
+    db: AsyncSession = Depends(get_db),
+):
+    audit = await get_audit_service(db)
+    service = MaintenanceService(db, audit=audit, current_user=current_user)
+    if not await service.delete_contract_attachment(attachment_id):
+        raise HTTPException(status_code=404, detail="Pièce jointe non trouvée")
+    return MessageResponse(message="Pièce jointe supprimée")
 
 
 # ============================================================

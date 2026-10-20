@@ -211,6 +211,8 @@ class MaintenanceService:
             object_id=str(provider.id), object_repr=provider.name,
             new_values=data,
         )
+        await self.db.commit()
+        await self.db.refresh(provider)
         return provider
 
     async def update_provider(self, provider_id: int, data: dict):
@@ -228,6 +230,8 @@ class MaintenanceService:
             object_id=str(provider.id), object_repr=provider.name,
             old_values=old_values, new_values=data,
         )
+        await self.db.commit()
+        await self.db.refresh(provider)
         return provider
 
     # ============================================================

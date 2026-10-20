@@ -1,5 +1,6 @@
 import { authStore } from '../stores/auth.js';
 import { getExpenseDashboard, listExpenses, listAliases, listSites } from '../services/intendanceApi.js';
+import { Table } from '../components/Table.js';
 
 const CATEGORY_COLORS = {
   'matriel': '#4F46E5',
@@ -21,13 +22,34 @@ export class IntendanceDashboardPage {
     this.categories = [];
     this.amounts = [];
     this.maxAmount = 0;
-    this.dashboard = { kpis: {}, categories: [], monthly: [], daily: [], users: [], top_expenses: [] };
+    this.dashboard = { kpis: {}, categories: [], monthly: [], daily: [], users: [], sites: [], top_expenses: [] };
     this.expenses = [];
     this.filterDateFrom = '';
     this.filterDateTo = '';
     this.filterUser = [];
     this.filterSite = [];
     this.filterCategory = [];
+    this.activeView = 'general';
+    this.expenseSearch = '';
+    this.expensePage = 1;
+    this.expenseSortBy = 'expense_date';
+    this.expenseSortOrder = 'desc';
+    this.expenseListMeta = { total: 0, total_pages: 1, page_size: 20 };
+    this.expenseTable = new Table({
+      columns: [
+        { key: 'expense_date', label: 'Date', sortable: true },
+        { key: 'req_number', label: 'Demande', sortable: true },
+        { key: 'item_description', label: 'Libellé', sortable: true },
+        { key: 'category', label: 'Catégorie', sortable: true, render: item => item.category || 'Non classée' },
+        { key: 'user_name', label: 'Utilisateur', sortable: true },
+        { key: 'site.name', label: 'Site', sortable: true },
+        { key: 'amount', label: 'Montant', sortable: true, render: item => this._money(item.amount) },
+      ],
+      actions: [{ key: 'edit', label: 'Modifier', icon: 'edit' }, { key: 'delete', label: 'Supprimer', icon: 'trash' }],
+      onAction: (action, item) => action === 'edit' ? this.onEditExpense?.(item) : this.onDeleteExpense?.(item),
+      onSort: (column, order) => { this.expenseSortBy = column; this.expenseSortOrder = order; this.expensePage = 1; this.loadDashboard(); },
+      emptyMessage: 'Aucune dépense pour les filtres sélectionnés',
+    });
     this._loadFilterState();
     this.page = 1;
     this.refreshTimer = null;
@@ -45,14 +67,16 @@ export class IntendanceDashboardPage {
     if (this.filterDateTo) params.append('expense_date_to', this.filterDateTo);
     this.filterUser.forEach(user => params.append('user_name', user));
     this.filterSite.forEach(site => params.append('site_id', site));
-    this.filterCategory.forEach(category => params.append('category', category));
+    const viewCategory = this.activeView === 'meals' ? 'Nourriture' : this.activeView === 'energy' ? 'Energie' : null;
+    (viewCategory ? [viewCategory] : this.filterCategory).forEach(category => params.append('category', category));
 
     const [dashboard, expenseList] = await Promise.all([
       getExpenseDashboard(params),
-      listExpenses(new URLSearchParams([...params.entries(), ['dashboard', 'true'], ['page', '1'], ['page_size', '500'], ['sort_by', 'expense_date'], ['sort_order', 'desc']])),
+      listExpenses(new URLSearchParams([...params.entries(), ['dashboard', 'true'], ['search', this.expenseSearch], ['page', String(this.expensePage)], ['page_size', '20'], ['sort_by', this.expenseSortBy], ['sort_order', this.expenseSortOrder]])),
     ]);
     this.dashboard = dashboard || this.dashboard;
     this.expenses = expenseList?.items || [];
+    this.expenseListMeta = expenseList || this.expenseListMeta;
     const categories = this.dashboard.categories || [];
     this.categories = categories.map(item => item.name);
     this.amounts = categories.map(item => Number(item.amount) || 0);
@@ -94,41 +118,61 @@ export class IntendanceDashboardPage {
     const dateToValue = this.filterDateTo ? dayValue(dateTo) : dayValue(dateTo);
     const rangeMax = dayValue(today);
 
-    this.element.innerHTML = `
-      <div class="dashboard-container">
+    const generalView = this.activeView === 'general';
+    const filterMarkup = `
         <!-- Filtres -->
         <div class="dashboard-filters">
           <div class="dashboard-filters-row dashboard-filters-row--top">
           <div class="filter-group">
             <label class="filter-label">Période</label>
             <div class="slider-wrapper">
-              <div class="date-range-values"><input type="date" class="date-range-calendar" data-date-input="from" value="${dateFromStr}" aria-label="Date de début"><span>–</span><input type="date" class="date-range-calendar" data-date-input="to" value="${dateToStr}" aria-label="Date de fin"></div>
+              <div class="date-range-values"><input type="date" class="form-input" data-date-input="from" value="${dateFromStr}" aria-label="Date de début"><span>–</span><input type="date" class="form-input" data-date-input="to" value="${dateToStr}" aria-label="Date de fin"></div>
               <div class="date-range-sliders"><input type="range" id="date-from" min="0" max="${rangeMax}" value="${dateFromValue}" aria-label="Date de début"><input type="range" id="date-to" min="0" max="${rangeMax}" value="${dateToValue}" aria-label="Date de fin"></div>
             </div>
           </div>
           </div>
           <div class="dashboard-filters-row dashboard-filters-row--bottom">
-          ${this._renderMultiFilter('category', 'Catégorie', (this.dashboard.categories || []).map(item => item.name), this.filterCategory)}
+          ${generalView ? this._renderMultiFilter('category', 'Catégorie', (this.dashboard.categories || []).map(item => item.name), this.filterCategory) : ''}
           ${this._renderMultiFilter('user', 'Utilisateur', [], this.filterUser)}
           ${this._renderMultiFilter('site', 'Site', [], this.filterSite)}
           <button type="button" class="btn btn-secondary" data-reset-filters>Réinitialiser</button>
           </div>
-        </div>
+        </div>`;
+    this.element.innerHTML = `
+      <div class="dashboard-container">
+        <div class="admin-tabs intendance-dashboard-tabs" role="tablist" aria-label="Vues du tableau de bord"><button role="tab" class="admin-tab" data-dashboard-view="general" aria-selected="${generalView}" type="button">Général</button><button role="tab" class="admin-tab" data-dashboard-view="meals" aria-selected="${this.activeView === 'meals'}" type="button">Repas</button><button role="tab" class="admin-tab" data-dashboard-view="energy" aria-selected="${this.activeView === 'energy'}" type="button">Énergie</button></div>
+        ${filterMarkup}
 
         <div class="intendance-kpi-grid">${this._renderKpis()}</div>
         <div class="intendance-dashboard-grid">
           <section class="histogram-container chart-card"><div class="chart-heading"><div><h2>Répartition par catégorie</h2><p>Cliquer sur une catégorie pour filtrer</p></div><div class="chart-legend"><span class="chart-legend-item"><i class="chart-swatch chart-swatch--category"></i>Part du total</span></div></div>${this._renderCategoryBars()}</section>
           <section class="histogram-container chart-card"><div class="chart-heading"><div><h2>Répartition par utilisateur</h2><p>Montant attribué et nombre de dépenses</p></div><div class="chart-legend"><span class="chart-legend-item"><i class="chart-swatch chart-swatch--user"></i>Montant (€)</span></div></div>${this._renderUserBars()}</section>
-          <section class="histogram-container chart-card chart-card--monthly"><div class="chart-heading"><div><h2>Évolution mensuelle</h2><p>Montant total dépensé par mois</p></div><div class="chart-legend"><span class="chart-legend-item"><i class="chart-swatch chart-swatch--primary"></i>Montant (€)</span></div></div><canvas id="monthly-chart" aria-label="Évolution mensuelle des dépenses"></canvas></section>
+          <section class="histogram-container chart-card chart-card--monthly"><div class="chart-heading"><div><h2>Évolution ${this.activeView === 'meals' ? 'de la nourriture' : this.activeView === 'energy' ? 'de l’énergie' : 'mensuelle'}</h2><p>Montant total par catégorie</p></div><div class="chart-legend">${this._renderMonthlyLegend()}</div></div><canvas id="monthly-chart" aria-label="Évolution mensuelle des dépenses par catégorie"></canvas></section>
+          ${this.activeView === 'energy' ? '<section class="histogram-container chart-card"><div class="chart-heading"><div><h2>Coût de l’énergie par site</h2><p>Montant total et nombre d’opérations</p></div><div class="chart-legend"><span class="chart-legend-item"><i class="chart-swatch chart-swatch--user"></i>Montant (€)</span></div></div>' + this._renderSiteBars() + '</section>' : ''}
         </div>
-        <section class="histogram-container intendance-expense-list"><div class="chart-heading"><div><h2>Dépenses filtrées</h2><p>${this.expenses.length} dépense(s) correspondant aux filtres</p></div></div>${this._renderExpenseList()}</section>
+        <section class="histogram-container intendance-expense-list"><div class="chart-heading"><div><h2>Dépenses filtrées</h2><p>${this.expenseListMeta.total || 0} dépense(s) correspondant aux filtres</p></div></div>${this._renderExpenseList()}</section>
+
       </div>
     `;
 
     this._bind();
-    this._renderHistogram();
-    this._loadUsersSites();
+    this.element.querySelectorAll('[data-dashboard-view]').forEach(button => button.onclick = () => { this.activeView = button.dataset.dashboardView; this.expensePage = 1; this.loadDashboard(); });
+    this._renderExpenseTable(); this._renderHistogram(); this._loadUsersSites();
     return this.element;
+  }
+
+  _renderExpenseTable() {
+    const target = this.element.querySelector('[data-expense-table]');
+    if (!target) return;
+    this.expenseTable.setData({ items: this.expenses, total: this.expenseListMeta.total || 0, page: this.expenseListMeta.page || this.expensePage, pageSize: 20, totalPages: this.expenseListMeta.total_pages || 1, sortBy: this.expenseSortBy, sortOrder: this.expenseSortOrder });
+    target.replaceChildren(this.expenseTable.render());
+    const totalPages = this.expenseListMeta.total_pages || 1;
+    const pager = document.createElement('div');
+    pager.className = 'users-pagination';
+    pager.innerHTML = `<div class="pagination-info">Page <strong>${this.expensePage}</strong> sur <strong>${totalPages}</strong> (${this.expenseListMeta.total || 0} total)</div><div class="pagination-controls"><button class="btn btn-sm btn-secondary" data-page-prev ${this.expensePage <= 1 ? 'disabled' : ''}>‹ Précédent</button><button class="btn btn-sm btn-secondary" data-page-next ${this.expensePage >= totalPages ? 'disabled' : ''}>Suivant ›</button></div>`;
+    target.appendChild(pager);
+    pager.querySelector('[data-page-prev]').onclick = () => { if (this.expensePage > 1) { this.expensePage -= 1; this.loadDashboard(); } };
+    pager.querySelector('[data-page-next]').onclick = () => { if (this.expensePage < totalPages) { this.expensePage += 1; this.loadDashboard(); } };
   }
 
   _bind() {
@@ -175,6 +219,7 @@ export class IntendanceDashboardPage {
     this._bindMultiFilters();
     this.element.querySelectorAll('[data-list-edit]').forEach(button => button.onclick = () => this.onEditExpense?.(this.expenses.find(item => item.id === Number(button.dataset.listEdit))));
     this.element.querySelectorAll('[data-list-delete]').forEach(button => button.onclick = () => this.onDeleteExpense?.(this.expenses.find(item => item.id === Number(button.dataset.listDelete))));
+    this.element.querySelector('[data-expense-search]')?.addEventListener('change', event => { this.expenseSearch = event.target.value; this.expensePage = 1; this.loadDashboard(); });
 
   }
 
@@ -256,11 +301,14 @@ export class IntendanceDashboardPage {
       const x = xScale(i);
       const barWidth = Math.max(12, chartWidth / (monthly.length * 1.8));
       const barX = x - barWidth / 2;
-      const barHeight = (item.amount / max) * chartHeight;
-      
-      ctx.fillStyle = 'var(--color-primary)';
-      ctx.fillStyle = '#4F46E5';
-      ctx.fillRect(barX, padding.top + chartHeight - barHeight, barWidth, barHeight);
+      let currentY = padding.top + chartHeight;
+      const categories = Object.entries(item.categories || {});
+      categories.forEach(([category, amount], categoryIndex) => {
+        const segmentHeight = (amount / max) * chartHeight;
+        ctx.fillStyle = this._chartColor(this._monthlyCategoryIndex(category));
+        currentY -= segmentHeight;
+        ctx.fillRect(barX, currentY, barWidth, segmentHeight);
+      });
       
       // Label catégorie
       ctx.fillStyle = '#374151';
@@ -279,6 +327,16 @@ export class IntendanceDashboardPage {
       );
     });
 
+  }
+
+  _monthlyCategoryIndex(category) {
+    const categories = [...new Set((this.dashboard.monthly || []).flatMap(item => Object.keys(item.categories || {})))];
+    return categories.indexOf(category);
+  }
+
+  _renderMonthlyLegend() {
+    const categories = [...new Set((this.dashboard.monthly || []).flatMap(item => Object.keys(item.categories || {})))];
+    return categories.map(category => `<span class="chart-legend-item"><i class="chart-swatch" style="background:${this._chartColor(this._monthlyCategoryIndex(category))}"></i>${category}</span>`).join('') || '<span class="chart-legend-item">Aucune donnée</span>';
   }
 
   _money(value) { return new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'EUR' }).format(Number(value) || 0); }
@@ -300,10 +358,11 @@ export class IntendanceDashboardPage {
     return (this.dashboard.categories || []).map((item, index) => `<button type="button" class="intendance-bar-row" data-category="${item.name}"><span class="intendance-bar-label"><i class="chart-swatch" style="background:${this._chartColor(index)}"></i>${item.name}</span><i class="intendance-bar-track"><b style="width:${total ? item.amount / total * 100 : 0}%;background:${this._chartColor(index)}"></b></i><strong>${this._money(item.amount)}</strong><small>${total ? (item.amount / total * 100).toFixed(1) : 0}%</small></button>`).join('') || '<p class="text-muted">Aucune dépense.</p>';
   }
   _renderUserBars() { return (this.dashboard.users || []).map((item, index) => `<div class="intendance-bar-row"><span class="intendance-bar-label"><i class="chart-swatch" style="background:${this._chartColor(index + 2)}"></i>${item.name}</span><i class="intendance-bar-track"><b style="width:${this.dashboard.users[0]?.amount ? item.amount / this.dashboard.users[0].amount * 100 : 0}%;background:${this._chartColor(index + 2)}"></b></i><strong>${this._money(item.amount)}</strong><small>${item.count} dép.</small></div>`).join('') || '<p class="text-muted">Aucune attribution utilisateur.</p>'; }
+  _renderSiteBars() { const sites = this.dashboard.sites || []; const max = Math.max(...sites.map(item => Number(item.amount) || 0), 1); return sites.map((item, index) => `<div class="intendance-bar-row"><span class="intendance-bar-label"><i class="chart-swatch" style="background:${this._chartColor(index)}"></i>${item.name}</span><i class="intendance-bar-track"><b style="width:${(Number(item.amount) || 0) / max * 100}%;background:${this._chartColor(index)}"></b></i><strong>${this._money(item.amount)}</strong><small>${item.count} op.</small></div>`).join('') || '<p class="text-muted">Aucune dépense d’énergie affectée à un site.</p>'; }
   _chartColor(index) { return ['#2563eb', '#7c3aed', '#059669', '#d97706', '#dc2626', '#0891b2', '#db2777', '#65a30d'][index % 8]; }
   _renderTopExpenses() { return `<div class="table-container"><table class="users-table"><thead><tr><th>Date</th><th>Libellé</th><th>Catégorie</th><th>Utilisateur</th><th>Montant</th></tr></thead><tbody>${(this.dashboard.top_expenses || []).map(item => `<tr><td>${item.date}</td><td>${item.description || ''}</td><td>${item.category}</td><td>${item.user_name || '—'}</td><td>${this._money(item.amount)}</td></tr>`).join('') || '<tr><td colspan="5">Aucune dépense.</td></tr>'}</tbody></table></div>`; }
   _renderSummary() { const total = this.dashboard.kpis?.total_amount || 0; return `<div class="table-container"><table class="users-table"><thead><tr><th>Catégorie</th><th>Nombre</th><th>Total</th><th>Part</th><th>Moyenne</th></tr></thead><tbody>${(this.dashboard.categories || []).map(item => `<tr><td>${item.name}</td><td>${item.count}</td><td>${this._money(item.amount)}</td><td>${total ? (item.amount / total * 100).toFixed(1) : 0}%</td><td>${this._money(item.average)}</td></tr>`).join('')}</tbody></table></div>`; }
-  _renderExpenseList() { return `<div class="table-container"><table class="users-table"><thead><tr><th>Date</th><th>Demande</th><th>Libellé</th><th>Catégorie</th><th>Utilisateur</th><th>Site</th><th>Montant</th><th>Actions</th></tr></thead><tbody>${this.expenses.map(item => `<tr><td>${item.expense_date || '—'}</td><td>${item.req_number ?? '—'}</td><td>${item.item_description || '—'}</td><td>${item.category || 'Non classée'}</td><td>${item.user_name || '—'}</td><td>${item.site?.name || '—'}</td><td>${this._money(item.amount)}</td><td class="action-buttons"><button type="button" class="action-btn" data-list-edit="${item.id}" title="Modifier" aria-label="Modifier">✎</button><button type="button" class="action-btn btn-danger" data-list-delete="${item.id}" title="Supprimer" aria-label="Supprimer">×</button></td></tr>`).join('') || '<tr><td colspan="8">Aucune dépense pour les filtres sélectionnés.</td></tr>'}</tbody></table></div>`; }
+  _renderExpenseList() { return `<div class="page-filters"><input class="form-input" type="search" data-expense-search placeholder="Rechercher une dépense…" value="${this.expenseSearch}"></div><div data-expense-table></div>`; }
 
   _loadUsersSites() {
     Promise.all([listAliases(), listSites()]).then(([aliases, sites]) => {

@@ -175,13 +175,25 @@ async def expense_dashboard(
         func.count(IntendanceExpense.id).label("count"),
     ).group_by("year", "month").order_by("year", "month")))).all()
     monthly = [{"year": int(row[0]), "month": int(row[1]), "amount": float(row[2] or 0), "count": row[3]} for row in monthly_rows]
+    monthly_category_rows = (await db.execute(filtered(select(
+        func.extract("year", IntendanceExpense.expense_date).label("year"),
+        func.extract("month", IntendanceExpense.expense_date).label("month"),
+        IntendanceExpense.category,
+        func.sum(amount_expr).label("amount"),
+    ).group_by("year", "month", IntendanceExpense.category).order_by("year", "month")))).all()
+    monthly_categories = {}
+    for row in monthly_category_rows:
+        key = f"{int(row[0])}-{int(row[1]):02d}"
+        monthly_categories.setdefault(key, {})[row[2] or "Non classée"] = float(row[3] or 0)
+    for item in monthly:
+        item["categories"] = monthly_categories.get(f"{item['year']}-{item['month']:02d}", {})
     if expense_date_from is not None and expense_date_to is not None and expense_date_to >= expense_date_from:
         monthly_by_key = {(item["year"], item["month"]): item for item in monthly}
         cursor = expense_date_from.replace(day=1)
         last = expense_date_to.replace(day=1)
         complete_months = []
         while cursor <= last:
-            complete_months.append(monthly_by_key.get((cursor.year, cursor.month), {"year": cursor.year, "month": cursor.month, "amount": 0, "count": 0}))
+            complete_months.append(monthly_by_key.get((cursor.year, cursor.month), {"year": cursor.year, "month": cursor.month, "amount": 0, "count": 0, "categories": {}}))
             cursor = cursor.replace(year=cursor.year + (cursor.month == 12), month=1 if cursor.month == 12 else cursor.month + 1)
         monthly = complete_months
 
@@ -201,6 +213,13 @@ async def expense_dashboard(
     ).where(IntendanceExpense.user_name.is_not(None)).group_by(IntendanceExpense.user_name).order_by(func.sum(amount_expr).desc())))).all()
     users = [{"name": row[0], "amount": float(row[1] or 0), "count": row[2]} for row in user_rows]
 
+    site_rows = (await db.execute(filtered(select(
+        IntendanceSite.name,
+        func.sum(amount_expr).label("amount"),
+        func.count(IntendanceExpense.id).label("count"),
+    ).select_from(IntendanceExpense).outerjoin(IntendanceSite, IntendanceSite.id == IntendanceExpense.site_id).group_by(IntendanceSite.name).order_by(func.sum(amount_expr).desc())))).all()
+    sites = [{"name": row[0] or "Site non affecté", "amount": float(row[1] or 0), "count": row[2]} for row in site_rows]
+
     top_rows = (await db.execute(filtered(select(
         IntendanceExpense.id, IntendanceExpense.expense_date, IntendanceExpense.item_description,
         IntendanceExpense.category, IntendanceExpense.user_name, amount_expr,
@@ -213,7 +232,7 @@ async def expense_dashboard(
         previous_from = expense_date_from - timedelta(days=span)
         previous_to = expense_date_from - timedelta(days=1)
         previous_amount = float((await db.execute(filtered(select(func.coalesce(func.sum(amount_expr), 0)).where(visible_category), previous_from, previous_to))).scalar_one() or 0)
-    return {"kpis": {"total_amount": total_amount, "count": totals[1], "average_amount": float(totals[2] or 0), "previous_amount": previous_amount}, "categories": categories, "monthly": monthly, "daily": daily, "users": users, "top_expenses": top_expenses}
+    return {"kpis": {"total_amount": total_amount, "count": totals[1], "average_amount": float(totals[2] or 0), "previous_amount": previous_amount}, "categories": categories, "monthly": monthly, "daily": daily, "users": users, "sites": sites, "top_expenses": top_expenses}
 
 
 @router.patch("/{expense_id}", response_model=ExpenseResponse)

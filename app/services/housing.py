@@ -215,8 +215,12 @@ class HousingService:
                 Occupancy.departure_date >= now,
             )
         )
-        row = result.scalar_one_or_none()
-        return row
+        statuses = result.scalars().all()
+        if not statuses:
+            return None
+        if "in_progress" in statuses:
+            return "in_progress"
+        return "confirmed"
 
     async def _get_cleaning_status(self, housing_id: int) -> Optional[str]:
         now = datetime.utcnow()

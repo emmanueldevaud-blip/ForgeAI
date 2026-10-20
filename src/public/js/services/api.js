@@ -74,6 +74,12 @@ class ApiClient {
         message = 'Erreur serveur. Veuillez réessayer plus tard.';
       }
 
+      if (Array.isArray(message)) {
+        message = message
+          .map((d) => `${Array.isArray(d?.loc) ? d.loc.slice(1).join('.') + ': ' : ''}${d?.msg || ''}`)
+          .join(' | ');
+      }
+
       throw new ApiError(message, response.status, data, response);
     }
 

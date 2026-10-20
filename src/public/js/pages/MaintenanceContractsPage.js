@@ -10,7 +10,6 @@ const CONTRACT_TYPES = [
   { value: 'other', label: 'Autre' },
 ];
 
-function getTypeLabel(t) { return (CONTRACT_TYPES.find(x => x.value === t) || {}).label || t; }
 function formatDate(d) { return d ? new Date(d).toLocaleDateString('fr-FR') : '-'; }
 
 export class MaintenanceContractsPage {
@@ -22,7 +21,7 @@ export class MaintenanceContractsPage {
     this.page = 1;
     this.pageSize = 20;
     this.totalPages = 1;
-    this.sortBy = 'name';
+    this.sortBy = 'subject';
     this.sortOrder = 'asc';
     this.search = '';
     this.filters = { provider_id: '', is_active: '' };
@@ -35,12 +34,11 @@ export class MaintenanceContractsPage {
     this.table = new Table({
       columns: [
         { key: 'reference', label: 'Référence', sortable: true },
-        { key: 'name', label: 'Nom', sortable: true },
-        { key: 'contract_type', label: 'Type', sortable: true, render: (item) => getTypeLabel(item.contract_type) },
+        { key: 'subject', label: 'Objet', sortable: true },
         { key: 'provider', label: 'Prestataire', sortable: false, render: (item) => item.provider ? item.provider.name : '-' },
         { key: 'start_date', label: 'Début', sortable: true, render: (item) => formatDate(item.start_date) },
         { key: 'end_date', label: 'Fin', sortable: true, render: (item) => formatDate(item.end_date) },
-        { key: 'annual_cost', label: 'Coût annuel', sortable: false, render: (item) => item.annual_cost ? item.annual_cost.toFixed(2) + ' €' : '-' },
+        { key: 'cost', label: 'Coût annuel', sortable: false, render: (item) => item.cost ? Number(item.cost).toFixed(2) + ' €' : '-' },
         { key: 'is_active', label: 'Statut', sortable: true, render: (item) => `<span class="status-badge status-${item.is_active ? 'active' : 'inactive'}">${item.is_active ? 'Actif' : 'Inactif'}</span>` },
       ],
       actions: [
@@ -155,8 +153,8 @@ export class MaintenanceContractsPage {
           <div class="modal-body">
             <form data-form>
               <div class="form-row">
-                <label><span>Nom *</span><input name="name" value="${isEdit ? contract.name : ''}" required maxlength="200"></label>
-                <label><span>Référence</span><input name="reference" value="${isEdit ? (contract.reference || '') : ''}" maxlength="100"></label>
+                <label><span>Objet *</span><input name="subject" value="${isEdit ? (contract.subject || '') : ''}" required maxlength="300"></label>
+                <label><span>Référence *</span><input name="reference" value="${isEdit ? (contract.reference || '') : ''}" required maxlength="100"></label>
               </div>
               <div class="form-row">
                 <label><span>Type *</span><select name="contract_type" required>
@@ -172,7 +170,7 @@ export class MaintenanceContractsPage {
                 <label><span>Date fin</span><input type="date" name="end_date" value="${isEdit && contract.end_date ? contract.end_date : ''}"></label>
               </div>
               <div class="form-row">
-                <label><span>Coût annuel</span><input type="number" name="annual_cost" step="0.01" min="0" value="${isEdit && contract.annual_cost ? contract.annual_cost : ''}"></label>
+                <label><span>Coût annuel</span><input type="number" name="annual_cost" step="0.01" min="0" value="${isEdit && contract.cost ? contract.cost : ''}"></label>
                 <label><span>Renouvellement auto</span><input type="checkbox" name="auto_renew" ${isEdit && contract.auto_renew ? 'checked' : ''}></label>
               </div>
               <div class="form-row">
@@ -200,10 +198,10 @@ export class MaintenanceContractsPage {
         if (k === 'is_active' || k === 'auto_renew') { data[k] = true; continue; }
         if (v === '') continue;
         if (k === 'provider_id') data[k] = parseInt(v, 10);
-        else if (k === 'annual_cost') data[k] = parseFloat(v);
+        else if (k === 'annual_cost') data.cost = parseFloat(v);
         else data[k] = v;
       }
-      if (!data.name || !data.contract_type || !data.provider_id) { alert('Les champs Nom, Type et Prestataire sont obligatoires'); return; }
+      if (!data.subject || !data.reference || !data.provider_id || !data.start_date) { alert('Les champs Objet, Référence, Prestataire et Date début sont obligatoires'); return; }
       try {
         if (isEdit) await updateContract(contract.id, data);
         else await createContract(data);

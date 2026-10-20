@@ -173,6 +173,31 @@ async def test_create_and_update_contract(
     assert row.subject == "Contrat CVC renouvele"
 
 
+async def test_create_contract_with_frontend_modal_payload(
+    client, admin_headers, db_session, provider_ctx
+):
+    ref = f"C-{uuid.uuid4().hex[:10]}"
+    r = await client.post(
+        "/maintenance/contracts",
+        json={
+            "subject": "Contrat via modal",
+            "reference": ref,
+            "contract_type": "maintenance_only",
+            "provider_id": provider_ctx["id"],
+            "start_date": "2026-01-01",
+            "end_date": "2026-12-31",
+            "annual_cost": 1200.5,
+            "auto_renew": True,
+            "description": "ignoré par le schéma",
+            "is_active": True,
+        },
+        headers=admin_headers,
+    )
+    assert r.status_code == 201, r.text
+    assert r.json()["subject"] == "Contrat via modal"
+    assert r.json()["provider"]["id"] == provider_ctx["id"]
+
+
 async def test_create_and_update_request_with_status_history(
     client, admin_headers, db_session
 ):

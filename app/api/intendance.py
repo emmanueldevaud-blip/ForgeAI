@@ -19,8 +19,8 @@ from app.models import (
     IntendanceAccountCode, IntendanceCardAlias, IntendanceExpense,
     AgendaPresence, Building, IntendanceImportBatch, IntendanceImportStagedRow, IntendanceSite, IntendanceCategory, IntendanceDashboardSetting, User, Room, UsageType,
     Housing, Occupancy,
-    occupancy_occupants,
 )
+from app.models.housing import occupancy_occupants
 from app.schemas.intendance_expense import (
     AccountCodeCreate, AccountCodeListResponse, AccountCodeResponse, AccountCodeUpdate,
     BulkSiteAssign, BulkSiteResponse, ExpenseListResponse, ExpenseResponse,

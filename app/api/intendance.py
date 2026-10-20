@@ -18,6 +18,7 @@ from app.db.session import get_db
 from app.models import (
     IntendanceAccountCode, IntendanceCardAlias, IntendanceExpense,
     AgendaPresence, Building, IntendanceImportBatch, IntendanceImportStagedRow, IntendanceSite, IntendanceCategory, IntendanceDashboardSetting, User, Room, UsageType,
+    Housing, Occupancy,
 )
 from app.schemas.intendance_expense import (
     AccountCodeCreate, AccountCodeListResponse, AccountCodeResponse, AccountCodeUpdate,
@@ -30,6 +31,18 @@ from app.services.intendance_expense import expense_duplicate_key, expense_finge
 from app.services.rbac import RBACService
 
 router = APIRouter(prefix="/intendance/expenses", tags=["intendance-expenses"])
+
+# Locaux mappables sur un site : usage bureau ou logement.
+MAPPABLE_USAGE_CODES = ("BUREAU", "BUREAUX", "LOGEMENT")
+# Statuts d'occupation Hébergement comptés comme repas (le planning inclut le jour de départ).
+OCCUPANCY_MEAL_STATUSES = ("confirmed", "in_progress", "completed")
+
+
+def _is_mappable_usage(usage: UsageType | None) -> bool:
+    if usage is None:
+        return False
+    name = (usage.name or "").casefold()
+    return usage.code in MAPPABLE_USAGE_CODES or "bureau" in name or "logement" in name
 
 
 @router.get(
@@ -45,7 +58,7 @@ async def meal_cost_by_site(
     current_user: User = Depends(require_all_permissions("intendance.expenses.view", "agenda.access", "building.view")),
     db: AsyncSession = Depends(get_db),
 ):
-    """Coût par repas déclaré, limité aux locaux de bureau mappés aux sites Intendance."""
+    """Coût par repas : locaux de bureau (présences Agenda, jours ouvrés) et logements (jours d'occupation Hébergement, 7j/7) mappés aux sites Intendance."""
     food_category = (await db.execute(
         select(IntendanceCategory).where(IntendanceCategory.name == "Nourriture")
     )).scalar_one_or_none()
@@ -63,7 +76,11 @@ async def meal_cost_by_site(
             IntendanceSite.dashboard_visible.is_(True),
             Room.is_active.is_(True),
             Building.is_active.is_(True),
-            or_(UsageType.code.in_(("BUREAUX", "BUREAU")), UsageType.name.ilike("%bureau%")),
+            or_(
+                UsageType.code.in_(("BUREAUX", "BUREAU", "LOGEMENT")),
+                UsageType.name.ilike("%bureau%"),
+                UsageType.name.ilike("%logement%"),
+            ),
         )
         .distinct()
     )
@@ -111,7 +128,7 @@ async def meal_cost_by_site(
         meal_query = meal_query.where(AgendaPresence.user_id.in_(matching_user_ids)) if matching_user_ids else meal_query.where(AgendaPresence.user_id.is_(None))
 
     meal_rows = (await db.execute(meal_query)).all()
-    meal_counts: dict[int, set[tuple[date, str]]] = {identifier: set() for identifier in eligible_ids}
+    meal_counts: dict[int, set[tuple]] = {identifier: set() for identifier in eligible_ids}
     for site_identifier, presence_date, user_id, external_name, presence_id in meal_rows:
         if presence_date.weekday() >= 5:
             continue
@@ -119,6 +136,39 @@ async def meal_cost_by_site(
         if person_key == "external:":
             person_key = f"presence:{presence_id}"
         meal_counts[site_identifier].add((presence_date, person_key))
+
+    # Occupations du module Hébergement sur les locaux mappés : un repas par
+    # personne et par jour d'occupation, samedi et dimanche inclus.
+    # Non comptées lors d'un filtre par utilisateur (occupants ≠ utilisateurs).
+    if not user_name:
+        occupancy_query = (
+            select(IntendanceSite.id, Occupancy.id, Occupancy.arrival_date, Occupancy.departure_date, Occupancy.nb_persons)
+            .select_from(IntendanceSite)
+            .join(IntendanceSite.rooms)
+            .join(Room.building)
+            .join(Housing, Housing.room_id == Room.id)
+            .join(Occupancy, Occupancy.housing_id == Housing.id)
+            .where(
+                IntendanceSite.id.in_(eligible_ids),
+                Room.is_active.is_(True),
+                Building.is_active.is_(True),
+                Housing.is_active.is_(True),
+                Occupancy.status.in_(OCCUPANCY_MEAL_STATUSES),
+                func.date(Occupancy.departure_date) >= expense_date_from,
+                func.date(Occupancy.arrival_date) <= expense_date_to,
+            )
+        )
+        occupancy_rows = (await db.execute(occupancy_query)).all()
+        for site_identifier, occupancy_identifier, arrival, departure, nb_persons in occupancy_rows:
+            day_start = max(arrival.date(), expense_date_from)
+            day_end = min(departure.date(), expense_date_to)
+            if day_end < day_start:
+                continue
+            persons = max(int(nb_persons or 1), 1)
+            for day_offset in range((day_end - day_start).days + 1):
+                day = day_start + timedelta(days=day_offset)
+                for person_index in range(persons):
+                    meal_counts[site_identifier].add(("occupancy", occupancy_identifier, day, person_index))
 
     output = []
     for identifier, name in eligible_sites:
@@ -388,7 +438,7 @@ async def list_sites(current_user: User = Depends(require_permission("intendance
 
 def _site_response(site: IntendanceSite) -> SiteResponse:
     response = SiteResponse.model_validate(site)
-    response.mapped_rooms = [{"id": room.id, "name": room.name, "reference": room.reference, "building_name": room.building.name} for room in site.rooms if room.is_active and room.building and room.building.is_active and room.usage_type and (room.usage_type.code in ("BUREAU", "BUREAUX") or "bureau" in room.usage_type.name.casefold())]
+    response.mapped_rooms = [{"id": room.id, "name": room.name, "reference": room.reference, "building_name": room.building.name} for room in site.rooms if room.is_active and room.building and room.building.is_active and _is_mappable_usage(room.usage_type)]
     return response
 
 
@@ -418,8 +468,8 @@ async def update_site_rooms(site_id: int, data: SiteRoomsUpdate, current_user: U
     room_ids = list(dict.fromkeys(data.room_ids))
     rooms = (await db.execute(select(Room).options(selectinload(Room.building), selectinload(Room.usage_type)).where(Room.id.in_(room_ids)))).scalars().all() if room_ids else []
     if len(rooms) != len(room_ids): raise HTTPException(400, "Un ou plusieurs locaux sont introuvables")
-    if any(not room.is_active or not room.building or not room.building.is_active or not room.usage_type or not (room.usage_type.code in ("BUREAU", "BUREAUX") or "bureau" in room.usage_type.name.casefold()) for room in rooms):
-        raise HTTPException(400, "Seuls les locaux actifs déclarés comme bureau peuvent être associés")
+    if any(not room.is_active or not room.building or not room.building.is_active or not _is_mappable_usage(room.usage_type) for room in rooms):
+        raise HTTPException(400, "Seuls les locaux actifs déclarés comme bureau ou logement peuvent être associés")
     already_mapped = (await db.execute(
         select(Room.id).select_from(IntendanceSite).join(IntendanceSite.rooms)
         .where(IntendanceSite.id != site_id, Room.id.in_(room_ids))

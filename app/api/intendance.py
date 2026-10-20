@@ -18,7 +18,7 @@ from app.db.session import get_db
 from app.models import (
     IntendanceAccountCode, IntendanceCardAlias, IntendanceExpense,
     AgendaPresence, Building, IntendanceImportBatch, IntendanceImportStagedRow, IntendanceSite, IntendanceCategory, IntendanceDashboardSetting, User, Room, UsageType,
-    Housing, Occupancy,
+    Housing, Occupancy, Occupant,
 )
 from app.models.housing import occupancy_occupants
 from app.schemas.intendance_expense import (

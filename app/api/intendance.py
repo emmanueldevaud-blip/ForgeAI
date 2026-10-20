@@ -132,12 +132,12 @@ async def expense_dashboard(
     amount_expr = IntendanceExpense.amount * IntendanceExpense.quantity
     dashboard_setting = await db.get(IntendanceDashboardSetting, 1)
     exclude_uncategorized = dashboard_setting.exclude_uncategorized if dashboard_setting else False
-    visible_category = IntendanceExpense.category.notin_(excluded)
+    visible_category = IntendanceExpense.category.notin_(excluded + list((await db.execute(select(IntendanceCategory.name).where(IntendanceCategory.is_active.is_(False)))).scalars().all()))
     if not exclude_uncategorized:
         visible_category = or_(IntendanceExpense.category.is_(None), visible_category)
     visible_site = or_(IntendanceExpense.site_id.is_(None), IntendanceExpense.site_id.in_(select(IntendanceSite.id).where(IntendanceSite.dashboard_visible.is_(True))))
-    visible_code = or_(IntendanceExpense.account_code.is_(None), IntendanceExpense.account_code.not_in(select(IntendanceAccountCode.code).where(IntendanceAccountCode.dashboard_visible.is_(False))))
-    visible_user = or_(IntendanceExpense.user_name.is_(None), IntendanceExpense.user_name.not_in(select(IntendanceCardAlias.user_name).where(IntendanceCardAlias.dashboard_visible.is_(False))))
+    visible_code = or_(IntendanceExpense.account_code.is_(None), IntendanceExpense.account_code.not_in(select(IntendanceAccountCode.code).where(or_(IntendanceAccountCode.dashboard_visible.is_(False), IntendanceAccountCode.is_active.is_(False)))))
+    visible_user = or_(IntendanceExpense.user_name.is_(None), IntendanceExpense.user_name.not_in(select(IntendanceCardAlias.user_name).where(or_(IntendanceCardAlias.dashboard_visible.is_(False), IntendanceCardAlias.is_active.is_(False)))))
 
     def filtered(statement, from_date=expense_date_from, to_date=expense_date_to):
         statement = statement.where(visible_category, visible_site, visible_code, visible_user)
@@ -309,11 +309,11 @@ async def list_account_codes(current_user: User = Depends(require_permission("in
 async def list_categories(current_user: User = Depends(require_permission("intendance.expenses.view")), db: AsyncSession = Depends(get_db)):
     setting = await db.get(IntendanceDashboardSetting, 1)
     existing = (await db.execute(select(IntendanceCategory).order_by(IntendanceCategory.name))).scalars().all()
-    rows = [{"id": row.id, "name": row.name, "excluded_from_dashboard": row.excluded_from_dashboard} for row in existing]
+    rows = [{"id": row.id, "name": row.name, "excluded_from_dashboard": row.excluded_from_dashboard, "is_active": row.is_active} for row in existing]
     known_names = {row.name for row in existing}
     data_categories = set((await db.execute(select(IntendanceAccountCode.category).where(IntendanceAccountCode.category.is_not(None)).distinct())).scalars().all())
     data_categories.update((await db.execute(select(IntendanceExpense.category).where(IntendanceExpense.category.is_not(None)).distinct())).scalars().all())
-    rows.extend({"id": f"virtual:{name}", "name": name, "excluded_from_dashboard": False, "virtual": True} for name in sorted(data_categories - known_names))
+    rows.extend({"id": f"virtual:{name}", "name": name, "excluded_from_dashboard": False, "is_active": True, "virtual": True} for name in sorted(data_categories - known_names))
     rows.append({"id": "uncategorized", "name": "Non classée", "excluded_from_dashboard": setting.exclude_uncategorized if setting else False, "system": True})
     return rows
 
@@ -386,6 +386,8 @@ async def update_alias(alias_id: int, data: CardAliasUpdate, current_user: User 
 async def delete_alias(alias_id: int, current_user: User = Depends(require_permission("intendance.expenses.manage_refs")), db: AsyncSession = Depends(get_db)):
     alias = await db.get(IntendanceCardAlias, alias_id)
     if not alias: raise HTTPException(404, "Alias introuvable")
+    used = (await db.execute(select(func.count()).select_from(IntendanceExpense).where(IntendanceExpense.user_name == alias.user_name))).scalar_one()
+    if used: raise HTTPException(409, "Cet utilisateur est utilisé par des dépenses et ne peut pas être supprimé")
     await db.delete(alias); await db.commit()
 
 
@@ -409,6 +411,8 @@ async def update_account_code(code_id: int, data: AccountCodeUpdate, current_use
 async def delete_account_code(code_id: int, current_user: User = Depends(require_permission("intendance.expenses.manage_refs")), db: AsyncSession = Depends(get_db)):
     code = await db.get(IntendanceAccountCode, code_id)
     if not code: raise HTTPException(404, "Code comptable introuvable")
+    used = (await db.execute(select(func.count()).select_from(IntendanceExpense).where(IntendanceExpense.account_code == code.code))).scalar_one()
+    if used: raise HTTPException(409, "Ce code est utilisé par des dépenses et ne peut pas être supprimé")
     await db.delete(code); await db.commit()
 
 

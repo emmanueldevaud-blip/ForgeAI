@@ -51,12 +51,14 @@ class CardAliasCreate(BaseModel):
     alias: str = Field(..., min_length=1, max_length=255)
     user_name: str = Field(..., min_length=1, max_length=100)
     dashboard_visible: bool = True
+    is_active: bool = True
 
 
 class CardAliasUpdate(BaseModel):
     alias: Optional[str] = Field(None, min_length=1, max_length=255)
     user_name: Optional[str] = Field(None, min_length=1, max_length=100)
     dashboard_visible: Optional[bool] = None
+    is_active: Optional[bool] = None
 
 
 class CardAliasResponse(BaseModel):
@@ -66,6 +68,7 @@ class CardAliasResponse(BaseModel):
     alias: str
     user_name: str
     dashboard_visible: bool
+    is_active: bool
     created_at: datetime
     updated_at: datetime
 
@@ -87,12 +90,14 @@ class AccountCodeCreate(BaseModel):
     label: Optional[str] = Field(None, max_length=2000)
     category: Optional[str] = Field(None, max_length=100)
     dashboard_visible: bool = True
+    is_active: bool = True
 
 
 class AccountCodeUpdate(BaseModel):
     label: Optional[str] = Field(None, max_length=2000)
     category: Optional[str] = Field(None, max_length=100)
     dashboard_visible: Optional[bool] = None
+    is_active: Optional[bool] = None
 
 
 class AccountCodeResponse(BaseModel):
@@ -103,6 +108,7 @@ class AccountCodeResponse(BaseModel):
     label: Optional[str] = None
     category: Optional[str] = None
     dashboard_visible: bool
+    is_active: bool
     created_at: datetime
     updated_at: datetime
 

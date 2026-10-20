@@ -1,4 +1,5 @@
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
+from decimal import Decimal
 from typing import Any
 
 from sqlalchemy import select
@@ -24,6 +25,16 @@ SENSITIVE_FIELDS = {
 }
 
 
+def _sanitize_scalar(value: Any) -> Any:
+    if isinstance(value, datetime):
+        return value.isoformat()
+    if isinstance(value, date):
+        return value.isoformat()
+    if isinstance(value, Decimal):
+        return str(value)
+    return value
+
+
 def sanitize_values(values: dict[str, Any] | None) -> dict[str, Any] | None:
     if values is None:
         return None
@@ -32,17 +43,15 @@ def sanitize_values(values: dict[str, Any] | None) -> dict[str, Any] | None:
         key_lower = key.lower()
         if any(sensitive in key_lower for sensitive in SENSITIVE_FIELDS):
             sanitized[key] = "********"
-        elif isinstance(value, datetime):
-            sanitized[key] = value.isoformat()
         elif isinstance(value, dict):
             sanitized[key] = sanitize_values(value)
         elif isinstance(value, list):
             sanitized[key] = [
-                sanitize_values(v) if isinstance(v, dict) else (v.isoformat() if isinstance(v, datetime) else v)
+                sanitize_values(v) if isinstance(v, dict) else _sanitize_scalar(v)
                 for v in value
             ]
         else:
-            sanitized[key] = value
+            sanitized[key] = _sanitize_scalar(value)
     return sanitized
 
 

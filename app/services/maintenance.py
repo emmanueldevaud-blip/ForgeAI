@@ -286,6 +286,8 @@ class MaintenanceService:
             object_id=str(part.id), object_repr=part.name,
             new_values=data,
         )
+        await self.db.commit()
+        await self.db.refresh(part)
         return part
 
     async def update_part(self, part_id: int, data: dict):
@@ -303,6 +305,8 @@ class MaintenanceService:
             object_id=str(part.id), object_repr=part.name,
             old_values=old_values, new_values=data,
         )
+        await self.db.commit()
+        await self.db.refresh(part)
         return part
 
     # ============================================================
@@ -358,6 +362,7 @@ class MaintenanceService:
                     .selectinload(ContractEquipment.equipment),
             )
             .where(MaintenanceContract.id == contract_id)
+            .execution_options(populate_existing=True)
         )
         return result.scalar_one_or_none()
 
@@ -378,7 +383,8 @@ class MaintenanceService:
             object_id=str(contract.id), object_repr=contract.reference,
             new_values={**data, "equipment_ids": equipment_ids},
         )
-        return contract
+        await self.db.commit()
+        return await self.get_contract(contract.id)
 
     async def update_contract(self, contract_id: int, data: dict):
         contract = await self.get_contract(contract_id)
@@ -404,7 +410,8 @@ class MaintenanceService:
             object_id=str(contract.id), object_repr=contract.reference,
             old_values=old_values, new_values=data,
         )
-        return contract
+        await self.db.commit()
+        return await self.get_contract(contract_id)
 
     # ============================================================
     # MAINTENANCE REQUESTS
@@ -480,6 +487,8 @@ class MaintenanceService:
             object_id=str(request.id), object_repr=f"{request.number} - {request.title}",
             new_values=data,
         )
+        await self.db.commit()
+        await self.db.refresh(request)
         return request
 
     async def update_request(self, request_id: int, data: dict):
@@ -521,6 +530,8 @@ class MaintenanceService:
             object_id=str(request.id), object_repr=f"{request.number} - {request.title}",
             old_values=old_values, new_values=data,
         )
+        await self.db.commit()
+        await self.db.refresh(request)
         return request
 
     # ============================================================
@@ -611,6 +622,8 @@ class MaintenanceService:
             object_id=str(wo.id), object_repr=f"{wo.number} - {wo.title}",
             new_values=data,
         )
+        await self.db.commit()
+        await self.db.refresh(wo)
         return wo
 
     async def update_work_order(self, wo_id: int, data: dict):
@@ -652,6 +665,8 @@ class MaintenanceService:
             object_id=str(wo.id), object_repr=f"{wo.number} - {wo.title}",
             old_values=old_values, new_values=data,
         )
+        await self.db.commit()
+        await self.db.refresh(wo)
         return wo
 
     async def create_work_order_from_request(self, request_id: int, data: dict | None = None):
@@ -688,6 +703,8 @@ class MaintenanceService:
         intervenant = MaintenanceIntervenant(work_order_id=wo_id, **data)
         self.db.add(intervenant)
         await self.db.flush()
+        await self.db.commit()
+        await self.db.refresh(intervenant)
         return intervenant
 
     async def update_intervenant(self, intervenant_id: int, data: dict):
@@ -701,6 +718,8 @@ class MaintenanceService:
             if value is not None and hasattr(intervenant, key):
                 setattr(intervenant, key, value)
         await self.db.flush()
+        await self.db.commit()
+        await self.db.refresh(intervenant)
         return intervenant
 
     async def remove_intervenant(self, intervenant_id: int):
@@ -712,6 +731,7 @@ class MaintenanceService:
             return False
         await self.db.delete(intervenant)
         await self.db.flush()
+        await self.db.commit()
         return True
 
     # ============================================================
@@ -725,6 +745,8 @@ class MaintenanceService:
         intervention = MaintenanceIntervention(work_order_id=wo_id, **data)
         self.db.add(intervention)
         await self.db.flush()
+        await self.db.commit()
+        await self.db.refresh(intervention)
         return intervention
 
     # ============================================================
@@ -738,6 +760,8 @@ class MaintenanceService:
         part_link = WorkOrderPart(work_order_id=wo_id, **data)
         self.db.add(part_link)
         await self.db.flush()
+        await self.db.commit()
+        await self.db.refresh(part_link, ["part"])
         return part_link
 
     async def remove_wo_part(self, part_link_id: int):
@@ -749,6 +773,7 @@ class MaintenanceService:
             return False
         await self.db.delete(link)
         await self.db.flush()
+        await self.db.commit()
         return True
 
     # ============================================================
@@ -762,6 +787,8 @@ class MaintenanceService:
         cost = MaintenanceCost(work_order_id=wo_id, **data)
         self.db.add(cost)
         await self.db.flush()
+        await self.db.commit()
+        await self.db.refresh(cost)
         return cost
 
     async def get_wo_costs_total(self, wo_id: int) -> Decimal:
@@ -822,6 +849,7 @@ class MaintenanceService:
                 selectinload(MaintenancePlan.equipment),
             )
             .where(MaintenancePlan.id == plan_id)
+            .execution_options(populate_existing=True)
         )
         return result.scalar_one_or_none()
 
@@ -842,7 +870,8 @@ class MaintenanceService:
             object_id=str(plan.id), object_repr=plan.title,
             new_values=data,
         )
-        return plan
+        await self.db.commit()
+        return await self.get_plan(plan.id)
 
     async def update_plan(self, plan_id: int, data: dict):
         plan = await self.get_plan(plan_id)
@@ -868,7 +897,8 @@ class MaintenanceService:
             object_id=str(plan.id), object_repr=plan.title,
             old_values=old_values, new_values=data,
         )
-        return plan
+        await self.db.commit()
+        return await self.get_plan(plan_id)
 
     # ============================================================
     # DASHBOARD

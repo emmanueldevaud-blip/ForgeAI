@@ -185,6 +185,15 @@ async def expense_dashboard(
             cursor = cursor.replace(year=cursor.year + (cursor.month == 12), month=1 if cursor.month == 12 else cursor.month + 1)
         monthly = complete_months
 
+    daily = []
+    if expense_date_from is not None and expense_date_to is not None and 0 <= (expense_date_to - expense_date_from).days < 31:
+        daily_rows = (await db.execute(filtered(select(
+            IntendanceExpense.expense_date,
+            func.sum(amount_expr).label("amount"),
+            func.count(IntendanceExpense.id).label("count"),
+        ).group_by(IntendanceExpense.expense_date).order_by(IntendanceExpense.expense_date)))).all()
+        daily = [{"date": row[0].isoformat(), "amount": float(row[1] or 0), "count": row[2]} for row in daily_rows]
+
     user_rows = (await db.execute(filtered(select(
         IntendanceExpense.user_name,
         func.sum(amount_expr).label("amount"),
@@ -204,7 +213,7 @@ async def expense_dashboard(
         previous_from = expense_date_from - timedelta(days=span)
         previous_to = expense_date_from - timedelta(days=1)
         previous_amount = float((await db.execute(filtered(select(func.coalesce(func.sum(amount_expr), 0)).where(visible_category), previous_from, previous_to))).scalar_one() or 0)
-    return {"kpis": {"total_amount": total_amount, "count": totals[1], "average_amount": float(totals[2] or 0), "previous_amount": previous_amount}, "categories": categories, "monthly": monthly, "users": users, "top_expenses": top_expenses}
+    return {"kpis": {"total_amount": total_amount, "count": totals[1], "average_amount": float(totals[2] or 0), "previous_amount": previous_amount}, "categories": categories, "monthly": monthly, "daily": daily, "users": users, "top_expenses": top_expenses}
 
 
 @router.patch("/{expense_id}", response_model=ExpenseResponse)

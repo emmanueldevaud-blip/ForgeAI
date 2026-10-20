@@ -26,7 +26,7 @@ export class IntendanceExpensesPage {
   async loadReferences() { const [codes, aliases, sites, categories] = await Promise.all([listAccountCodes(), listAliases(), listSites(), listCategories()]); this.accountCodes = codes.items || []; this.aliases = aliases.items || []; this.sites = sites.items || []; this.categories = categories || []; this._renderTabContent(); }
   render() {
     if (!this.element) this.element = document.createElement('div'); this.element.className = 'page-content intendance-expenses-page';
-    this.element.innerHTML = `<div class="page-header"><div class="page-header-left"><h1>Suivi des dépenses</h1><div class="import-progress" data-progress hidden></div></div><div class="page-header-right">${this.activeTab === 'details' ? '<label class="btn btn-primary"><input data-import type="file" accept=".xlsx" hidden>Importer Excel</label><button type="button" class="btn btn-secondary" data-reassign>Actualiser</button>' : ''}</div></div><div class="admin-tabs" role="tablist" aria-label="Navigation du suivi des dépenses">${[['dashboard','Tableau de bord'],['details','Détails'],['missing-sites','Rapprochement'],['references','Référentiels'],['users','Utilisateurs'],['sites','Sites'],['settings','Paramètres']].map(([key,label]) => `<button role="tab" class="admin-tab" data-tab="${key}" aria-selected="${this.activeTab === key}" aria-controls="panel-${key}" type="button">${label}</button>`).join('')}</div><div id="panel-${this.activeTab}" class="admin-tab-panel admin-tab-panel--active" role="tabpanel" data-tab-content></div>`;
+    this.element.innerHTML = `<div class="page-header"><div class="page-header-left"><h1>Tableau de bord</h1><div class="import-progress" data-progress hidden></div></div><div class="page-header-right">${this.activeTab === 'details' ? '<label class="btn btn-primary"><input data-import type="file" accept=".xlsx" hidden>Importer Excel</label><button type="button" class="btn btn-secondary" data-reassign>Actualiser</button>' : ''}</div></div><div class="admin-tabs" role="tablist" aria-label="Navigation du suivi des dépenses">${[['dashboard','Tableau de bord'],['details','Détails'],['missing-sites','Rapprochement'],['references','Référentiels'],['users','Utilisateurs'],['sites','Sites'],['settings','Paramètres']].map(([key,label]) => `<button role="tab" class="admin-tab" data-tab="${key}" aria-selected="${this.activeTab === key}" aria-controls="panel-${key}" type="button">${label}</button>`).join('')}</div><div id="panel-${this.activeTab}" class="admin-tab-panel admin-tab-panel--active" role="tabpanel" data-tab-content></div>`;
     this._bind(); this._renderTabContent(); return this.element;
   }
   _bind() {
@@ -81,7 +81,10 @@ export class IntendanceExpensesPage {
     if (this.activeTab !== "dashboard") return;
     const target = this.element.querySelector('[data-tab-content]');
     if (!target) return;
-    const dashboard = createIntendanceDashboardPage();
+    const dashboard = createIntendanceDashboardPage({
+      onEditExpense: expense => this._editExpense(expense),
+      onDeleteExpense: expense => this._deleteExpense(expense),
+    });
     target.replaceChildren();
     const dashboardElement = dashboard.render();
     if (dashboardElement instanceof HTMLElement) target.appendChild(dashboardElement);

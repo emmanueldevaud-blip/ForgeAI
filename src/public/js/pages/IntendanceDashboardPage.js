@@ -13,13 +13,15 @@ function getCategoryColor(category) {
 }
 
 export class IntendanceDashboardPage {
-  constructor() {
+  constructor(options = {}) {
+    this.onEditExpense = options.onEditExpense;
+    this.onDeleteExpense = options.onDeleteExpense;
     this.filterStorageKey = 'forgeai:intendance-dashboard-filters';
     this.element = null;
     this.categories = [];
     this.amounts = [];
     this.maxAmount = 0;
-    this.dashboard = { kpis: {}, categories: [], monthly: [], users: [], top_expenses: [] };
+    this.dashboard = { kpis: {}, categories: [], monthly: [], daily: [], users: [], top_expenses: [] };
     this.expenses = [];
     this.filterDateFrom = '';
     this.filterDateTo = '';
@@ -93,16 +95,6 @@ export class IntendanceDashboardPage {
     const rangeMax = dayValue(today);
 
     this.element.innerHTML = `
-      <div class="page-header">
-        <div class="page-header-left">
-          <h1>Tableau de bord des dépenses</h1>
-          <p class="page-subtitle">Suivi des catégories de dépenses</p>
-        </div>
-        <div class="page-header-right">
-          <button class="btn btn-secondary" data-close-dashboard>← Retour</button>
-        </div>
-      </div>
-
       <div class="dashboard-container">
         <!-- Filtres -->
         <div class="dashboard-filters">
@@ -181,12 +173,9 @@ export class IntendanceDashboardPage {
     this.element.querySelectorAll('[data-category]').forEach(button => button.onclick = () => { this.filterCategory = [button.dataset.category]; this._saveFilterState(); this.loadDashboard(); });
     this.element.querySelector('[data-reset-filters]').onclick = () => { this.filterDateFrom = ''; this.filterDateTo = ''; this.filterUser = []; this.filterSite = []; this.filterCategory = []; localStorage.removeItem(this.filterStorageKey); this.loadDashboard(); };
     this._bindMultiFilters();
+    this.element.querySelectorAll('[data-list-edit]').forEach(button => button.onclick = () => this.onEditExpense?.(this.expenses.find(item => item.id === Number(button.dataset.listEdit))));
+    this.element.querySelectorAll('[data-list-delete]').forEach(button => button.onclick = () => this.onDeleteExpense?.(this.expenses.find(item => item.id === Number(button.dataset.listDelete))));
 
-    // Close button
-    this.element.querySelector('[data-close-dashboard]').onclick = () => {
-      clearInterval(this.refreshTimer);
-      this.element.remove();
-    };
   }
 
   _renderMultiFilter(key, label, options, selected) {
@@ -244,7 +233,7 @@ export class IntendanceDashboardPage {
     }
 
     const max = Math.max(...monthly.map(item => item.amount), 1);
-    const xScale = (i) => padding.left + (chartWidth / Math.max(monthly.length - 1, 1)) * i;
+    const xScale = (i) => padding.left + (chartWidth / monthly.length) * (i + 0.5);
 
     // Axes
     ctx.strokeStyle = '#6B7280';
@@ -295,9 +284,16 @@ export class IntendanceDashboardPage {
   _money(value) { return new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'EUR' }).format(Number(value) || 0); }
   _renderKpis() {
     const k = this.dashboard.kpis || {}; const top = (this.dashboard.categories || [])[0];
+    const from = this.filterDateFrom ? new Date(`${this.filterDateFrom}T00:00:00`) : null;
+    const to = this.filterDateTo ? new Date(`${this.filterDateTo}T00:00:00`) : null;
+    const dailyMode = from && to && Math.round((to - from) / 86400000) < 31;
+    const periods = dailyMode ? (this.dashboard.daily || []) : (this.dashboard.monthly || []);
+    const periodCount = periods.length ? periods.reduce((sum, item) => sum + Number(item.count || 0), 0) : Number(k.count || 0);
+    const periodAverage = periods.length ? periods.reduce((sum, item) => sum + Number(item.amount || 0), 0) / periods.length : Number(k.average_amount || 0);
+    const periodLabel = dailyMode ? 'jour' : 'mois';
     const share = k.total_amount && top ? `${(top.amount / k.total_amount * 100).toFixed(1)} % du total` : '—';
     const previous = k.previous_amount == null ? 'Comparaison indisponible' : `Période précédente : ${this._money(k.previous_amount)}`;
-    return `<article class="intendance-kpi-card"><span>Total</span><strong>${this._money(k.total_amount)}</strong></article><article class="intendance-kpi-card"><span>Dépenses</span><strong>${k.count || 0}</strong></article><article class="intendance-kpi-card"><span>Moyenne</span><strong>${this._money(k.average_amount)}</strong></article><article class="intendance-kpi-card"><span>Catégorie principale</span><strong>${top ? top.name : '—'}</strong><small>${top ? `${this._money(top.amount)} · ${share}` : 'Aucune donnée'}</small></article><article class="intendance-kpi-card"><span>Comparaison</span><strong>${previous}</strong></article>`;
+    return `<article class="intendance-kpi-card"><span>Total</span><strong>${this._money(k.total_amount)}</strong></article><article class="intendance-kpi-card"><span>Nb d'opérations par ${periodLabel}</span><strong>${periodCount}</strong></article><article class="intendance-kpi-card"><span>Moyenne des dépenses par ${periodLabel}</span><strong>${this._money(periodAverage)}</strong></article><article class="intendance-kpi-card"><span>Catégorie principale</span><strong>${top ? top.name : '—'}</strong><small>${top ? `${this._money(top.amount)} · ${share}` : 'Aucune donnée'}</small></article><article class="intendance-kpi-card"><span>Comparaison</span><strong>${previous}</strong></article>`;
   }
   _renderCategoryBars() {
     const total = this.dashboard.kpis?.total_amount || 0;
@@ -307,7 +303,7 @@ export class IntendanceDashboardPage {
   _chartColor(index) { return ['#2563eb', '#7c3aed', '#059669', '#d97706', '#dc2626', '#0891b2', '#db2777', '#65a30d'][index % 8]; }
   _renderTopExpenses() { return `<div class="table-container"><table class="users-table"><thead><tr><th>Date</th><th>Libellé</th><th>Catégorie</th><th>Utilisateur</th><th>Montant</th></tr></thead><tbody>${(this.dashboard.top_expenses || []).map(item => `<tr><td>${item.date}</td><td>${item.description || ''}</td><td>${item.category}</td><td>${item.user_name || '—'}</td><td>${this._money(item.amount)}</td></tr>`).join('') || '<tr><td colspan="5">Aucune dépense.</td></tr>'}</tbody></table></div>`; }
   _renderSummary() { const total = this.dashboard.kpis?.total_amount || 0; return `<div class="table-container"><table class="users-table"><thead><tr><th>Catégorie</th><th>Nombre</th><th>Total</th><th>Part</th><th>Moyenne</th></tr></thead><tbody>${(this.dashboard.categories || []).map(item => `<tr><td>${item.name}</td><td>${item.count}</td><td>${this._money(item.amount)}</td><td>${total ? (item.amount / total * 100).toFixed(1) : 0}%</td><td>${this._money(item.average)}</td></tr>`).join('')}</tbody></table></div>`; }
-  _renderExpenseList() { return `<div class="table-container"><table class="users-table"><thead><tr><th>Date</th><th>Demande</th><th>Libellé</th><th>Catégorie</th><th>Utilisateur</th><th>Site</th><th>Montant</th></tr></thead><tbody>${this.expenses.map(item => `<tr><td>${item.expense_date || '—'}</td><td>${item.req_number ?? '—'}</td><td>${item.item_description || '—'}</td><td>${item.category || 'Non classée'}</td><td>${item.user_name || '—'}</td><td>${item.site?.name || '—'}</td><td>${this._money(item.amount)}</td></tr>`).join('') || '<tr><td colspan="7">Aucune dépense pour les filtres sélectionnés.</td></tr>'}</tbody></table></div>`; }
+  _renderExpenseList() { return `<div class="table-container"><table class="users-table"><thead><tr><th>Date</th><th>Demande</th><th>Libellé</th><th>Catégorie</th><th>Utilisateur</th><th>Site</th><th>Montant</th><th>Actions</th></tr></thead><tbody>${this.expenses.map(item => `<tr><td>${item.expense_date || '—'}</td><td>${item.req_number ?? '—'}</td><td>${item.item_description || '—'}</td><td>${item.category || 'Non classée'}</td><td>${item.user_name || '—'}</td><td>${item.site?.name || '—'}</td><td>${this._money(item.amount)}</td><td class="action-buttons"><button type="button" class="action-btn" data-list-edit="${item.id}" title="Modifier" aria-label="Modifier">✎</button><button type="button" class="action-btn btn-danger" data-list-delete="${item.id}" title="Supprimer" aria-label="Supprimer">×</button></td></tr>`).join('') || '<tr><td colspan="8">Aucune dépense pour les filtres sélectionnés.</td></tr>'}</tbody></table></div>`; }
 
   _loadUsersSites() {
     Promise.all([listAliases(), listSites()]).then(([aliases, sites]) => {
@@ -329,4 +325,4 @@ export class IntendanceDashboardPage {
   }
 }
 
-export const createIntendanceDashboardPage = () => new IntendanceDashboardPage();
+export const createIntendanceDashboardPage = options => new IntendanceDashboardPage(options);

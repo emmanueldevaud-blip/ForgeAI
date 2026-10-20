@@ -4,6 +4,7 @@ from datetime import date, timedelta
 
 import math
 import uuid
+from decimal import Decimal
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
@@ -43,6 +44,7 @@ def _expense_response(expense: IntendanceExpense) -> ExpenseResponse:
     if not expense.site_id:
         missing.append("site")
     return ExpenseResponse.model_validate(expense).model_copy(update={
+        "amount": (expense.amount or Decimal("0")) * (expense.quantity or 1),
         "import_reference": expense.import_batch.reference if expense.import_batch else None,
         "missing_fields": missing,
         "is_complete": not missing,
@@ -101,7 +103,7 @@ async def list_expenses(
         "expense_date": IntendanceExpense.expense_date,
         "req_number": IntendanceExpense.req_number,
         "item_description": IntendanceExpense.item_description,
-        "amount": IntendanceExpense.amount,
+        "amount": IntendanceExpense.amount * IntendanceExpense.quantity,
         "account_code": IntendanceExpense.account_code,
         "category": IntendanceExpense.category,
         "user_name": IntendanceExpense.user_name,
@@ -127,6 +129,7 @@ async def expense_dashboard(
 ):
     """Retourne les indicateurs agrégés du tableau de bord des dépenses."""
     excluded = (await db.execute(select(IntendanceCategory.name).where(IntendanceCategory.excluded_from_dashboard.is_(True)))).scalars().all()
+    amount_expr = IntendanceExpense.amount * IntendanceExpense.quantity
     dashboard_setting = await db.get(IntendanceDashboardSetting, 1)
     exclude_uncategorized = dashboard_setting.exclude_uncategorized if dashboard_setting else False
     visible_category = IntendanceExpense.category.notin_(excluded)
@@ -150,15 +153,15 @@ async def expense_dashboard(
     base = filtered(select(IntendanceExpense))
     base_rows = base.subquery()
     totals = (await db.execute(select(
-        func.coalesce(func.sum(base_rows.c.amount), 0),
+        func.coalesce(func.sum(base_rows.c.amount * base_rows.c.quantity), 0),
         func.count(base_rows.c.id),
-        func.coalesce(func.avg(base_rows.c.amount), 0),
+        func.coalesce(func.avg(base_rows.c.amount * base_rows.c.quantity), 0),
     ).select_from(base_rows))).one()
     category_rows = (await db.execute(filtered(select(
         IntendanceExpense.category,
         func.count(IntendanceExpense.id).label("count"),
-        func.sum(IntendanceExpense.amount).label("amount"),
-        func.avg(IntendanceExpense.amount).label("average"),
+        func.sum(amount_expr).label("amount"),
+        func.avg(amount_expr).label("average"),
     ).where(visible_category).group_by(IntendanceExpense.category)
     ))).all()
     total_amount = float(totals[0] or 0)
@@ -168,7 +171,7 @@ async def expense_dashboard(
     monthly_rows = (await db.execute(filtered(select(
         func.extract("year", IntendanceExpense.expense_date).label("year"),
         func.extract("month", IntendanceExpense.expense_date).label("month"),
-        func.sum(IntendanceExpense.amount).label("amount"),
+        func.sum(amount_expr).label("amount"),
         func.count(IntendanceExpense.id).label("count"),
     ).group_by("year", "month").order_by("year", "month")))).all()
     monthly = [{"year": int(row[0]), "month": int(row[1]), "amount": float(row[2] or 0), "count": row[3]} for row in monthly_rows]
@@ -184,15 +187,15 @@ async def expense_dashboard(
 
     user_rows = (await db.execute(filtered(select(
         IntendanceExpense.user_name,
-        func.sum(IntendanceExpense.amount).label("amount"),
+        func.sum(amount_expr).label("amount"),
         func.count(IntendanceExpense.id).label("count"),
-    ).where(IntendanceExpense.user_name.is_not(None)).group_by(IntendanceExpense.user_name).order_by(func.sum(IntendanceExpense.amount).desc())))).all()
+    ).where(IntendanceExpense.user_name.is_not(None)).group_by(IntendanceExpense.user_name).order_by(func.sum(amount_expr).desc())))).all()
     users = [{"name": row[0], "amount": float(row[1] or 0), "count": row[2]} for row in user_rows]
 
     top_rows = (await db.execute(filtered(select(
         IntendanceExpense.id, IntendanceExpense.expense_date, IntendanceExpense.item_description,
-        IntendanceExpense.category, IntendanceExpense.user_name, IntendanceExpense.amount,
-    ).order_by(IntendanceExpense.amount.desc()).limit(10)))).all()
+        IntendanceExpense.category, IntendanceExpense.user_name, amount_expr,
+    ).order_by(amount_expr.desc()).limit(10)))).all()
     top_expenses = [{"id": row[0], "date": row[1].isoformat(), "description": row[2], "category": row[3] or "Non classée", "user_name": row[4], "amount": float(row[5] or 0)} for row in top_rows]
 
     previous_amount = None
@@ -200,7 +203,7 @@ async def expense_dashboard(
         span = (expense_date_to - expense_date_from).days + 1
         previous_from = expense_date_from - timedelta(days=span)
         previous_to = expense_date_from - timedelta(days=1)
-        previous_amount = float((await db.execute(filtered(select(func.coalesce(func.sum(IntendanceExpense.amount), 0)).where(visible_category), previous_from, previous_to))).scalar_one() or 0)
+        previous_amount = float((await db.execute(filtered(select(func.coalesce(func.sum(amount_expr), 0)).where(visible_category), previous_from, previous_to))).scalar_one() or 0)
     return {"kpis": {"total_amount": total_amount, "count": totals[1], "average_amount": float(totals[2] or 0), "previous_amount": previous_amount}, "categories": categories, "monthly": monthly, "users": users, "top_expenses": top_expenses}
 
 

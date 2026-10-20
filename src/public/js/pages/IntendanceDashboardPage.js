@@ -1,5 +1,5 @@
 import { authStore } from '../stores/auth.js';
-import { getExpenseDashboard, listExpenses, listAliases, listSites } from '../services/intendanceApi.js';
+import { getExpenseDashboard, getMealCostBySite, listExpenses, listAliases, listSites } from '../services/intendanceApi.js';
 import { Table } from '../components/Table.js';
 
 const CATEGORY_COLORS = {
@@ -23,6 +23,8 @@ export class IntendanceDashboardPage {
     this.amounts = [];
     this.maxAmount = 0;
     this.dashboard = { kpis: {}, categories: [], monthly: [], daily: [], users: [], sites: [], top_expenses: [] };
+    this.mealSiteCosts = [];
+    this.mealSiteCostsUnavailable = false;
     this.expenses = [];
     this.filterDateFrom = '';
     this.filterDateTo = '';
@@ -73,10 +75,16 @@ export class IntendanceDashboardPage {
     const viewCategory = this.activeView === 'meals' ? 'Nourriture' : this.activeView === 'energy' ? 'Energie' : null;
     (viewCategory ? [viewCategory] : this.filterCategory).forEach(category => params.append('category', category));
 
-    const [dashboard, expenseList] = await Promise.all([
+    const mealCostsPromise = this.activeView === 'meals'
+      ? getMealCostBySite(params).then(result => ({ result, unavailable: false })).catch(() => ({ result: null, unavailable: true }))
+      : Promise.resolve({ result: null, unavailable: false });
+    const [dashboard, expenseList, mealCosts] = await Promise.all([
       getExpenseDashboard(params),
       listExpenses(new URLSearchParams([...params.entries(), ['dashboard', 'true'], ['search', this.expenseSearch], ['page', String(this.expensePage)], ['page_size', '20'], ['sort_by', this.expenseSortBy], ['sort_order', this.expenseSortOrder]])),
+      mealCostsPromise,
     ]);
+    this.mealSiteCosts = mealCosts.result?.items || [];
+    this.mealSiteCostsUnavailable = mealCosts.unavailable;
     this.dashboard = dashboard || this.dashboard;
     this.expenses = expenseList?.items || [];
     this.expenseListMeta = expenseList || this.expenseListMeta;
@@ -151,6 +159,7 @@ export class IntendanceDashboardPage {
           ${generalView ? '<section class="histogram-container chart-card"><div class="chart-heading"><div><h2>Répartition par catégorie</h2><p>Cliquer sur une catégorie pour filtrer</p></div><div class="chart-legend"><span class="chart-legend-item"><i class="chart-swatch chart-swatch--category"></i>Part du total</span></div></div>' + this._renderCategoryBars() + '</section>' : ''}
           <section class="histogram-container chart-card"><div class="chart-heading"><div><h2>Répartition par utilisateur</h2><p>Montant attribué et nombre de dépenses</p></div><div class="chart-legend"><span class="chart-legend-item"><i class="chart-swatch chart-swatch--user"></i>Montant (€)</span></div></div>${this._renderUserBars()}</section>
           <section class="histogram-container chart-card"><div class="chart-heading"><div><h2>${this.activeView === 'energy' ? 'Coût de l’énergie par site' : 'Répartition par site'}</h2><p>Montant total et nombre de dépenses</p></div><div class="chart-legend"><span class="chart-legend-item"><i class="chart-swatch chart-swatch--user"></i>Montant (€)</span></div></div>${this._renderSiteBars()}</section>
+          ${this.activeView === 'meals' ? `<section class="histogram-container chart-card chart-card--monthly"><div class="chart-heading"><div><h2>Coût du repas par personne et par site</h2><p>Dépenses de nourriture divisées par les repas déclarés dans Agenda, du lundi au vendredi</p></div><div class="chart-legend"><span class="chart-legend-item"><i class="chart-swatch chart-swatch--category"></i>Coût par repas (€)</span></div></div>${this._renderMealCostBySite()}</section>` : ''}
           <section class="histogram-container chart-card chart-card--monthly"><div class="chart-heading"><div><h2>${this.activeView === 'meals' ? 'Évolution des dépenses de nourriture' : this.activeView === 'energy' ? 'Évolution des dépenses d’énergie' : 'Évolution mensuelle'}</h2></div><div class="chart-legend">${this._renderMonthlyLegend()}</div></div><canvas id="monthly-chart" aria-label="Évolution mensuelle des dépenses par catégorie"></canvas></section>
         </div>
         <section class="histogram-container intendance-expense-list"><div class="chart-heading"><div><h2>Dépenses filtrées</h2><p>${this.expenseListMeta.total || 0} dépense(s) correspondant aux filtres</p></div></div>${this._renderExpenseList()}</section>
@@ -362,6 +371,12 @@ export class IntendanceDashboardPage {
   }
   _renderUserBars() { return (this.dashboard.users || []).map((item, index) => `<div class="intendance-bar-row"><span class="intendance-bar-label"><i class="chart-swatch" style="background:${this._chartColor(index + 2)}"></i>${item.name}</span><i class="intendance-bar-track"><b style="width:${this.dashboard.users[0]?.amount ? item.amount / this.dashboard.users[0].amount * 100 : 0}%;background:${this._chartColor(index + 2)}"></b></i><strong>${this._money(item.amount)}</strong><small>${item.count} dép.</small></div>`).join('') || '<p class="text-muted">Aucune attribution utilisateur.</p>'; }
   _renderSiteBars() { const sites = this.dashboard.sites || []; const max = Math.max(...sites.map(item => Number(item.amount) || 0), 1); return sites.map((item, index) => `<div class="intendance-bar-row"><span class="intendance-bar-label"><i class="chart-swatch" style="background:${this._chartColor(index)}"></i>${item.name}</span><i class="intendance-bar-track"><b style="width:${(Number(item.amount) || 0) / max * 100}%;background:${this._chartColor(index)}"></b></i><strong>${this._money(item.amount)}</strong><small>${item.count} op.</small></div>`).join('') || '<p class="text-muted">Aucune dépense d’énergie affectée à un site.</p>'; }
+  _renderMealCostBySite() {
+    if (this.mealSiteCostsUnavailable) return '<p class="text-muted">Votre compte doit avoir accès aux modules Agenda et Bâtiments pour consulter ce calcul.</p>';
+    const rows = this.mealSiteCosts || [];
+    const max = Math.max(...rows.map(item => Number(item.cost_per_person) || 0), 1);
+    return rows.map((item, index) => `<div class="intendance-bar-row" title="${this._money(item.amount)} de nourriture · ${item.meal_count} repas déclarés"><span class="intendance-bar-label"><i class="chart-swatch" style="background:${this._chartColor(index + 1)}"></i>${item.name}</span><i class="intendance-bar-track"><b style="width:${item.cost_per_person == null ? 0 : Number(item.cost_per_person) / max * 100}%;background:${this._chartColor(index + 1)}"></b></i><strong>${item.cost_per_person == null ? '—' : this._money(item.cost_per_person)}</strong><small>${item.meal_count} pers.</small></div>`).join('') || '<p class="text-muted">Aucun site mappé à un local Bureau ou aucune donnée pour cette période.</p>';
+  }
   _chartColor(index) { return ['#2563eb', '#7c3aed', '#059669', '#d97706', '#dc2626', '#0891b2', '#db2777', '#65a30d'][index % 8]; }
   _renderTopExpenses() { return `<div class="table-container"><table class="users-table"><thead><tr><th>Date</th><th>Libellé</th><th>Catégorie</th><th>Utilisateur</th><th>Montant</th></tr></thead><tbody>${(this.dashboard.top_expenses || []).map(item => `<tr><td>${item.date}</td><td>${item.description || ''}</td><td>${item.category}</td><td>${item.user_name || '—'}</td><td>${this._money(item.amount)}</td></tr>`).join('') || '<tr><td colspan="5">Aucune dépense.</td></tr>'}</tbody></table></div>`; }
   _renderSummary() { const total = this.dashboard.kpis?.total_amount || 0; return `<div class="table-container"><table class="users-table"><thead><tr><th>Catégorie</th><th>Nombre</th><th>Total</th><th>Part</th><th>Moyenne</th></tr></thead><tbody>${(this.dashboard.categories || []).map(item => `<tr><td>${item.name}</td><td>${item.count}</td><td>${this._money(item.amount)}</td><td>${total ? (item.amount / total * 100).toFixed(1) : 0}%</td><td>${this._money(item.average)}</td></tr>`).join('')}</tbody></table></div>`; }

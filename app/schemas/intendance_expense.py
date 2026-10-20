@@ -9,6 +9,12 @@ from pydantic import BaseModel, ConfigDict, Field
 # SITES
 # ============================================================
 
+class MappedRoomResponse(BaseModel):
+    id: int
+    name: str
+    reference: str
+    building_name: str
+
 class SiteCreate(BaseModel):
     name: str = Field(..., min_length=1, max_length=255)
     sort_order: int = Field(0, ge=0)
@@ -33,6 +39,7 @@ class SiteResponse(BaseModel):
     dashboard_visible: bool
     created_at: datetime
     updated_at: datetime
+    mapped_rooms: List[MappedRoomResponse] = []
 
 
 class SiteListResponse(BaseModel):
@@ -41,6 +48,10 @@ class SiteListResponse(BaseModel):
     page: int
     page_size: int
     total_pages: int
+
+
+class SiteRoomsUpdate(BaseModel):
+    room_ids: List[int] = []
 
 
 # ============================================================

@@ -13,22 +13,128 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.api.deps import require_permission
+from app.api.deps import require_all_permissions, require_module_enabled, require_permission
 from app.db.session import get_db
 from app.models import (
     IntendanceAccountCode, IntendanceCardAlias, IntendanceExpense,
-    IntendanceImportBatch, IntendanceImportStagedRow, IntendanceSite, IntendanceCategory, IntendanceDashboardSetting, User,
+    AgendaPresence, Building, IntendanceImportBatch, IntendanceImportStagedRow, IntendanceSite, IntendanceCategory, IntendanceDashboardSetting, User, Room, UsageType,
 )
 from app.schemas.intendance_expense import (
     AccountCodeCreate, AccountCodeListResponse, AccountCodeResponse, AccountCodeUpdate,
     BulkSiteAssign, BulkSiteResponse, ExpenseListResponse, ExpenseResponse,
     ExpenseUpdate, ImportBatchResponse, ImportValidateResponse, SiteCreate,
     SiteListResponse, SiteResponse, SiteUpdate, StagedRowListResponse, StagedRowResponse, ImportBilan,
-    CardAliasCreate, CardAliasListResponse, CardAliasResponse, CardAliasUpdate,
+    CardAliasCreate, CardAliasListResponse, CardAliasResponse, CardAliasUpdate, SiteRoomsUpdate,
 )
 from app.services.intendance_expense import expense_duplicate_key, expense_fingerprint, normalize_date, normalize_text, parse_excel_row
+from app.services.rbac import RBACService
 
 router = APIRouter(prefix="/intendance/expenses", tags=["intendance-expenses"])
+
+
+@router.get(
+    "/dashboard/meal-cost-by-site",
+    response_model=dict,
+    dependencies=[Depends(require_module_enabled("agenda", "buildings", "gestion_bureaux"))],
+)
+async def meal_cost_by_site(
+    expense_date_from: date,
+    expense_date_to: date,
+    user_name: list[str] | None = Query(None),
+    site_id: list[int] | None = Query(None),
+    current_user: User = Depends(require_all_permissions("intendance.expenses.view", "agenda.access", "building.view")),
+    db: AsyncSession = Depends(get_db),
+):
+    """Coût par repas déclaré, limité aux locaux de bureau mappés aux sites Intendance."""
+    food_category = (await db.execute(
+        select(IntendanceCategory).where(IntendanceCategory.name == "Nourriture")
+    )).scalar_one_or_none()
+    if food_category and (not food_category.is_active or food_category.excluded_from_dashboard):
+        return {"items": []}
+
+    eligible_sites_query = (
+        select(IntendanceSite.id, IntendanceSite.name)
+        .select_from(IntendanceSite)
+        .join(IntendanceSite.rooms)
+        .join(Room.building)
+        .outerjoin(Room.usage_type)
+        .where(
+            IntendanceSite.is_active.is_(True),
+            IntendanceSite.dashboard_visible.is_(True),
+            Room.is_active.is_(True),
+            Building.is_active.is_(True),
+            or_(UsageType.code.in_(("BUREAUX", "BUREAU")), UsageType.name.ilike("%bureau%")),
+        )
+        .distinct()
+    )
+    eligible_sites = (await db.execute(eligible_sites_query)).all()
+    eligible_ids = [row.id for row in eligible_sites]
+    if site_id:
+        eligible_ids = [identifier for identifier in eligible_ids if identifier in site_id]
+    if not eligible_ids:
+        return {"items": []}
+
+    expense_query = (
+        select(IntendanceExpense.site_id, func.coalesce(func.sum(IntendanceExpense.amount * IntendanceExpense.quantity), 0))
+        .where(
+            IntendanceExpense.site_id.in_(eligible_ids),
+            IntendanceExpense.category == "Nourriture",
+            IntendanceExpense.expense_date.between(expense_date_from, expense_date_to),
+        )
+    )
+    if user_name:
+        expense_query = expense_query.where(IntendanceExpense.user_name.in_(user_name))
+    expenses = dict((await db.execute(expense_query.group_by(IntendanceExpense.site_id))).all())
+
+    meal_query = (
+        select(IntendanceSite.id, AgendaPresence.presence_date, AgendaPresence.user_id, AgendaPresence.external_name, AgendaPresence.id)
+        .select_from(IntendanceSite)
+        .join(IntendanceSite.rooms)
+        .join(Room.building)
+        .outerjoin(Room.usage_type)
+        .join(AgendaPresence, AgendaPresence.room_id == Room.id)
+        .where(
+            IntendanceSite.id.in_(eligible_ids),
+            Room.is_active.is_(True),
+            Building.is_active.is_(True),
+            or_(UsageType.code.in_(("BUREAUX", "BUREAU")), UsageType.name.ilike("%bureau%")),
+            AgendaPresence.presence_date.between(expense_date_from, expense_date_to),
+            AgendaPresence.is_present.is_(True),
+            AgendaPresence.needs_meal.is_(True),
+            AgendaPresence.is_remote.is_(False),
+        )
+    )
+    if user_name:
+        users = (await db.execute(select(User))).scalars().all()
+        normalized_names = {value.strip().casefold() for value in user_name}
+        matching_user_ids = [user.id for user in users if user.full_name.strip().casefold() in normalized_names or user.username.strip().casefold() in normalized_names]
+        meal_query = meal_query.where(AgendaPresence.user_id.in_(matching_user_ids)) if matching_user_ids else meal_query.where(AgendaPresence.user_id.is_(None))
+
+    meal_rows = (await db.execute(meal_query)).all()
+    meal_counts: dict[int, set[tuple[date, str]]] = {identifier: set() for identifier in eligible_ids}
+    for site_identifier, presence_date, user_id, external_name, presence_id in meal_rows:
+        if presence_date.weekday() >= 5:
+            continue
+        person_key = f"user:{user_id}" if user_id is not None else f"external:{(external_name or '').strip().casefold()}"
+        if person_key == "external:":
+            person_key = f"presence:{presence_id}"
+        meal_counts[site_identifier].add((presence_date, person_key))
+
+    output = []
+    for identifier, name in eligible_sites:
+        if identifier not in eligible_ids:
+            continue
+        amount = float(expenses.get(identifier) or 0)
+        count = len(meal_counts[identifier])
+        output.append({
+            "site_id": identifier,
+            "name": name,
+            "amount": amount,
+            "meal_count": count,
+            "cost_per_person": amount / count if count else None,
+        })
+    output.sort(key=lambda item: (item["cost_per_person"] is not None, item["cost_per_person"] or 0), reverse=True)
+    return {"items": output}
 
 
 def _pages(total: int, page_size: int) -> int:
@@ -272,8 +378,18 @@ async def bulk_site(data: BulkSiteAssign, current_user: User = Depends(require_p
 
 @router.get("/sites", response_model=SiteListResponse)
 async def list_sites(current_user: User = Depends(require_permission("intendance.expenses.view")), db: AsyncSession = Depends(get_db)):
-    rows = (await db.execute(select(IntendanceSite).order_by(IntendanceSite.sort_order, IntendanceSite.name))).scalars().all()
-    return SiteListResponse(items=[SiteResponse.model_validate(x) for x in rows], total=len(rows), page=1, page_size=len(rows) or 1, total_pages=1)
+    rows = (await db.execute(select(IntendanceSite).options(selectinload(IntendanceSite.rooms).selectinload(Room.building), selectinload(IntendanceSite.rooms).selectinload(Room.usage_type)).order_by(IntendanceSite.sort_order, IntendanceSite.name))).scalars().all()
+    items = [_site_response(x) for x in rows]
+    if not await RBACService(db).user_has_permission(current_user, "building.view"):
+        for item in items:
+            item.mapped_rooms = []
+    return SiteListResponse(items=items, total=len(items), page=1, page_size=len(items) or 1, total_pages=1)
+
+
+def _site_response(site: IntendanceSite) -> SiteResponse:
+    response = SiteResponse.model_validate(site)
+    response.mapped_rooms = [{"id": room.id, "name": room.name, "reference": room.reference, "building_name": room.building.name} for room in site.rooms if room.is_active and room.building and room.building.is_active and room.usage_type and (room.usage_type.code in ("BUREAU", "BUREAUX") or "bureau" in room.usage_type.name.casefold())]
+    return response
 
 
 @router.post("/sites", response_model=SiteResponse, status_code=201)
@@ -281,7 +397,8 @@ async def create_site(data: SiteCreate, current_user: User = Depends(require_per
     site = IntendanceSite(**data.model_dump()); db.add(site)
     try: await db.commit()
     except IntegrityError: await db.rollback(); raise HTTPException(409, "Ce site existe déjà")
-    await db.refresh(site); return SiteResponse.model_validate(site)
+    site = (await db.execute(select(IntendanceSite).options(selectinload(IntendanceSite.rooms).selectinload(Room.building), selectinload(IntendanceSite.rooms).selectinload(Room.usage_type)).where(IntendanceSite.id == site.id))).scalar_one()
+    return _site_response(site)
 
 
 @router.patch("/sites/{site_id}", response_model=SiteResponse)
@@ -289,7 +406,32 @@ async def update_site(site_id: int, data: SiteUpdate, current_user: User = Depen
     site = await db.get(IntendanceSite, site_id)
     if not site: raise HTTPException(404, "Site introuvable")
     for key, value in data.model_dump(exclude_unset=True).items(): setattr(site, key, value)
-    await db.commit(); await db.refresh(site); return SiteResponse.model_validate(site)
+    await db.commit()
+    site = (await db.execute(select(IntendanceSite).options(selectinload(IntendanceSite.rooms).selectinload(Room.building), selectinload(IntendanceSite.rooms).selectinload(Room.usage_type)).where(IntendanceSite.id == site.id))).scalar_one()
+    return _site_response(site)
+
+
+@router.put("/sites/{site_id}/rooms", response_model=SiteResponse)
+async def update_site_rooms(site_id: int, data: SiteRoomsUpdate, current_user: User = Depends(require_permission("intendance.expenses.manage_refs")), db: AsyncSession = Depends(get_db)):
+    site = await db.get(IntendanceSite, site_id, options=[selectinload(IntendanceSite.rooms).selectinload(Room.building), selectinload(IntendanceSite.rooms).selectinload(Room.usage_type)])
+    if not site: raise HTTPException(404, "Site introuvable")
+    room_ids = list(dict.fromkeys(data.room_ids))
+    rooms = (await db.execute(select(Room).options(selectinload(Room.building), selectinload(Room.usage_type)).where(Room.id.in_(room_ids)))).scalars().all() if room_ids else []
+    if len(rooms) != len(room_ids): raise HTTPException(400, "Un ou plusieurs locaux sont introuvables")
+    if any(not room.is_active or not room.building or not room.building.is_active or not room.usage_type or not (room.usage_type.code in ("BUREAU", "BUREAUX") or "bureau" in room.usage_type.name.casefold()) for room in rooms):
+        raise HTTPException(400, "Seuls les locaux actifs déclarés comme bureau peuvent être associés")
+    already_mapped = (await db.execute(
+        select(Room.id).select_from(IntendanceSite).join(IntendanceSite.rooms)
+        .where(IntendanceSite.id != site_id, Room.id.in_(room_ids))
+    )).scalars().all() if room_ids else []
+    if already_mapped: raise HTTPException(409, "Un local est déjà associé à un autre site de dépenses")
+    site.rooms = rooms
+    await db.commit()
+    site = (await db.execute(
+        select(IntendanceSite).options(selectinload(IntendanceSite.rooms).selectinload(Room.building), selectinload(IntendanceSite.rooms).selectinload(Room.usage_type))
+        .where(IntendanceSite.id == site_id)
+    )).scalar_one()
+    return _site_response(site)
 
 
 @router.delete("/sites/{site_id}", status_code=204)

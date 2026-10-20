@@ -4,6 +4,7 @@ const api = new ApiClient('/intendance/expenses');
 
 export const listExpenses = (params = {}) => api.get(`?${new URLSearchParams(params)}`);
 export const getExpenseDashboard = (params = {}) => api.get(`/dashboard?${new URLSearchParams(params)}`);
+export const getMealCostBySite = (params = {}) => api.get(`/dashboard/meal-cost-by-site?${new URLSearchParams(params)}`);
 export const listCategories = () => api.get('/categories');
 export const createCategory = data => api.post('/categories', data);
 export const updateCategory = (id, data) => api.patch(`/categories/${id}`, data);

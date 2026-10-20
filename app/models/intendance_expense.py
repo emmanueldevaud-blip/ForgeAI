@@ -4,6 +4,7 @@ from typing import Optional
 
 from sqlalchemy import (
     Boolean,
+    Column,
     Date,
     DateTime,
     ForeignKey,
@@ -11,12 +12,21 @@ from sqlalchemy import (
     Integer,
     Numeric,
     String,
+    Table,
     Text,
     func,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.session import Base
+
+
+intendance_site_rooms = Table(
+    "intendance_site_rooms",
+    Base.metadata,
+    Column("intendance_site_id", ForeignKey("intendance_sites.id", ondelete="CASCADE"), primary_key=True),
+    Column("room_id", ForeignKey("rooms.id", ondelete="CASCADE"), primary_key=True, unique=True),
+)
 
 
 class IntendanceSite(Base):
@@ -31,6 +41,7 @@ class IntendanceSite(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
 
     expenses: Mapped[list["IntendanceExpense"]] = relationship("IntendanceExpense", back_populates="site")
+    rooms: Mapped[list["Room"]] = relationship("Room", secondary=intendance_site_rooms)
 
     def __repr__(self) -> str:
         return f"<IntendanceSite(name={self.name})>"

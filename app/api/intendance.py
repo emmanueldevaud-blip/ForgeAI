@@ -19,6 +19,7 @@ from app.models import (
     IntendanceAccountCode, IntendanceCardAlias, IntendanceExpense,
     AgendaPresence, Building, IntendanceImportBatch, IntendanceImportStagedRow, IntendanceSite, IntendanceCategory, IntendanceDashboardSetting, User, Room, UsageType,
     Housing, Occupancy,
+    occupancy_occupants,
 )
 from app.schemas.intendance_expense import (
     AccountCodeCreate, AccountCodeListResponse, AccountCodeResponse, AccountCodeUpdate,
@@ -129,6 +130,8 @@ async def meal_cost_by_site(
 
     meal_rows = (await db.execute(meal_query)).all()
     meal_counts: dict[int, set[tuple]] = {identifier: set() for identifier in eligible_ids}
+    # Set pour dédoublonnage : (site_id, date, nom_normalisé) déjà compté via Agenda
+    agenda_meals: set[tuple[int, date, str]] = set()
     for site_identifier, presence_date, user_id, external_name, presence_id in meal_rows:
         if presence_date.weekday() >= 5:
             continue
@@ -136,18 +139,32 @@ async def meal_cost_by_site(
         if person_key == "external:":
             person_key = f"presence:{presence_id}"
         meal_counts[site_identifier].add((presence_date, person_key))
+        # Clé normalisée pour dédoublonnage avec hébergement
+        if user_id is not None:
+            # On ne peut pas résoudre le nom ici sans query supplémentaire, on utilisera external_name si dispo
+            name = (external_name or "").strip().casefold()
+            if name:
+                agenda_meals.add((site_identifier, presence_date, name))
+        else:
+            name = (external_name or "").strip().casefold()
+            if name:
+                agenda_meals.add((site_identifier, presence_date, name))
 
     # Occupations du module Hébergement sur les locaux mappés : un repas par
     # personne et par jour d'occupation, samedi et dimanche inclus.
     # Non comptées lors d'un filtre par utilisateur (occupants ≠ utilisateurs).
+    # Déduplication : si la personne est déjà comptée via Agenda ce jour-là, on ne la compte pas une 2e fois.
     if not user_name:
         occupancy_query = (
-            select(IntendanceSite.id, Occupancy.id, Occupancy.arrival_date, Occupancy.departure_date, Occupancy.nb_persons)
+            select(IntendanceSite.id, Occupancy.id, Occupancy.arrival_date, Occupancy.departure_date, Occupancy.nb_persons,
+                   Occupant.first_name, Occupant.last_name)
             .select_from(IntendanceSite)
             .join(IntendanceSite.rooms)
             .join(Room.building)
             .join(Housing, Housing.room_id == Room.id)
             .join(Occupancy, Occupancy.housing_id == Housing.id)
+            .join(occupancy_occupants, occupancy_occupants.c.occupancy_id == Occupancy.id)
+            .join(Occupant, Occupant.id == occupancy_occupants.c.occupant_id)
             .where(
                 IntendanceSite.id.in_(eligible_ids),
                 Room.is_active.is_(True),
@@ -159,16 +176,21 @@ async def meal_cost_by_site(
             )
         )
         occupancy_rows = (await db.execute(occupancy_query)).all()
-        for site_identifier, occupancy_identifier, arrival, departure, nb_persons in occupancy_rows:
+        for site_identifier, occupancy_identifier, arrival, departure, nb_persons, occ_fn, occ_ln in occupancy_rows:
             day_start = max(arrival.date(), expense_date_from)
             day_end = min(departure.date(), expense_date_to)
             if day_end < day_start:
                 continue
+            # Nom normalisé de l'occupant
+            occupant_name = f"{(occ_fn or '').strip()} {(occ_ln or '').strip()}".strip().casefold()
             persons = max(int(nb_persons or 1), 1)
             for day_offset in range((day_end - day_start).days + 1):
                 day = day_start + timedelta(days=day_offset)
+                # Pour chaque personne (nb_persons), on vérifie le dédoublonnage
                 for person_index in range(persons):
-                    meal_counts[site_identifier].add(("occupancy", occupancy_identifier, day, person_index))
+                    # Clé de dédoublonnage : (site, date, nom_occupant)
+                    if (site_identifier, day, occupant_name) not in agenda_meals:
+                        meal_counts[site_identifier].add(("occupancy", occupancy_identifier, day, person_index))
 
     output = []
     for identifier, name in eligible_sites:

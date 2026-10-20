@@ -53,7 +53,7 @@ class ProviderResponse(BaseModel):
 
 class ProviderListParams(BaseModel):
     page: int = Field(1, ge=1)
-    page_size: int = Field(20, ge=1, le=100)
+    page_size: int = Field(20, ge=1, le=1000)
     search: Optional[str] = None
     is_active: Optional[bool] = None
     sort_by: Optional[str] = "created_at"
@@ -109,7 +109,7 @@ class PartResponse(BaseModel):
 
 class PartListParams(BaseModel):
     page: int = Field(1, ge=1)
-    page_size: int = Field(20, ge=1, le=100)
+    page_size: int = Field(20, ge=1, le=1000)
     search: Optional[str] = None
     is_active: Optional[bool] = None
     sort_by: Optional[str] = "created_at"
@@ -181,7 +181,7 @@ class ContractResponse(BaseModel):
 
 class ContractListParams(BaseModel):
     page: int = Field(1, ge=1)
-    page_size: int = Field(20, ge=1, le=100)
+    page_size: int = Field(20, ge=1, le=1000)
     search: Optional[str] = None
     provider_id: Optional[int] = None
     is_active: Optional[bool] = None
@@ -244,7 +244,7 @@ class RequestResponse(BaseModel):
 
 class RequestListParams(BaseModel):
     page: int = Field(1, ge=1)
-    page_size: int = Field(20, ge=1, le=100)
+    page_size: int = Field(20, ge=1, le=1000)
     search: Optional[str] = None
     status: Optional[str] = None
     priority: Optional[str] = None
@@ -345,7 +345,7 @@ class WorkOrderResponse(BaseModel):
 
 class WorkOrderListParams(BaseModel):
     page: int = Field(1, ge=1)
-    page_size: int = Field(20, ge=1, le=100)
+    page_size: int = Field(20, ge=1, le=1000)
     search: Optional[str] = None
     status: Optional[str] = None
     priority: Optional[str] = None
@@ -541,7 +541,7 @@ class PlanResponse(BaseModel):
 
 class PlanListParams(BaseModel):
     page: int = Field(1, ge=1)
-    page_size: int = Field(20, ge=1, le=100)
+    page_size: int = Field(20, ge=1, le=1000)
     search: Optional[str] = None
     equipment_id: Optional[int] = None
     frequency: Optional[str] = None

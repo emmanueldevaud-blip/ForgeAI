@@ -305,7 +305,12 @@ async def list_account_codes(current_user: User = Depends(require_permission("in
 @router.get("/categories", response_model=list[dict])
 async def list_categories(current_user: User = Depends(require_permission("intendance.expenses.view")), db: AsyncSession = Depends(get_db)):
     setting = await db.get(IntendanceDashboardSetting, 1)
-    rows = [{"id": row.id, "name": row.name, "excluded_from_dashboard": row.excluded_from_dashboard} for row in (await db.execute(select(IntendanceCategory).order_by(IntendanceCategory.name))).scalars()]
+    existing = (await db.execute(select(IntendanceCategory).order_by(IntendanceCategory.name))).scalars().all()
+    rows = [{"id": row.id, "name": row.name, "excluded_from_dashboard": row.excluded_from_dashboard} for row in existing]
+    known_names = {row.name for row in existing}
+    data_categories = set((await db.execute(select(IntendanceAccountCode.category).where(IntendanceAccountCode.category.is_not(None)).distinct())).scalars().all())
+    data_categories.update((await db.execute(select(IntendanceExpense.category).where(IntendanceExpense.category.is_not(None)).distinct())).scalars().all())
+    rows.extend({"id": f"virtual:{name}", "name": name, "excluded_from_dashboard": False, "virtual": True} for name in sorted(data_categories - known_names))
     rows.append({"id": "uncategorized", "name": "Non classée", "excluded_from_dashboard": setting.exclude_uncategorized if setting else False, "system": True})
     return rows
 

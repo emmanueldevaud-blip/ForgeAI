@@ -16,7 +16,7 @@ from sqlalchemy.orm import load_only, selectinload
 from app.models.sport import (SportActivity, SportActivityAnalysis, SportAnalysis, SportAthlete, SportAthleteObservation,
                                SportGarminConnection, SportGoal, SportHealthDaily, SportRecommendation, SportTrackPoint)
 from app.models.user import User
-from app.schemas.sport import (SportActivityCreate, SportGoalCreate, SportNormalizedActivity,
+from app.schemas.sport import (SportActivityCreate, SportGoalCreate, SportGoalUpdate, SportNormalizedActivity,
                                 SportHeartRateConfig, SportObservationCreate)
 from app.services.sport_normalizer import SportNormalizer
 from app.services.sport_analysis import SportAnalysisEngine
@@ -1054,3 +1054,86 @@ class SportService:
         await self.db.commit()
         await self.db.refresh(goal)
         return goal
+
+    async def update_goal(self, goal_id: int, data: SportGoalUpdate) -> SportGoal | None:
+        athlete = await self.get_or_create_athlete()
+        goal = await self.db.get(SportGoal, goal_id)
+        if not goal or goal.athlete_id != athlete.id:
+            return None
+        for key, value in data.model_dump(exclude_unset=True).items():
+            setattr(goal, key, value)
+        await self.db.commit()
+        await self.db.refresh(goal)
+        return goal
+
+    async def check_and_update_goal_status(self) -> list[SportGoal]:
+        """Check all active goals and mark as achieved if target is reached."""
+        athlete = await self.get_or_create_athlete()
+        goals = await self.list_goals()
+        active_goals = [g for g in goals if g.status == "active"]
+        if not active_goals:
+            return []
+        
+        # Get all activities for the athlete
+        activities_result = await self.db.execute(
+            select(SportActivity).where(SportActivity.athlete_id == athlete.id)
+        )
+        all_activities = list(activities_result.scalars().all())
+        
+        updated_goals = []
+        for goal in active_goals:
+            if await self._check_goal_achieved(goal, all_activities):
+                goal.status = "achieved"
+                updated_goals.append(goal)
+        
+        if updated_goals:
+            await self.db.commit()
+            for g in updated_goals:
+                await self.db.refresh(g)
+        return updated_goals
+
+    async def _check_goal_achieved(self, goal: SportGoal, activities: list[SportActivity]) -> bool:
+        """Check if a goal is achieved based on activities."""
+        metadata = goal.metadata_json or {}
+        target_value = goal.target_value
+        unit = goal.unit
+        goal_type = goal.goal_type
+        metadata_dict = goal.metadata_json or {}
+        
+        if target_value is None:
+            return False
+        
+        # Filter activities by sport if specified
+        sport = metadata.get("sport_type") or metadata.get("sport")
+        compatible = [a for a in activities if not sport or a.sport_type == sport]
+        
+        if not compatible:
+            return False
+        
+        # Calculate total progress based on goal type and unit
+        if unit in {"km", "kilometre", "kilometers"} and goal_type in {"distance", "distance_total"}:
+            # Sum distance in km
+            total_m = sum(a.distance_m or 0 for a in compatible)
+            total_km = total_m / 1000
+            return total_km >= (goal.target_value or 0)
+        elif unit in {"m", "meters", "metres"} and goal_type in {"distance", "distance_total"}:
+            total_m = sum(a.distance_m or 0 for a in compatible)
+            return total_m >= (goal.target_value or 0)
+        elif unit in {"m", "meters", "metres"} and goal_type == "elevation":
+            total_elev = sum(a.elevation_gain_m or 0 for a in compatible)
+            return total_elev >= (goal.target_value or 0)
+        elif unit in {"h", "hours", "hours_total"} or unit in {"min", "minutes"}:
+            total_sec = sum(a.duration_seconds or 0 for a in compatible)
+            if unit in {"min", "minutes"}:
+                total = total_sec / 60
+            else:
+                total = total_sec / 3600
+            return total >= (goal.target_value or 0)
+        elif goal_type == "activity_count":
+            return len(compatible) >= (goal.target_value or 0)
+        
+        # Default: check if target_date has passed and goal is still active
+        if goal.target_date and goal.target_date < date.today():
+            return True
+        
+        return False

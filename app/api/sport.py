@@ -22,6 +22,7 @@ from app.schemas.sport import (
     SportNotificationConfigUpdate,
     SportGoalCreate,
     SportGoalResponse,
+    SportGoalUpdate,
     SportHealthResponse,
     GarminConnectRequest,
     GarminConnectionResponse,
@@ -309,6 +310,29 @@ async def create_sport_goal(
         goal.athlete_id,
         "objective_created",
         {"goal_id": goal.id, "goal_type": goal.goal_type},
+    )
+    return goal
+
+
+@router.patch("/goals/{goal_id}", response_model=SportGoalResponse)
+async def update_sport_goal(
+    goal_id: int,
+    data: SportGoalUpdate,
+    background_tasks: BackgroundTasks,
+    service: SportService = Depends(get_sport_goal_write_service),
+):
+    goal = await service.update_goal(goal_id, data)
+    if not goal:
+        raise HTTPException(status_code=404, detail="Objectif non trouvé")
+    # Événement « objectif mis à jour » : réveille l'Agent Sport (si activé).
+    from app.services.sport_agent.events import schedule_agent_event
+
+    background_tasks.add_task(
+        schedule_agent_event,
+        service.current_user.id,
+        goal.athlete_id,
+        "objective_updated",
+        {"goal_id": goal.id, "goal_type": goal.goal_type, "status": goal.status},
     )
     return goal
 

@@ -672,6 +672,15 @@ async def run_sport_analysis_cycle(db: AsyncSession, now: datetime | None = None
             continue
         service = SportAnalysisService(db, user)
         agent_on = bool(settings.SPORT_AGENT_ENABLED)
+        
+        # Vérifier et mettre à jour le statut des objectifs (achieved si cible atteinte)
+        try:
+            sport_service = SportService(db, user)
+            await sport_service.check_and_update_goal_status()
+        except Exception:
+            logger.exception("[SPORT-ANALYSIS] Erreur vérification objectifs user %s", user.id)
+        
+        agent_on = bool(settings.SPORT_AGENT_ENABLED)
         day_key = SportAnalysisService._local_today().isoformat()
         if morning_due and await _morning_ready(service, morning_deadline, local_time):
             agent_turn = agent_on and await _agent_due(db, athlete, "morning")

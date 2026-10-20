@@ -72,6 +72,16 @@ class SportGoalResponse(SportGoalCreate):
     status: str
 
 
+class SportGoalUpdate(BaseModel):
+    name: Optional[str] = Field(None, min_length=1, max_length=200)
+    goal_type: Optional[str] = Field(None, min_length=1, max_length=50)
+    target_value: Optional[float] = None
+    unit: Optional[str] = Field(None, max_length=30)
+    target_date: Optional[date] = None
+    status: Optional[str] = Field(None, max_length=30)
+    metadata_json: Optional[dict[str, Any]] = None
+
+
 class SportDashboardResponse(BaseModel):
     period_days: int
     period_start: date

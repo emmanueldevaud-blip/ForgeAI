@@ -23,6 +23,7 @@ export const updateAlias = (id, data) => api.patch(`/aliases/${id}`, data);
 export const deleteAlias = id => api.delete(`/aliases/${id}`);
 export const createSite = data => api.post('/sites', data);
 export const updateSite = (id, data) => api.patch(`/sites/${id}`, data);
+export const updateSiteRooms = (id, room_ids) => api.put(`/sites/${id}/rooms`, { room_ids });
 export const deleteSite = id => api.delete(`/sites/${id}`);
 export const assignSites = (ids, site_id) => api.post('/sites/bulk', { ids, site_id });
 export const analyzeImport = (file) => {

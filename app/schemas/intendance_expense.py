@@ -13,12 +13,14 @@ class SiteCreate(BaseModel):
     name: str = Field(..., min_length=1, max_length=255)
     sort_order: int = Field(0, ge=0)
     is_active: bool = True
+    dashboard_visible: bool = True
 
 
 class SiteUpdate(BaseModel):
     name: Optional[str] = Field(None, min_length=1, max_length=255)
     sort_order: Optional[int] = Field(None, ge=0)
     is_active: Optional[bool] = None
+    dashboard_visible: Optional[bool] = None
 
 
 class SiteResponse(BaseModel):
@@ -28,6 +30,7 @@ class SiteResponse(BaseModel):
     name: str
     sort_order: int
     is_active: bool
+    dashboard_visible: bool
     created_at: datetime
     updated_at: datetime
 
@@ -47,11 +50,13 @@ class SiteListResponse(BaseModel):
 class CardAliasCreate(BaseModel):
     alias: str = Field(..., min_length=1, max_length=255)
     user_name: str = Field(..., min_length=1, max_length=100)
+    dashboard_visible: bool = True
 
 
 class CardAliasUpdate(BaseModel):
     alias: Optional[str] = Field(None, min_length=1, max_length=255)
     user_name: Optional[str] = Field(None, min_length=1, max_length=100)
+    dashboard_visible: Optional[bool] = None
 
 
 class CardAliasResponse(BaseModel):
@@ -60,6 +65,7 @@ class CardAliasResponse(BaseModel):
     id: int
     alias: str
     user_name: str
+    dashboard_visible: bool
     created_at: datetime
     updated_at: datetime
 
@@ -80,11 +86,13 @@ class AccountCodeCreate(BaseModel):
     code: str = Field(..., min_length=1, max_length=700)
     label: Optional[str] = Field(None, max_length=2000)
     category: Optional[str] = Field(None, max_length=100)
+    dashboard_visible: bool = True
 
 
 class AccountCodeUpdate(BaseModel):
     label: Optional[str] = Field(None, max_length=2000)
     category: Optional[str] = Field(None, max_length=100)
+    dashboard_visible: Optional[bool] = None
 
 
 class AccountCodeResponse(BaseModel):
@@ -94,6 +102,7 @@ class AccountCodeResponse(BaseModel):
     code: str
     label: Optional[str] = None
     category: Optional[str] = None
+    dashboard_visible: bool
     created_at: datetime
     updated_at: datetime
 

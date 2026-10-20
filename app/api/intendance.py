@@ -135,9 +135,12 @@ async def expense_dashboard(
     visible_category = IntendanceExpense.category.notin_(excluded)
     if not exclude_uncategorized:
         visible_category = or_(IntendanceExpense.category.is_(None), visible_category)
+    visible_site = or_(IntendanceExpense.site_id.is_(None), IntendanceExpense.site_id.in_(select(IntendanceSite.id).where(IntendanceSite.dashboard_visible.is_(True))))
+    visible_code = or_(IntendanceExpense.account_code.is_(None), IntendanceExpense.account_code.not_in(select(IntendanceAccountCode.code).where(IntendanceAccountCode.dashboard_visible.is_(False))))
+    visible_user = or_(IntendanceExpense.user_name.is_(None), IntendanceExpense.user_name.not_in(select(IntendanceCardAlias.user_name).where(IntendanceCardAlias.dashboard_visible.is_(False))))
 
     def filtered(statement, from_date=expense_date_from, to_date=expense_date_to):
-        statement = statement.where(visible_category)
+        statement = statement.where(visible_category, visible_site, visible_code, visible_user)
         if from_date is not None:
             statement = statement.where(IntendanceExpense.expense_date >= from_date)
         if to_date is not None:

@@ -372,8 +372,9 @@ export class IntendanceDashboardPage {
       const users = [...new Set((aliases.items || []).map(item => item.user_name).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'fr'));
       const userOptions = this.element.querySelector('[data-multi-filter="user"] [data-filter-options]');
       const siteOptions = this.element.querySelector('[data-multi-filter="site"] [data-filter-options]');
-      if (userOptions) userOptions.innerHTML = `<label><input type="checkbox" data-filter-all ${this.filterUser.length ? '' : 'checked'}> Toutes</label>${users.map(user => `<label><input type="checkbox" data-filter-option value="${user}" ${this.filterUser.includes(user) ? 'checked' : ''}>${user}</label>`).join('')}`;
-      if (siteOptions) siteOptions.innerHTML = `<label><input type="checkbox" data-filter-all ${this.filterSite.length ? '' : 'checked'}> Toutes</label>${(sites.items || []).map(site => `<label><input type="checkbox" data-filter-option value="${site.id}" ${this.filterSite.includes(Number(site.id)) ? 'checked' : ''}>${site.name}</label>`).join('')}`;
+      const visibleUsers = [...new Set((aliases.items || []).filter(item => item.dashboard_visible !== false).map(item => item.user_name).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'fr'));
+      if (userOptions) userOptions.innerHTML = `<label><input type="checkbox" data-filter-all ${this.filterUser.length ? '' : 'checked'}> Toutes</label>${visibleUsers.map(user => `<label><input type="checkbox" data-filter-option value="${user}" ${this.filterUser.includes(user) ? 'checked' : ''}>${user}</label>`).join('')}`;
+      if (siteOptions) siteOptions.innerHTML = `<label><input type="checkbox" data-filter-all ${this.filterSite.length ? '' : 'checked'}> Toutes</label>${(sites.items || []).filter(site => site.dashboard_visible !== false).map(site => `<label><input type="checkbox" data-filter-option value="${site.id}" ${this.filterSite.includes(Number(site.id)) ? 'checked' : ''}>${site.name}</label>`).join('')}`;
       this._bindMultiFilters(['user', 'site']);
     });
     this._updateDateRangeTrack();

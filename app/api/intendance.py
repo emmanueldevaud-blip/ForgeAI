@@ -52,14 +52,23 @@ def _expense_response(expense: IntendanceExpense) -> ExpenseResponse:
 @router.get("", response_model=ExpenseListResponse)
 async def list_expenses(
     page: int = 1, page_size: int = 50, search: str | None = None,
-    missing: str | None = None, site_id: int | None = None,
+    missing: str | None = None, site_id: list[int] | None = Query(None),
     expense_date_from: date | None = None, expense_date_to: date | None = None,
+    user_name: list[str] | None = Query(None), category: list[str] | None = Query(None),
+    dashboard: bool = False,
     sort_by: str = "expense_date", sort_order: str = "desc",
     current_user: User = Depends(require_permission("intendance.expenses.view")),
     db: AsyncSession = Depends(get_db),
 ):
     page = max(page, 1); page_size = min(max(page_size, 1), 500)
     query = select(IntendanceExpense).options(selectinload(IntendanceExpense.site), selectinload(IntendanceExpense.import_batch))
+    if dashboard:
+        excluded_categories = (await db.execute(select(IntendanceCategory.name).where(IntendanceCategory.excluded_from_dashboard.is_(True)))).scalars().all()
+        dashboard_setting = await db.get(IntendanceDashboardSetting, 1)
+        visible_category = IntendanceExpense.category.notin_(excluded_categories)
+        if not dashboard_setting or not dashboard_setting.exclude_uncategorized:
+            visible_category = or_(IntendanceExpense.category.is_(None), visible_category)
+        query = query.where(visible_category)
     if search:
         term = f"%{search.strip()}%"
         query = query.where(
@@ -67,8 +76,19 @@ async def list_expenses(
             | (cast(IntendanceExpense.req_number, String).ilike(term))
             | (cast(IntendanceExpense.amount, String).ilike(term))
         )
-    if site_id is not None:
-        query = query.where(IntendanceExpense.site_id == site_id)
+    if site_id:
+        query = query.where(IntendanceExpense.site_id.in_(site_id))
+    if user_name:
+        query = query.where(IntendanceExpense.user_name.in_(user_name))
+    if category:
+        if "Non classée" in category:
+            category_values = [value for value in category if value != "Non classée"]
+            condition = IntendanceExpense.category.is_(None)
+            if category_values:
+                condition = or_(condition, IntendanceExpense.category.in_(category_values))
+            query = query.where(condition)
+        else:
+            query = query.where(IntendanceExpense.category.in_(category))
     if missing == "site": query = query.where(IntendanceExpense.site_id.is_(None))
     if missing == "category": query = query.where(IntendanceExpense.category.is_(None))
     if missing == "user": query = query.where(IntendanceExpense.user_name.is_(None))

@@ -1,5 +1,5 @@
 import { authStore } from '../stores/auth.js';
-import { getExpenseDashboard, listAliases, listSites } from '../services/intendanceApi.js';
+import { getExpenseDashboard, listExpenses, listAliases, listSites } from '../services/intendanceApi.js';
 
 const CATEGORY_COLORS = {
   'matriel': '#4F46E5',
@@ -14,16 +14,19 @@ function getCategoryColor(category) {
 
 export class IntendanceDashboardPage {
   constructor() {
+    this.filterStorageKey = 'forgeai:intendance-dashboard-filters';
     this.element = null;
     this.categories = [];
     this.amounts = [];
     this.maxAmount = 0;
     this.dashboard = { kpis: {}, categories: [], monthly: [], users: [], top_expenses: [] };
+    this.expenses = [];
     this.filterDateFrom = '';
     this.filterDateTo = '';
     this.filterUser = [];
     this.filterSite = [];
     this.filterCategory = [];
+    this._loadFilterState();
     this.page = 1;
     this.refreshTimer = null;
   }
@@ -42,13 +45,33 @@ export class IntendanceDashboardPage {
     this.filterSite.forEach(site => params.append('site_id', site));
     this.filterCategory.forEach(category => params.append('category', category));
 
-    this.dashboard = (await getExpenseDashboard(params)) || this.dashboard;
+    const [dashboard, expenseList] = await Promise.all([
+      getExpenseDashboard(params),
+      listExpenses(new URLSearchParams([...params.entries(), ['dashboard', 'true'], ['page', '1'], ['page_size', '500'], ['sort_by', 'expense_date'], ['sort_order', 'desc']])),
+    ]);
+    this.dashboard = dashboard || this.dashboard;
+    this.expenses = expenseList?.items || [];
     const categories = this.dashboard.categories || [];
     this.categories = categories.map(item => item.name);
     this.amounts = categories.map(item => Number(item.amount) || 0);
     this.maxAmount = Math.max(...this.amounts, 1);
 
     this.render();
+  }
+
+  _loadFilterState() {
+    try {
+      const saved = JSON.parse(localStorage.getItem(this.filterStorageKey) || '{}');
+      this.filterDateFrom = typeof saved.dateFrom === 'string' ? saved.dateFrom : '';
+      this.filterDateTo = typeof saved.dateTo === 'string' ? saved.dateTo : '';
+      this.filterUser = Array.isArray(saved.users) ? saved.users : [];
+      this.filterSite = Array.isArray(saved.sites) ? saved.sites.map(Number).filter(Number.isFinite) : [];
+      this.filterCategory = Array.isArray(saved.categories) ? saved.categories : [];
+    } catch { /* stockage indisponible ou contenu invalide */ }
+  }
+
+  _saveFilterState() {
+    try { localStorage.setItem(this.filterStorageKey, JSON.stringify({ dateFrom: this.filterDateFrom, dateTo: this.filterDateTo, users: this.filterUser, sites: this.filterSite, categories: this.filterCategory })); } catch { /* stockage indisponible */ }
   }
 
   render() {
@@ -118,11 +141,11 @@ export class IntendanceDashboardPage {
 
         <div class="intendance-kpi-grid">${this._renderKpis()}</div>
         <div class="intendance-dashboard-grid">
-          <section class="histogram-container chart-card"><div class="chart-heading"><div><h2>Évolution mensuelle</h2><p>Montant total dépensé par mois</p></div><div class="chart-legend"><span class="chart-legend-item"><i class="chart-swatch chart-swatch--primary"></i>Montant (€)</span></div></div><canvas id="monthly-chart" aria-label="Évolution mensuelle des dépenses"></canvas></section>
           <section class="histogram-container chart-card"><div class="chart-heading"><div><h2>Répartition par catégorie</h2><p>Cliquer sur une catégorie pour filtrer</p></div><div class="chart-legend"><span class="chart-legend-item"><i class="chart-swatch chart-swatch--category"></i>Part du total</span></div></div>${this._renderCategoryBars()}</section>
           <section class="histogram-container chart-card"><div class="chart-heading"><div><h2>Répartition par utilisateur</h2><p>Montant attribué et nombre de dépenses</p></div><div class="chart-legend"><span class="chart-legend-item"><i class="chart-swatch chart-swatch--user"></i>Montant (€)</span></div></div>${this._renderUserBars()}</section>
+          <section class="histogram-container chart-card chart-card--monthly"><div class="chart-heading"><div><h2>Évolution mensuelle</h2><p>Montant total dépensé par mois</p></div><div class="chart-legend"><span class="chart-legend-item"><i class="chart-swatch chart-swatch--primary"></i>Montant (€)</span></div></div><canvas id="monthly-chart" aria-label="Évolution mensuelle des dépenses"></canvas></section>
         </div>
-        <section class="histogram-container intendance-summary"><h2>Synthèse par catégorie</h2>${this._renderSummary()}</section>
+        <section class="histogram-container intendance-expense-list"><div class="chart-heading"><div><h2>Dépenses filtrées</h2><p>${this.expenses.length} dépense(s) correspondant aux filtres</p></div></div>${this._renderExpenseList()}</section>
       </div>
     `;
 
@@ -147,30 +170,45 @@ export class IntendanceDashboardPage {
         const toValue = Number(this.element.querySelector('#date-to').value);
         this.filterDateFrom = toDate(Math.min(fromValue, toValue));
         this.filterDateTo = toDate(Math.max(fromValue, toValue));
+        this._saveFilterState();
         this._updateDateRangeTrack();
         this.element.querySelector('[data-date-input="from"]').value = this.filterDateFrom;
         this.element.querySelector('[data-date-input="to"]').value = this.filterDateTo;
         this.loadDashboard();
       };
     });
+    const rangeTrack = this.element.querySelector('.date-range-sliders');
+    rangeTrack?.addEventListener('click', event => {
+      if (event.target !== rangeTrack) return;
+      const from = this.element.querySelector('#date-from');
+      const to = this.element.querySelector('#date-to');
+      const ratio = Math.max(0, Math.min(1, (event.clientX - rangeTrack.getBoundingClientRect().left) / rangeTrack.clientWidth));
+      const value = Math.round(Number(from.min) + ratio * (Number(from.max) - Number(from.min)));
+      const target = Math.abs(value - Number(from.value)) <= Math.abs(value - Number(to.value)) ? from : to;
+      target.value = value;
+      target.dispatchEvent(new Event('change', { bubbles: true }));
+    });
     this.element.querySelectorAll('[data-date-input]').forEach(input => input.onchange = () => {
       this.filterDateFrom = this.element.querySelector('[data-date-input="from"]').value;
       this.filterDateTo = this.element.querySelector('[data-date-input="to"]').value;
+      this._saveFilterState();
       this.loadDashboard();
     });
-    this.element.querySelector('#category-filter').onchange = event => { this.filterCategory = event.target.value ? [event.target.value] : []; this.loadDashboard(); };
-    this.element.querySelectorAll('[data-category]').forEach(button => button.onclick = () => { this.filterCategory = [button.dataset.category]; this.loadDashboard(); });
-    this.element.querySelector('[data-reset-filters]').onclick = () => { this.filterDateFrom = ''; this.filterDateTo = ''; this.filterUser = []; this.filterSite = []; this.filterCategory = []; this.loadDashboard(); };
+    this.element.querySelector('#category-filter').onchange = event => { this.filterCategory = event.target.value ? [event.target.value] : []; this._saveFilterState(); this.loadDashboard(); };
+    this.element.querySelectorAll('[data-category]').forEach(button => button.onclick = () => { this.filterCategory = [button.dataset.category]; this._saveFilterState(); this.loadDashboard(); });
+    this.element.querySelector('[data-reset-filters]').onclick = () => { this.filterDateFrom = ''; this.filterDateTo = ''; this.filterUser = []; this.filterSite = []; this.filterCategory = []; localStorage.removeItem(this.filterStorageKey); this.loadDashboard(); };
 
     // User filter
     this.element.querySelector('#user-filter').onchange = (e) => {
       this.filterUser = Array.from(e.target.selectedOptions, option => option.value);
+      this._saveFilterState();
       this.loadDashboard();
     };
 
     // Site filter
     this.element.querySelector('#site-filter').onchange = (e) => {
       this.filterSite = Array.from(e.target.selectedOptions, option => Number(option.value));
+      this._saveFilterState();
       this.loadDashboard();
     };
 
@@ -269,6 +307,7 @@ export class IntendanceDashboardPage {
   _chartColor(index) { return ['#2563eb', '#7c3aed', '#059669', '#d97706', '#dc2626', '#0891b2', '#db2777', '#65a30d'][index % 8]; }
   _renderTopExpenses() { return `<div class="table-container"><table class="users-table"><thead><tr><th>Date</th><th>Libellé</th><th>Catégorie</th><th>Utilisateur</th><th>Montant</th></tr></thead><tbody>${(this.dashboard.top_expenses || []).map(item => `<tr><td>${item.date}</td><td>${item.description || ''}</td><td>${item.category}</td><td>${item.user_name || '—'}</td><td>${this._money(item.amount)}</td></tr>`).join('') || '<tr><td colspan="5">Aucune dépense.</td></tr>'}</tbody></table></div>`; }
   _renderSummary() { const total = this.dashboard.kpis?.total_amount || 0; return `<div class="table-container"><table class="users-table"><thead><tr><th>Catégorie</th><th>Nombre</th><th>Total</th><th>Part</th><th>Moyenne</th></tr></thead><tbody>${(this.dashboard.categories || []).map(item => `<tr><td>${item.name}</td><td>${item.count}</td><td>${this._money(item.amount)}</td><td>${total ? (item.amount / total * 100).toFixed(1) : 0}%</td><td>${this._money(item.average)}</td></tr>`).join('')}</tbody></table></div>`; }
+  _renderExpenseList() { return `<div class="table-container"><table class="users-table"><thead><tr><th>Date</th><th>Demande</th><th>Libellé</th><th>Catégorie</th><th>Utilisateur</th><th>Site</th><th>Montant</th></tr></thead><tbody>${this.expenses.map(item => `<tr><td>${item.expense_date || '—'}</td><td>${item.req_number ?? '—'}</td><td>${item.item_description || '—'}</td><td>${item.category || 'Non classée'}</td><td>${item.user_name || '—'}</td><td>${item.site?.name || '—'}</td><td>${this._money(item.amount)}</td></tr>`).join('') || '<tr><td colspan="7">Aucune dépense pour les filtres sélectionnés.</td></tr>'}</tbody></table></div>`; }
 
   _loadUsersSites() {
     Promise.all([listAliases(), listSites()]).then(([aliases, sites]) => {

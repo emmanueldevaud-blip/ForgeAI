@@ -16,7 +16,7 @@ from app.api.deps import require_permission
 from app.db.session import get_db
 from app.models import (
     IntendanceAccountCode, IntendanceCardAlias, IntendanceExpense,
-    IntendanceImportBatch, IntendanceImportStagedRow, IntendanceSite, IntendanceCategory, User,
+    IntendanceImportBatch, IntendanceImportStagedRow, IntendanceSite, IntendanceCategory, IntendanceDashboardSetting, User,
 )
 from app.schemas.intendance_expense import (
     AccountCodeCreate, AccountCodeListResponse, AccountCodeResponse, AccountCodeUpdate,
@@ -107,6 +107,8 @@ async def expense_dashboard(
 ):
     """Retourne les indicateurs agrégés du tableau de bord des dépenses."""
     excluded = (await db.execute(select(IntendanceCategory.name).where(IntendanceCategory.excluded_from_dashboard.is_(True)))).scalars().all()
+    dashboard_setting = await db.get(IntendanceDashboardSetting, 1)
+    exclude_uncategorized = dashboard_setting.exclude_uncategorized if dashboard_setting else False
     def filtered(statement, from_date=expense_date_from, to_date=expense_date_to):
         if from_date is not None:
             statement = statement.where(IntendanceExpense.expense_date >= from_date)
@@ -120,7 +122,9 @@ async def expense_dashboard(
             statement = statement.where(IntendanceExpense.category.in_(category))
         return statement
 
-    visible_category = or_(IntendanceExpense.category.is_(None), IntendanceExpense.category.notin_(excluded))
+    visible_category = IntendanceExpense.category.notin_(excluded)
+    if not exclude_uncategorized:
+        visible_category = or_(IntendanceExpense.category.is_(None), visible_category)
     base = filtered(select(IntendanceExpense).where(visible_category))
     base_rows = base.subquery()
     totals = (await db.execute(select(
@@ -247,7 +251,20 @@ async def list_account_codes(current_user: User = Depends(require_permission("in
 
 @router.get("/categories", response_model=list[dict])
 async def list_categories(current_user: User = Depends(require_permission("intendance.expenses.view")), db: AsyncSession = Depends(get_db)):
-    return [{"id": row.id, "name": row.name, "excluded_from_dashboard": row.excluded_from_dashboard} for row in (await db.execute(select(IntendanceCategory).order_by(IntendanceCategory.name))).scalars()]
+    setting = await db.get(IntendanceDashboardSetting, 1)
+    rows = [{"id": row.id, "name": row.name, "excluded_from_dashboard": row.excluded_from_dashboard} for row in (await db.execute(select(IntendanceCategory).order_by(IntendanceCategory.name))).scalars()]
+    rows.append({"id": "uncategorized", "name": "Non classée", "excluded_from_dashboard": setting.exclude_uncategorized if setting else False, "system": True})
+    return rows
+
+@router.patch("/categories/uncategorized", response_model=dict)
+async def update_uncategorized_category(data: dict, current_user: User = Depends(require_permission("intendance.expenses.manage_refs")), db: AsyncSession = Depends(get_db)):
+    setting = await db.get(IntendanceDashboardSetting, 1)
+    if setting is None:
+        setting = IntendanceDashboardSetting(id=1)
+        db.add(setting)
+    setting.exclude_uncategorized = bool(data.get("excluded_from_dashboard", setting.exclude_uncategorized))
+    await db.commit()
+    return {"id": "uncategorized", "name": "Non classée", "excluded_from_dashboard": setting.exclude_uncategorized, "system": True}
 
 @router.post("/categories", response_model=dict, status_code=201)
 async def create_category(data: dict, current_user: User = Depends(require_permission("intendance.expenses.manage_refs")), db: AsyncSession = Depends(get_db)):

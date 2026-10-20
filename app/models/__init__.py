@@ -21,6 +21,7 @@ from app.models.housing import Housing, Occupant, Occupancy, OccupancyStatusHist
 from app.models.intendance_expense import (
     IntendanceAccountCode,
     IntendanceCategory,
+    IntendanceDashboardSetting,
     IntendanceCardAlias,
     IntendanceExpense,
     IntendanceExpenseHistory,

@@ -72,6 +72,14 @@ class IntendanceCategory(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
 
 
+class IntendanceDashboardSetting(Base):
+    __tablename__ = "intendance_dashboard_settings"
+
+    id: Mapped[int] = mapped_column(primary_key=True, default=1)
+    exclude_uncategorized: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
+
 class IntendanceImportBatch(Base):
     __tablename__ = "intendance_import_batches"
 

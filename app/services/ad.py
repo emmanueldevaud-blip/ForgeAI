@@ -396,18 +396,23 @@ class DatabaseADService:
             groups[group_dn.casefold()] = group
 
             # A configured AD mapping grants its ForgeAI role through the AD group.
-            active_role_codes = set()
+            role_pairs = set()
             for mapping in self._matching_mappings(group_dn, config):
                 role = (await self.db.execute(select(Role).where(Role.code == mapping.role_code))).scalar_one_or_none()
                 if role is None:
                     continue
-                active_role_codes.add(role.id)
-                assigned = await self.db.execute(
-                    select(GroupRole).where(GroupRole.group_id == group.id, GroupRole.role_id == role.id)
-                )
-                if assigned.scalar_one_or_none() is None:
-                    self.db.add(GroupRole(group_id=group.id, role_id=role.id))
+                role_pairs.add((group.id, role.id))
+            
+            # Bulk insert with INSERT IGNORE to avoid duplicate key errors
+            if role_pairs:
+                from sqlalchemy.dialects.mysql import insert
+                stmt = insert(GroupRole).values(
+                    [{"group_id": g, "role_id": r} for g, r in role_pairs]
+                ).prefix_with('IGNORE')
+                await self.db.execute(stmt)
+            
             # Remove stale GroupRole entries for mappings that no longer exist.
+            active_role_codes = {r for _, r in role_pairs}
             if active_role_codes:
                 await self.db.execute(
                     delete(GroupRole).where(

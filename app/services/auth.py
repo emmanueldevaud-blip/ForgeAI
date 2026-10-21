@@ -18,7 +18,7 @@ from app.services.audit import AuditService
 settings = get_settings()
 
 pwd_context = CryptContext(
-    schemes=["bcrypt_sha256", "bcrypt"],
+    schemes=["bcrypt", "bcrypt_sha256"],
     deprecated="auto",
     bcrypt_sha256__rounds=settings.BCRYPT_ROUNDS,
     bcrypt__rounds=settings.BCRYPT_ROUNDS,

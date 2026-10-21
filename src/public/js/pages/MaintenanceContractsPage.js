@@ -225,6 +225,7 @@ export class MaintenanceContractsPage {
     document.body.appendChild(modal);
     // Écouteur pour le input file (pièces jointes)
     if (isEdit) {
+      this._loadAttachments(contract.id, modal);
       const fileInput = modal.querySelector('[data-attachments-input]');
       if (fileInput) {
         fileInput.addEventListener('change', async (e) => {

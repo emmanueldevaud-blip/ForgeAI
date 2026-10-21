@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, File, UploadFile, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 import os
+from urllib.parse import quote
 from fastapi.responses import FileResponse
 
 from app.api.deps import require_module_enabled, require_permission
@@ -314,10 +315,19 @@ async def download_contract_attachment(
         raise HTTPException(status_code=404, detail="Pièce jointe non trouvée")
     if not attachment.file_path or not os.path.exists(attachment.file_path):
         raise HTTPException(status_code=404, detail="Fichier introuvable sur le serveur")
+    media_type = attachment.mime_type or "application/octet-stream"
+    # Aperçu inline uniquement pour les types sûrs (images hors SVG, PDF) ;
+    # les autres types sont téléchargés (pas d'exécution côté navigateur).
+    is_safe_inline = media_type == "application/pdf" or (
+        media_type.startswith("image/") and media_type != "image/svg+xml"
+    )
+    disposition = "inline" if is_safe_inline else "attachment"
     return FileResponse(
         attachment.file_path,
-        media_type=attachment.mime_type or "application/octet-stream",
-        filename=attachment.filename,
+        media_type=media_type,
+        headers={
+            "Content-Disposition": f"{disposition}; filename*=UTF-8''{quote(attachment.filename)}"
+        },
     )
 
 

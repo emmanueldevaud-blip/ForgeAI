@@ -19,6 +19,7 @@ def attachment_upload_dir(tmp_path, monkeypatch):
 
 async def _create_test_contract(client, admin_headers):
     """Create a provider then a contract, return contract_id."""
+    from uuid import uuid4
     provider_data = {
         "name": "Test Provider",
         "contact_email": "test@provider.com",
@@ -31,7 +32,7 @@ async def _create_test_contract(client, admin_headers):
     from datetime import date
     contract_data = {
         "provider_id": provider_id,
-        "reference": "CONTRAT-TEST-001",
+        "reference": f"CONTRAT-TEST-{uuid4().hex[:8]}",
         "subject": "Test Contract",
         "start_date": date.today().isoformat(),
         "is_active": True,
@@ -74,6 +75,7 @@ async def test_contract_attachment_full_lifecycle(client, admin_headers, db_sess
     r = await client.get(f"/maintenance/attachments/{att_id}/download", headers=admin_headers)
     assert r.status_code == 200
     assert r.content == pdf_content
+    assert "inline" in r.headers.get("content-disposition", ""), "PDF doit être affiché en aperçu"
 
     # Test 4: Persistence - the attachment should be committed in DB
     result = await db_session.execute(select(MaintenanceContractAttachment).where(MaintenanceContractAttachment.id == att_id))
@@ -109,3 +111,20 @@ async def test_contract_attachment_upload_unknown_contract(client, admin_headers
         headers=admin_headers,
     )
     assert r.status_code == 404
+
+
+async def test_contract_attachment_unsafe_type_is_forced_download(client, admin_headers):
+    """Un type MIME non sûr (hors images/PDF) est servi en téléchargement, pas en aperçu."""
+    contract_id = await _create_test_contract(client, admin_headers)
+    files = {"file": ("outil.exe", b"MZbinary", "application/x-msdownload")}
+    r = await client.post(
+        f"/maintenance/contracts/{contract_id}/attachments",
+        files=files,
+        headers=admin_headers,
+    )
+    assert r.status_code == 201
+    att_id = r.json()["id"]
+
+    r = await client.get(f"/maintenance/attachments/{att_id}/download", headers=admin_headers)
+    assert r.status_code == 200
+    assert "attachment" in r.headers.get("content-disposition", "")

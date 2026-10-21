@@ -501,6 +501,8 @@ class DatabaseADService:
         """
         await self.db.refresh(config, ["group_mappings"])
         
+        # Collect all unique (group_id, role_id) pairs from active mappings
+        role_pairs = set()
         for mapping in config.group_mappings:
             if not mapping.is_active:
                 # Un mapping désactivé doit retirer son lien, même s'il
@@ -521,15 +523,15 @@ class DatabaseADService:
             if role is None:
                 continue
             
-            # Create GroupRole if not exists
-            gr_result = await self.db.execute(
-                select(GroupRole).where(
-                    GroupRole.group_id == group.id,
-                    GroupRole.role_id == role.id
-                )
-            )
-            if gr_result.scalar_one_or_none() is None:
-                self.db.add(GroupRole(group_id=group.id, role_id=role.id))
+            role_pairs.add((group.id, role.id))
+        
+        # Bulk insert with INSERT IGNORE to avoid duplicate key errors
+        if role_pairs:
+            from sqlalchemy.dialects.mysql import insert
+            stmt = insert(GroupRole).values(
+                [{"group_id": g, "role_id": r} for g, r in role_pairs]
+            ).prefix_with('IGNORE')
+            await self.db.execute(stmt)
         
         # Remove stale GroupRole entries for inactive/deleted mappings
         active_role_codes_per_group: dict[int, set[int]] = {}

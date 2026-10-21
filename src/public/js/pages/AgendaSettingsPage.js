@@ -79,7 +79,7 @@ export class AgendaSettingsPage {
           <p class="page-subtitle">Groupes affichés dans le planning par bureau.</p>
         </div>
         <div class="page-header-right">
-          <a href="/agenda/imports" class="btn btn-primary btn-sm" data-link>Importer Excel</a>
+          <a href="/agenda/import-excel" class="btn btn-primary btn-sm" data-link>Importer Excel</a>
           <button type="button" class="btn btn-secondary btn-sm" data-action="back">← Planning</button>
         </div>
       </div>

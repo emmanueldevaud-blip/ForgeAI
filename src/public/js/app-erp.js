@@ -279,7 +279,7 @@ async function initializeApp() {
     .addRoute('/agenda/synthese', async (route) => {
       await showAgendaSynthesisPage(route);
     }, { requiresAuth: true, permissions: ['agenda.access'], module: 'agenda' })
-    .addRoute('/agenda/imports', async (route) => {
+    .addRoute('/agenda/import-excel', async (route) => {
       await showAgendaImportPage(route);
     }, { requiresAuth: true, permissions: ['agenda.manage'], module: 'agenda' })
     .addRoute('/volunteers', async (route) => {

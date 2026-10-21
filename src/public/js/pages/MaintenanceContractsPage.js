@@ -11,7 +11,7 @@ const CONTRACT_TYPES = [
 ];
 
 function formatDate(d) { return d ? new Date(d).toLocaleDateString('fr-FR') : '-'; }
-function escapeHtml(s) { return String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&', '<': '<', '>': '>', '"': '"', "'": ''' }[c])); }
+function escapeHtml(s) { return String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
 function formatBytes(n) { if (n == null) return ''; if (n < 1024) return `${n} o`; if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} Ko`; return `${(n / (1024 * 1024)).toFixed(1)} Mo`; }
 
 export class MaintenanceContractsPage {

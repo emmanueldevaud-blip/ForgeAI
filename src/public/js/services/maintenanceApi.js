@@ -95,6 +95,20 @@ export async function updateContract(id, data) {
   return maintenanceApi.patch(`/contracts/${id}`, data);
 }
 
+export async function listContractAttachments(contractId) {
+  return maintenanceApi.get(`/contracts/${contractId}/attachments`);
+}
+
+export async function uploadContractAttachment(contractId, file) {
+  const fd = new FormData();
+  fd.append('file', file);
+  return maintenanceApi.post(`/contracts/${contractId}/attachments`, fd);
+}
+
+export async function deleteContractAttachment(attachmentId) {
+  return maintenanceApi.delete(`/attachments/${attachmentId}`);
+}
+
 // ============================================================
 // REQUESTS
 // ============================================================

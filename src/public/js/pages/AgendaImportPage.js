@@ -347,7 +347,8 @@ export function createAgendaImportPage(router) {
         btn.classList.add('active');
         const tab = btn.dataset.tab;
         element.querySelectorAll('[data-tab-content]').forEach(p => p.hidden = true);
-        element.querySelector(`#panel-${tab}`)?.hidden = false;
+        const panel = element.querySelector(`#panel-${tab}`);
+        if (panel) panel.hidden = false;
       });
     });
     element.querySelector('[data-filter-status]')?.addEventListener('change', handleFilterChange);

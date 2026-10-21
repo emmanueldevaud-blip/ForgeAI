@@ -77,3 +77,7 @@ export async function updateImportRow(batchId, rowId, payload) {
 export async function validateImport(batchId) {
   return agendaApi.post(`/imports/${batchId}/validate`);
 }
+
+export async function getAgendaUsers() {
+  return agendaApi.get('/users');
+}

@@ -296,7 +296,6 @@ async def analyze_import(db: AsyncSession, file_content: bytes, filename: str, u
             if not values:
                 continue
 
-            rows_total += 1
 
             for d_idx, dc in enumerate(day_cols):
                 if d_idx >= len(week_days):
@@ -398,6 +397,8 @@ async def analyze_import(db: AsyncSession, file_content: bytes, filename: str, u
                             external_name = label
                             user_id = None
 
+                rows_total += 1
+
                 # Check existing in DB
                 if status == "ready" and room_id is not None:
                     existing = await db.execute(
@@ -430,6 +431,14 @@ async def analyze_import(db: AsyncSession, file_content: bytes, filename: str, u
                     if existing and existing.scalar_one_or_none():
                         status = "skipped_existing"
 
+                # Update counters
+                if status == "ready":
+                    rows_ready += 1
+                elif status == "needs_review":
+                    rows_needs_review += 1
+                elif status == "skipped_existing":
+                    rows_skipped_existing += 1
+
                 staged = AgendaImportStagedRow(
                     batch_id=batch.id,
                     sheet_name=sheet_name,
@@ -450,16 +459,12 @@ async def analyze_import(db: AsyncSession, file_content: bytes, filename: str, u
                 )
                 db.add(staged)
 
-    # Compute counters from staged rows
-    result = await db.execute(
-        select(AgendaImportStagedRow.status).where(AgendaImportStagedRow.batch_id == batch.id)
-    )
-    statuses = [r[0] for r in result.all()]
-    batch.rows_total = len(statuses)
-    batch.rows_ready = sum(1 for s in statuses if s == "ready")
-    batch.rows_needs_review = sum(1 for s in statuses if s == "needs_review")
-    batch.rows_skipped_existing = sum(1 for s in statuses if s == "skipped_existing")
-    batch.rows_excluded = sum(1 for s in statuses if s == "excluded")
+    # Counters were accumulated during parsing
+    batch.rows_total = rows_total
+    batch.rows_ready = rows_ready
+    batch.rows_needs_review = rows_needs_review
+    batch.rows_skipped_existing = rows_skipped_existing
+    batch.rows_excluded = rows_excluded
     if week_dates:
         batch.week_start = min(week_dates)
         batch.week_end = max(week_dates)

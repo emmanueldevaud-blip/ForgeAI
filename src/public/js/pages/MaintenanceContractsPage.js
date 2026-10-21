@@ -1,6 +1,6 @@
 import { Table } from '../components/Table.js';
 import { authStore } from '../stores/auth.js';
-import { listContracts, getContract, createContract, updateContract, listProviders } from '../services/maintenanceApi.js';
+import { listContracts, getContract, createContract, updateContract, listProviders, listContractAttachments, uploadContractAttachment, deleteContractAttachment } from '../services/maintenanceApi.js';
 
 const CONTRACT_TYPES = [
   { value: 'full_service', label: 'Full Service' },
@@ -11,6 +11,8 @@ const CONTRACT_TYPES = [
 ];
 
 function formatDate(d) { return d ? new Date(d).toLocaleDateString('fr-FR') : '-'; }
+function escapeHtml(s) { return String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&', '<': '<', '>': '>', '"': '"', "'": ''' }[c])); }
+function formatBytes(n) { if (n == null) return ''; if (n < 1024) return `${n} o`; if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} Ko`; return `${(n / (1024 * 1024)).toFixed(1)} Mo`; }
 
 export class MaintenanceContractsPage {
   constructor(router) {
@@ -139,6 +141,32 @@ export class MaintenanceContractsPage {
     }
   }
 
+  async _loadAttachments(contractId, modal) {
+    const list = modal?.querySelector('[data-attachments-list]');
+    if (!list) return;
+    try {
+      const items = await listContractAttachments(contractId);
+      if (!items || !items.length) { list.innerHTML = '<em>Aucune pièce jointe</em>'; return; }
+      list.innerHTML = items.map((a) => `
+        <div class="attachment-item">
+          <a href="/maintenance/attachments/${a.id}/download" target="_blank" rel="noopener">${escapeHtml(a.filename)}</a>
+          <span>${formatBytes(a.file_size)}</span>
+          <button type="button" data-remove-attachment="${a.id}">Supprimer</button>
+        </div>`).join('');
+      list.querySelectorAll('[data-remove-attachment]').forEach((btn) => {
+        btn.addEventListener('click', async () => {
+          if (!confirm('Supprimer cette pièce jointe ?')) return;
+          try {
+            await deleteContractAttachment(btn.dataset.removeAttachment);
+            this._loadAttachments(contractId, modal);
+          } catch (err) { alert(err.message || 'Erreur lors de la suppression'); }
+        });
+      });
+    } catch (e) {
+      list.innerHTML = '<em>Impossible de charger les pièces jointes</em>';
+    }
+  }
+
   async _showFormModal(contract) {
     const isEdit = !!contract;
     const modal = document.createElement('div');
@@ -179,6 +207,12 @@ export class MaintenanceContractsPage {
               <div class="form-row">
                 <label><span>Actif</span><input type="checkbox" name="is_active" ${isEdit ? (contract.is_active ? 'checked' : '') : 'checked'}></label>
               </div>
+              ${isEdit ? `
+              <div class="form-row">
+                <label><span>Pièces jointes</span>
+                  <div data-attachments-list><em>Chargement…</em></div>
+                  <input type="file" data-attachments-input multiple>
+                </div>` : `<p class="form-hint">Vous pourrez joindre le contrat signé après la création.</p>`}
             </form>
           </div>
           <div class="modal-footer">
@@ -189,6 +223,21 @@ export class MaintenanceContractsPage {
       </div>
     `;
     document.body.appendChild(modal);
+    // Écouteur pour le input file (pièces jointes)
+    if (isEdit) {
+      const fileInput = modal.querySelector('[data-attachments-input]');
+      if (fileInput) {
+        fileInput.addEventListener('change', async (e) => {
+          const files = Array.from(e.target.files || []);
+          for (const f of files) {
+            try { await uploadContractAttachment(contract.id, f); }
+            catch (err) { alert(err.message || `Échec de l'envoi de ${f.name}`); }
+          }
+          e.target.value = '';
+          this._loadAttachments(contract.id, modal);
+        });
+      }
+    }
     modal.querySelector('[data-action="close"]')?.addEventListener('click', () => modal.remove());
     modal.addEventListener('click', (e) => { if (e.target === modal) modal.remove(); });
     modal.querySelector('[data-action="save"]')?.addEventListener('click', async () => {
@@ -203,10 +252,19 @@ export class MaintenanceContractsPage {
       }
       if (!data.subject || !data.reference || !data.provider_id || !data.start_date) { alert('Les champs Objet, Référence, Prestataire et Date début sont obligatoires'); return; }
       try {
-        if (isEdit) await updateContract(contract.id, data);
-        else await createContract(data);
-        modal.remove();
-        this.loadData();
+        if (isEdit) {
+          await updateContract(contract.id, data);
+          modal.remove();
+          this.loadData();
+        } else {
+          const created = await createContract(data);
+          modal.remove();
+          this.loadData();
+          try {
+            const full = await getContract(created.id);
+            await this._showFormModal(full);
+          } catch (e) { /* contrat créé, ouverture du modal en mode édition ignorée silencieusement */ }
+        }
       } catch (e) { alert(e.message || 'Erreur lors de la sauvegarde'); }
     });
   }

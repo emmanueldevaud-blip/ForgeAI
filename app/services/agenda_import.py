@@ -210,7 +210,7 @@ async def resolve_site_rooms(db: AsyncSession) -> dict[str, int]:
 
 async def analyze_import(db: AsyncSession, file_content: bytes, filename: str, uploaded_by: int) -> AgendaImportBatch:
     """Parse the Excel file, stage rows, return batch with bilan."""
-    workbook = openpyxl.load_workbook(io.BytesIO(file_content), data_only=True)
+    workbook = openpyxl.load_workbook(BytesIO(file_content), data_only=True)
 
     # Preload users and site rooms
     users = (await db.execute(

@@ -50,3 +50,30 @@ export async function updateAgendaSettings(planningGroupIds) {
 export async function getAgendaGroups() {
   return agendaApi.get('/groups');
 }
+
+export async function analyzeImport(file) {
+  const form = new FormData();
+  form.append('file', file);
+  return agendaApi.post('/imports', form, { headers: { 'Content-Type': 'multipart/form-data' } });
+}
+
+export async function listImports() {
+  return agendaApi.get('/imports');
+}
+
+export async function getImport(batchId) {
+  return agendaApi.get(`/imports/${batchId}`);
+}
+
+export async function getImportRows(batchId, params = {}) {
+  const query = new URLSearchParams(params);
+  return agendaApi.get(`/imports/${batchId}/rows?${query.toString()}`);
+}
+
+export async function updateImportRow(batchId, rowId, payload) {
+  return agendaApi.patch(`/imports/${batchId}/rows/${rowId}`, payload);
+}
+
+export async function validateImport(batchId) {
+  return agendaApi.post(`/imports/${batchId}/validate`);
+}

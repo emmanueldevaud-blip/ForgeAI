@@ -1,6 +1,6 @@
 from app.db.session import Base
 from app.models.ad_integration import ADConfig, ADGroupMapping, ADSyncLog, ADSyncStatus
-from app.models.agenda import AgendaPresence
+from app.models.agenda import AgendaImportBatch, AgendaImportStagedRow, AgendaPresence
 from app.models.audit import AuditLog
 from app.models.buildings import Building, Room, RoomType, Site, UsageType
 from app.models.equipment import Equipment, EquipmentType
@@ -99,6 +99,8 @@ __all__ = [
     "ADSyncStatus",
     "AIConversation",
     "AIMessage",
+    "AgendaImportBatch",
+    "AgendaImportStagedRow",
     "AgendaPresence",
     "AuditLog",
     "Base",

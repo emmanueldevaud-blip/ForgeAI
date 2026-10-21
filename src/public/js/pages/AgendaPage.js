@@ -213,6 +213,8 @@ export class AgendaPage {
               <button class="btn btn-sm ${this.view === value ? 'btn-primary' : 'btn-secondary'}" data-view="${value}" aria-pressed="${this.view === value}">${label}</button>
             `).join('')}
           </div>
+          ${canManage ? `
+          <a href="/agenda/imports" class="btn btn-primary btn-sm" data-link>Importer Excel</a>` : ''}
           ${isInscriptionsTab ? `
           <div class="agenda-search-wrap">
             <label for="agenda-search" class="visually-hidden">Filtrer par nom</label>

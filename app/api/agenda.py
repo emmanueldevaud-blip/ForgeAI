@@ -1,7 +1,7 @@
 from datetime import date
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, File, HTTPException, Query, status, UploadFile
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -21,6 +21,11 @@ from app.schemas.agenda import (
     AgendaExternalPresenceCreate,
     AgendaGroupListResponse,
     AgendaGroupOption,
+    AgendaImportBatchCreate,
+    AgendaImportBatchListResponse,
+    AgendaImportBatchResponse,
+    AgendaImportStagedRowResponse,
+    AgendaImportStagedRowUpdate,
     AgendaPlanningResponse,
     AgendaPresenceResponse,
     AgendaPresenceUpsert,
@@ -30,6 +35,13 @@ from app.schemas.agenda import (
     AgendaUserResponse,
 )
 from app.services.agenda import AgendaService
+from app.services.agenda_import import (
+    analyze_import,
+    get_batch,
+    get_staged_rows,
+    update_staged_row,
+    validate_import,
+)
 from app.services.rbac import RBACService
 
 router = APIRouter(
@@ -299,3 +311,101 @@ async def get_synthesis(
         return await service.get_synthesis(view, anchor or date.today())
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+
+
+@router.post("/imports", response_model=AgendaImportBatchResponse, status_code=201)
+async def analyze_import_endpoint(
+    file: UploadFile = File(...),
+    current_user: User = Depends(require_permission("agenda.manage")),
+    db: AsyncSession = Depends(get_db),
+):
+    if not file.filename or not file.filename.lower().endswith(".xlsx"):
+        raise HTTPException(status_code=400, detail="Seuls les fichiers .xlsx sont acceptés")
+    content = await file.read()
+    batch = await analyze_import(db, content, file.filename, current_user.id)
+    return AgendaImportBatchResponse.model_validate(batch)
+
+
+@router.get("/imports", response_model=AgendaImportBatchListResponse)
+async def list_imports(
+    current_user: User = Depends(require_permission("agenda.manage")),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(
+        select(AgendaImportBatch).order_by(AgendaImportBatch.created_at.desc()).limit(50)
+    )
+    batches = result.scalars().all()
+    return AgendaImportBatchListResponse(batches=[AgendaImportBatchResponse.model_validate(b) for b in batches])
+
+
+@router.get("/imports/{batch_id}", response_model=AgendaImportBatchResponse)
+async def get_import(
+    batch_id: int,
+    current_user: User = Depends(require_permission("agenda.manage")),
+    db: AsyncSession = Depends(get_db),
+):
+    batch = await get_batch(db, batch_id)
+    if not batch:
+        raise HTTPException(status_code=404, detail="Import introuvable")
+    return AgendaImportBatchResponse.model_validate(batch)
+
+
+@router.get("/imports/{batch_id}/rows", response_model=list[AgendaImportStagedRowResponse])
+async def list_import_rows(
+    batch_id: int,
+    status: Optional[str] = Query(None),
+    start_date: Optional[date] = Query(None),
+    end_date: Optional[date] = Query(None),
+    limit: int = Query(200, le=1000),
+    offset: int = Query(0, ge=0),
+    current_user: User = Depends(require_permission("agenda.manage")),
+    db: AsyncSession = Depends(get_db),
+):
+    batch = await get_batch(db, batch_id)
+    if not batch:
+        raise HTTPException(status_code=404, detail="Import introuvable")
+    rows = await get_staged_rows(db, batch_id, status, start_date, end_date, limit, offset)
+    return [AgendaImportStagedRowResponse.model_validate(r) for r in rows]
+
+
+@router.patch("/imports/{batch_id}/rows/{row_id}", response_model=AgendaImportStagedRowResponse)
+async def update_import_row(
+    batch_id: int,
+    row_id: int,
+    payload: AgendaImportStagedRowUpdate,
+    current_user: User = Depends(require_permission("agenda.manage")),
+    db: AsyncSession = Depends(get_db),
+):
+    batch = await get_batch(db, batch_id)
+    if not batch:
+        raise HTTPException(status_code=404, detail="Import introuvable")
+    row = await update_staged_row(
+        db,
+        row_id,
+        user_id=payload.user_id,
+        external_name=payload.external_name,
+        room_id=payload.room_id,
+        status=payload.status,
+        skip=payload.skip or False,
+    )
+    if not row:
+        raise HTTPException(status_code=404, detail="Ligne introuvable")
+    return AgendaImportStagedRowResponse.model_validate(row)
+
+
+@router.post("/imports/{batch_id}/validate", response_model=dict)
+async def validate_import_endpoint(
+    batch_id: int,
+    current_user: User = Depends(require_permission("agenda.manage")),
+    db: AsyncSession = Depends(get_db),
+):
+    batch = await get_batch(db, batch_id)
+    if not batch:
+        raise HTTPException(status_code=404, detail="Import introuvable")
+    if batch.status == "validated":
+        raise HTTPException(status_code=409, detail="Import déjà validé")
+    created, skipped = await validate_import(db, batch_id, current_user.id)
+    return {"created": created, "skipped": skipped, "batch": AgendaImportBatchResponse.model_validate(batch)}
+
+
+from app.models.agenda import AgendaImportBatch

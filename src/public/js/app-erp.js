@@ -33,6 +33,7 @@ import { createSportAnalysesPage } from './pages/SportAnalysesPage.js?v=1';
 import { createSportGoalsPage } from './pages/SportGoalsPage.js?v=1';
 import { createAgendaPage } from './pages/AgendaPage.js?v=77';
 import { createAgendaSettingsPage } from './pages/AgendaSettingsPage.js?v=4';
+import { createAgendaImportPage } from './pages/AgendaImportPage.js';
 import { createDomotiquePage } from './pages/DomotiquePage.js?v=8';
 import { createDomotiqueConfigPage } from './pages/DomotiqueConfigPage.js?v=8';
 import { createPhotosPage } from './pages/PhotosPage.js?v=9';
@@ -278,6 +279,9 @@ async function initializeApp() {
     .addRoute('/agenda/synthese', async (route) => {
       await showAgendaSynthesisPage(route);
     }, { requiresAuth: true, permissions: ['agenda.access'], module: 'agenda' })
+    .addRoute('/agenda/imports', async (route) => {
+      await showAgendaImportPage(route);
+    }, { requiresAuth: true, permissions: ['agenda.manage'], module: 'agenda' })
     .addRoute('/volunteers', async (route) => {
       await showVolunteersPage(route);
     }, { requiresAuth: true, permissions: ['volunteers.view'], module: ['volunteers', 'gestion_bureaux'] })
@@ -637,6 +641,28 @@ async function showAgendaSynthesisPage(route) {
     appShell.showContent(page.render());
   } catch (error) {
     console.error('Erreur affichage synthèse agenda:', error);
+    appShell.showError(error);
+  }
+}
+
+let agendaImportPage = null;
+
+async function ensureAgendaImportPage() {
+  if (!agendaImportPage) {
+    agendaImportPage = createAgendaImportPage(router);
+  }
+  await agendaImportPage.initialize();
+  return agendaImportPage;
+}
+
+async function showAgendaImportPage(route) {
+  if (!appShell) return;
+  appShell.showLoading();
+  try {
+    const page = await ensureAgendaImportPage();
+    appShell.showContent(page.render());
+  } catch (error) {
+    console.error('Erreur affichage import agenda:', error);
     appShell.showError(error);
   }
 }

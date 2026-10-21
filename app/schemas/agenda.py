@@ -1,5 +1,5 @@
 from datetime import date, datetime
-from typing import List, Literal, Optional
+from typing import Any, List, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -189,3 +189,60 @@ class AgendaSynthesisResponse(BaseModel):
     grand_total_meals: int = 0
     grand_total_workstations: int = 0
     grand_total_remote: int = 0
+
+
+class AgendaImportStagedRowResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    sheet_name: str
+    line_number: int
+    presence_date: date
+    period: AgendaPeriod
+    is_remote: bool
+    raw_label: str
+    user_id: Optional[int] = None
+    external_name: Optional[str] = None
+    room_id: Optional[int] = None
+    site_label: Optional[str] = None
+    needs_workstation: bool
+    needs_meal: bool
+    status: str
+    review_reason: Optional[str] = None
+    suggestions: Optional[List[dict[str, Any]]] = None
+
+
+class AgendaImportBatchResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    reference: str
+    file_name: str
+    status: str
+    uploaded_by: Optional[int] = None
+    created_at: datetime
+    validated_at: Optional[datetime] = None
+    rows_total: int
+    rows_ready: int
+    rows_needs_review: int
+    rows_skipped_existing: int
+    rows_excluded: int
+    created_count: Optional[int] = None
+    week_start: Optional[date] = None
+    week_end: Optional[date] = None
+
+
+class AgendaImportBatchCreate(BaseModel):
+    file_name: str
+
+
+class AgendaImportBatchListResponse(BaseModel):
+    batches: List[AgendaImportBatchResponse]
+
+
+class AgendaImportStagedRowUpdate(BaseModel):
+    user_id: Optional[int] = None
+    external_name: Optional[str] = None
+    room_id: Optional[int] = None
+    status: Optional[str] = None
+    skip: Optional[bool] = None

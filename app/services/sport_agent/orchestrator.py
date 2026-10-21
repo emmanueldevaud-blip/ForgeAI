@@ -20,10 +20,12 @@ from typing import Any
 
 from sqlalchemy import func, select
 
+from app.core.config import get_settings
 from app.models.notification import Notification
 from app.models.sport import SportAgentExecution, SportAnalysis, SportGoal, SportRecommendation
 from app.services.ai_gateway import AIGatewayError, ai_gateway
 from app.services.ai_gateway.tool_protocol import parse_final
+from app.services.coach_feed import coach_tips_left
 from app.services.sport_agent.context import RunContext
 from app.services.sport_agent.prompts import ACTION_TYPES, AGENT_SYSTEM_PROMPT, build_mission
 from app.services.sport_agent.tool_registry import ToolResult
@@ -177,7 +179,14 @@ class AgentOrchestrator:
         )
         recovery = await self._recovery_snapshot()
         payload = {key: value for key, value in self.ctx.payload.items() if key != "question"}
+        
+        # Coach tips quota info for the agent
+        from app.services.coach_feed import coach_tips_left
+        tips_left = await coach_tips_left(self.ctx.db, self.ctx.user)
+        
         brief = {
+            "coach_tips_left": tips_left,
+            "coach_tip_daily_limit": max(0, get_settings().COACH_TIP_DAILY_LIMIT),
             "date": datetime.now(timezone.utc).date().isoformat(),
             "trigger": self.ctx.trigger,
             "payload": payload,

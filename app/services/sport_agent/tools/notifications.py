@@ -89,7 +89,8 @@ SPECS: list[ToolSpec] = [
         name="send_coach_tip",
         description=(
             "Conseil du coach : notification + publication dans l'Assistant IA. "
-            "Plafond COACH_TIP_DAILY_LIMIT par jour, refus quota_conseils_atteint."
+            "Plafond coach_tip_daily_limit par jour, refus quota_conseils_atteint. "
+            "Vérifier coach_tips_left dans le brief AVANT d'appeler : si 0, NE PAS appeler."
         ),
         input_schema={
             "type": "object",

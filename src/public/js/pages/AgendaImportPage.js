@@ -246,7 +246,13 @@ export function createAgendaImportPage(router) {
   }
 
   function escapeHtml(value) {
-    return String(value ?? '').replace(/[&<>'"]/g, c => ({ '&': '&', '<': '<', '>': '>', "'": ''', '"': '"' }[c]));
+    return String(value ?? '').replace(/[&<>'"]/g, c => ({
+      '&': '&',
+      '<': '<',
+      '>': '>',
+      "'": '&#39;',
+      '"': '"',
+    }[c]));
   }
 
   async function render() {

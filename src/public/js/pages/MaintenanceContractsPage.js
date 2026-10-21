@@ -1,6 +1,6 @@
 import { Table } from '../components/Table.js';
 import { authStore } from '../stores/auth.js';
-import { listContracts, getContract, createContract, updateContract, listProviders, listContractAttachments, uploadContractAttachment, deleteContractAttachment } from '../services/maintenanceApi.js';
+import { listContracts, getContract, createContract, updateContract, listProviders, listContractAttachments, uploadContractAttachment, deleteContractAttachment } from '../services/maintenanceApi.js?v=2';
 
 const CONTRACT_TYPES = [
   { value: 'full_service', label: 'Full Service' },

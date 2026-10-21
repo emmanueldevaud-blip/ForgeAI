@@ -16,7 +16,7 @@ import { createMaintenanceRequestsPage } from './pages/MaintenanceRequestsPage.j
 import { createMaintenanceWorkOrdersPage } from './pages/MaintenanceWorkOrdersPage.js';
 import { createMaintenancePreventivePage } from './pages/MaintenancePreventivePage.js';
 import { createMaintenanceProvidersPage } from './pages/MaintenanceProvidersPage.js';
-import { createMaintenanceContractsPage } from './pages/MaintenanceContractsPage.js';
+import { createMaintenanceContractsPage } from './pages/MaintenanceContractsPage.js?v=2';
 import { createMaintenanceRefsPage } from './pages/MaintenanceRefsPage.js';
 import { createMaintenanceCalendarPage } from './pages/MaintenanceCalendarPage.js';
 import { createAIAssistantPage } from './pages/AIAssistantPage.js?v=28';

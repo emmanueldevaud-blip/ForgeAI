@@ -266,7 +266,15 @@ export function createAgendaImportPage(router) {
         validateBtn.textContent = 'Import valide';
       }
       await loadPreview();
-      setTimeout(() => renderProgress(null), 5000);
+      setTimeout(() => {
+        renderProgress(null);
+        // Redirection vers la page planning agenda après 2s
+        if (router && typeof router.navigate === 'function') {
+          router.navigate('/agenda/planning');
+        } else {
+          window.location.href = '/agenda/planning';
+        }
+      }, 2000);
     } catch (error) {
       console.error('[DEBUG] handleValidate error:', error);
       renderProgress('error', 'Echec validation: ' + (error.message || 'Erreur inconnue'));

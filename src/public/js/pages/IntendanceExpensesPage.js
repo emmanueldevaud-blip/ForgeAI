@@ -91,7 +91,7 @@ export class IntendanceExpensesPage {
       const { from, to } = this._getPeriodDates();
       const modeLabels = { month: 'Mois', quarter: 'Trimestre', year: 'Année' };
       target.innerHTML = `<div class="page-filters">
-        <div class="filter-group period-filter">
+        ${this.activeTab !== 'missing-sites' ? `<div class="filter-group period-filter">
           <div class="period-nav">
             <button type="button" class="btn btn-sm btn-secondary" data-period-prev aria-label="Période précédente">‹</button>
             <span class="period-label" data-period-label>${modeLabels[this.periodMode]} ${this.periodOffset === 0 ? '(actuel)' : this.periodOffset > 0 ? `(+${this.periodOffset})` : `(${this.periodOffset})`}</span>
@@ -106,7 +106,7 @@ export class IntendanceExpensesPage {
             <label>Du<input type="date" class="form-input" data-period-from value="${from}"></label>
             <label>Au<input type="date" class="form-input" data-period-to value="${to}"></label>
           </div>
-        </div>
+        </div>` : ''}
         <div class="filter-group"><input class="form-input" data-search placeholder="Rechercher une dépense…" value="${this.search}"></div>
         ${this.activeTab === 'missing-sites' ? '<select class="form-select" data-site><option value="">Affecter le site sélectionné…</option></select><button class="btn btn-secondary" data-bulk>Affecter</button>' : '<button class="btn btn-secondary" data-refresh>Actualiser</button>'}
       </div><div data-table></div>`;

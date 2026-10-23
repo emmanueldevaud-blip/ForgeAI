@@ -19,6 +19,8 @@ export class IntendanceDashboardPage {
     this.onDeleteExpense = options.onDeleteExpense;
     this.filterStorageKey = 'forgeai:intendance-dashboard-filters';
     this.element = null;
+    this.periodMode = 'month';
+    this.periodOffset = 0;
     this.categories = [];
     this.amounts = [];
     this.maxAmount = 0;
@@ -64,6 +66,11 @@ export class IntendanceDashboardPage {
   }
 
   async loadDashboard() {
+    if (!this.filterDateFrom || !this.filterDateTo) {
+      const dates = this._periodDates();
+      this.filterDateFrom = dates.from;
+      this.filterDateTo = dates.to;
+    }
     const params = new URLSearchParams();
     const today = new Date();
     const effectiveDateFrom = this.filterDateFrom || `${today.getFullYear()}-01-01`;
@@ -104,11 +111,41 @@ export class IntendanceDashboardPage {
       this.filterUser = Array.isArray(saved.users) ? saved.users : [];
       this.filterSite = Array.isArray(saved.sites) ? saved.sites.map(Number).filter(Number.isFinite) : [];
       this.filterCategory = Array.isArray(saved.categories) ? saved.categories : [];
+      this.periodMode = ['month', 'quarter', 'year', 'custom'].includes(saved.periodMode) ? saved.periodMode : 'month';
+      this.periodOffset = Number.isInteger(saved.periodOffset) ? saved.periodOffset : 0;
     } catch { /* stockage indisponible ou contenu invalide */ }
   }
 
   _saveFilterState() {
-    try { localStorage.setItem(this.filterStorageKey, JSON.stringify({ dateFrom: this.filterDateFrom, dateTo: this.filterDateTo, users: this.filterUser, sites: this.filterSite, categories: this.filterCategory })); } catch { /* stockage indisponible */ }
+    try { localStorage.setItem(this.filterStorageKey, JSON.stringify({ dateFrom: this.filterDateFrom, dateTo: this.filterDateTo, users: this.filterUser, sites: this.filterSite, categories: this.filterCategory, periodMode: this.periodMode, periodOffset: this.periodOffset })); } catch { /* stockage indisponible */ }
+  }
+
+  _periodDates(mode = this.periodMode, offset = this.periodOffset) {
+    const now = new Date();
+    if (mode === 'custom') return { from: this.filterDateFrom, to: this.filterDateTo };
+    if (mode === 'month') {
+      const date = new Date(now.getFullYear(), now.getMonth() + offset, 1);
+      return { from: this._dateString(date), to: this._dateString(new Date(date.getFullYear(), date.getMonth() + 1, 0)) };
+    }
+    if (mode === 'quarter') {
+      const date = new Date(now.getFullYear(), Math.floor(now.getMonth() / 3) * 3 + offset * 3, 1);
+      return { from: this._dateString(date), to: this._dateString(new Date(date.getFullYear(), date.getMonth() + 3, 0)) };
+    }
+    const year = now.getFullYear() + offset;
+    return { from: `${year}-01-01`, to: `${year}-12-31` };
+  }
+
+  _dateString(date) { return date.toISOString().split('T')[0]; }
+
+  _setPeriod(mode, offset = 0) {
+    this.periodMode = mode;
+    this.periodOffset = offset;
+    const dates = this._periodDates();
+    this.filterDateFrom = dates.from;
+    this.filterDateTo = dates.to;
+    this.expensePage = 1;
+    this._saveFilterState();
+    this.loadDashboard();
   }
 
   render() {
@@ -118,17 +155,16 @@ export class IntendanceDashboardPage {
     // Date filter
     const today = new Date();
     const firstOfYear = new Date(today.getFullYear(), 0, 1);
+    if (!this.filterDateFrom || !this.filterDateTo) {
+      const dates = this._periodDates();
+      this.filterDateFrom = dates.from;
+      this.filterDateTo = dates.to;
+    }
     const dateFrom = this.filterDateFrom ? new Date(this.filterDateFrom) : firstOfYear;
     const dateTo = this.filterDateTo ? new Date(this.filterDateTo) : today;
     
     const dateFromStr = dateFrom.toISOString().split('T')[0];
     const dateToStr = dateTo.toISOString().split('T')[0];
-    const rangeStart = new Date('2020-01-01');
-    const dayValue = date => Math.round((date - rangeStart) / 86400000);
-    const dateFromValue = dayValue(dateFrom);
-    const dateToValue = this.filterDateTo ? dayValue(dateTo) : dayValue(dateTo);
-    const rangeMax = dayValue(today);
-
     const generalView = this.activeView === 'general';
     const filterMarkup = `
         <!-- Filtres -->
@@ -137,8 +173,7 @@ export class IntendanceDashboardPage {
           <div class="filter-group">
             <label class="filter-label">Période</label>
             <div class="slider-wrapper">
-              <div class="date-range-values"><input type="date" class="form-input" data-date-input="from" value="${dateFromStr}" aria-label="Date de début"><span>–</span><input type="date" class="form-input" data-date-input="to" value="${dateToStr}" aria-label="Date de fin"></div>
-              <div class="date-range-sliders"><input type="range" id="date-from" min="0" max="${rangeMax}" value="${dateFromValue}" aria-label="Date de début"><input type="range" id="date-to" min="0" max="${rangeMax}" value="${dateToValue}" aria-label="Date de fin"></div>
+              <div class="date-range-values period-toolbar"><button type="button" class="btn btn-secondary" data-period-prev aria-label="Période précédente">‹</button><div class="period-mode-buttons" role="group" aria-label="Type de période"><button type="button" class="btn ${this.periodMode === 'month' ? 'btn-primary' : 'btn-secondary'}" data-period-mode="month">Mois</button><button type="button" class="btn ${this.periodMode === 'quarter' ? 'btn-primary' : 'btn-secondary'}" data-period-mode="quarter">Trimestre</button><button type="button" class="btn ${this.periodMode === 'year' ? 'btn-primary' : 'btn-secondary'}" data-period-mode="year">Année</button></div><button type="button" class="btn btn-secondary" data-period-next aria-label="Période suivante">›</button><input type="date" class="form-input" data-date-input="from" value="${dateFromStr}" aria-label="Date de début"><span>–</span><input type="date" class="form-input" data-date-input="to" value="${dateToStr}" aria-label="Date de fin"></div>
             </div>
           </div>
           </div>
@@ -191,6 +226,9 @@ export class IntendanceDashboardPage {
     const dashboard = this;
     
     // Date filter
+    this.element.querySelectorAll('[data-period-mode]').forEach(button => { button.onclick = () => this._setPeriod(button.dataset.periodMode); });
+    this.element.querySelector('[data-period-prev]').onclick = () => this._setPeriod(this.periodMode, this.periodOffset - 1);
+    this.element.querySelector('[data-period-next]').onclick = () => this._setPeriod(this.periodMode, this.periodOffset + 1);
     this.element.querySelectorAll('#date-from, #date-to').forEach(input => {
       input.oninput = () => {
         this._updateDateRangeTrack();
@@ -223,13 +261,15 @@ export class IntendanceDashboardPage {
     this.element.querySelectorAll('[data-date-input]').forEach(input => input.onchange = () => {
       this.filterDateFrom = this.element.querySelector('[data-date-input="from"]').value;
       this.filterDateTo = this.element.querySelector('[data-date-input="to"]').value;
+      this.periodMode = 'custom';
+      this.periodOffset = 0;
       this._saveFilterState();
       this.loadDashboard();
     });
     this.element.querySelectorAll('[data-category]').forEach(button => button.onclick = () => { this.filterCategory = [button.dataset.category]; this._saveFilterState(); this.loadDashboard(); });
     this.element.querySelectorAll('[data-user]').forEach(button => button.onclick = () => { this.filterUser = [button.dataset.user]; this._saveFilterState(); this.loadDashboard(); });
     this.element.querySelectorAll('[data-site]').forEach(button => button.onclick = () => { this.filterSite = [button.dataset.site]; this._saveFilterState(); this.loadDashboard(); });
-    this.element.querySelector('[data-reset-filters]').onclick = () => { this.filterDateFrom = ''; this.filterDateTo = ''; this.filterUser = []; this.filterSite = []; this.filterCategory = []; localStorage.removeItem(this.filterStorageKey); this.loadDashboard(); };
+    this.element.querySelector('[data-reset-filters]').onclick = () => { this.filterDateFrom = ''; this.filterDateTo = ''; this.filterUser = []; this.filterSite = []; this.filterCategory = []; this.periodMode = 'month'; this.periodOffset = 0; localStorage.removeItem(this.filterStorageKey); this.loadDashboard(); };
     this._bindMultiFilters();
     this.element.querySelectorAll('[data-list-edit]').forEach(button => button.onclick = () => this.onEditExpense?.(this.expenses.find(item => item.id === Number(button.dataset.listEdit))));
     this.element.querySelectorAll('[data-list-delete]').forEach(button => button.onclick = () => this.onDeleteExpense?.(this.expenses.find(item => item.id === Number(button.dataset.listDelete))));

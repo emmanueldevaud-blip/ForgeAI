@@ -928,24 +928,26 @@ render() {
     const llmOptions = this.llmProviders.map(p => `<option value="${escapeHtml(p.provider)}|${escapeHtml(p.model)}">${escapeHtml(p.display_name)}</option>`).join('');
 
     return `
-      <div class="ai-config-section">
-        <h3 class="ai-config-title">Configuration</h3>
-        <div class="ai-config-grid">
-          <div class="ai-config-field">
-            <label class="ai-config-label">Agent</label>
-            <select class="ai-config-select" data-selector="agent">
-              ${this.agents.map(a => `<option value="${escapeHtml(a)}" ${a === this.selectedAgent ? 'selected' : ''}>${escapeHtml(a)}</option>`).join('')}
-            </select>
-          </div>
-          <div class="ai-config-field">
-            <label class="ai-config-label">LLM</label>
-            <select class="ai-config-select" data-selector="llm">
-              <option value="auto|auto" ${this.selectedLLMProvider === 'Automatique' ? 'selected' : ''}>Automatique</option>
-              ${this.llmProviders.map(p => `<option value="${escapeHtml(p.provider)}|${escapeHtml(p.model)}" ${p.provider === this.selectedLLMProvider && p.model === this.selectedLLMModel ? 'selected' : ''}>${escapeHtml(p.display_name)}</option>`).join('')}
-            </select>
+      <details class="ai-config-details">
+        <summary class="ai-config-summary">Configuration <span aria-hidden="true">⌄</span></summary>
+        <div class="ai-config-section">
+          <div class="ai-config-grid">
+            <div class="ai-config-field">
+              <label class="ai-config-label">Agent</label>
+              <select class="ai-config-select" data-selector="agent">
+                ${this.agents.map(a => `<option value="${escapeHtml(a)}" ${a === this.selectedAgent ? 'selected' : ''}>${escapeHtml(a)}</option>`).join('')}
+              </select>
+            </div>
+            <div class="ai-config-field">
+              <label class="ai-config-label">LLM</label>
+              <select class="ai-config-select" data-selector="llm">
+                <option value="auto|auto" ${this.selectedLLMProvider === 'Automatique' ? 'selected' : ''}>Automatique</option>
+                ${this.llmProviders.map(p => `<option value="${escapeHtml(p.provider)}|${escapeHtml(p.model)}" ${p.provider === this.selectedLLMProvider && p.model === this.selectedLLMModel ? 'selected' : ''}>${escapeHtml(p.display_name)}</option>`).join('')}
+              </select>
+            </div>
           </div>
         </div>
-      </div>
+      </details>
     `;
   }
 

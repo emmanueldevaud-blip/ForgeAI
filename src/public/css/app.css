@@ -6902,6 +6902,30 @@
   flex-shrink: 0;
 }
 
+.ai-config-details {
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-border-light);
+  border-radius: var(--radius-lg);
+}
+
+.ai-config-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 44px;
+  padding: var(--spacing-3) var(--spacing-4);
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  cursor: pointer;
+  list-style: none;
+}
+
+.ai-config-summary::-webkit-details-marker { display: none; }
+.ai-config-summary span { transition: transform var(--transition-fast); }
+.ai-config-details[open] .ai-config-summary span { transform: rotate(180deg); }
+.ai-config-details .ai-config-section { border: 0; border-top: 1px solid var(--color-border-light); border-radius: 0 0 var(--radius-lg) var(--radius-lg); }
+
 .ai-config-section {
   background: var(--color-bg-secondary);
   border: 1px solid var(--color-border-light);
@@ -7646,4 +7670,38 @@
   .intendance-dashboard-page .intendance-kpi-card { min-width: 0; }.intendance-dashboard-page .intendance-kpi-card strong { overflow-wrap: anywhere; }
   .intendance-dashboard-page .histogram-container { min-width: 0; overflow: hidden; padding: var(--spacing-3); }.intendance-dashboard-page .intendance-bar-row { grid-template-columns: minmax(90px, 1fr) minmax(60px, 1.5fr); }.intendance-dashboard-page .intendance-bar-row strong, .intendance-dashboard-page .intendance-bar-row small { text-align: right; }
   .intendance-dashboard-page .table-container { max-width: 100%; overflow-x: auto; }.intendance-dashboard-page .users-table { min-width: 620px; }
+}
+
+/* Assistant IA — mise en page tablette (iPad portrait et paysage). */
+@media (min-width: 769px) and (max-width: 1100px) {
+  .ai-page { min-width: 0; }
+  .ai-layout { flex-direction: column; }
+  .ai-sidebar {
+    width: 100%;
+    height: auto;
+    max-height: 148px;
+    border-right: none;
+    border-bottom: 1px solid var(--color-border-light);
+  }
+  .ai-sidebar-header { padding: var(--spacing-3) var(--spacing-4); }
+  .ai-conversations-list {
+    display: flex;
+    gap: var(--spacing-2);
+    overflow-x: auto;
+    overflow-y: hidden;
+    padding: var(--spacing-2) var(--spacing-3);
+  }
+  .conversation-item { flex: 0 0 min(260px, 42vw); margin-bottom: 0; }
+  .ai-header,
+  .ai-config-section-wrapper,
+  .ai-input-footer { padding-left: var(--spacing-4); padding-right: var(--spacing-4); }
+  .ai-header-main { align-items: flex-start; }
+  .ai-mode-btn { min-width: 96px; padding-left: var(--spacing-3); padding-right: var(--spacing-3); }
+  .ai-config-grid { gap: var(--spacing-3); }
+  .ai-config-section { padding: var(--spacing-4); }
+  .ai-messages { padding: var(--spacing-4); }
+  .ai-message { max-width: 92%; }
+  .ai-input-area { gap: var(--spacing-2); }
+  .ai-input { min-width: 0; }
+  .ai-send-btn { min-width: 88px; padding-left: var(--spacing-3); padding-right: var(--spacing-3); }
 }

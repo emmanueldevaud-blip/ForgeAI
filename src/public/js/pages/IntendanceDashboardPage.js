@@ -1,5 +1,5 @@
 import { authStore } from '../stores/auth.js';
-import { getExpenseDashboard, getMealCostBySite, listExpenses, listAliases, listSites } from '../services/intendanceApi.js';
+import { getExpenseDashboard, getMealCostBySite, listExpenses, listAliases, listSites, listCategories } from '../services/intendanceApi.js';
 import { Table } from '../components/Table.js';
 
 const CATEGORY_COLORS = {
@@ -25,6 +25,7 @@ export class IntendanceDashboardPage {
     this.amounts = [];
     this.maxAmount = 0;
     this.dashboard = { kpis: {}, categories: [], monthly: [], daily: [], users: [], sites: [], top_expenses: [] };
+    this.sites = [];
     this.mealSiteCosts = [];
     this.mealSiteCostsUnavailable = false;
     this.expenses = [];
@@ -72,14 +73,20 @@ export class IntendanceDashboardPage {
       this.filterDateTo = dates.to;
     }
     const params = new URLSearchParams();
+    let energyCategory = 'Energie';
+    if (this.activeView === 'energy') {
+      const categories = await listCategories();
+      const normalize = value => String(value || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+      energyCategory = (categories || []).find(category => normalize(category.name).includes('energie'))?.name || energyCategory;
+    }
     const today = new Date();
     const effectiveDateFrom = this.filterDateFrom || `${today.getFullYear()}-01-01`;
     const effectiveDateTo = this.filterDateTo || today.toISOString().split('T')[0];
     params.append('expense_date_from', effectiveDateFrom);
     params.append('expense_date_to', effectiveDateTo);
-    this.filterUser.forEach(user => params.append('user_name', user));
+    if (this.activeView !== 'energy') this.filterUser.forEach(user => params.append('user_name', user));
     this.filterSite.forEach(site => params.append('site_id', site));
-    const viewCategory = this.activeView === 'meals' ? 'Nourriture' : this.activeView === 'energy' ? 'Energie' : null;
+    const viewCategory = this.activeView === 'meals' ? 'Nourriture' : this.activeView === 'energy' ? energyCategory : null;
     (viewCategory ? [viewCategory] : this.filterCategory).forEach(category => params.append('category', category));
 
     const mealCostsPromise = this.activeView === 'meals'
@@ -179,7 +186,7 @@ export class IntendanceDashboardPage {
           </div>
           <div class="dashboard-filters-row dashboard-filters-row--bottom">
           ${generalView ? this._renderMultiFilter('category', 'Catégorie', (this.dashboard.categories || []).map(item => item.name), this.filterCategory) : ''}
-          ${this._renderMultiFilter('user', 'Utilisateur', [], this.filterUser)}
+          ${this.activeView !== 'energy' ? this._renderMultiFilter('user', 'Utilisateur', [], this.filterUser) : ''}
           ${this._renderMultiFilter('site', 'Site', [], this.filterSite)}
           <button type="button" class="btn btn-secondary" data-reset-filters>Réinitialiser</button>
           </div>
@@ -192,8 +199,8 @@ export class IntendanceDashboardPage {
         <div class="intendance-kpi-grid">${this._renderKpis()}</div>
         <div class="intendance-dashboard-grid">
           ${generalView ? '<section class="histogram-container chart-card"><div class="chart-heading"><div><h2>Répartition par catégorie</h2><p>Cliquer sur une catégorie pour filtrer</p></div><div class="chart-legend"><span class="chart-legend-item"><i class="chart-swatch chart-swatch--category"></i>Part du total</span></div></div>' + this._renderCategoryBars() + '</section>' : ''}
-          <section class="histogram-container chart-card"><div class="chart-heading"><div><h2>Répartition par utilisateur</h2><p>Montant attribué et nombre de dépenses</p></div><div class="chart-legend"><span class="chart-legend-item"><i class="chart-swatch chart-swatch--user"></i>Montant (€)</span></div></div>${this._renderUserBars()}</section>
-          <section class="histogram-container chart-card"><div class="chart-heading"><div><h2>${this.activeView === 'energy' ? 'Coût de l’énergie par site' : 'Répartition par site'}</h2><p>Montant total et nombre de dépenses</p></div><div class="chart-legend"><span class="chart-legend-item"><i class="chart-swatch chart-swatch--user"></i>Montant (€)</span></div></div>${this._renderSiteBars()}</section>
+          ${this.activeView !== 'energy' ? `<section class="histogram-container chart-card"><div class="chart-heading"><div><h2>Répartition par utilisateur</h2><p>Montant attribué et nombre de dépenses</p></div><div class="chart-legend"><span class="chart-legend-item"><i class="chart-swatch chart-swatch--user"></i>Montant (€)</span></div></div>${this._renderUserBars()}</section>` : ''}
+          <section class="histogram-container chart-card intendance-site-card"><div class="chart-heading"><div><h2>${this.activeView === 'energy' ? 'Coût de l’énergie par site' : 'Répartition par site'}</h2><p>Montant total et nombre de dépenses</p></div><div class="chart-legend"><span class="chart-legend-item"><i class="chart-swatch chart-swatch--user"></i>Montant (€)</span></div></div>${this._renderSiteBars()}</section>
           ${this.activeView === 'meals' ? `<section class="histogram-container chart-card chart-card--monthly"><div class="chart-heading"><div><h2>Coût du repas par personne et par site</h2><p>Dépenses de nourriture divisées par les repas déclarés dans Agenda (jours ouvrés) et les jours d'occupation du module Hébergement (7j/7)</p></div><div class="chart-legend"><span class="chart-legend-item"><i class="chart-swatch chart-swatch--category"></i>Coût par repas (€)</span></div></div>${this._renderMealCostBySite()}</section>` : ''}
           <section class="histogram-container chart-card chart-card--monthly"><div class="chart-heading"><div><h2>${this.activeView === 'meals' ? 'Évolution des dépenses de nourriture' : this.activeView === 'energy' ? 'Évolution des dépenses d’énergie' : 'Évolution mensuelle'}</h2></div><div class="chart-legend">${this._renderMonthlyLegend()}</div></div><canvas id="monthly-chart" aria-label="Évolution mensuelle des dépenses par catégorie"></canvas></section>
         </div>
@@ -204,7 +211,7 @@ export class IntendanceDashboardPage {
 
     this._bind();
     this.element.querySelectorAll('[data-dashboard-view]').forEach(button => button.onclick = () => { this.activeView = button.dataset.dashboardView; this.expensePage = 1; this.loadDashboard(); });
-    this._renderExpenseTable(); this._renderHistogram(); this._loadUsersSites();
+    this._renderExpenseTable(); this._renderHistogram(); this._bindHistogramClick(); this._loadUsersSites();
     return this.element;
   }
 
@@ -268,7 +275,13 @@ export class IntendanceDashboardPage {
     });
     this.element.querySelectorAll('[data-category]').forEach(button => button.onclick = () => { this.filterCategory = [button.dataset.category]; this._saveFilterState(); this.loadDashboard(); });
     this.element.querySelectorAll('[data-user]').forEach(button => button.onclick = () => { this.filterUser = [button.dataset.user]; this._saveFilterState(); this.loadDashboard(); });
-    this.element.querySelectorAll('[data-site]').forEach(button => button.onclick = () => { this.filterSite = [button.dataset.site]; this._saveFilterState(); this.loadDashboard(); });
+    this.element.querySelectorAll('[data-site]').forEach(button => button.onclick = () => {
+      const site = this.sites.find(item => item.name === button.dataset.site);
+      if (!site) return;
+      this.filterSite = [Number(site.id)];
+      this._saveFilterState();
+      this.loadDashboard();
+    });
     this.element.querySelector('[data-reset-filters]').onclick = () => { this.filterDateFrom = ''; this.filterDateTo = ''; this.filterUser = []; this.filterSite = []; this.filterCategory = []; this.periodMode = 'month'; this.periodOffset = 0; localStorage.removeItem(this.filterStorageKey); this.loadDashboard(); };
     this._bindMultiFilters();
     this.element.querySelectorAll('[data-list-edit]').forEach(button => button.onclick = () => this.onEditExpense?.(this.expenses.find(item => item.id === Number(button.dataset.listEdit))));
@@ -383,6 +396,26 @@ export class IntendanceDashboardPage {
 
   }
 
+  _bindHistogramClick() {
+    const canvas = this.element?.querySelector('#monthly-chart');
+    const monthly = this.dashboard.monthly || [];
+    if (!canvas || !monthly.length) return;
+    canvas.style.cursor = 'pointer';
+    canvas.onclick = event => {
+      const rect = canvas.getBoundingClientRect();
+      const index = Math.floor(((event.clientX - rect.left) / rect.width) * monthly.length);
+      const item = monthly[Math.max(0, Math.min(monthly.length - 1, index))];
+      if (!item) return;
+      this.filterDateFrom = `${item.year}-${String(item.month).padStart(2, '0')}-01`;
+      this.filterDateTo = this._dateString(new Date(item.year, item.month, 0));
+      this.periodMode = 'custom';
+      this.periodOffset = 0;
+      this.expensePage = 1;
+      this._saveFilterState();
+      this.loadDashboard();
+    };
+  }
+
   _monthlyCategoryIndex(category) {
     const categories = [...new Set((this.dashboard.monthly || []).flatMap(item => Object.keys(item.categories || {})))];
     return categories.indexOf(category);
@@ -426,6 +459,7 @@ export class IntendanceDashboardPage {
 
   _loadUsersSites() {
     Promise.all([listAliases(), listSites()]).then(([aliases, sites]) => {
+      this.sites = sites.items || [];
       const users = [...new Set((aliases.items || []).map(item => item.user_name).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'fr'));
       const userOptions = this.element.querySelector('[data-multi-filter="user"] [data-filter-options]');
       const siteOptions = this.element.querySelector('[data-multi-filter="site"] [data-filter-options]');

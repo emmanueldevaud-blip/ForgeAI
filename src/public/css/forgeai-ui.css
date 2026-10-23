@@ -116,6 +116,10 @@ button, input, select, textarea { font: inherit; }
 :where(.action-buttons) { display: inline-flex; align-items: center; gap: var(--spacing-1); flex-wrap: wrap; }
 :where(.action-btn, .btn-icon) { min-width: var(--control-min-width, 40px); min-height: var(--control-min-width, 40px); }
 
+.intendance-expenses-page > .admin-tabs { margin-bottom: var(--spacing-4); }
+.intendance-dashboard-page .intendance-dashboard-tabs { margin: 0 0 var(--spacing-4); }
+.intendance-dashboard-page .intendance-site-card { grid-column: 1 / -1; }
+
 :where(.status-badge, .badge) {
   display: inline-flex;
   align-items: center;
@@ -161,6 +165,7 @@ button, input, select, textarea { font: inherit; }
   .header-breadcrumbs { display: none; }
   :where(.page-content) { padding: var(--spacing-4); }
   .intendance-expenses-page { width: 100%; padding: 0; }
+  .intendance-dashboard-page { width: 100%; padding: 0; }
   .main-content:has(.intendance-expenses-page) { padding-inline: var(--spacing-2); }
   :where(.page-header) { flex-direction: column; align-items: stretch; }
   :where(.page-header-right) { display: flex; flex-wrap: wrap; gap: var(--spacing-2); width: 100%; }
@@ -175,6 +180,13 @@ button, input, select, textarea { font: inherit; }
   :where(.form-actions, .modal-footer) { justify-content: stretch; }
   :where(.form-actions) .btn, :where(.modal-footer) .btn { flex: 1 1 140px; }
   :where(.modal-content) { max-height: calc(100dvh - var(--spacing-8)); overflow-y: auto; }
+}
+
+@media (min-width: 768px) and (max-width: 1199px) {
+  .main-content:has(.intendance-expenses-page) { padding-inline: 0; }
+  .intendance-expenses-page { width: 100%; padding-inline: var(--spacing-4); }
+  .intendance-dashboard-page { width: 100%; padding: 0; }
+  .intendance-expenses-page .page-header { margin-bottom: var(--spacing-4); }
 }
 
 @media (max-width: 480px) {

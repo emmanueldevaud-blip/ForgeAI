@@ -111,6 +111,7 @@ export class IntendanceExpensesPage {
         ${this.activeTab === 'missing-sites' ? '<select class="form-select" data-site><option value="">Affecter le site sélectionné…</option></select><button class="btn btn-secondary" data-bulk>Affecter</button>' : '<button class="btn btn-secondary" data-refresh>Actualiser</button>'}
       </div><div data-table></div>`;
       this._bindDetails(); this._renderTable(); return;
+    }
     this._renderReferencesTable(target); this._renderVisibilityColumn(target); this._enhanceReferenceActions(target); return;
     const icon = (type, label, id, attribute) => `<button type="button" class="action-btn" title="${label}" aria-label="${label}" data-${attribute}="${id}">${type === 'edit' ? '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"></path><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path></svg>' : type === 'power' ? '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18.36 6.64a9 9 0 1 1-12.73 0"></path><line x1="12" y1="2" x2="12" y2="12"></line></svg>' : '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"></path><path d="M10 11v6"></path><path d="M14 11v6"></path></svg>'}</button>`;
     const items = this.activeTab === 'references' ? this.accountCodes : this.activeTab === 'users' ? this.aliases : this.sites;

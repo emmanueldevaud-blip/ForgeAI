@@ -29,3 +29,17 @@
 .intendance-expenses-page .import-progress-bar { height: 8px; margin-top: var(--spacing-2); overflow: hidden; border-radius: 99px; background: var(--color-border-light); }
 .intendance-expenses-page .import-progress-bar span { display: block; height: 100%; background: var(--color-primary); transition: width .25s ease; }
 .intendance-expenses-page .import-summary { display: flex; flex-wrap: wrap; gap: var(--spacing-3); margin-top: var(--spacing-2); font-size: var(--font-size-sm); }
+
+.intendance-expenses-page .page-filters .filter-group { flex: 1 1 220px; }
+.intendance-expenses-page .period-filter { flex: 1 1 320px; min-width: 280px; }
+.intendance-expenses-page .period-filter .period-nav { display: flex; align-items: center; gap: var(--spacing-2); margin-bottom: var(--spacing-1); }
+.intendance-expenses-page .period-filter .period-label { min-width: 140px; text-align: center; font-size: var(--font-size-sm); font-weight: 500; color: var(--color-text-primary); }
+.intendance-expenses-page .period-filter .period-modes { display: flex; gap: var(--spacing-1); margin-bottom: var(--spacing-1); }
+.intendance-expenses-page .period-filter .period-dates { display: flex; gap: var(--spacing-2); }
+.intendance-expenses-page .period-filter .period-dates label { display: flex; flex-direction: column; gap: var(--spacing-1); flex: 1; }
+.intendance-expenses-page .period-filter .period-dates input[type="date"] { width: 100%; }
+.intendance-expenses-page .period-filter .period-modes .btn { flex: 1; white-space: nowrap; }
+@media (max-width: 720px) {
+  .intendance-expenses-page .period-filter { min-width: 100%; }
+  .intendance-expenses-page .period-filter .period-dates { flex-direction: column; gap: var(--spacing-2); }
+}

@@ -8,7 +8,9 @@ import { createIntendanceDashboardPage } from './IntendanceDashboardPage.js';
 export class IntendanceExpensesPage {
   constructor() {
     this.element = null; this.items = []; this.sites = []; this.rooms = []; this.buildings = []; this.accountCodes = []; this.aliases = []; this.categories = []; this.search = ''; this.missing = ''; this.activeTab = 'dashboard'; this.importState = null; this.referenceSortColumn = ''; this.referenceSortOrder = 'asc';
-    this.page = 1; this.sortBy = 'expense_date'; this.sortOrder = 'desc'; this.table = new Table({
+    this.page = 1; this.sortBy = 'expense_date'; this.sortOrder = 'desc';
+    this.periodMode = 'month'; this.periodOffset = 0;
+    this.table = new Table({
       columns: [
         { key: 'expense_date', label: 'Date', sortable: true }, { key: 'req_number', label: 'Demande', sortable: true },
         { key: 'item_description', label: 'Dépense', sortable: true }, { key: 'amount', label: 'Montant', sortable: true, render: item => `${item.amount} €` },
@@ -24,7 +26,40 @@ export class IntendanceExpensesPage {
       this.sortBy = column; this.sortOrder = order; this.page = 1; this.load();
     };
   }
-  async load() { const [data, sites, categories] = await Promise.all([listExpenses({ page: this.page, page_size: 20, search: this.search, missing: this.missing, sort_by: this.sortBy, sort_order: this.sortOrder }), listSites(), listCategories()]); this.items = data.items || []; this.sites = sites.items || []; this.categories = categories || []; this.table.setData({ items: this.items, total: data.total, page: data.page, pageSize: data.page_size, totalPages: data.total_pages, sortBy: this.sortBy, sortOrder: this.sortOrder }); this._renderTable(); }
+  async load() {
+    const { from, to } = this._getPeriodDates();
+    const [data, sites, categories] = await Promise.all([
+      listExpenses({ page: this.page, page_size: 20, search: this.search, missing: this.missing, sort_by: this.sortBy, sort_order: this.sortOrder, expense_date_from: from, expense_date_to: to }),
+      listSites(), listCategories()
+    ]);
+    this.items = data.items || []; this.sites = sites.items || []; this.categories = categories || [];
+    this.table.setData({ items: this.items, total: data.total, page: data.page, pageSize: data.page_size, totalPages: data.total_pages, sortBy: this.sortBy, sortOrder: this.sortOrder });
+    this._renderTable();
+  }
+
+  _getPeriodDates() {
+    const now = new Date();
+    let from, to;
+    if (this.periodMode === 'custom' && this._customFrom && this._customTo) {
+      from = this._customFrom;
+      to = this._customTo;
+    } else if (this.periodMode === 'month') {
+      const d = new Date(now.getFullYear(), now.getMonth() + this.periodOffset, 1);
+      from = d.toISOString().split('T')[0];
+      to = new Date(d.getFullYear(), d.getMonth() + 1, 0).toISOString().split('T')[0];
+    } else if (this.periodMode === 'quarter') {
+      const quarter = Math.floor(now.getMonth() / 3) + this.periodOffset;
+      const year = now.getFullYear() + Math.floor(quarter / 4);
+      const q = ((quarter % 4) + 4) % 4;
+      from = new Date(year, q * 3, 1).toISOString().split('T')[0];
+      to = new Date(year, q * 3 + 3, 0).toISOString().split('T')[0];
+    } else {
+      const year = now.getFullYear() + this.periodOffset;
+      from = `${year}-01-01`;
+      to = `${year}-12-31`;
+    }
+    return { from, to };
+  }
   async loadReferences() { const referencesPromise = this.activeTab === 'sites' && authStore.hasPermission('building.view') ? Promise.all([listRooms({ page_size: 1000, is_active: true }), listBuildings({ page_size: 1000, is_active: true })]) : Promise.resolve([{ items: [] }, { items: [] }]); const [codes, aliases, sites, categories, [rooms, buildings]] = await Promise.all([listAccountCodes(), listAliases(), listSites(), listCategories(), referencesPromise]); this.accountCodes = codes.items || []; this.aliases = aliases.items || []; this.sites = sites.items || []; this.categories = categories || []; this.rooms = rooms.items || []; this.buildings = buildings.items || []; this._renderTabContent(); }
   render() {
     if (!this.element) this.element = document.createElement('div'); this.element.className = 'page-content intendance-expenses-page';
@@ -52,7 +87,30 @@ export class IntendanceExpensesPage {
     if (!this.element) return; const target = this.element.querySelector('[data-tab-content]'); if (!target) return;
     if (this.activeTab === 'dashboard') { this._renderDashboard(); return; }
     if (this.activeTab === 'settings') { this._renderCategorySettings(target); this._enhanceCategoryTable(target); return; }
-    if (this.activeTab === 'details' || this.activeTab === 'missing-sites') { target.innerHTML = `<div class="page-filters"><div class="filter-group"><input class="form-input" data-search placeholder="Rechercher une dépense…" value="${this.search}"></div>${this.activeTab === 'missing-sites' ? '<select class="form-select" data-site><option value="">Affecter le site sélectionné…</option></select><button class="btn btn-secondary" data-bulk>Affecter</button>' : '<button class="btn btn-secondary" data-refresh>Actualiser</button>'}</div><div data-table></div>`; this._bindDetails(); this._renderTable(); return; }
+    if (this.activeTab === 'details' || this.activeTab === 'missing-sites') {
+      const { from, to } = this._getPeriodDates();
+      const modeLabels = { month: 'Mois', quarter: 'Trimestre', year: 'Année' };
+      target.innerHTML = `<div class="page-filters">
+        <div class="filter-group period-filter">
+          <div class="period-nav">
+            <button type="button" class="btn btn-sm btn-secondary" data-period-prev aria-label="Période précédente">‹</button>
+            <span class="period-label" data-period-label>${modeLabels[this.periodMode]} ${this.periodOffset === 0 ? '(actuel)' : this.periodOffset > 0 ? `(+${this.periodOffset})` : `(${this.periodOffset})`}</span>
+            <button type="button" class="btn btn-sm btn-secondary" data-period-next aria-label="Période suivante">›</button>
+          </div>
+          <div class="period-modes">
+            <button type="button" class="btn btn-sm ${this.periodMode === 'month' ? 'btn-primary' : 'btn-secondary'}" data-period-mode="month">Mois</button>
+            <button type="button" class="btn btn-sm ${this.periodMode === 'quarter' ? 'btn-primary' : 'btn-secondary'}" data-period-mode="quarter">Trimestre</button>
+            <button type="button" class="btn btn-sm ${this.periodMode === 'year' ? 'btn-primary' : 'btn-secondary'}" data-period-mode="year">Année</button>
+          </div>
+          <div class="period-dates">
+            <label>Du<input type="date" class="form-input" data-period-from value="${from}"></label>
+            <label>Au<input type="date" class="form-input" data-period-to value="${to}"></label>
+          </div>
+        </div>
+        <div class="filter-group"><input class="form-input" data-search placeholder="Rechercher une dépense…" value="${this.search}"></div>
+        ${this.activeTab === 'missing-sites' ? '<select class="form-select" data-site><option value="">Affecter le site sélectionné…</option></select><button class="btn btn-secondary" data-bulk>Affecter</button>' : '<button class="btn btn-secondary" data-refresh>Actualiser</button>'}
+      </div><div data-table></div>`;
+      this._bindDetails(); this._renderTable(); return;
     this._renderReferencesTable(target); this._renderVisibilityColumn(target); this._enhanceReferenceActions(target); return;
     const icon = (type, label, id, attribute) => `<button type="button" class="action-btn" title="${label}" aria-label="${label}" data-${attribute}="${id}">${type === 'edit' ? '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"></path><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path></svg>' : type === 'power' ? '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18.36 6.64a9 9 0 1 1-12.73 0"></path><line x1="12" y1="2" x2="12" y2="12"></line></svg>' : '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"></path><path d="M10 11v6"></path><path d="M14 11v6"></path></svg>'}</button>`;
     const items = this.activeTab === 'references' ? this.accountCodes : this.activeTab === 'users' ? this.aliases : this.sites;
@@ -101,7 +159,19 @@ export class IntendanceExpensesPage {
   _promptSiteRooms(siteId) { const site = this.sites.find(item => item.id === siteId); if (!site) return; const selected = new Set((site.mapped_rooms || []).map(room => room.id)); const assignedElsewhere = new Set(this.sites.filter(item => item.id !== siteId).flatMap(item => (item.mapped_rooms || []).map(room => room.id))); const buildingNames = new Map(this.buildings.map(building => [building.id, building.name])); const activeBuildingIds = new Set(this.buildings.filter(building => building.is_active).map(building => building.id)); const options = this.rooms.filter(room => activeBuildingIds.has(room.building_id) && room.usage_type && (['BUREAU', 'BUREAUX', 'LOGEMENT'].includes(room.usage_type.code) || room.usage_type.name?.toLowerCase().includes('bureau') || room.usage_type.name?.toLowerCase().includes('logement')) && (selected.has(room.id) || !assignedElsewhere.has(room.id))).map(room => `<option value="${room.id}" ${selected.has(room.id) ? 'selected' : ''}>${buildingNames.get(room.building_id) || 'Bâtiment'} — ${room.name} (${room.reference})</option>`).join(''); this._showModal('Associer le local', `<form data-form><label>Local (bureau ou logement)<select name="room_ids" multiple size="10">${options || '<option disabled>Aucun local Bureau/Logement actif disponible</option>'}</select><p class="form-hint">Maintenez Ctrl/Cmd pour sélectionner ou désélectionner plusieurs locaux. Désélectionner un local retire le mapping.</p></label></form>`, async modal => { const roomIds = [...modal.querySelector('[name="room_ids"]').selectedOptions].map(option => Number(option.value)); await updateSiteRooms(siteId, roomIds); await this.loadReferences(); }); }
   async _promptReference(item = null) { const manage = this.activeTab; const fields = manage === 'references' ? `<label>Code comptable<input name="code" value="${item?.code || ''}" ${item ? 'readonly' : 'required'}></label><label>Libellé<textarea name="label">${item?.label || ''}</textarea></label><label>Catégorie<select name="category"><option value="">Non affecté</option>${this.categories.map(category => `<option value="${category.name}" ${category.name === item.category ? 'selected' : ''}>${category.name}</option>`).join('')}</select></label>` : manage === 'users' ? `<label>Alias de carte<input name="alias" value="${item?.alias || ''}" required></label><label>Utilisateur<input name="user_name" value="${item?.user_name || ''}" required></label>` : `<label>Nom du site<input name="name" value="${item?.name || ''}" required></label>`; this._showModal(item ? 'Modifier' : 'Ajouter', `<form data-form>${fields}</form>`, async modal => { const data = Object.fromEntries(new FormData(modal.querySelector('[data-form]')).entries()); if (manage === 'references') item ? await updateAccountCode(item.id, { label: data.label, category: data.category }) : await createAccountCode(data); else if (manage === 'users') item ? await updateAlias(item.id, data) : await createAlias(data); else item ? await updateSite(item.id, data) : await createSite(data); await this.loadReferences(); }); }
   async _deleteReference(id) { new ConfirmDialog({ onConfirm: async () => { if (this.activeTab === 'references') await deleteAccountCode(id); else if (this.activeTab === 'users') await deleteAlias(id); else { const site = this.sites.find(x => x.id === id); if (site?.is_active) await deleteSite(id); else await updateSite(id, { is_active: true }); } await this.loadReferences(); } }).open({ title: 'Confirmer l’action', message: 'Confirmer cette action ?', confirmText: this.activeTab === 'sites' ? 'Changer le statut' : 'Supprimer', variant: 'danger' }); }
-  _bindDetails() { this.element.querySelector('[data-refresh]')?.addEventListener('click', () => this.load()); this.element.querySelector('[data-search]').onchange = e => { this.search = e.target.value; this.load(); }; this.element.querySelector('[data-bulk]')?.addEventListener('click', async () => { const siteId = Number(this.element.querySelector('[data-site]').value); const ids = [...this.element.querySelectorAll('[data-expense-id]:checked')].map(input => Number(input.dataset.expenseId)); if (siteId && ids.length) { await assignSites(ids, siteId); await this.load(); } });
+  _bindDetails() {
+    this.element.querySelector('[data-refresh]')?.addEventListener('click', () => this.load());
+    this.element.querySelector('[data-search]').onchange = e => { this.search = e.target.value; this.load(); };
+    this.element.querySelector('[data-bulk]')?.addEventListener('click', async () => {
+      const siteId = Number(this.element.querySelector('[data-site]').value);
+      const ids = [...this.element.querySelectorAll('[data-expense-id]:checked')].map(input => Number(input.dataset.expenseId));
+      if (siteId && ids.length) { await assignSites(ids, siteId); await this.load(); }
+    });
+    this.element.querySelector('[data-period-prev]')?.addEventListener('click', () => { this.periodOffset--; this.page = 1; this.load(); });
+    this.element.querySelector('[data-period-next]')?.addEventListener('click', () => { this.periodOffset++; this.page = 1; this.load(); });
+    this.element.querySelectorAll('[data-period-mode]').forEach(btn => btn.onclick = () => { this.periodMode = btn.dataset.periodMode; this.periodOffset = 0; this.page = 1; this._renderTabContent(); this.load(); });
+    this.element.querySelector('[data-period-from]')?.addEventListener('change', e => { this.periodMode = 'custom'; this._customFrom = e.target.value; this.page = 1; this.load(); });
+    this.element.querySelector('[data-period-to]')?.addEventListener('change', e => { this.periodMode = 'custom'; this._customTo = e.target.value; this.page = 1; this.load(); });
   }
   _renderVisibilityControls(target) { if (!['references', 'users'].includes(this.activeTab)) return; const items = this.activeTab === 'references' ? this.accountCodes : this.aliases; const controls = document.createElement('div'); controls.className = 'table-container intendance-visibility-controls'; controls.innerHTML = `<strong>Visibilité dans le tableau de bord</strong>${items.map(item => `<label class="category-exclusion-toggle"><input type="checkbox" data-dashboard-visibility="${item.id}" ${item.dashboard_visible !== false ? 'checked' : ''}><span>${this.activeTab === 'users' ? item.user_name : item.code} — ${item.dashboard_visible !== false ? 'Visible' : 'Masqué'}</span></label>`).join('')}`; target.appendChild(controls); controls.querySelectorAll('[data-dashboard-visibility]').forEach(input => input.onchange = async () => { const id = Number(input.dataset.dashboardVisibility); if (this.activeTab === 'users') await updateAlias(id, { dashboard_visible: input.checked }); else await updateAccountCode(id, { dashboard_visible: input.checked }); await this.loadReferences(); }); }
   _renderVisibilityColumn(target) { if (!['references', 'users'].includes(this.activeTab)) return; const items = this.activeTab === 'references' ? this.accountCodes : this.aliases; const table = target.querySelector('.users-table'); if (!table) return; const header = table.querySelector('thead tr'); const actionHeader = header?.lastElementChild; actionHeader?.insertAdjacentHTML('beforebegin', '<th>Tableau de bord</th>'); table.querySelectorAll('tbody tr[data-id]').forEach(row => { const item = items.find(entry => String(entry.id) === row.dataset.id); if (!item) return; const actionCell = row.lastElementChild; actionCell?.insertAdjacentHTML('beforebegin', `<td><label class="category-exclusion-toggle"><input type="checkbox" data-dashboard-visibility="${item.id}" ${item.dashboard_visible !== false ? 'checked' : ''}><span>${item.dashboard_visible !== false ? 'Visible' : 'Masqué'}</span></label></td>`); }); table.querySelectorAll('[data-dashboard-visibility]').forEach(input => input.onchange = async () => { const id = Number(input.dataset.dashboardVisibility); if (this.activeTab === 'users') await updateAlias(id, { dashboard_visible: input.checked }); else await updateAccountCode(id, { dashboard_visible: input.checked }); await this.loadReferences(); }); }

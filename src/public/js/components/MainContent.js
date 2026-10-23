@@ -65,11 +65,12 @@ export class MainContent {
   }
 
   _getUserMessage() {
+    const code = this.error?.code;
     const status = this.error?.status;
-    if (status === 401) return 'Votre session a expiré. Veuillez vous reconnecter.';
-    if (status === 403) return 'Vous n’avez pas les droits nécessaires pour accéder à cette page.';
-    if (status === 404) return 'La ressource demandée est introuvable.';
-    if (status >= 500) return 'Le service rencontre un problème. Veuillez réessayer dans quelques instants.';
+    if (code === 401 || status === 401) return 'Votre session a expiré. Veuillez vous reconnecter.';
+    if (code === 403 || status === 403) return 'Vous n\u2019avez pas les droits nécessaires pour accéder à cette page.';
+    if (code === 404 || status === 404) return 'La ressource demandée est introuvable.';
+    if (code >= 500 || status >= 500) return 'Le service rencontre un problème. Veuillez réessayer dans quelques instants.';
     return 'Impossible de charger cette page. Veuillez réessayer.';
   }
 

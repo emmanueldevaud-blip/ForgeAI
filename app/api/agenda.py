@@ -385,6 +385,7 @@ async def update_import_row(
         user_id=payload.user_id,
         external_name=payload.external_name,
         room_id=payload.room_id,
+        site_label=payload.site_label,
         status=payload.status,
         skip=payload.skip or False,
     )

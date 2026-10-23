@@ -28,6 +28,7 @@ const REVIEW_REASON_LABELS = {
   site_manquant: 'Site manquant (P sans X)',
   utilisateur_ambiguous: 'Utilisateur ambigu',
   utilisateur_proche: 'Nom proche d\'un utilisateur',
+  sites_multiples: 'Sites multiples marqués',
 };
 
 export function createAgendaImportPage(router) {
@@ -38,9 +39,10 @@ export function createAgendaImportPage(router) {
   let filters = { status: '', start_date: '', end_date: '' };
   let pagination = { limit: 200, offset: 0, total: 0 };
   let loading = false;
+  let step = 'upload';
 
   const renderProgress = (state, message, detail = '') => {
-    const container = element.querySelector('[data-progress]');
+    const container = element?.querySelector('[data-progress]');
     if (!container) return;
     if (!state) {
       container.hidden = true;
@@ -51,7 +53,7 @@ export function createAgendaImportPage(router) {
     container.innerHTML = `
       <div class="import-progress-header">
         <strong>${message}</strong>
-        ${detail ? `<span>${detail}</span>` : ''}
+        ${detail ? '<span>' + detail + '</span>' : ''}
       </div>
       <div class="import-progress-bar"><span style="width:${pct}%"></span></div>
     `;
@@ -71,58 +73,63 @@ export function createAgendaImportPage(router) {
     const input = e.target;
     input.value = '';
 
-    renderProgress('uploading', 'Téléversement du fichier…');
+    renderProgress('uploading', 'Televersement du fichier...');
     try {
-      renderProgress('analyzing', 'Analyse du classeur et détection des anomalies…');
+      renderProgress('analyzing', 'Analyse du classeur et detection des anomalies...');
       const batch = await analyzeImport(file);
       currentBatch = batch;
-      renderProgress('preview', 'Prévisualisation terminée', `${batch.rows_total} lignes, ${batch.rows_ready} prêtes, ${batch.rows_needs_review} à vérifier`);
+      step = 'preview';
       await loadPreview();
-      showPreview();
+      renderPreviewUI();
     } catch (error) {
-      renderProgress('error', error.message || 'Échec de l\'analyse');
+      renderProgress('error', error.message || 'Echec de l\'analyse');
       setTimeout(() => renderProgress(null), 5000);
     }
   }
 
   async function loadPreview() {
     loading = true;
-    renderProgress('preview', 'Chargement des lignes…');
+    renderProgress('preview', 'Chargement des lignes...');
     try {
-      const data = await getImportRows(currentBatch.id, {
-        status: filters.status || undefined,
-        start_date: filters.start_date || undefined,
-        end_date: filters.end_date || undefined,
+      const params = {
         limit: pagination.limit,
         offset: pagination.offset,
-      });
+      };
+      if (filters.status) params.status = filters.status;
+      if (filters.start_date) params.start_date = filters.start_date;
+      if (filters.end_date) params.end_date = filters.end_date;
+      const data = await getImportRows(currentBatch.id, params);
       rows = data;
-      renderProgress(null);
+      if (rows.length === 0 && currentBatch && currentBatch.status !== 'validated') {
+        renderProgress('info', 'Aucune ligne a afficher (toutes les lignes sont "Deja presentes" ou exclues)');
+      } else {
+        renderProgress(null);
+      }
     } catch (error) {
       console.error('Erreur chargement lignes:', error);
+      renderProgress('error', 'Impossible de charger les lignes: ' + (error.message || 'Erreur reseau'));
+      loading = false;
+      return;
     }
     loading = false;
     renderTable();
   }
 
-  function showPreview() {
-    const panel = element.querySelector('[data-tab-panel="preview"]');
-    const importBtn = element.querySelector('[data-action="import"]');
-    const previewBtn = element.querySelector('[data-action="preview"]');
-    const validateBtn = element.querySelector('[data-action="validate"]');
-    if (panel) panel.hidden = false;
-    if (importBtn) importBtn.hidden = true;
-    if (previewBtn) previewBtn.hidden = false;
-    if (validateBtn) validateBtn.hidden = false;
+  function renderPreviewUI() {
+    if (!element) return;
+    const uploadCard = element.querySelector('#upload-card');
+    const previewContainer = element.querySelector('#preview-container');
+    if (uploadCard) uploadCard.style.display = 'none';
+    if (previewContainer) previewContainer.hidden = false;
     renderTable();
   }
 
   function renderTable() {
-    const tbody = element.querySelector('[data-rows]');
+    const tbody = element?.querySelector('[data-rows]');
     if (!tbody) return;
     tbody.innerHTML = rows.map(r => {
-      const statusBadge = `<span class="badge ${STATUS_COLORS[r.status] || ''}">${STATUS_LABELS[r.status] || r.status}</span>`;
-      const reason = r.review_reason ? `<span class="badge badge--secondary" title="${REVIEW_REASON_LABELS[r.review_reason] || r.review_reason}">${REVIEW_REASON_LABELS[r.review_reason] || r.review_reason}</span>` : '';
+      const statusBadge = '<span class="badge ' + (STATUS_COLORS[r.status] || '') + '">' + (STATUS_LABELS[r.status] || r.status) + '</span>';
+      const reason = r.review_reason ? '<span class="badge badge--secondary" title="' + (REVIEW_REASON_LABELS[r.review_reason] || r.review_reason) + '">' + (REVIEW_REASON_LABELS[r.review_reason] || r.review_reason) + '</span>' : '';
       const userSelect = buildUserSelect(r);
       const roomSelect = buildRoomSelect(r);
       const actions = r.status === 'validated' ? '' : `
@@ -135,7 +142,7 @@ export function createAgendaImportPage(router) {
           <td>${r.sheet_name}</td>
           <td>${r.raw_label}</td>
           <td>${r.site_label || '-'}</td>
-          <td>${r.period}${r.is_remote ? ' (télétravail)' : ''}</td>
+          <td>${r.period}${r.is_remote ? ' (teletravail)' : ''}</td>
           <td>${userSelect}</td>
           <td>${roomSelect}</td>
           <td>${r.needs_workstation ? 'oui' : 'non'}</td>
@@ -149,34 +156,52 @@ export function createAgendaImportPage(router) {
 
   function buildUserSelect(row) {
     const isExternal = !row.user_id && row.external_name;
-    let html = `<select data-field="user_id" class="form-select form-select-sm" ${loading ? 'disabled' : ''}>`;
-    html += `<option value="">${isExternal ? 'Inscription libre' : '— Choisir —'}</option>`;
-    users.forEach(u => {
-      const label = `${u.last_name} ${u.first_name}`;
-      const selected = row.user_id === u.id ? 'selected' : '';
-      html += `<option value="${u.id}" ${selected}>${label}</option>`;
-    });
-    html += '</select>';
+    let html = '<select data-field="user_id" class="form-select form-select-sm" ' + (loading ? 'disabled' : '') + '>';
     if (isExternal) {
-      html += ` <input type="text" data-field="external_name" class="form-input form-input-sm" value="${escapeHtml(row.external_name)}" placeholder="Nom libre" style="max-width:150px" ${loading ? 'disabled' : ''}>`;
+      html += '<option value="">Inscription libre</option>';
+    } else {
+      html += '<option value="">— Choisir —</option>';
     }
     if (row.suggestions?.length) {
-      html += ' <span class="badge badge--warning" title="Suggestions: ' + row.suggestions.map(s => s.label).join(', ') + '">⚠</span>';
+      html += '<optgroup label="Suggestions">';
+      row.suggestions.forEach(s => {
+        const selected = row.user_id === s.user_id ? 'selected' : '';
+        html += '<option value="' + s.user_id + '" ' + selected + '>' + s.label + ' (suggere)</option>';
+      });
+      html += '</optgroup>';
+    }
+    html += '<optgroup label="Tous les utilisateurs">';
+    users.forEach(u => {
+      const label = u.last_name + ' ' + u.first_name;
+      const selected = row.user_id === u.id ? 'selected' : '';
+      if (row.suggestions?.some(s => s.user_id === u.id)) return;
+      html += '<option value="' + u.id + '" ' + selected + '>' + label + '</option>';
+    });
+    html += '</optgroup>';
+    html += '</select>';
+    if (isExternal) {
+      html += ' <input type="text" data-field="external_name" class="form-input form-input-sm" value="' + escapeHtml(row.external_name) + '" placeholder="Nom libre" style="max-width:150px" ' + (loading ? 'disabled' : '') + '>';
+    }
+    if (row.status === 'needs_review' && row.review_reason && row.review_reason.startsWith('utilisateur_')) {
+      html += ' <button type="button" class="btn btn-sm btn-secondary" data-action="set-external" data-row="' + row.id + '" ' + (loading ? 'disabled' : '') + '>Inscription libre</button>';
     }
     return html;
   }
 
   function buildRoomSelect(row) {
-    const sites = ['Cébazat', 'Riom', 'Puteaux'];
-    let html = `<select data-field="room_id" class="form-select form-select-sm" ${loading ? 'disabled' : ''}>`;
-    html += `<option value="">${row.room_id ? 'Sélectionné' : '— Choisir —'}</option>`;
+    const sites = ['Cebazat', 'Riom', 'Puteaux'];
+    let html = '<select data-field="site_label" class="form-select form-select-sm" ' + (loading ? 'disabled' : '') + '>';
+    html += '<option value="">' + (row.site_label ? 'Selectionne' : '— Choisir —') + '</option>';
     sites.forEach(s => {
       const selected = row.site_label === s ? 'selected' : '';
-      html += `<option value="${s}" ${selected}>${s}</option>`;
+      html += '<option value="' + s + '" ' + selected + '>' + s + '</option>';
     });
     html += '</select>';
     if (row.status === 'needs_review' && row.review_reason === 'site_manquant') {
       html += ' <span class="badge badge--warning">Site requis</span>';
+    }
+    if (row.status === 'needs_review' && row.review_reason === 'sites_multiples') {
+      html += ' <span class="badge badge--danger">Sites multiples</span>';
     }
     return html;
   }
@@ -185,10 +210,10 @@ export function createAgendaImportPage(router) {
     const btn = e.target.closest('button[data-action]');
     if (!btn) return;
     const rowId = parseInt(btn.dataset.row, 10);
-    const rowEl = element.querySelector(`tr[data-row="${rowId}"]`);
+    const rowEl = element.querySelector('tr[data-row="' + rowId + '"]');
     const userSelect = rowEl.querySelector('[data-field="user_id"]');
     const externalInput = rowEl.querySelector('[data-field="external_name"]');
-    const roomSelect = rowEl.querySelector('[data-field="room_id"]');
+    const siteSelect = rowEl.querySelector('[data-field="site_label"]');
 
     const payload = {};
     if (userSelect) {
@@ -197,12 +222,18 @@ export function createAgendaImportPage(router) {
     if (externalInput) {
       payload.external_name = externalInput.value.trim() || null;
     }
-    if (roomSelect) {
-      // Map site label to room_id via service? For now send label, backend resolves
-      payload.room_id = roomSelect.value; // temporary, will need mapping
+    if (siteSelect) {
+      payload.site_label = siteSelect.value;
     }
     if (btn.dataset.action === 'exclude-row') {
       payload.skip = true;
+    }
+    if (btn.dataset.action === 'set-external') {
+      const row = rows.find(r => r.id === rowId);
+      if (row) {
+        payload.external_name = row.raw_label;
+        payload.user_id = null;
+      }
     }
 
     try {
@@ -222,16 +253,24 @@ export function createAgendaImportPage(router) {
 
   async function handleValidate() {
     if (!currentBatch) return;
-    if (!confirm('Valider l\'import ? Les lignes "Prêtes" seront créées en base.')) return;
-    renderProgress('validating', 'Validation et enregistrement en base…');
+    if (!confirm('Valider l\'import ? Les lignes "Pretes" seront creees en base.')) return;
+    const validateBtn = element.querySelector('[data-action="validate"]');
+    if (validateBtn) validateBtn.disabled = true;
+    renderProgress('validating', 'Validation et enregistrement en base...');
     try {
       const result = await validateImport(currentBatch.id);
-      renderProgress('done', `Import terminé: ${result.created} créées, ${result.skipped} ignorées`);
+      renderProgress('done', 'Import termine: ' + result.created + ' creees, ' + result.skipped + ' ignorees');
       currentBatch = result.batch;
+      if (validateBtn) {
+        validateBtn.disabled = true;
+        validateBtn.textContent = 'Import valide';
+      }
       await loadPreview();
       setTimeout(() => renderProgress(null), 5000);
     } catch (error) {
-      renderProgress('error', 'Échec validation: ' + error.message);
+      console.error('[DEBUG] handleValidate error:', error);
+      renderProgress('error', 'Echec validation: ' + (error.message || 'Erreur inconnue'));
+      if (validateBtn) validateBtn.disabled = false;
     }
   }
 
@@ -246,13 +285,13 @@ export function createAgendaImportPage(router) {
   }
 
   function escapeHtml(value) {
-    return String(value ?? '').replace(/[&<>'"]/g, c => ({
-      '&': '&',
-      '<': '<',
-      '>': '>',
-      "'": '&#39;',
-      '"': '"',
-    }[c]));
+    return String(value ?? '').replace(/[&<>"']/g, c => {
+      if (c === '&') return '&';
+      if (c === '<') return '<';
+      if (c === '>') return '>';
+      if (c === '"') return '"';
+      return c;
+    });
   }
 
   async function render() {
@@ -264,31 +303,42 @@ export function createAgendaImportPage(router) {
         <h1>Import Agenda</h1>
         <div class="import-progress" data-progress hidden></div>
       </div>
-      <div class="admin-tabs" role="tablist">
-        <button role="tab" data-tab="import" class="admin-tab active">Importer</button>
-        <button role="tab" data-tab="preview" class="admin-tab" hidden>Prévisualiser</button>
+
+      <!-- Etape 1 : Upload -->
+      <div id="upload-card" class="card">
+        <h2>Nouvel import</h2>
+        <p>Selectionnez le fichier <strong>Calendrier des presences.xlsx</strong> (format B uniquement : feuilles avec sites Cebazat/Riom/Puteaux).</p>
+        <label class="btn btn-primary">
+          <input type="file" accept=".xlsx" hidden data-file-input>
+          Choisir un fichier
+        </label>
+        <span class="file-name" data-file-name></span>
       </div>
-      <div id="panel-import" class="admin-tab-panel admin-tab-panel--active" role="tabpanel" data-tab-content>
-        <div class="card">
-          <h2>Nouvel import</h2>
-          <p>Sélectionnez le fichier <strong>Calendrier des présences.xlsx</strong> (format B uniquement : feuilles avec sites Cébazat/Riom/Puteaux).</p>
-          <label class="btn btn-primary">
-            <input type="file" accept=".xlsx" hidden data-file-input>
-            Choisir un fichier
-          </label>
-          <span class="file-name" data-file-name></span>
+
+      <!-- Etape 2 : Previsualisation + Validation (cachee au debut) -->
+      <div id="preview-container" class="card" hidden>
+        ${currentBatch ? `
+        <div class="card" style="margin-bottom:1rem; background: var(--color-bg-secondary); padding: 1rem;">
+          <h3 style="margin:0 0 0.5rem 0; font-size: var(--font-size-md);">Bilan de l'import</h3>
+          <div style="display:flex; gap:1.5rem; flex-wrap:wrap; font-size: var(--font-size-sm);">
+            <span><strong>Total:</strong> ${currentBatch.rows_total}</span>
+            <span><strong>Pretes:</strong> ${currentBatch.rows_ready}</span>
+            <span><strong>A verifier:</strong> ${currentBatch.rows_needs_review}</span>
+            <span><strong>Deja presentes:</strong> ${currentBatch.rows_skipped_existing}</span>
+            <span><strong>Exclues:</strong> ${currentBatch.rows_excluded}</span>
+            ${currentBatch.week_start ? '<span><strong>Periode:</strong> ' + currentBatch.week_start + ' - ' + currentBatch.week_end + '</span>' : ''}
+          </div>
         </div>
-      </div>
-      <div id="panel-preview" class="admin-tab-panel" role="tabpanel" data-tab-content hidden>
+        ` : ''}
         <div class="card" style="margin-bottom:1rem">
-          <div class="filters-row" style="display:flex; gap:1rem; flex-wrap:wrap; align-items:end">
+          <div class="filters-row" style="display:flex; gap:1rem; flex-wrap:wrap; align-items:end; padding: 1rem; border-bottom: 1px solid var(--color-border-light);">
             <div>
               <label class="form-label">Statut</label>
               <select class="form-select" data-filter-status>
                 <option value="">Tous</option>
-                <option value="ready">Prêtes</option>
-                <option value="needs_review">À vérifier</option>
-                <option value="skipped_existing">Déjà présentes</option>
+                <option value="ready">Pretes</option>
+                <option value="needs_review">A verifier</option>
+                <option value="skipped_existing">Deja presentes</option>
                 <option value="excluded">Exclues</option>
               </select>
             </div>
@@ -301,18 +351,18 @@ export function createAgendaImportPage(router) {
               <input type="date" class="form-input" data-filter-end>
             </div>
             <div style="margin-top:auto">
-              <button class="btn btn-secondary" data-action="refresh">Rafraîchir</button>
+              <button class="btn btn-secondary" data-action="refresh">Rafraichir</button>
             </div>
           </div>
         </div>
-        <div class="card">
-          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem">
-            <h2>Lignes à importer</h2>
+        <div class="card" style="position: sticky; top: 0; z-index: 10; background: var(--color-surface-raised);">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem; padding: 1rem; border-bottom: 1px solid var(--color-border-light);">
+            <h2 style="margin:0">Lignes a importer</h2>
             <div style="display:flex; gap:0.5rem">
               <button class="btn btn-primary" data-action="validate" ${currentBatch?.status === 'validated' ? 'disabled' : ''}>Valider l'import</button>
             </div>
           </div>
-          <div class="table-responsive">
+          <div class="table-responsive" style="max-height: calc(100vh - 300px); overflow-y: auto;">
             <table class="table">
               <thead>
                 <tr>
@@ -320,7 +370,7 @@ export function createAgendaImportPage(router) {
                   <th>Feuille</th>
                   <th>Nom</th>
                   <th>Site</th>
-                  <th>Période</th>
+                  <th>Periode</th>
                   <th>Utilisateur / Inscription libre</th>
                   <th>Local</th>
                   <th>Poste</th>
@@ -339,17 +389,7 @@ export function createAgendaImportPage(router) {
     element.querySelector('[data-file-input]')?.addEventListener('change', handleFileSelect);
     element.querySelector('[data-file-input]')?.addEventListener('change', e => {
       const nameEl = element.querySelector('[data-file-name]');
-      if (nameEl && e.target.files[0]) nameEl.textContent = ' → ' + e.target.files[0].name;
-    });
-    element.querySelectorAll('[data-tab]')?.forEach(btn => {
-      btn.addEventListener('click', () => {
-        element.querySelectorAll('[data-tab]').forEach(b => b.classList.remove('active'));
-        btn.classList.add('active');
-        const tab = btn.dataset.tab;
-        element.querySelectorAll('[data-tab-content]').forEach(p => p.hidden = true);
-        const panel = element.querySelector(`#panel-${tab}`);
-        if (panel) panel.hidden = false;
-      });
+      if (nameEl && e.target.files[0]) nameEl.textContent = ' -> ' + e.target.files[0].name;
     });
     element.querySelector('[data-filter-status]')?.addEventListener('change', handleFilterChange);
     element.querySelector('[data-filter-start]')?.addEventListener('change', handleFilterChange);
@@ -361,5 +401,5 @@ export function createAgendaImportPage(router) {
     return element;
   }
 
-  return { render };
+  return { render, initialize: async () => {} };
 }

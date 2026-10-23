@@ -660,7 +660,7 @@ async function showAgendaImportPage(route) {
   appShell.showLoading();
   try {
     const page = await ensureAgendaImportPage();
-    appShell.showContent(page.render());
+    appShell.showContent(await page.render());
   } catch (error) {
     console.error('Erreur affichage import agenda:', error);
     appShell.showError(error);

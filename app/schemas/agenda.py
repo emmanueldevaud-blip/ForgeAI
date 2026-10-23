@@ -244,5 +244,6 @@ class AgendaImportStagedRowUpdate(BaseModel):
     user_id: Optional[int] = None
     external_name: Optional[str] = None
     room_id: Optional[int] = None
+    site_label: Optional[str] = None
     status: Optional[str] = None
     skip: Optional[bool] = None

@@ -4,6 +4,7 @@
   "description": "Application web de démonstration complète avec authentification (locale + Active Directory).",
   "main": "inspect-dashboard.js",
   "directories": {
+    "doc": "docs",
     "test": "tests"
   },
   "scripts": {
@@ -14,5 +15,8 @@
   "license": "ISC",
   "dependencies": {
     "playwright": "^1.62.1"
+  },
+  "devDependencies": {
+    "esbuild": "^0.28.2"
   }
 }

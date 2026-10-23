@@ -121,7 +121,14 @@ class GestionBureauxModule(BaseModule):
             })
 
         if not children:
-            return []
+            return [{
+                "code": self.info.code,
+                "name": self.info.name,
+                "icon": self.info.icon,
+                "route": self.info.route_path,
+                "order": self.info.order,
+                "children": [],
+            }]
 
         return [{
             "code": self.info.code,

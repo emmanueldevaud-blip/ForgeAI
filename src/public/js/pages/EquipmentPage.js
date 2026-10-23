@@ -430,7 +430,7 @@ export class EquipmentPage {
     const isEdit = !!equipment;
     const title = isEdit ? `Modifier: ${equipment.reference}` : 'Nouvel équipement';
 
-    const sites = await this._loadSites();
+    let sites = await this._loadSites();
     let buildings = [];
     let rooms = [];
 

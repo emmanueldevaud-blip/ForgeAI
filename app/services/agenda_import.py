@@ -336,6 +336,8 @@ async def analyze_import(db: AsyncSession, file_content: bytes, filename: str, u
                         status = "needs_review"
                         review_reason = "site_manquant"
                     elif len(marked_sites) > 1:
+                        status = "needs_review"
+                        review_reason = "sites_multiples"
                         room_id = site_rooms.get(norm(marked_sites[0]))
                     else:
                         room_id = site_rooms.get(norm(marked_sites[0]))
@@ -359,12 +361,11 @@ async def analyze_import(db: AsyncSession, file_content: bytes, filename: str, u
                     needs_workstation = True
                     needs_meal = True
                     if len(marked_sites) > 1:
+                        status = "needs_review"
+                        review_reason = "sites_multiples"
                         room_id = site_rooms.get(norm(marked_sites[0]))
                     else:
                         room_id = site_rooms.get(norm(marked_sites[0]))
-                    if marked_sites:
-                        # flag that day code was missing
-                        pass
 
                 elif day_code:
                     # Unknown code - skip
@@ -505,6 +506,7 @@ async def update_staged_row(
     user_id: int | None = None,
     external_name: str | None = None,
     room_id: int | None = None,
+    site_label: str | None = None,
     status: str | None = None,
     skip: bool = False,
 ) -> AgendaImportStagedRow | None:
@@ -519,13 +521,29 @@ async def update_staged_row(
         row.user_id = None
     if room_id is not None:
         row.room_id = room_id
+    if site_label is not None:
+        # Resolve site_label to room_id
+        site_rooms = await resolve_site_rooms(db)
+        room_id_resolved = site_rooms.get(norm(site_label))
+        if room_id_resolved:
+            row.room_id = room_id_resolved
+            row.site_label = site_label
+            # For non-remote rows, selecting a site implies workstation + meal
+            if not row.is_remote:
+                row.needs_workstation = True
+                row.needs_meal = True
     if status is not None:
         row.status = status
     if skip:
         row.status = "excluded"
     # If resolved, mark ready
-    if row.status == "needs_review" and row.user_id is not None and row.room_id is not None:
-        row.status = "ready"
+    # Ready if: has identity (user_id or external_name) AND has location (room_id or is_remote)
+    if row.status == "needs_review":
+        has_identity = row.user_id is not None or bool(row.external_name)
+        has_location = row.room_id is not None or row.is_remote
+        if has_identity and has_location:
+            row.status = "ready"
+            row.review_reason = None
     await db.commit()
     await db.refresh(row)
     return row

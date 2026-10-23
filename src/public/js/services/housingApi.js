@@ -289,6 +289,22 @@ export async function quickCreateOccupant(data) {
 }
 
 // ============================================================
+// IMPORT OCCUPATION
+// ============================================================
+
+export async function analyzeImport(file) {
+  const formData = new FormData();
+  formData.append('file', file);
+  return housingApi.post('/imports', formData, {
+    headers: { 'Content-Type': 'multipart/form-data' }
+  });
+}
+
+export async function validateImport(stays) {
+  return housingApi.post('/imports/validate', { stays });
+}
+
+// ============================================================
 // VOLUNTEERS
 // ============================================================
 

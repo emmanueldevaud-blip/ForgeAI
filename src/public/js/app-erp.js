@@ -34,6 +34,7 @@ import { createSportGoalsPage } from './pages/SportGoalsPage.js?v=1';
 import { createAgendaPage } from './pages/AgendaPage.js?v=77';
 import { createAgendaSettingsPage } from './pages/AgendaSettingsPage.js?v=4';
 import { createAgendaImportPage } from './pages/AgendaImportPage.js';
+import { createHousingImportPage } from './pages/HousingImportPage.js';
 import { createDomotiquePage } from './pages/DomotiquePage.js?v=8';
 import { createDomotiqueConfigPage } from './pages/DomotiqueConfigPage.js?v=8';
 import { createPhotosPage } from './pages/PhotosPage.js?v=9';
@@ -93,6 +94,7 @@ let maintenanceRefsPage = null;
 let maintenanceCalendarPage = null;
 let aiAssistantPage = null;
 let housingPage = null;
+let housingImportPage = null;
 let volunteersPage = null;
 let administrativeProgramsPage = null;
 let sportDashboardPage = null;
@@ -108,6 +110,33 @@ let domotiqueConfigPage = null;
 let photosPage = null;
 let souvenirsPage = null;
 let itAssetPage = null;
+
+// Force inclusion - side effect at module evaluation time
+void (function() {
+  const _refs = [
+    createHousingPage, createHousingImportPage,
+    createAgendaPage, createAgendaImportPage, createAgendaSettingsPage,
+    createDomotiquePage, createDomotiqueConfigPage,
+    createPhotosPage, createSouvenirsPage, createITAssetPage,
+    createSportDashboardPage, createSportActivitiesPage, createSportGarminPage,
+    createSportHealthPage, createSportAnalysesPage, createSportGoalsPage,
+    createBuildingsPage, createEquipmentPage, createEquipmentRefsPage,
+    createDashboardPage, createMaintenanceRequestsPage, createMaintenanceWorkOrdersPage,
+    createMaintenancePreventivePage, createMaintenanceProvidersPage, createMaintenanceContractsPage,
+    createMaintenanceRefsPage, createMaintenanceCalendarPage,
+    createAIAssistantPage, createIntendanceExpensesPage, createBuildingRefsPage,
+    createAdministrationPage, createModulePlaceholderPage, createLoginPage, createRegisterPage,
+    createProfilePage, createSettingsPage, createCleaningVolunteersPage,
+    createAdministrativeProgramsPage,
+    createPhotosPage, createSouvenirsPage, createITAssetPage,
+  ];
+  // Prevent dead code elimination
+  if (typeof Symbol === 'function') {
+    Object.defineProperty(globalThis, Symbol.for('forgeai.page.creators'), {
+      value: _refs, configurable: true, writable: true
+    });
+  }
+})();
 
 async function initializeApp() {
   const app = document.getElementById('app');
@@ -243,6 +272,9 @@ async function initializeApp() {
     .addRoute('/housing', async (route) => {
       await showHousingPage(route);
     }, { requiresAuth: true, permissions: ['housing.view'], module: ['housing', 'gestion_bureaux'] })
+    .addRoute('/housing/import-excel', async (route) => {
+      await showHousingImportPage(route);
+    }, { requiresAuth: true, permissions: ['housing.manage_occupancies'], module: ['housing', 'gestion_bureaux'] })
     .addRoute('/sport', async (route) => {
       await showSportDashboardPage(route);
     }, { requiresAuth: true, permissions: ['sport.access'], module: 'sport' })
@@ -505,6 +537,14 @@ async function ensureHousingPage() {
     await housingPage.initialize();
   }
   return housingPage;
+}
+
+async function ensureHousingImportPage() {
+  if (!housingImportPage) {
+    housingImportPage = createHousingImportPage(router);
+    await housingImportPage.initialize();
+  }
+  return housingImportPage;
 }
 
 async function ensureVolunteersPage() {
@@ -1016,6 +1056,20 @@ async function showHousingPage(route) {
     appShell.showContent(content);
   } catch (error) {
     console.error('Erreur affichage hébergements:', error);
+    appShell.showError(error);
+  }
+}
+
+async function showHousingImportPage(route) {
+  if (!appShell) return;
+  appShell.showLoading();
+
+  try {
+    const page = await ensureHousingImportPage();
+    const content = page.render();
+    appShell.showContent(content);
+  } catch (error) {
+    console.error('Erreur affichage import hébergement:', error);
     appShell.showError(error);
   }
 }

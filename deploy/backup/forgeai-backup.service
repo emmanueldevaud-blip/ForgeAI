@@ -1,0 +1,10 @@
+[Unit]
+Description=ForgeAI MySQL Backup
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/forgeai-backup.sh
+User=ubuntu
+Group=docker

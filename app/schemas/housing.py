@@ -615,3 +615,45 @@ class PlanningResponse(BaseModel):
 
 class MessageResponse(BaseModel):
     message: str
+
+
+# ============================================================
+# IMPORT OCCUPATION
+# ============================================================
+
+class HousingImportStay(BaseModel):
+    occupant_id: int
+    occupant_label: str
+    housing_id: int
+    housing_name: str
+    room_index: int
+    arrival_date: datetime
+    departure_date: datetime
+    nb_nights: int
+    status: str  # ready, duplicate, ambiguous
+    occupants: List[dict]
+
+
+class HousingImportBatch(BaseModel):
+    filename: str
+    stats: dict
+    stays: List[HousingImportStay]
+    period_start: Optional[datetime] = None
+    period_end: Optional[datetime] = None
+
+
+class HousingImportValidateRequest(BaseModel):
+    stays: List[HousingImportStay]
+
+
+class HousingImportValidateResponse(BaseModel):
+    created: int
+    skipped: int
+
+
+# ============================================================
+# MESSAGES
+# ============================================================
+
+class MessageResponse(BaseModel):
+    message: str

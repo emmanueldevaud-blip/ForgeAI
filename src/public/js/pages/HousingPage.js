@@ -15,6 +15,7 @@ export class HousingPage {
       { id: 'cleaning', label: 'Ménage', permission: 'housing.view', component: null, mounted: false },
       { id: 'occupants', label: 'Occupants', permission: 'housing.view', component: null, mounted: false },
       { id: 'email-templates', label: 'Modèles d’e-mails', permission: 'housing.manage_email_templates', component: null, mounted: false },
+      { id: 'import', label: 'Import', permission: 'housing.manage_occupancies', component: null, mounted: false },
       { id: 'housings', label: 'Paramètres', permission: 'housing.manage', component: null, mounted: false },
     ];
     this._authUnsubscribe = null;
@@ -115,6 +116,13 @@ export class HousingPage {
     const tab = this.tabs.find(t => t.id === tabId);
     if (!tab) return;
     if (!authStore.hasPermission(tab.permission)) return;
+    
+    // Special handling for import tab - navigate to separate route
+    if (tabId === 'import') {
+      this.router.navigate('/housing/import-excel');
+      return;
+    }
+    
     this._switchTab(tabId);
     // Update URL hash for bookmarking without triggering route change
     window.history.replaceState(null, '', `/housing#${tabId}`);

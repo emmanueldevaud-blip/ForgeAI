@@ -51,8 +51,13 @@ from app.schemas.housing import (
     OccupantQuickCreate,
     PlanningEntry,
     PlanningResponse,
+    HousingImportBatch,
+    HousingImportValidateRequest,
+    HousingImportValidateResponse,
 )
 from app.services.housing import HousingService
+from app.services.housing_import import analyze_import, validate_import
+from app.services.housing_import import analyze_import, validate_import
 
 
 router = APIRouter(
@@ -705,6 +710,37 @@ async def send_custom_message(
     result = await service.send_custom_message(occupancy_id, subject, body_text, recipients, template_id, attachments, body_html)
     return {"message": result}
 
+
+# ============================================================
+# IMPORT OCCUPATION LOGEMENTS
+# ============================================================
+
+@router.post("/imports", response_model=HousingImportBatch, status_code=201)
+async def analyze_import_endpoint(
+    file: UploadFile = File(...),
+    current_user: User = Depends(require_permission("housing.manage_occupancies")),
+    db: AsyncSession = Depends(get_db),
+):
+    if not file.filename or not file.filename.lower().endswith(".xlsx"):
+        raise HTTPException(status_code=400, detail="Seuls les fichiers .xlsx sont acceptés")
+    content = await file.read()
+    result = await analyze_import(db, content, file.filename, current_user.id)
+    return result
+
+
+@router.post("/imports/validate", response_model=HousingImportValidateResponse)
+async def validate_import_endpoint(
+    payload: HousingImportValidateRequest,
+    current_user: User = Depends(require_permission("housing.manage_occupancies")),
+    db: AsyncSession = Depends(get_db),
+):
+    created, skipped = await validate_import(db, payload.stays, current_user.id)
+    return {"created": created, "skipped": skipped}
+
+
+# ============================================================
+# EMAIL LOGS
+# ============================================================
 
 @router.get("/email-logs", response_model=EmailLogListResponse)
 async def list_email_logs(

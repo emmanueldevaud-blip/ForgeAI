@@ -1,0 +1,12 @@
+[Unit]
+Description=Sync VPS Database to Local
+After=docker.service network-online.target
+Wants=network-online.target
+Requires=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/home/edevaud/forgeai/deploy/sync-vps-to-local.sh
+User=edevaud
+Group=docker
+WorkingDirectory=/home/edevaud/forgeai

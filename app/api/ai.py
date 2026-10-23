@@ -65,7 +65,8 @@ AI_CHAT_SYSTEM_PROMPT = (
 _SPORT_QUESTION_RE = re.compile(
     r"sport|activit|entraînement|entrainement|séance|seance|sorti|footing|running|"
     r"course|vélo|velo|cardio|fréquence|frequence|musculation|natation|"
-    r"coach|objectif|dénivelé|denivele|\bkm\b",
+    r"coach|objectif|dénivelé|denivele|forme|progress|évolu|evolu|historique|"
+    r"semaine|mois|charge|\bkm\b",
     re.IGNORECASE,
 )
 
@@ -81,12 +82,12 @@ _DEVELOPMENT_QUESTION_RE = re.compile(
 )
 
 
-async def _build_sport_context(db: AsyncSession, user: User) -> dict | None:
+async def _build_sport_context(db: AsyncSession, user: User, question: str | None = None) -> dict | None:
     """Contexte du coach sport pour l'utilisateur, ou None si indisponible."""
     try:
         service = SportService(db, user)
         athlete = await service.get_or_create_athlete()
-        return await service.build_coach_context(athlete)
+        return await service.build_coach_context(athlete, question=question)
     except Exception:
         logger.warning("[AI-CHAT] Contexte sport indisponible", exc_info=True)
         return None
@@ -264,7 +265,7 @@ async def ai_chat(
 
     sport_context = None
     if ai_text is None and sport_allowed:
-        sport_context = await _build_sport_context(db, current_user)
+        sport_context = await _build_sport_context(db, current_user, data.message)
 
     if ai_text is None:
         try:

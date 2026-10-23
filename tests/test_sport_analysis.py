@@ -55,6 +55,27 @@ def test_period_comparison_is_previous_equal_length_period():
     assert result["findings"][0]["evidence"]["previous"] == 10000
 
 
+def test_activity_comparison_keeps_only_comparable_sessions_and_evidence():
+    reference = activity(id=10, distance_m=10000, duration_seconds=3600, elevation_gain_m=300)
+    comparable = activity(id=11, distance_m=9500, duration_seconds=3500, elevation_gain_m=280)
+    too_different = activity(id=12, distance_m=30000, duration_seconds=9000, elevation_gain_m=1200)
+    other_sport = activity(id=13, sport_type="cycling")
+
+    result = SportAnalysisEngine.analyze_activity(reference, [comparable, too_different, other_sport])
+
+    assert result["comparison"]["similar_activity_count"] == 1
+    assert result["comparison"]["activities"][0]["id"] == 11
+    assert result["comparison"]["activities"][0]["distance_m"] == 9500
+
+
+def test_coach_scope_can_target_old_history_and_sport():
+    scope = SportService._coach_scope("Analyse mon historique trail depuis 6 mois", date(2026, 10, 23))
+
+    assert scope["start"] == date(2026, 4, 20)
+    assert scope["end"] == date(2026, 10, 23)
+    assert scope["sport"] == "trail"
+
+
 def test_heart_rate_zones_use_configured_values_and_time():
     item = activity(track_points=[point(0, 120), point(1, 160), point(2, 180)])
 

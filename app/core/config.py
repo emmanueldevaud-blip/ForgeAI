@@ -113,6 +113,11 @@ class Settings(BaseSettings):
     SPORT_MORNING_ANALYSIS_DEADLINE: str = "10:00"
     SPORT_EVENING_ANALYSIS_ENABLED: bool = True
     SPORT_EVENING_ANALYSIS_TIME: str = "20:00"
+    # Fournisseur IA local optionnel du coach Sport (désactivé par défaut).
+    SPORT_AI_PROVIDER: str = "gateway"
+    SPORT_OLLAMA_URL: str = "http://ollama:11434"
+    SPORT_OLLAMA_MODEL: str = "qwen2.5:3b"
+    SPORT_OLLAMA_TIMEOUT_SECONDS: float = 60.0
     SPORT_ACTIVITY_ANALYSIS_ENABLED: bool = True
     SPORT_ACTIVITY_ANALYSIS_DELAY_MINUTES: int = 15
     SPORT_ANALYSIS_TIMEZONE: str = "Europe/Paris"

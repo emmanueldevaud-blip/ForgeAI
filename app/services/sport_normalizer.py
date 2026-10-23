@@ -1,4 +1,5 @@
 from datetime import datetime, timezone
+import math
 from pathlib import Path
 from typing import Any
 from xml.etree import ElementTree
@@ -55,10 +56,12 @@ class SportNormalizer:
     def _from_gpx(filename: str, content: bytes) -> SportNormalizedActivity:
         root = ElementTree.fromstring(content)
         points = []
-        namespace = "{http://www.topografix.com/GPX/1/1}"
-        for index, point in enumerate(root.findall(f".//{namespace}trkpt")):
-            timestamp = point.findtext(f"{namespace}time")
-            elevation = point.findtext(f"{namespace}ele")
+        for index, point in enumerate(
+            element for element in root.iter() if element.tag.rsplit("}", 1)[-1] == "trkpt"
+        ):
+            children = {element.tag.rsplit("}", 1)[-1]: element.text for element in point}
+            timestamp = children.get("time")
+            elevation = children.get("ele")
             points.append({
                 "sequence": index,
                 "recorded_at": timestamp,
@@ -70,6 +73,7 @@ class SportNormalizer:
         start = points[0].get("recorded_at") if points else None
         if not start:
             start = datetime.now(timezone.utc).isoformat()
+        metrics = SportNormalizer._metrics_from_points(points)
         return SportNormalizedActivity(
             sport_type="running",
             activity_name=Path(filename).stem,
@@ -78,6 +82,7 @@ class SportNormalizer:
             source_file_name=filename,
             metadata_json=metadata,
             track_points=points,
+            **metrics,
         )
 
     @staticmethod
@@ -108,6 +113,24 @@ class SportNormalizer:
             })
         start = activity.findtext("tcx:Id", namespaces)
         started_at = datetime.fromisoformat(start.replace("Z", "+00:00")) if start else datetime.now(timezone.utc)
+        lap = activity.find(".//tcx:Lap", namespaces)
+        summary = {}
+        if lap is not None:
+            for field in ("TotalTimeSeconds", "DistanceMeters", "Calories", "AverageHeartRateBpm", "MaximumHeartRateBpm"):
+                value = lap.findtext(f"tcx:{field}", namespaces)
+                if value is not None:
+                    summary[field] = value
+        metrics = SportNormalizer._metrics_from_points(points)
+        if summary.get("TotalTimeSeconds") and (not points or not metrics.get("duration_seconds")):
+            metrics["duration_seconds"] = int(float(summary["TotalTimeSeconds"]))
+        if summary.get("DistanceMeters") and (not points or not metrics.get("distance_m")):
+            metrics["distance_m"] = float(summary["DistanceMeters"])
+        if summary.get("Calories"):
+            metrics["calories"] = float(summary["Calories"])
+        if summary.get("AverageHeartRateBpm"):
+            metrics.setdefault("avg_heart_rate", float(summary["AverageHeartRateBpm"]))
+        if summary.get("MaximumHeartRateBpm"):
+            metrics.setdefault("max_heart_rate", float(summary["MaximumHeartRateBpm"]))
         return SportNormalizedActivity(
             sport_type=sport_type,
             activity_name=Path(filename).stem,
@@ -116,4 +139,51 @@ class SportNormalizer:
             source_file_name=filename,
             metadata_json={"import_format": "tcx", "point_count": len(points)},
             track_points=points,
+            **metrics,
         )
+
+    @staticmethod
+    def _metrics_from_points(points: list[dict[str, Any]]) -> dict[str, Any]:
+        """Calcule les métriques de base quand le fichier ne les fournit pas."""
+        if not points:
+            return {}
+        distance = 0.0
+        gain = 0.0
+        loss = 0.0
+        first_time = last_time = None
+        for previous, current in zip(points, points[1:]):
+            distance += SportNormalizer._distance_m(
+                previous["latitude"], previous["longitude"], current["latitude"], current["longitude"]
+            )
+            previous_elevation = previous.get("elevation_m")
+            current_elevation = current.get("elevation_m")
+            if previous_elevation is not None and current_elevation is not None:
+                delta = current_elevation - previous_elevation
+                if delta > 0:
+                    gain += delta
+                else:
+                    loss -= delta
+        timestamps = [point.get("recorded_at") for point in points if point.get("recorded_at")]
+        if timestamps:
+            first_time = datetime.fromisoformat(timestamps[0].replace("Z", "+00:00"))
+            last_time = datetime.fromisoformat(timestamps[-1].replace("Z", "+00:00"))
+        duration = max(0, int((last_time - first_time).total_seconds())) if first_time and last_time else 0
+        metrics: dict[str, Any] = {
+            "distance_m": distance,
+            "elevation_gain_m": gain,
+            "elevation_loss_m": loss,
+            "duration_seconds": duration,
+        }
+        if duration > 0 and distance > 0:
+            metrics["avg_speed_m_s"] = distance / duration
+            metrics["avg_pace_sec_km"] = duration / (distance / 1000)
+        return metrics
+
+    @staticmethod
+    def _distance_m(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+        radius_m = 6_371_000
+        lat1, lat2 = math.radians(lat1), math.radians(lat2)
+        delta_lat = lat2 - lat1
+        delta_lon = math.radians(lon2 - lon1)
+        haversine = math.sin(delta_lat / 2) ** 2 + math.cos(lat1) * math.cos(lat2) * math.sin(delta_lon / 2) ** 2
+        return 2 * radius_m * math.asin(math.sqrt(haversine))

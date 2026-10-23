@@ -347,7 +347,9 @@ def test_activity_detail_segments_and_curve():
     assert segment[0] == 0
     assert segment[4] == 145
     assert segment[6] == 171
+    assert segment[8] == 5
     assert detail["splits"][0]["type"] == "RWD_RUN"
+    assert detail["splits"][0]["max_speed_m_s"] == 3.5
     assert SportAnalysisEngine.activity_detail(SimpleNamespace(metadata_json={})) == {}
 
 

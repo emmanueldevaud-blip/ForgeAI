@@ -1,6 +1,9 @@
 import json
 import logging
+import os
 from typing import Any, Protocol
+
+import httpx
 
 from app.services.ai_gateway import AIGatewayError, ai_gateway
 
@@ -105,6 +108,55 @@ class GatewaySportAIProvider:
         return [key for key in ("athlete", "current_activity", "recent_activities", "weekly_summary", "monthly_summary", "goals", "recovery", "health") if context.get(key)]
 
 
+class OllamaSportAIProvider:
+    """Fournisseur local Ollama, sans dépendance au service pour les imports."""
+
+    def __init__(self, base_url: str | None = None, model: str | None = None, timeout: float | None = None, client: httpx.AsyncClient | None = None):
+        self.base_url = (base_url or os.getenv("SPORT_OLLAMA_URL", "http://ollama:11434")).rstrip("/")
+        self.model = model or os.getenv("SPORT_OLLAMA_MODEL", "qwen2.5:3b")
+        self.timeout = timeout or float(os.getenv("SPORT_OLLAMA_TIMEOUT_SECONDS", "60"))
+        self._client = client
+
+    async def answer(self, question: str, context: dict[str, Any]) -> dict[str, Any]:
+        payload = {
+            "model": self.model,
+            "stream": False,
+            "format": "json",
+            "system": GatewaySportAIProvider._system_prompt() +
+            "\nRéponds au format JSON strict {\"answer\": \"...\"}.",
+            "prompt": f"Question: {question}\nContexte JSON:\n{json.dumps(context, ensure_ascii=False, default=str)}",
+        }
+        try:
+            owns_client = self._client is None
+            client = self._client or httpx.AsyncClient(timeout=self.timeout)
+            try:
+                response = await client.post(f"{self.base_url}/api/generate", json=payload, timeout=self.timeout)
+                response.raise_for_status()
+                body = response.json()
+                raw = body.get("response")
+                if not isinstance(raw, str) or not raw.strip():
+                    raise ValueError("Réponse Ollama vide")
+                parsed = json.loads(raw)
+                answer = parsed.get("answer") if isinstance(parsed, dict) else None
+                if not isinstance(answer, str) or not answer.strip():
+                    raise ValueError("Réponse Ollama non structurée")
+                return {
+                    "available": True,
+                    "provider": "ollama",
+                    "model": self.model,
+                    "answer": answer.strip(),
+                    "sources": GatewaySportAIProvider._sources(context),
+                }
+            finally:
+                if owns_client:
+                    await client.aclose()
+        except (httpx.HTTPError, ValueError, TypeError, json.JSONDecodeError) as exc:
+            logger.warning("[SPORT-AI] Ollama indisponible ou réponse invalide : %s", exc)
+        return await LocalSportAIProvider().answer(question, context)
+
+
 def get_sport_ai_provider() -> SportAIProvider:
-    """Le sport utilise exclusivement l'AI Gateway (cascade Groq/Gemini/OpenRouter)."""
+    """Sélection explicite du fournisseur, avec Gateway conservée par défaut."""
+    if os.getenv("SPORT_AI_PROVIDER", "gateway").lower() == "ollama":
+        return OllamaSportAIProvider()
     return GatewaySportAIProvider()

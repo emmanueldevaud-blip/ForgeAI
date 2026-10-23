@@ -164,7 +164,8 @@ class SportAnalysisEngine:
     @classmethod
     def analyze_activity(cls, activity: Any, similar_activities: Iterable[Any] = (), zones: dict[str, Any] | None = None) -> dict[str, Any]:
         summary = cls.summarize([activity])
-        similar = cls.summarize(similar_activities)
+        candidates = cls.select_similar_activities(activity, similar_activities)
+        similar = cls.summarize(candidates)
         observations = []
         findings = []
         if summary["long_activity_count"]:
@@ -180,7 +181,52 @@ class SportAnalysisEngine:
             message = "Une dérive cardiaque a été calculée sur la seconde partie de l’activité."
             observations.append(message)
             findings.append({"type": "cardiac_drift", "message": message, "evidence": drift})
-        return {"activity": summary, "comparison": {"similar_activity_count": similar["activity_count"], "similar": similar}, "heart_rate_zones": cls.heart_rate_zones(activity, zones), "cardiac_drift": drift, "training_load": cls.training_load(activity, zones), "observations": observations, "findings": findings}
+        return {"activity": summary, "comparison": {
+            "similar_activity_count": similar["activity_count"],
+            "similar": similar,
+            "activities": [cls.activity_evidence(item) for item in candidates],
+        }, "heart_rate_zones": cls.heart_rate_zones(activity, zones), "cardiac_drift": drift, "training_load": cls.training_load(activity, zones), "observations": observations, "findings": findings}
+
+    @staticmethod
+    def activity_evidence(activity: Any) -> dict[str, Any]:
+        return {
+            "id": getattr(activity, "id", None),
+            "date": activity.started_at.date().isoformat() if getattr(activity, "started_at", None) else None,
+            "sport": getattr(activity, "sport_type", None),
+            "distance_m": getattr(activity, "distance_m", None),
+            "duration_seconds": getattr(activity, "duration_seconds", None),
+            "avg_pace_sec_km": getattr(activity, "avg_pace_sec_km", None),
+            "avg_heart_rate": getattr(activity, "avg_heart_rate", None),
+            "elevation_gain_m": getattr(activity, "elevation_gain_m", None),
+        }
+
+    @classmethod
+    def select_similar_activities(cls, reference: Any, candidates: Iterable[Any], limit: int = 5) -> list[Any]:
+        """Retient des séances comparables plutôt que toutes les séances du sport."""
+        reference_distance = getattr(reference, "distance_m", None)
+        reference_duration = getattr(reference, "duration_seconds", None)
+        reference_elevation = getattr(reference, "elevation_gain_m", None)
+        scored: list[tuple[float, Any]] = []
+        for candidate in candidates:
+            if getattr(candidate, "sport_type", None) != getattr(reference, "sport_type", None):
+                continue
+            score = 0.0
+            comparisons = 0
+            for value, target, weight in (
+                (getattr(candidate, "distance_m", None), reference_distance, 0.5),
+                (getattr(candidate, "duration_seconds", None), reference_duration, 0.3),
+                (getattr(candidate, "elevation_gain_m", None), reference_elevation, 0.2),
+            ):
+                if value is None or target in (None, 0):
+                    continue
+                score += min(abs(float(value) - float(target)) / abs(float(target)), 2.0) * weight
+                comparisons += 1
+            # Au-delà de 75 %, la séance n'est plus comparable de façon fiable
+            # (parcours ou effort d'une autre nature).
+            if comparisons and score <= 0.75:
+                scored.append((score, candidate))
+        scored.sort(key=lambda item: item[0])
+        return [candidate for _, candidate in scored[:limit]]
 
     @classmethod
     def activity_detail(cls, activity: Any, curve_points: int = 40) -> dict[str, Any]:
@@ -242,11 +288,12 @@ class SportAnalysisEngine:
                 if bucket:
                     segments.append(cls._segment_row(bucket))
                 bucket = {"km": km, "ts0": point["ts"], "v": [], "hr": [], "cad": [], "pw": [], "alt": [], "dpos": 0.0}
+            previous_alt = next((item for item in reversed(bucket["alt"]) if item is not None), None)
             bucket["ts1"] = point["ts"]
             for key in ("v", "hr", "cad", "pw", "alt"):
                 bucket[key].append(point[key])
-            if point["alt"] is not None and bucket["alt"] and bucket["alt"][-1] is not None:
-                delta = point["alt"] - bucket["alt"][-1]
+            if point["alt"] is not None and previous_alt is not None:
+                delta = point["alt"] - previous_alt
                 if delta > 0:
                     bucket["dpos"] += delta
         if bucket:
@@ -278,6 +325,8 @@ class SportAnalysisEngine:
                 "avg_speed_m_s": split.get("averageSpeed"),
                 "avg_hr": split.get("averageHR"),
                 "avg_power_w": split.get("averagePower"),
+                "max_speed_m_s": split.get("maxSpeed"),
+                "max_heart_rate": split.get("maxHR"),
                 "elevation_gain_m": split.get("elevationGain"),
             })
         return {

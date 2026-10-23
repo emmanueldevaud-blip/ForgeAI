@@ -1,6 +1,7 @@
 import json
 import logging
 import os
+import re
 from collections import defaultdict
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
@@ -740,7 +741,7 @@ class SportService:
             (athlete.metadata_json or {}).get("heart_rate_zones"),
         )
 
-    async def build_coach_context(self, athlete) -> dict:
+    async def build_coach_context(self, athlete, question: str | None = None) -> dict:
         """Contexte compact du coach IA (prompts soumis à la limite d'entrée de l'AI Gateway).
 
         Le contexte part dans un prompt unique : il ne contient que des résumés
@@ -751,14 +752,19 @@ class SportService:
         list_previous_analyses, get_health_data).
         """
         today = datetime.now(timezone.utc).date()
-        start = today - timedelta(days=27)
+        scope = self._coach_scope(question, today)
+        history_start = scope["start"]
         result = await self.db.execute(
             select(SportActivity).where(
                 SportActivity.athlete_id == athlete.id,
-                SportActivity.started_at >= datetime.combine(today - timedelta(days=120), datetime.min.time()),
+                SportActivity.started_at >= datetime.combine(history_start, datetime.min.time()),
+                SportActivity.started_at <= datetime.combine(scope["end"], datetime.max.time()),
             ).order_by(SportActivity.started_at.desc())
         )
         activities = list(result.scalars().all())
+        if scope["sport"]:
+            activities = [item for item in activities if scope["sport"] in (item.sport_type or "").lower()]
+        start = max(today - timedelta(days=27), history_start)
         zones = (athlete.metadata_json or {}).get("heart_rate_zones")
         weekly = SportAnalysisEngine.analyze_period(activities, start, today, today - timedelta(days=55), zones)
         monthly = SportAnalysisEngine.analyze_period(activities, today - timedelta(days=89), today, today - timedelta(days=179), zones)
@@ -796,6 +802,17 @@ class SportService:
         context["recent_analyses"] = recent_analyses
         # Tendances 7 et 30 jours : synthèse + évolution vs période précédente.
         context["period_trends"] = self._period_trends(activities, today)
+        # Catalogue compact pour permettre au dialogue libre de répondre aux
+        # comparaisons concrètes sans transmettre les traces GPS complètes.
+        context["activity_catalog"] = [self._coach_activity_brief(item) for item in self._coach_activity_selection(activities, question, scope)]
+        context["weekly_history"] = self._coach_weekly_history(activities, today, scope["start"])
+        context["history_scope"] = {
+            "start": scope["start"].isoformat(),
+            "end": scope["end"].isoformat(),
+            "sport": scope["sport"],
+            "activity_count": len(activities),
+            "question_driven": bool(question),
+        }
         context["recommendations"] = await self._coach_recommendations(athlete)
         health = await self.health_context(90)
         rows = health.get("rows") or []
@@ -807,7 +824,88 @@ class SportService:
             select(SportGarminConnection).where(SportGarminConnection.athlete_id == athlete.id)
         )).scalars().first()
         context["alerts"] = self._coach_alerts(context["recovery"], goals, garmin, today)
+        context["garmin_sync"] = {
+            "connected": bool(garmin and garmin.status == "connected"),
+            "status": garmin.status if garmin else "not_configured",
+            "last_sync_at": garmin.last_sync_at.isoformat() if garmin and garmin.last_sync_at else None,
+            "last_sync_status": garmin.last_sync_status if garmin else None,
+            "last_error": garmin.last_error if garmin else None,
+            "history_window_days": (scope["end"] - scope["start"]).days + 1,
+            "note": "Les activités détaillées et l'historique complet restent consultables en base.",
+        }
         return context
+
+    @staticmethod
+    def _coach_scope(question: str | None, today: date) -> dict[str, Any]:
+        text = (question or "").lower()
+        start = today - timedelta(days=120)
+        if any(token in text for token in ("historique", "depuis toujours", "toutes mes", "toute ma")):
+            start = today - timedelta(days=3650)
+        month_match = re.search(r"(\d+)\s*mois", text)
+        if month_match:
+            start = today - timedelta(days=int(month_match.group(1)) * 31)
+        date_values = [date.fromisoformat(value) for value in re.findall(r"\b(20\d{2}-\d{2}-\d{2})\b", text)]
+        if len(date_values) >= 2:
+            start, end = min(date_values), max(date_values)
+        else:
+            end = today
+        sport = None
+        for token in ("trail", "running", "course", "vélo", "velo", "cycling", "natation", "swimming"):
+            if token in text:
+                sport = {"course": "running", "vélo": "cycling", "velo": "cycling", "swimming": "swim"}.get(token, token)
+                break
+        return {"start": start, "end": end, "sport": sport}
+
+    @staticmethod
+    def _coach_activity_selection(activities: list[SportActivity], question: str | None, scope: dict[str, Any]) -> list[SportActivity]:
+        if not activities:
+            return []
+        text = (question or "").lower()
+        selected: dict[int, SportActivity] = {}
+        # Les demandes datées reçoivent toutes les activités du jour ciblé.
+        for item in activities:
+            if any(value in text for value in (item.started_at.date().isoformat(), str(item.id))):
+                selected[item.id] = item
+        for item in activities[:12] + activities[-12:]:
+            selected[item.id] = item
+        for item in sorted(activities, key=lambda row: (row.distance_m or 0), reverse=True)[:8]:
+            selected[item.id] = item
+        for item in sorted(activities, key=lambda row: (row.elevation_gain_m or 0), reverse=True)[:8]:
+            selected[item.id] = item
+        return sorted(selected.values(), key=lambda row: row.started_at, reverse=True)[:50]
+
+    @staticmethod
+    def _coach_activity_brief(activity: SportActivity) -> dict[str, Any]:
+        """Format stable et borné utilisé par les questions de comparaison."""
+        return {
+            "id": activity.id,
+            "date": activity.started_at.date().isoformat(),
+            "sport": activity.sport_type,
+            "name": activity.activity_name,
+            "duration_seconds": activity.duration_seconds,
+            "distance_m": activity.distance_m,
+            "elevation_gain_m": activity.elevation_gain_m,
+            "elevation_loss_m": activity.elevation_loss_m,
+            "avg_speed_m_s": activity.avg_speed_m_s,
+            "avg_pace_sec_km": activity.avg_pace_sec_km,
+            "avg_heart_rate": activity.avg_heart_rate,
+            "max_heart_rate": activity.max_heart_rate,
+            "avg_cadence": activity.avg_cadence,
+            "avg_power_w": activity.avg_power_w,
+            "calories": activity.calories,
+        }
+
+    @classmethod
+    def _coach_weekly_history(cls, activities: list[SportActivity], today: date, history_start: date | None = None) -> list[dict[str, Any]]:
+        """Résumés hebdomadaires compacts, avec comparaison exploitable par l'IA."""
+        history: list[dict[str, Any]] = []
+        weeks = min(52, max(18, ((today - (history_start or today - timedelta(days=120))).days // 7) + 1))
+        for offset in range(0, weeks):
+            end = today - timedelta(days=offset * 7)
+            start = end - timedelta(days=6)
+            items = [item for item in activities if start <= item.started_at.date() <= end]
+            history.append({"start": start.isoformat(), "end": end.isoformat(), "summary": SportAnalysisEngine.summarize(items)})
+        return history
 
     @staticmethod
     def _period_trends(activities: list[SportActivity], today: date) -> dict[str, Any]:

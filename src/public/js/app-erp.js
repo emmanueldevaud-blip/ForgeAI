@@ -37,7 +37,7 @@ import { createAgendaImportPage } from './pages/AgendaImportPage.js';
 import { createHousingImportPage } from './pages/HousingImportPage.js';
 import { createDomotiquePage } from './pages/DomotiquePage.js?v=8';
 import { createDomotiqueConfigPage } from './pages/DomotiqueConfigPage.js?v=8';
-import { createSurveillancePage } from './pages/SurveillancePage.js?v=1';
+import { createSurveillancePage } from './pages/SurveillancePage.js?v=2';
 import { createPhotosPage } from './pages/PhotosPage.js?v=9';
 import { createSouvenirsPage } from './pages/SouvenirsPage.js?v=4';
 import { createITAssetPage } from './pages/ITAssetPage.js?v=8';

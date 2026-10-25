@@ -1,10 +1,12 @@
 """API du module Domotique (sechoir a saucisson)."""
 import logging
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
-from sqlalchemy import desc, select
+from sqlalchemy import desc, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_db, require_module_enabled, require_permission
@@ -42,9 +44,21 @@ from app.schemas.domotique import (
     DomotiqueProfileUpsert,
     DomotiqueSensorResponse,
     DomotiqueTestConnectionResponse,
+    SurveillanceCameraCreate,
+    SurveillanceCameraListResponse,
+    SurveillanceCameraResponse,
+    SurveillanceEventListResponse,
+    SurveillanceEventResponse,
+    SurveillanceRecordingListResponse,
+    SurveillanceRecordingResponse,
+    SurveillanceTestResponse,
+    SurveillanceCaptureResponse,
 )
 from app.services.domotique import cycles as cycles_service
 from app.services.domotique import raspberry
+from app.models.domotique import SurveillanceCamera, SurveillanceEvent, SurveillanceRecording
+from app.services.surveillance import encrypt_password, has_password, test_camera_connection, validate_camera_target
+from app.services.surveillance_capture import capture_manager
 
 logger = logging.getLogger(__name__)
 
@@ -53,6 +67,18 @@ router = APIRouter(
     tags=["domotique"],
     dependencies=[Depends(require_module_enabled("domotique"))],
 )
+
+
+def _camera_payload(camera: SurveillanceCamera) -> SurveillanceCameraResponse:
+    return SurveillanceCameraResponse(
+        id=camera.id, name=camera.name, location=camera.location, source_type=camera.source_type,
+        protocol=camera.protocol, host=camera.host, port=camera.port, stream_url=camera.stream_url,
+        username=camera.username, has_password=has_password(camera.encrypted_password),
+        enabled=camera.enabled, detection_enabled=camera.detection_enabled, status=camera.status,
+        last_seen=camera.last_seen, last_error=camera.last_error, config_json=camera.config_json or {},
+        created_at=camera.created_at, updated_at=camera.updated_at,
+        capture_status=capture_manager.state(camera.id).status,
+    )
 
 _DEFAULT_DEVICE_CODE = "sechoir-saucisson"
 
@@ -195,6 +221,178 @@ async def get_status(
         cycle=_cycle_payload(cycle, profile),
         config=device.config_json or {},
     )
+
+
+# --------------------------------------------------------------------------- #
+# Surveillance
+# --------------------------------------------------------------------------- #
+
+@router.get("/surveillance/cameras", response_model=SurveillanceCameraListResponse)
+async def list_surveillance_cameras(
+    current_user=Depends(require_permission("domotique.view")),
+    db: AsyncSession = Depends(get_db),
+):
+    cameras = (await db.execute(select(SurveillanceCamera).order_by(SurveillanceCamera.name))).scalars().all()
+    return {"items": [_camera_payload(camera) for camera in cameras], "total": len(cameras)}
+
+
+@router.post("/surveillance/cameras", response_model=SurveillanceCameraResponse, status_code=201)
+async def create_surveillance_camera(
+    data: SurveillanceCameraCreate,
+    current_user=Depends(require_permission("domotique.configure")),
+    db: AsyncSession = Depends(get_db),
+):
+    try:
+        validate_camera_target(data.protocol, data.host, data.port, data.stream_url)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    camera = SurveillanceCamera(
+        name=data.name, location=data.location, source_type=data.source_type,
+        protocol=data.protocol, host=data.host, port=data.port, stream_url=data.stream_url,
+        username=data.username, encrypted_password=encrypt_password(data.password),
+        enabled=data.enabled, detection_enabled=data.detection_enabled, config_json=data.config_json,
+    )
+    db.add(camera)
+    await db.commit()
+    await db.refresh(camera)
+    return _camera_payload(camera)
+
+
+@router.put("/surveillance/cameras/{camera_id}", response_model=SurveillanceCameraResponse)
+async def update_surveillance_camera(
+    camera_id: int,
+    data: SurveillanceCameraCreate,
+    current_user=Depends(require_permission("domotique.configure")),
+    db: AsyncSession = Depends(get_db),
+):
+    camera = await db.get(SurveillanceCamera, camera_id)
+    if not camera:
+        raise HTTPException(status_code=404, detail="Caméra introuvable")
+    try:
+        validate_camera_target(data.protocol, data.host, data.port, data.stream_url)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    for field in ("name", "location", "source_type", "protocol", "host", "port", "stream_url", "username", "enabled", "detection_enabled", "config_json"):
+        setattr(camera, field, getattr(data, field))
+    if data.password:
+        camera.encrypted_password = encrypt_password(data.password)
+    await db.commit()
+    await db.refresh(camera)
+    return _camera_payload(camera)
+
+
+@router.delete("/surveillance/cameras/{camera_id}", response_model=dict)
+async def delete_surveillance_camera(
+    camera_id: int,
+    current_user=Depends(require_permission("domotique.configure")),
+    db: AsyncSession = Depends(get_db),
+):
+    camera = await db.get(SurveillanceCamera, camera_id)
+    if not camera:
+        raise HTTPException(status_code=404, detail="Caméra introuvable")
+    recordings = await db.scalar(select(func.count(SurveillanceRecording.id)).where(SurveillanceRecording.camera_id == camera_id))
+    events = await db.scalar(select(func.count(SurveillanceEvent.id)).where(SurveillanceEvent.camera_id == camera_id))
+    if recordings or events:
+        raise HTTPException(status_code=409, detail="Désactivez cette caméra : son historique doit être conservé")
+    await db.delete(camera)
+    await db.commit()
+    return {"message": "Caméra supprimée"}
+
+
+@router.post("/surveillance/cameras/{camera_id}/test", response_model=SurveillanceTestResponse)
+async def test_surveillance_camera(
+    camera_id: int,
+    current_user=Depends(require_permission("domotique.view")),
+    db: AsyncSession = Depends(get_db),
+):
+    camera = await db.get(SurveillanceCamera, camera_id)
+    if not camera:
+        raise HTTPException(status_code=404, detail="Caméra introuvable")
+    try:
+        ok, message, status = await test_camera_connection(camera)
+    except ValueError as exc:
+        ok, message, status = False, str(exc), "error"
+    camera.status, camera.last_error = status, None if ok else message
+    camera.last_seen = datetime.now(timezone.utc) if ok else camera.last_seen
+    await db.commit()
+    return {"ok": ok, "message": message, "status": status}
+
+
+def _capture_payload(camera_id: int) -> SurveillanceCaptureResponse:
+    state = capture_manager.state(camera_id)
+    return SurveillanceCaptureResponse(
+        camera_id=camera_id, status=state.status, error=state.error,
+        playlist_url=f"/domotique/surveillance/cameras/{camera_id}/stream/index.m3u8"
+        if state.status == "active" else None,
+    )
+
+
+@router.get("/surveillance/cameras/{camera_id}/capture", response_model=SurveillanceCaptureResponse)
+async def get_surveillance_capture(camera_id: int, current_user=Depends(require_permission("domotique.view")), db: AsyncSession = Depends(get_db)):
+    if not await db.get(SurveillanceCamera, camera_id):
+        raise HTTPException(status_code=404, detail="Caméra introuvable")
+    return _capture_payload(camera_id)
+
+
+@router.post("/surveillance/cameras/{camera_id}/capture/start", response_model=SurveillanceCaptureResponse)
+async def start_surveillance_capture(camera_id: int, current_user=Depends(require_permission("domotique.control")), db: AsyncSession = Depends(get_db)):
+    camera = await db.get(SurveillanceCamera, camera_id)
+    if not camera:
+        raise HTTPException(status_code=404, detail="Caméra introuvable")
+    try:
+        await capture_manager.start(camera)
+    except (RuntimeError, ValueError) as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return _capture_payload(camera_id)
+
+
+@router.post("/surveillance/cameras/{camera_id}/capture/stop", response_model=SurveillanceCaptureResponse)
+async def stop_surveillance_capture(camera_id: int, current_user=Depends(require_permission("domotique.control")), db: AsyncSession = Depends(get_db)):
+    if not await db.get(SurveillanceCamera, camera_id):
+        raise HTTPException(status_code=404, detail="Caméra introuvable")
+    await capture_manager.stop(camera_id)
+    return _capture_payload(camera_id)
+
+
+@router.get("/surveillance/cameras/{camera_id}/stream/{filename}")
+async def get_surveillance_stream_file(camera_id: int, filename: str, current_user=Depends(require_permission("domotique.view")), db: AsyncSession = Depends(get_db)):
+    if not await db.get(SurveillanceCamera, camera_id):
+        raise HTTPException(status_code=404, detail="Caméra introuvable")
+    if Path(filename).name != filename or Path(filename).suffix not in {".m3u8", ".ts"}:
+        raise HTTPException(status_code=404, detail="Ressource de flux invalide")
+    state = capture_manager.state(camera_id)
+    root = state.directory
+    if not root:
+        raise HTTPException(status_code=404, detail="Capture inactive")
+    path = (root / filename).resolve()
+    if root.resolve() not in path.parents or not path.is_file():
+        raise HTTPException(status_code=404, detail="Segment indisponible")
+    media_type = "application/vnd.apple.mpegurl" if path.suffix == ".m3u8" else "video/mp2t"
+    return FileResponse(
+        path,
+        media_type=media_type,
+        headers={"Cache-Control": "private, no-store, max-age=0", "Pragma": "no-cache"},
+    )
+
+
+@router.get("/surveillance/events", response_model=SurveillanceEventListResponse)
+async def list_surveillance_events(
+    limit: int = Query(50, ge=1, le=200),
+    current_user=Depends(require_permission("domotique.view")),
+    db: AsyncSession = Depends(get_db),
+):
+    items = (await db.execute(select(SurveillanceEvent).order_by(desc(SurveillanceEvent.created_at)).limit(limit))).scalars().all()
+    return {"items": [SurveillanceEventResponse.model_validate(item) for item in items], "total": len(items)}
+
+
+@router.get("/surveillance/recordings", response_model=SurveillanceRecordingListResponse)
+async def list_surveillance_recordings(
+    limit: int = Query(50, ge=1, le=200),
+    current_user=Depends(require_permission("domotique.view")),
+    db: AsyncSession = Depends(get_db),
+):
+    items = (await db.execute(select(SurveillanceRecording).order_by(desc(SurveillanceRecording.created_at)).limit(limit))).scalars().all()
+    return {"items": [SurveillanceRecordingResponse.model_validate({**item.__dict__, "available": False}) for item in items], "total": len(items)}
 
 
 @router.get("/history", response_model=DomotiqueHistoryResponse)

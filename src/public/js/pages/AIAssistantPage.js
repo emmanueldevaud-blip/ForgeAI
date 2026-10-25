@@ -144,6 +144,7 @@ export class AIAssistantPage {
       if (selectorsWrapper) {
         selectorsWrapper.innerHTML = this._renderAgentLLMSelectors();
         this._bindSelectorEvents();
+        this._bindConfigToggle();
       }
     } catch (e) {
       console.error('Erreur chargement options IA:', e);
@@ -480,6 +481,7 @@ export class AIAssistantPage {
     if (selectorsWrapper) {
       selectorsWrapper.innerHTML = this._renderAgentLLMSelectors();
       this._bindSelectorEvents();
+      this._bindConfigToggle();
     }
 
     // Update conversation list and messages for the new mode
@@ -903,6 +905,7 @@ render() {
 
     if (this.mode === 'assistant') {
       this._bindSelectorEvents();
+      this._bindConfigToggle();
     }
 
     const input = this.element.querySelector('[data-ai-input]');
@@ -928,9 +931,9 @@ render() {
     const llmOptions = this.llmProviders.map(p => `<option value="${escapeHtml(p.provider)}|${escapeHtml(p.model)}">${escapeHtml(p.display_name)}</option>`).join('');
 
     return `
-      <details class="ai-config-details">
-        <summary class="ai-config-summary">Configuration <span aria-hidden="true">⌄</span></summary>
-        <div class="ai-config-section">
+      <div class="ai-config-details">
+        <button type="button" class="ai-config-summary" data-config-toggle aria-expanded="false">Configuration <span aria-hidden="true">⌄</span></button>
+        <div class="ai-config-section ai-config-panel" data-config-panel hidden>
           <div class="ai-config-grid">
             <div class="ai-config-field">
               <label class="ai-config-label">Agent</label>
@@ -947,7 +950,7 @@ render() {
             </div>
           </div>
         </div>
-      </details>
+      </div>
     `;
   }
 
@@ -970,6 +973,19 @@ render() {
         this.selectedLLMModel = model;
       });
     }
+  }
+
+  _bindConfigToggle() {
+    const toggle = this.element?.querySelector('[data-config-toggle]');
+    const panel = this.element?.querySelector('[data-config-panel]');
+    if (!toggle || !panel || toggle.dataset.bound === 'true') return;
+    toggle.dataset.bound = 'true';
+    toggle.addEventListener('click', () => {
+      const expanded = toggle.getAttribute('aria-expanded') === 'true';
+      toggle.setAttribute('aria-expanded', String(!expanded));
+      panel.hidden = expanded;
+      toggle.classList.toggle('is-open', !expanded);
+    });
   }
 
   async _deleteConversation(convId) {

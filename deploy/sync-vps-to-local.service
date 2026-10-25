@@ -10,3 +10,6 @@ ExecStart=/home/edevaud/forgeai/deploy/sync-vps-to-local.sh
 User=edevaud
 Group=docker
 WorkingDirectory=/home/edevaud/forgeai
+# Un import complet peut dépasser le délai systemd par défaut de 90 secondes.
+TimeoutStartSec=2h
+TimeoutStopSec=5min

@@ -102,6 +102,100 @@ class DomotiqueHistoryResponse(BaseModel):
     trend: dict[str, Optional[float]] = Field(default_factory=dict)
 
 
+class SurveillanceCameraCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+    location: Optional[str] = Field(default=None, max_length=160)
+    source_type: str = Field("ip", pattern=r"^(ip|usb|integrated|remote_agent)$")
+    protocol: Optional[str] = Field(default=None, pattern=r"^(http|https|rtsp|onvif)$")
+    host: Optional[str] = Field(default=None, max_length=255)
+    port: Optional[int] = Field(default=None, ge=1, le=65535)
+    stream_url: Optional[str] = Field(default=None, max_length=500)
+    username: Optional[str] = Field(default=None, max_length=160)
+    password: Optional[str] = Field(default=None, max_length=500)
+    enabled: bool = False
+    detection_enabled: bool = False
+    config_json: dict[str, Any] = Field(default_factory=dict)
+
+
+class SurveillanceCameraUpdate(SurveillanceCameraCreate):
+    pass
+
+
+class SurveillanceCameraResponse(BaseModel):
+    id: int
+    name: str
+    location: Optional[str] = None
+    source_type: str
+    protocol: Optional[str] = None
+    host: Optional[str] = None
+    port: Optional[int] = None
+    stream_url: Optional[str] = None
+    username: Optional[str] = None
+    has_password: bool = False
+    enabled: bool
+    detection_enabled: bool
+    status: str
+    last_seen: Optional[datetime] = None
+    last_error: Optional[str] = None
+    config_json: dict[str, Any] = Field(default_factory=dict)
+    created_at: datetime
+    updated_at: datetime
+    capture_status: str = "stopped"
+
+
+class SurveillanceCameraListResponse(BaseModel):
+    items: list[SurveillanceCameraResponse] = Field(default_factory=list)
+    total: int = 0
+
+
+class SurveillanceEventResponse(BaseModel):
+    id: int
+    camera_id: int
+    event_type: str
+    confidence: Optional[float] = None
+    thumbnail_path: Optional[str] = None
+    metadata_json: dict[str, Any] = Field(default_factory=dict)
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class SurveillanceEventListResponse(BaseModel):
+    items: list[SurveillanceEventResponse] = Field(default_factory=list)
+    total: int = 0
+
+
+class SurveillanceRecordingResponse(BaseModel):
+    id: int
+    camera_id: int
+    event_id: Optional[int] = None
+    mime_type: str
+    size_bytes: int
+    duration_seconds: Optional[float] = None
+    created_at: datetime
+    available: bool = False
+
+    model_config = {"from_attributes": True}
+
+
+class SurveillanceRecordingListResponse(BaseModel):
+    items: list[SurveillanceRecordingResponse] = Field(default_factory=list)
+    total: int = 0
+
+
+class SurveillanceTestResponse(BaseModel):
+    ok: bool
+    message: str
+    status: str
+
+
+class SurveillanceCaptureResponse(BaseModel):
+    camera_id: int
+    status: str
+    error: str | None = None
+    playlist_url: str | None = None
+
+
 # --------------------------------------------------------------------------- #
 # Cycles
 # --------------------------------------------------------------------------- #

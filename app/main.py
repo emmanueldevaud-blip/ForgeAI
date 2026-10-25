@@ -17,6 +17,7 @@ from app.modules import register_all_modules
 from app.services.ai_gateway.config_store import apply_from_db as apply_ai_settings_from_db
 from app.services.dashboard import register_dashboard_widgets
 from app.services.domotique.engine import domotique_loop
+from app.services.surveillance_capture import capture_manager
 from app.services.domotique.seed import seed_domotique
 from app.services.notifications.config_store import apply_vapid_from_db
 from app.services.photo.service import PhotoServiceError
@@ -96,6 +97,7 @@ async def lifespan(app: FastAPI):
             await monitoring_task
         except asyncio.CancelledError:
             pass
+    await capture_manager.shutdown()
     await close_db()
 
 

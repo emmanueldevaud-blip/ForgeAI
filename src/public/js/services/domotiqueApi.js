@@ -85,3 +85,14 @@ export async function updateDomotiqueOutput(outputId, payload) {
 export async function updateDomotiqueSensor(sensorId, payload) {
   return domotiqueApi.put(`/sensors/${sensorId}`, payload);
 }
+
+export function listSurveillanceCameras() { return domotiqueApi.get('/surveillance/cameras'); }
+export function createSurveillanceCamera(payload) { return domotiqueApi.post('/surveillance/cameras', payload); }
+export function updateSurveillanceCamera(id, payload) { return domotiqueApi.put(`/surveillance/cameras/${id}`, payload); }
+export function deleteSurveillanceCamera(id) { return domotiqueApi.delete(`/surveillance/cameras/${id}`); }
+export function testSurveillanceCamera(id) { return domotiqueApi.post(`/surveillance/cameras/${id}/test`, {}); }
+export function getSurveillanceCapture(id) { return domotiqueApi.get(`/surveillance/cameras/${id}/capture`); }
+export function startSurveillanceCapture(id) { return domotiqueApi.post(`/surveillance/cameras/${id}/capture/start`, {}); }
+export function stopSurveillanceCapture(id) { return domotiqueApi.post(`/surveillance/cameras/${id}/capture/stop`, {}); }
+export function listSurveillanceEvents(limit = 50) { return domotiqueApi.get(`/surveillance/events?limit=${limit}`); }
+export function listSurveillanceRecordings(limit = 50) { return domotiqueApi.get(`/surveillance/recordings?limit=${limit}`); }

@@ -97,6 +97,8 @@ services:
       - ./app:/app/app
       - ./alembic:/app/alembic
       - ./src/public:/app/src/public
+      # Données persistantes des photos, imports et captures Surveillance.
+      - ./data:/app/data
       # Repository Git complet (statut / commit / déploiement de l'Agent Développement)
       - .:/app/repo
       # OpenCode (édition de code) + sa configuration

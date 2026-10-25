@@ -249,3 +249,63 @@ class DomotiqueEvent(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
     cycle: Mapped["DomotiqueCycle | None"] = relationship("DomotiqueCycle", back_populates="events")
+
+
+class SurveillanceCamera(Base):
+    __tablename__ = "surveillance_cameras"
+    __table_args__ = (Index("ix_surveillance_cameras_enabled", "enabled"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    name: Mapped[str] = mapped_column(String(120), nullable=False)
+    location: Mapped[str | None] = mapped_column(String(160), nullable=True)
+    source_type: Mapped[str] = mapped_column(String(30), nullable=False, default="ip")
+    protocol: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    host: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    port: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    stream_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    username: Mapped[str | None] = mapped_column(String(160), nullable=True)
+    encrypted_password: Mapped[str | None] = mapped_column(Text, nullable=True)
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    detection_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="unknown")
+    last_seen: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    config_json: Mapped[dict[str, Any]] = mapped_column(JSON, default=_empty_dict, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
+    events: Mapped[list["SurveillanceEvent"]] = relationship("SurveillanceEvent", back_populates="camera", cascade="all, delete-orphan")
+    recordings: Mapped[list["SurveillanceRecording"]] = relationship("SurveillanceRecording", back_populates="camera", cascade="all, delete-orphan")
+
+
+class SurveillanceEvent(Base):
+    __tablename__ = "surveillance_events"
+    __table_args__ = (Index("ix_surveillance_events_camera_created", "camera_id", "created_at"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    camera_id: Mapped[int] = mapped_column(ForeignKey("surveillance_cameras.id", ondelete="CASCADE"), nullable=False, index=True)
+    event_type: Mapped[str] = mapped_column(String(30), nullable=False, default="motion")
+    confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
+    thumbnail_path: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    metadata_json: Mapped[dict[str, Any]] = mapped_column(JSON, default=_empty_dict, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    camera: Mapped[SurveillanceCamera] = relationship("SurveillanceCamera", back_populates="events")
+    recordings: Mapped[list["SurveillanceRecording"]] = relationship("SurveillanceRecording", back_populates="event")
+
+
+class SurveillanceRecording(Base):
+    __tablename__ = "surveillance_recordings"
+    __table_args__ = (Index("ix_surveillance_recordings_camera_created", "camera_id", "created_at"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    camera_id: Mapped[int] = mapped_column(ForeignKey("surveillance_cameras.id", ondelete="CASCADE"), nullable=False, index=True)
+    event_id: Mapped[int | None] = mapped_column(ForeignKey("surveillance_events.id", ondelete="SET NULL"), nullable=True, index=True)
+    path: Mapped[str] = mapped_column(String(500), nullable=False)
+    mime_type: Mapped[str] = mapped_column(String(100), nullable=False, default="video/mp4")
+    size_bytes: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    duration_seconds: Mapped[float | None] = mapped_column(Float, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    camera: Mapped[SurveillanceCamera] = relationship("SurveillanceCamera", back_populates="recordings")
+    event: Mapped[SurveillanceEvent | None] = relationship("SurveillanceEvent", back_populates="recordings")

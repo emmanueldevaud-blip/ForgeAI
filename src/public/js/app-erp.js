@@ -19,7 +19,7 @@ import { createMaintenanceProvidersPage } from './pages/MaintenanceProvidersPage
 import { createMaintenanceContractsPage } from './pages/MaintenanceContractsPage.js?v=2';
 import { createMaintenanceRefsPage } from './pages/MaintenanceRefsPage.js';
 import { createMaintenanceCalendarPage } from './pages/MaintenanceCalendarPage.js';
-import { createAIAssistantPage } from './pages/AIAssistantPage.js?v=29';
+import { createAIAssistantPage } from './pages/AIAssistantPage.js?v=31';
 import { createHousingPage } from './pages/HousingPage.js';
 import { createProfilePage } from './pages/ProfilePage.js?v=2';
 import { createSettingsPage } from './pages/UserSettingsPage.js?v=1';
@@ -37,6 +37,7 @@ import { createAgendaImportPage } from './pages/AgendaImportPage.js';
 import { createHousingImportPage } from './pages/HousingImportPage.js';
 import { createDomotiquePage } from './pages/DomotiquePage.js?v=8';
 import { createDomotiqueConfigPage } from './pages/DomotiqueConfigPage.js?v=8';
+import { createSurveillancePage } from './pages/SurveillancePage.js?v=1';
 import { createPhotosPage } from './pages/PhotosPage.js?v=9';
 import { createSouvenirsPage } from './pages/SouvenirsPage.js?v=4';
 import { createITAssetPage } from './pages/ITAssetPage.js?v=8';
@@ -107,6 +108,7 @@ let agendaPage = null;
 let agendaSettingsPage = null;
 let domotiquePage = null;
 let domotiqueConfigPage = null;
+let surveillancePage = null;
 let photosPage = null;
 let souvenirsPage = null;
 let itAssetPage = null;
@@ -116,7 +118,7 @@ void (function() {
   const _refs = [
     createHousingPage, createHousingImportPage,
     createAgendaPage, createAgendaImportPage, createAgendaSettingsPage,
-    createDomotiquePage, createDomotiqueConfigPage,
+    createDomotiquePage, createDomotiqueConfigPage, createSurveillancePage,
     createPhotosPage, createSouvenirsPage, createITAssetPage,
     createSportDashboardPage, createSportActivitiesPage, createSportGarminPage,
     createSportHealthPage, createSportAnalysesPage, createSportGoalsPage,
@@ -299,6 +301,9 @@ async function initializeApp() {
     .addRoute('/domotique/config', async (route) => {
       await showDomotiqueConfigPage(route);
     }, { requiresAuth: true, permissions: ['domotique.configure'], module: 'domotique' })
+    .addRoute('/domotique/surveillance', async (route) => {
+      await showSurveillancePage(route);
+    }, { requiresAuth: true, permissions: ['domotique.view'], module: 'domotique' })
     .addRoute('/agenda', async (route) => {
       await showAgendaPage(route);
     }, { requiresAuth: true, permissions: ['agenda.access'], module: 'agenda' })
@@ -743,6 +748,19 @@ async function showDomotiqueConfigPage(route) {
     appShell.showContent(page.render());
   } catch (error) {
     console.error('Erreur affichage configuration Domotique:', error);
+    appShell.showError(error);
+  }
+}
+
+async function showSurveillancePage(route) {
+  if (!appShell) return;
+  appShell.showLoading();
+  try {
+    if (!surveillancePage) surveillancePage = createSurveillancePage(router);
+    await surveillancePage.initialize();
+    appShell.showContent(surveillancePage.render());
+  } catch (error) {
+    console.error('Erreur affichage Surveillance:', error);
     appShell.showError(error);
   }
 }

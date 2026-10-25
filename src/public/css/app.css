@@ -6910,6 +6910,7 @@
 
 .ai-config-summary {
   display: flex;
+  width: 100%;
   align-items: center;
   justify-content: space-between;
   min-height: 44px;
@@ -6918,12 +6919,14 @@
   font-size: var(--font-size-sm);
   font-weight: 600;
   cursor: pointer;
-  list-style: none;
+  border: 0;
+  background: transparent;
+  text-align: left;
 }
 
-.ai-config-summary::-webkit-details-marker { display: none; }
+.ai-config-summary:focus-visible { outline: 2px solid var(--color-primary); outline-offset: -2px; }
 .ai-config-summary span { transition: transform var(--transition-fast); }
-.ai-config-details[open] .ai-config-summary span { transform: rotate(180deg); }
+.ai-config-summary.is-open span { transform: rotate(180deg); }
 .ai-config-details .ai-config-section { border: 0; border-top: 1px solid var(--color-border-light); border-radius: 0 0 var(--radius-lg) var(--radius-lg); }
 
 .ai-config-section {
@@ -7660,6 +7663,29 @@
 .intendance-dashboard-page .intendance-bar-label { display: inline-flex; align-items: center; min-width: 0; gap: var(--spacing-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }.intendance-dashboard-page .intendance-bar-track { height: 10px !important; background: var(--color-bg-tertiary) !important; }.intendance-dashboard-page .intendance-bar-row:hover, .intendance-dashboard-page .intendance-bar-row:focus-visible { background: var(--color-bg-tertiary); }
 @media (max-width: 720px) { .intendance-dashboard-page .chart-heading { flex-direction: column; }.intendance-dashboard-page .intendance-bar-row { grid-template-columns: minmax(100px, 1fr) minmax(50px, 1.2fr) auto; }.intendance-dashboard-page .intendance-bar-row small { display: none; }.intendance-dashboard-page .intendance-bar-row strong { font-size: var(--font-size-xs); } }
 .intendance-dashboard-page .date-range-inputs { flex-wrap: nowrap; }.intendance-dashboard-page .date-range-inputs .form-input { min-width: 0; flex: 1 1 0; width: 0; }
+
+.surveillance-kpis { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:var(--spacing-3); margin-bottom:var(--spacing-4); }
+.surveillance-kpis > div { display:flex; flex-direction:column; gap:var(--spacing-1); padding:var(--spacing-4); border:1px solid var(--color-border-light); border-radius:var(--radius-lg); background:var(--color-surface-raised); }
+.surveillance-kpis strong { font-size:var(--font-size-2xl); color:var(--color-text-primary); }.surveillance-kpis span { color:var(--color-text-secondary); font-size:var(--font-size-sm); }
+.surveillance-card { margin-bottom:var(--spacing-4); }.surveillance-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(260px,1fr)); gap:var(--spacing-4); }
+.surveillance-camera { min-width:0; padding:var(--spacing-3); border:1px solid var(--color-border-light); border-radius:var(--radius-lg); background:var(--color-bg-primary); }
+.surveillance-preview { display:flex; align-items:center; justify-content:center; min-height:150px; margin-bottom:var(--spacing-3); border-radius:var(--radius-md); background:var(--color-bg-tertiary); color:var(--color-text-tertiary); font-size:var(--font-size-sm); }
+.surveillance-video { width:100%; height:100%; min-height:150px; object-fit:cover; display:block; background:#000; }
+.surveillance-camera-head { display:flex; align-items:flex-start; justify-content:space-between; gap:var(--spacing-2); }.surveillance-camera h3 { margin:0; font-size:var(--font-size-base); }.surveillance-camera p { margin:var(--spacing-1) 0; }
+.surveillance-status { padding:2px var(--spacing-2); border-radius:var(--radius-full); font-size:var(--font-size-xs); }.surveillance-status.is-online { background:var(--color-success-light); color:var(--color-success); }.surveillance-status.is-offline,.surveillance-status.is-error { background:var(--color-danger-light); color:var(--color-danger); }.surveillance-status.is-unknown { background:var(--color-bg-tertiary); color:var(--color-text-tertiary); }
+.surveillance-actions { display:flex; flex-wrap:wrap; gap:var(--spacing-2); margin-top:var(--spacing-3); }
+.surveillance-camera-modal { width:min(760px, calc(100vw - 32px)); max-height:90vh; overflow:auto; }
+.surveillance-tabs { display:flex; gap:var(--spacing-2); margin-bottom:var(--spacing-4); border-bottom:1px solid var(--color-border-light); }
+.surveillance-tabs .admin-tab { border:0; border-bottom:2px solid transparent; background:transparent; color:var(--color-text-secondary); cursor:pointer; padding:var(--spacing-2) var(--spacing-3); }
+.surveillance-tabs .admin-tab.active { border-bottom-color:var(--color-primary); color:var(--color-primary); }
+.surveillance-modal-panel { display:grid; gap:var(--spacing-4); }
+.surveillance-modal-panel[hidden] { display:none; }
+.surveillance-modal-panel .form-row { display:grid; grid-template-columns:1fr 1fr; gap:var(--spacing-3); }
+.surveillance-modal-panel label > span { display:block; margin-bottom:var(--spacing-1); color:var(--color-text-secondary); font-size:var(--font-size-sm); }
+.surveillance-modal-panel input:not([type="checkbox"]), .surveillance-modal-panel select { width:100%; min-height:var(--input-height); padding:var(--spacing-2) var(--spacing-3); border:1px solid var(--color-border-medium); border-radius:var(--control-radius); background:var(--color-surface-raised); color:var(--color-text-primary); }
+.surveillance-modal-panel .checkbox-label { display:flex; align-items:center; gap:var(--spacing-2); color:var(--color-text-primary); }
+@media (max-width:640px) { .surveillance-modal-panel .form-row { grid-template-columns:1fr; } .surveillance-tabs { overflow-x:auto; } }
+@media (max-width:640px) { .surveillance-page .page-header { align-items:flex-start; flex-direction:column; gap:var(--spacing-3); }.surveillance-grid { grid-template-columns:1fr; }.surveillance-kpis { grid-template-columns:repeat(2,minmax(0,1fr)); } }
 .intendance-dashboard-page .period-toolbar { flex-wrap: nowrap; gap: var(--spacing-1); }.intendance-dashboard-page .period-toolbar .form-input { min-width: 0; width: 125px; flex: 0 1 125px; padding-left: var(--spacing-2); padding-right: var(--spacing-2); }
 .intendance-dashboard-page .dashboard-filters { margin-top: var(--spacing-4); }
 @media (max-width: 720px) {

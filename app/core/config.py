@@ -176,6 +176,14 @@ class Settings(BaseSettings):
     PHOTO_JOB_POLL_SECONDS: float = 2.0
     PHOTO_JOB_BATCH: int = 8
     PHOTO_JOB_MAX_ATTEMPTS: int = 3
+    # Surveillance : capture explicitement démarrée par l'utilisateur.
+    SURVEILLANCE_STORAGE_PATH: str = "data/surveillance"
+    SURVEILLANCE_FFMPEG_BIN: str = "ffmpeg"
+    SURVEILLANCE_SEGMENT_SECONDS: int = 2
+    SURVEILLANCE_PLAYLIST_SIZE: int = 6
+    SURVEILLANCE_MAX_PROCESSES: int = 4
+    SURVEILLANCE_RECONNECT_ATTEMPTS: int = 3
+    SURVEILLANCE_RECONNECT_MAX_SECONDS: int = 30
     # Scan NAS : réglages de performance (impact I/O et CPU).
     PHOTO_SCAN_BATCH_SIZE: int = 100        # fichiers par lot SQL
     PHOTO_SCAN_BATCH_DELAY_MS: int = 50     # pause entre lots (ms)

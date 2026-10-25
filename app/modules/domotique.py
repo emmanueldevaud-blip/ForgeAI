@@ -40,6 +40,13 @@ class DomotiqueModule(BaseModule):
                 "route": "/domotique",
                 "order": 0,
             })
+            children.append({
+                "code": "domotique-surveillance",
+                "name": "Surveillance",
+                "icon": "camera",
+                "route": "/domotique/surveillance",
+                "order": 1,
+            })
 
         return [{
             "code": self.info.code,

@@ -5,7 +5,7 @@ from pathlib import Path
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query
-from fastapi.responses import FileResponse, Response
+from fastapi.responses import FileResponse, Response, StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy import desc, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -395,6 +395,32 @@ async def get_surveillance_snapshot(camera_id: int, current_user=Depends(require
     if not media_type.startswith("image/"):
         raise HTTPException(status_code=502, detail="L’URL caméra ne renvoie pas une image")
     return Response(content=upstream.content, media_type=media_type, headers={"Cache-Control": "no-store, max-age=0"})
+
+
+@router.get("/surveillance/cameras/{camera_id}/mjpeg")
+async def get_surveillance_mjpeg(camera_id: int, current_user=Depends(require_permission("domotique.view")), db: AsyncSession = Depends(get_db)):
+    camera = await db.get(SurveillanceCamera, camera_id)
+    if not camera:
+        raise HTTPException(status_code=404, detail="Caméra introuvable")
+    if camera.protocol not in {"http", "https"} or not camera.stream_url:
+        raise HTTPException(status_code=400, detail="Flux MJPEG HTTP non configuré")
+    client = httpx.AsyncClient(timeout=None, follow_redirects=False)
+    upstream = await client.stream("GET", camera.stream_url).__aenter__()
+    if upstream.status_code >= 400:
+        await upstream.aclose()
+        await client.aclose()
+        raise HTTPException(status_code=502, detail=f"La caméra répond avec HTTP {upstream.status_code}")
+    media_type = upstream.headers.get("content-type", "multipart/x-mixed-replace")
+
+    async def chunks():
+        try:
+            async for chunk in upstream.aiter_bytes():
+                yield chunk
+        finally:
+            await upstream.aclose()
+            await client.aclose()
+
+    return StreamingResponse(chunks(), media_type=media_type, headers={"Cache-Control": "no-store, max-age=0"})
 
 
 @router.get("/surveillance/events", response_model=SurveillanceEventListResponse)

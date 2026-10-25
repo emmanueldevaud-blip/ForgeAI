@@ -2,7 +2,7 @@ import { authStore } from '../stores/auth.js';
 import { createSurveillanceCamera, deleteSurveillanceCamera, listSurveillanceCameras, listSurveillanceEvents, listSurveillanceRecordings, startSurveillanceCapture, stopSurveillanceCapture, testSurveillanceCamera, updateSurveillanceCamera } from '../services/domotiqueApi.js?v=4';
 
 export class SurveillancePage {
-  constructor() { this.element = null; this.cameras = []; this.events = []; this.recordings = []; this.error = ''; this.message = ''; }
+  constructor() { this.element = null; this.cameras = []; this.events = []; this.recordings = []; this.error = ''; this.message = ''; this.snapshotTimer = null; }
   async initialize() {
     try {
       const [cameras, events, recordings] = await Promise.all([listSurveillanceCameras(), listSurveillanceEvents(20), listSurveillanceRecordings(20)]);
@@ -10,6 +10,7 @@ export class SurveillancePage {
     } catch (error) { this.error = error?.data?.detail || error.message || 'Chargement impossible'; }
   }
   render() {
+    if (this.snapshotTimer) clearInterval(this.snapshotTimer);
     const previousElement = this.element;
     this.element = document.createElement('div'); this.element.className = 'page-content surveillance-page';
     this.element.innerHTML = `<div class="page-header"><div class="page-header-left"><span class="domo-kicker">DOMOTIQUE</span><h1>Surveillance</h1><p class="page-subtitle">Caméras, événements et enregistrements</p></div><button class="btn btn-primary" data-action="add">Ajouter une caméra</button></div>
@@ -22,7 +23,7 @@ export class SurveillancePage {
     if (previousElement?.isConnected) previousElement.replaceWith(this.element);
     return this.element;
   }
-  _camera(camera) { const active = camera.capture_status === 'active'; const stream = `/domotique/surveillance/cameras/${camera.id}/stream/index.m3u8`; const httpPreview = ['http', 'https'].includes(camera.protocol) && camera.stream_url; const mjpeg = httpPreview && /\.mjpg(?:\?|$)/i.test(camera.stream_url); const preview = active ? `<video class="surveillance-video" data-video="${camera.id}" controls muted playsinline preload="none" src="${stream}"></video>` : httpPreview ? `<img class="surveillance-image" data-image="${camera.id}" src="/domotique/surveillance/cameras/${camera.id}/${mjpeg ? 'mjpeg' : 'snapshot'}" alt="Flux de ${this._attr(camera.name)}">` : '<span>Capture arrêtée</span>'; return `<article class="surveillance-camera"><div class="surveillance-preview">${preview}</div><div class="surveillance-camera-head"><div><h3>${this._esc(camera.name)}</h3><p>${this._esc(camera.location || 'Emplacement non défini')}</p></div><span class="surveillance-status is-${this._esc(camera.status)}">${httpPreview ? (mjpeg ? 'Flux MJPEG' : 'Flux HTTP') : this._esc(camera.status)}</span></div><p class="text-muted">${this._esc(camera.source_type)}${camera.protocol ? ` · ${this._esc(camera.protocol)}` : ''}</p><div class="surveillance-actions">${camera.protocol === 'rtsp' ? `<button class="btn btn-secondary btn-sm" data-capture="${camera.id}" data-capture-action="${active ? 'stop' : 'start'}">${active ? 'Arrêter' : 'Démarrer'}</button>` : ''}<button class="btn btn-secondary btn-sm" data-test="${camera.id}">Tester</button><button class="btn btn-secondary btn-sm" data-edit="${camera.id}">Modifier</button><button class="btn btn-danger btn-sm" data-delete="${camera.id}">Supprimer</button></div></article>`; }
+  _camera(camera) { const active = camera.capture_status === 'active'; const stream = `/domotique/surveillance/cameras/${camera.id}/stream/index.m3u8`; const httpPreview = ['http', 'https'].includes(camera.protocol) && camera.stream_url; const mjpeg = httpPreview && /\.mjpg(?:\?|$)/i.test(camera.stream_url); const preview = active ? `<video class="surveillance-video" data-video="${camera.id}" controls muted playsinline preload="none" src="${stream}"></video>` : httpPreview ? `<img class="surveillance-image" data-image="${camera.id}" data-camera-id="${camera.id}" src="/domotique/surveillance/cameras/${camera.id}/snapshot" alt="Flux de ${this._attr(camera.name)}">` : '<span>Capture arrêtée</span>'; return `<article class="surveillance-camera"><div class="surveillance-preview">${preview}</div><div class="surveillance-camera-head"><div><h3>${this._esc(camera.name)}</h3><p>${this._esc(camera.location || 'Emplacement non défini')}</p></div><span class="surveillance-status is-${this._esc(camera.status)}">${httpPreview ? (mjpeg ? 'Flux MJPEG' : 'Flux HTTP') : this._esc(camera.status)}</span></div><p class="text-muted">${this._esc(camera.source_type)}${camera.protocol ? ` · ${this._esc(camera.protocol)}` : ''}</p><div class="surveillance-actions">${camera.protocol === 'rtsp' ? `<button class="btn btn-secondary btn-sm" data-capture="${camera.id}" data-capture-action="${active ? 'stop' : 'start'}">${active ? 'Arrêter' : 'Démarrer'}</button>` : ''}<button class="btn btn-secondary btn-sm" data-test="${camera.id}">Tester</button><button class="btn btn-secondary btn-sm" data-edit="${camera.id}">Modifier</button><button class="btn btn-danger btn-sm" data-delete="${camera.id}">Supprimer</button></div></article>`; }
   _bind() {
     this.element.querySelector('[data-action="add"]')?.addEventListener('click', () => this._edit());
     this.element.querySelectorAll('[data-video]').forEach(video => {
@@ -31,6 +32,13 @@ export class SurveillancePage {
     this.element.querySelectorAll('[data-image]').forEach(image => {
       image.addEventListener('error', () => { image.replaceWith(Object.assign(document.createElement('span'), { className: 'text-muted', textContent: 'Image HTTP indisponible' })); }, { once: true });
     });
+    if (this.element.querySelector('[data-image]')) {
+      this.snapshotTimer = setInterval(() => {
+        const images = this.element?.querySelectorAll('[data-image]');
+        if (!images?.length) { clearInterval(this.snapshotTimer); this.snapshotTimer = null; return; }
+        images.forEach(image => { image.src = `/domotique/surveillance/cameras/${image.dataset.cameraId}/snapshot?t=${Date.now()}`; });
+      }, 1000);
+    }
     this.element.querySelectorAll('[data-capture]').forEach(b => b.addEventListener('click', async () => { try { const fn = b.dataset.captureAction === 'start' ? startSurveillanceCapture : stopSurveillanceCapture; await fn(b.dataset.capture); await this.initialize(); this.render(); } catch (e) { this.message = e?.data?.detail || e.message; this.render(); } }));
     this.element.querySelectorAll('[data-test]').forEach(b => b.addEventListener('click', async () => { try { const r = await testSurveillanceCamera(b.dataset.test); this.message = r.message; await this.initialize(); this.render(); } catch (e) { this.message = e?.data?.detail || e.message; this.render(); } }));
     this.element.querySelectorAll('[data-edit]').forEach(b => b.addEventListener('click', () => this._edit(this.cameras.find(c => c.id === Number(b.dataset.edit)))));

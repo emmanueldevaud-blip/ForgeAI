@@ -386,15 +386,27 @@ async def get_surveillance_snapshot(camera_id: int, current_user=Depends(require
     url = camera.stream_url or f"{camera.protocol}://{camera.host}:{camera.port or 80}"
     try:
         async with httpx.AsyncClient(timeout=5, follow_redirects=False) as client:
-            upstream = await client.get(url)
+            async with client.stream("GET", url) as upstream:
+                if upstream.status_code >= 400:
+                    raise HTTPException(status_code=502, detail=f"La caméra répond avec HTTP {upstream.status_code}")
+                media_type = upstream.headers.get("content-type", "image/jpeg").split(";", 1)[0].lower()
+                if media_type.startswith("multipart/x-mixed-replace"):
+                    frame = bytearray()
+                    async for chunk in upstream.aiter_bytes():
+                        frame.extend(chunk)
+                        start = frame.find(b"\xff\xd8")
+                        end = frame.find(b"\xff\xd9", start + 2) if start >= 0 else -1
+                        if end >= 0:
+                            return Response(content=bytes(frame[start:end + 2]), media_type="image/jpeg", headers={"Cache-Control": "no-store, max-age=0"})
+                        if len(frame) > 2_000_000:
+                            frame = frame[-4:]
+                    raise HTTPException(status_code=502, detail="Aucune image reçue du flux MJPEG")
+                if not media_type.startswith("image/"):
+                    raise HTTPException(status_code=502, detail="L’URL caméra ne renvoie pas une image")
+                body = await upstream.aread()
     except httpx.HTTPError as exc:
         raise HTTPException(status_code=502, detail="Snapshot caméra inaccessible") from exc
-    if upstream.status_code >= 400:
-        raise HTTPException(status_code=502, detail=f"La caméra répond avec HTTP {upstream.status_code}")
-    media_type = upstream.headers.get("content-type", "image/jpeg").split(";", 1)[0]
-    if not media_type.startswith("image/"):
-        raise HTTPException(status_code=502, detail="L’URL caméra ne renvoie pas une image")
-    return Response(content=upstream.content, media_type=media_type, headers={"Cache-Control": "no-store, max-age=0"})
+    return Response(content=body, media_type=media_type, headers={"Cache-Control": "no-store, max-age=0"})
 
 
 @router.get("/surveillance/cameras/{camera_id}/mjpeg")

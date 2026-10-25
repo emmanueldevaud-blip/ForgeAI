@@ -27,7 +27,7 @@ from typing import Any, Awaitable
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.sport import SportActivity, SportAthlete, SportRecommendation
+from app.models.sport import SportActivity, SportAgentExecution, SportAthlete, SportRecommendation
 from app.models.user import User
 from app.services.sport_agent.triggers import agent_enabled, run_agent_trigger
 
@@ -204,6 +204,33 @@ async def _health_events(db: AsyncSession, user: User) -> list[tuple[str, dict[s
     if not readiness and not sleep:
         return []
 
+    athlete_id = await db.scalar(
+        select(SportAthlete.id).where(SportAthlete.user_id == user.id).limit(1)
+    )
+    seen_recovery_changes: set[tuple[str, str, str, str]] = set()
+    if athlete_id is not None:
+        executions = await db.execute(
+            select(SportAgentExecution)
+            .where(
+                SportAgentExecution.athlete_id == athlete_id,
+                SportAgentExecution.trigger == "recovery_change",
+            )
+            .order_by(SportAgentExecution.started_at.desc())
+            .limit(100)
+        )
+        for execution in executions.scalars().all():
+            for step in execution.steps_json or []:
+                if not isinstance(step, dict) or step.get("phase") != "observe":
+                    continue
+                brief = step.get("brief")
+                payload = brief.get("payload") if isinstance(brief, dict) else None
+                if isinstance(payload, dict) and payload.get("metric") and payload.get("day"):
+                    seen_recovery_changes.add((
+                        str(payload.get("metric")), str(payload.get("day")),
+                        str(payload.get("previous")), str(payload.get("current")),
+                    ))
+                break
+
     def _fresh(items: list[dict[str, Any]]) -> bool:
         try:
             latest_day = datetime.fromisoformat(str(items[-1].get("date"))).date()
@@ -217,31 +244,31 @@ async def _health_events(db: AsyncSession, user: User) -> list[tuple[str, dict[s
         previous, current = readiness[-2]["score"], readiness[-1]["score"]
         delta = current - previous
         if abs(delta) >= RECOVERY_READINESS_DELTA:
-            events.append((
-                "recovery_change",
-                {
+            payload = {
                     "metric": "readiness_score",
                     "previous": previous,
                     "current": current,
                     "delta": delta,
                     "day": readiness[-1].get("date"),
-                },
-            ))
+                }
+            signature = ("readiness_score", str(payload["day"]), str(previous), str(current))
+            if signature not in seen_recovery_changes:
+                events.append(("recovery_change", payload))
 
     if not events and len(sleep) >= 2 and _fresh(sleep):
         previous, current = sleep[-2]["total_minutes"], sleep[-1]["total_minutes"]
         delta = current - previous
         if abs(delta) >= RECOVERY_SLEEP_DELTA_MINUTES:
-            events.append((
-                "recovery_change",
-                {
+            payload = {
                     "metric": "sleep_minutes",
                     "previous": previous,
                     "current": current,
                     "delta": delta,
                     "day": sleep[-1].get("date"),
-                },
-            ))
+                }
+            signature = ("sleep_minutes", str(payload["day"]), str(previous), str(current))
+            if signature not in seen_recovery_changes:
+                events.append(("recovery_change", payload))
 
     if _fresh(readiness or sleep):
         reasons: list[str] = []

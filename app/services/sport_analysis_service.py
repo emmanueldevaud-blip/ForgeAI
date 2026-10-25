@@ -35,13 +35,14 @@ from app.models.sport import (
     SportActivity,
     SportAnalysis,
     SportAthlete,
+    SportAgentExecution,
     SportGarminConnection,
     SportHealthDaily,
 )
 from app.models.user import User
 from app.services import coach_feed
 from app.services.ai_gateway import AIGatewayError, ai_gateway
-from app.services.notification import NotificationService
+from app.services.notification import NotificationService, is_notification_quiet_time
 from app.services.sport import SportService
 from app.services.sport_analysis import SportAnalysisEngine
 from app.services.sport_personality import COACH_PERSONALITY
@@ -573,6 +574,8 @@ class SportAnalysisService:
     async def _notify(self, athlete: SportAthlete, analysis: SportAnalysis, analysis_type: str) -> None:
         if analysis.notification_sent or not athlete.user_id:
             return
+        if is_notification_quiet_time():
+            return
         title = f"{_EMOJI.get(analysis_type, '')} {_NOTIFICATION_TITLES.get(analysis_type, 'Analyse Sport')}".strip()
         # Construire un message plus détaillé
         message_parts = []
@@ -711,7 +714,7 @@ async def run_sport_analysis_cycle(db: AsyncSession, now: datetime | None = None
             agent_turn = False
             if agent_on:
                 pending = await _pending_activity_ids(db, athlete, service, now)
-                agent_turn = bool(pending) and not await _agent_cooldown(db, athlete, "activity", now)
+                agent_turn = bool(pending) and await _activity_agent_due(db, athlete, pending, now)
                 if agent_turn:
                     payload = {"activity_ids": pending}
             stats["errors"] += await _dispatch_analysis(
@@ -857,6 +860,46 @@ async def _agent_cooldown(db: AsyncSession, athlete: SportAthlete, trigger: str,
     from app.services.sport_agent.triggers import agent_woken_recently
 
     return await agent_woken_recently(db, athlete.id, trigger, now)
+
+
+def _execution_trigger_payload(execution: SportAgentExecution) -> dict[str, Any]:
+    """Relit le payload enregistré dans la phase observe d'une exécution."""
+    for step in execution.steps_json or []:
+        if not isinstance(step, dict) or step.get("phase") != "observe":
+            continue
+        brief = step.get("brief")
+        payload = brief.get("payload") if isinstance(brief, dict) else None
+        return payload if isinstance(payload, dict) else {}
+    return {}
+
+
+async def _activity_agent_due(
+    db: AsyncSession, athlete: SportAthlete, pending_ids: list[int], now: datetime
+) -> bool:
+    """Ne réveille l'agent qu'une fois par activité en attente.
+
+    Si la génération échoue, le cycle historique continue ses propres
+    tentatives ; l'agent ne renvoie pas une notification à chaque cooldown.
+    """
+    cutoff = _naive_utc(now - timedelta(hours=ACTIVITY_ANALYSIS_MAX_AGE_HOURS))
+    result = await db.execute(
+        select(SportAgentExecution)
+        .where(
+            SportAgentExecution.athlete_id == athlete.id,
+            SportAgentExecution.trigger == "activity",
+            SportAgentExecution.started_at >= cutoff,
+        )
+        .order_by(SportAgentExecution.started_at.desc())
+        .limit(100)
+    )
+    seen_ids: set[int] = set()
+    for execution in result.scalars().all():
+        for activity_id in _execution_trigger_payload(execution).get("activity_ids", []):
+            try:
+                seen_ids.add(int(activity_id))
+            except (TypeError, ValueError):
+                continue
+    return not set(pending_ids).issubset(seen_ids)
 
 
 async def _pending_activity_ids(

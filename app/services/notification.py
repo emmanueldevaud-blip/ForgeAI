@@ -27,9 +27,10 @@ import logging
 import os
 import struct
 import time
-from datetime import datetime, timezone
+from datetime import datetime, time, timezone
 from typing import Any
 from urllib.parse import urlsplit
+from zoneinfo import ZoneInfo
 
 import httpx
 from cryptography.hazmat.primitives import hashes, serialization
@@ -49,6 +50,24 @@ logger = logging.getLogger(__name__)
 _RECORD_SIZE = 4096
 _PUSH_TIMEOUT_SECONDS = 10.0
 _VAPID_EXPIRY_SECONDS = 12 * 3600
+
+
+def is_notification_quiet_time(now: datetime | None = None) -> bool:
+    """Indique si l'heure locale est dans la plage silencieuse du coach sport."""
+    settings = get_settings()
+    try:
+        zone = ZoneInfo(settings.SPORT_ANALYSIS_TIMEZONE)
+    except Exception:
+        zone = timezone.utc
+    local_time = (now or datetime.now(timezone.utc)).astimezone(zone).time()
+    try:
+        quiet_start = time.fromisoformat(settings.SPORT_AGENT_NOTIFICATION_QUIET_START)
+        quiet_end = time.fromisoformat(settings.SPORT_AGENT_NOTIFICATION_QUIET_END)
+    except ValueError:
+        quiet_start, quiet_end = time(22), time(7)
+    if quiet_start <= quiet_end:
+        return quiet_start <= local_time < quiet_end
+    return local_time >= quiet_start or local_time < quiet_end
 
 
 def _b64url_encode(raw: bytes) -> str:

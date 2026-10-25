@@ -2,15 +2,40 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
+from sqlalchemy import select
+
 from app.core.config import get_settings
+from app.models.notification import Notification
 from app.services import coach_feed
-from app.services.notification import NotificationService
+from app.services.notification import NotificationService, is_notification_quiet_time
 from app.services.sport_agent.tool_registry import ToolContext, ToolSpec
 
 _NOTIFICATION_URL = "/sport/analyses"
 _COACH_TIP_URL = "/ai"
+
+
+async def _notification_suppression(ctx: ToolContext) -> str | None:
+    settings = get_settings()
+    now = datetime.now(timezone.utc)
+    if is_notification_quiet_time(now):
+        return "quiet_hours"
+
+    cooldown_hours = max(1, settings.SPORT_AGENT_NOTIFICATION_COOLDOWN_HOURS)
+    cutoff = (now - timedelta(hours=cooldown_hours)).replace(tzinfo=None)
+    recent = await ctx.db.scalar(
+        select(Notification.id)
+        .where(
+            Notification.user_id == ctx.user.id,
+            Notification.category.in_(("sport_agent", coach_feed.COACH_TIP_CATEGORY, "sport_analysis")),
+            Notification.created_at >= cutoff,
+        )
+        .order_by(Notification.created_at.desc())
+        .limit(1)
+    )
+    return "cooldown" if recent is not None else None
 
 
 async def send_notification(ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
@@ -18,6 +43,9 @@ async def send_notification(ctx: ToolContext, args: dict[str, Any]) -> dict[str,
     message = str(args.get("message") or "").strip()
     if not title or not message:
         raise ValueError("notification_incomplete")
+    suppression = await _notification_suppression(ctx)
+    if suppression:
+        return {"user_id": ctx.user.id, "suppressed": suppression, "push_sent": False}
     notification = await NotificationService(ctx.db).send(
         user_id=ctx.user.id,
         title=title[:200],
@@ -42,6 +70,9 @@ async def send_coach_tip(ctx: ToolContext, args: dict[str, Any]) -> dict[str, An
     message = str(args.get("message") or "").strip()
     if not title or not message:
         raise ValueError("conseil_incomplet")
+    suppression = await _notification_suppression(ctx)
+    if suppression:
+        return {"user_id": ctx.user.id, "suppressed": suppression, "push_sent": False}
     limit = max(0, get_settings().COACH_TIP_DAILY_LIMIT)
     left = await coach_feed.coach_tips_left(ctx.db, ctx.user)
     if left <= 0:

@@ -123,7 +123,10 @@ class Settings(BaseSettings):
     SPORT_ANALYSIS_TIMEZONE: str = "Europe/Paris"
 
     # Conseils ponctuels du coach (hors analyses) : maximum par jour.
-    COACH_TIP_DAILY_LIMIT: int = 2
+    COACH_TIP_DAILY_LIMIT: int = 1
+    SPORT_AGENT_NOTIFICATION_COOLDOWN_HOURS: int = 6
+    SPORT_AGENT_NOTIFICATION_QUIET_START: str = "22:00"
+    SPORT_AGENT_NOTIFICATION_QUIET_END: str = "07:00"
 
     # Agent Sport (orchestration autonome au-dessus des analyses existantes).
     # Desactiver pour retomber automatiquement sur les jobs historiques.

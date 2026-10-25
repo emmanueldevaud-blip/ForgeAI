@@ -3,8 +3,9 @@ import logging
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel
 from sqlalchemy import desc, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -373,6 +374,27 @@ async def get_surveillance_stream_file(camera_id: int, filename: str, current_us
         media_type=media_type,
         headers={"Cache-Control": "private, no-store, max-age=0", "Pragma": "no-cache"},
     )
+
+
+@router.get("/surveillance/cameras/{camera_id}/snapshot")
+async def get_surveillance_snapshot(camera_id: int, current_user=Depends(require_permission("domotique.view")), db: AsyncSession = Depends(get_db)):
+    camera = await db.get(SurveillanceCamera, camera_id)
+    if not camera:
+        raise HTTPException(status_code=404, detail="Caméra introuvable")
+    if camera.protocol not in {"http", "https"}:
+        raise HTTPException(status_code=400, detail="La caméra ne fournit pas de snapshot HTTP")
+    url = camera.stream_url or f"{camera.protocol}://{camera.host}:{camera.port or 80}"
+    try:
+        async with httpx.AsyncClient(timeout=5, follow_redirects=False) as client:
+            upstream = await client.get(url)
+    except httpx.HTTPError as exc:
+        raise HTTPException(status_code=502, detail="Snapshot caméra inaccessible") from exc
+    if upstream.status_code >= 400:
+        raise HTTPException(status_code=502, detail=f"La caméra répond avec HTTP {upstream.status_code}")
+    media_type = upstream.headers.get("content-type", "image/jpeg").split(";", 1)[0]
+    if not media_type.startswith("image/"):
+        raise HTTPException(status_code=502, detail="L’URL caméra ne renvoie pas une image")
+    return Response(content=upstream.content, media_type=media_type, headers={"Cache-Control": "no-store, max-age=0"})
 
 
 @router.get("/surveillance/events", response_model=SurveillanceEventListResponse)

@@ -120,3 +120,15 @@ export async function detectManagementUrl(assetId) {
 export async function checkManagementUrl(assetId) {
   return itAssetApi.post(`/${assetId}/management-url/check`);
 }
+
+export async function wakeItAsset(assetId) {
+  return itAssetApi.post(`/${assetId}/wake`);
+}
+
+export async function shutdownItAsset(assetId, data = {}) {
+  return itAssetApi.post(`/${assetId}/shutdown`, data);
+}
+
+export function getAssetRdpUrl(assetId) {
+  return `/it-assets/${assetId}/rdp`;
+}

@@ -497,3 +497,23 @@ class ManagementURLResponse(BaseModel):
     management_url_status: Optional[str] = None
     management_url_detected_at: Optional[datetime] = None
     details: Optional[dict] = None
+
+
+class ITAssetWakeResponse(BaseModel):
+    success: bool
+    message: str
+    mac_address: str
+
+
+class ITAssetShutdownRequest(BaseModel):
+    force: bool = False
+    delay_seconds: int = 0
+    message: Optional[str] = None
+    username: Optional[str] = None
+    password: Optional[str] = None
+
+
+class ITAssetShutdownResponse(BaseModel):
+    success: bool
+    message: str
+

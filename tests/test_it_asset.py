@@ -17,6 +17,9 @@ from app.services.it_asset import (
     NetworkDiscoveryService,
     _normalize_mac,
     _parse_snmp_results,
+    send_wake_on_lan,
+    shutdown_windows_host,
+    generate_rdp_file_content,
 )
 
 
@@ -566,4 +569,83 @@ async def test_scan_assigns_network_range_room_to_discovered_asset(db_session, m
     assert asset.room_id == room.id
     assert asset.room is not None
     assert asset.room.reference == "R-101"
+
+
+# ============================================================
+# Tests Poste Windows : Wake-on-LAN, Shutdown et RDP
+# ============================================================
+
+
+def test_wake_on_lan_magic_packet(monkeypatch):
+    """Vérifier la création et l'envoi du paquet magique WoL."""
+    packets_sent = []
+
+    class MockSocket:
+        def __init__(self, *args, **kwargs):
+            pass
+        def setsockopt(self, *args):
+            pass
+        def sendto(self, packet, addr):
+            packets_sent.append((packet, addr))
+        def __enter__(self):
+            return self
+        def __exit__(self, *args):
+            pass
+
+    import socket
+    monkeypatch.setattr(socket, "socket", MockSocket)
+
+    res = send_wake_on_lan("aa:bb:cc:dd:ee:ff", broadcast_ips=["192.168.1.255"])
+    assert res is True
+    assert len(packets_sent) >= 2
+    raw_packet, addr = packets_sent[0]
+    # 6 octets 0xff + 16 * 6 octets de MAC = 102 octets
+    assert len(raw_packet) == 102
+    assert raw_packet[:6] == b"\xff" * 6
+    assert raw_packet[6:12] == bytes.fromhex("aabbccddeeff")
+
+
+def test_wake_on_lan_invalid_mac():
+    with pytest.raises(ValueError, match="Adresse MAC invalide"):
+        send_wake_on_lan("invalid-mac")
+
+
+def test_generate_rdp_file_content():
+    content = generate_rdp_file_content("192.168.1.50", "PC-COMPTA-01")
+    assert "full address:s:192.168.1.50" in content
+    assert "prompt for credentials:i:1" in content
+    assert "screen mode id:i:2" in content
+
+
+async def test_shutdown_windows_host_custom_cmd(monkeypatch):
+    """Vérifier l'exécution d'une commande personnalisée via IT_SHUTDOWN_COMMAND."""
+    monkeypatch.setenv("IT_SHUTDOWN_COMMAND", "echo shutdown {ip}")
+    success, msg = await shutdown_windows_host("192.168.1.50", force=True)
+    assert success is True
+    assert "succès" in msg
+
+
+async def test_service_wake_and_rdp_windows_asset(db_session, monkeypatch):
+    """Vérifier wake_asset et generate_rdp_content depuis le service."""
+    monkeypatch.setattr("app.services.it_asset.send_wake_on_lan", lambda mac, ips=None: True)
+
+    service = ITAssetService(db_session)
+    asset = await service.create_it_asset({
+        "name": "PC-WINDOWS-SECRETARIAT",
+        "asset_type": "pc_windows",
+        "ip_address": "192.168.10.42",
+        "mac_address": "00:11:22:33:44:55",
+    })
+
+    # Test wake
+    success, message, mac = await service.wake_asset(asset.id)
+    assert success is True
+    assert mac == "00:11:22:33:44:55"
+    assert "Wake-on-LAN" in message
+
+    # Test RDP
+    rdp_content, filename = await service.generate_rdp_content(asset.id)
+    assert "192.168.10.42" in rdp_content
+    assert filename.endswith(".rdp")
+
 

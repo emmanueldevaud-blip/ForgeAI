@@ -136,6 +136,12 @@ _renderActions(item) {
 
     power: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18.36 6.64a9 9 0 1 1-12.73 0"></path><line x1="12" y1="2" x2="12" y2="12"></line></svg>',
 
+    wake: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg>',
+
+    shutdown: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18.36 6.64a9 9 0 1 1-12.73 0"></path><line x1="12" y1="2" x2="12" y2="12"></line></svg>',
+
+    rdp: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect><line x1="8" y1="21" x2="16" y2="21"></line><line x1="12" y1="17" x2="12" y2="21"></line></svg>',
+
     users: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>',
 
     eye: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>',
@@ -151,7 +157,7 @@ _renderActions(item) {
     const resolvedVariant = typeof action.variant === 'function' ? action.variant(item) : action.variant;
     const resolvedLabel = typeof action.label === 'function' ? action.label(item) : action.label;
     const title = action.title || resolvedLabel;
-    const icon = icons[resolvedIcon] || this._escapeHtml(resolvedIcon || '');
+    const icon = icons[resolvedIcon] || (typeof resolvedIcon === 'string' && resolvedIcon.trim().startsWith('<svg') ? resolvedIcon : this._escapeHtml(resolvedIcon || ''));
 
     return '<button type="button" class="action-btn ' +
       (resolvedVariant ? 'btn-' + resolvedVariant : '') +

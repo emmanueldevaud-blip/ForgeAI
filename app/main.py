@@ -57,6 +57,7 @@ async def lifespan(app: FastAPI):
     ad_sync_task = asyncio.create_task(_ad_sync_loop())
     sport_analysis_task = asyncio.create_task(_sport_analysis_loop())
     domotique_task = asyncio.create_task(domotique_loop())
+    surveillance_motion_task = asyncio.create_task(_surveillance_motion_loop())
     if settings.PHOTO_ENABLED:
         photo_job_task = asyncio.create_task(_photo_job_loop())
     monitoring_task = asyncio.create_task(_monitoring_loop())
@@ -242,6 +243,30 @@ async def _monitoring_loop() -> None:
         await asyncio.sleep(300)  # Tous les 5 minutes
 
 
+
+async def _surveillance_motion_loop() -> None:
+    """Boucle de détection mouvement surveillance toutes les 5 s."""
+    from app.db.session import get_db
+    from app.services.surveillance import detect_motion_and_notify
+
+    while True:
+        try:
+            async for db in get_db():
+                cameras = await db.execute(
+                    select(SurveillanceCamera).where(SurveillanceCamera.enabled == True)
+                ).scalars().all()
+                for cam in cameras:
+                    if cam.detection_enabled:
+                        try:
+                            await detect_motion_and_notify(cam)
+                        except Exception as exc:
+                            print(f"[SURVEILLE] Erreur détection caméra {cam.name}: {exc}")
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            print(f"[SURVEILLE] Boucle en échec: {exc}")
+        await asyncio.sleep(5)
+ 
 async def _sync_module_statuses(db):
     from sqlalchemy import select
     from app.models.module import Module as ModuleModel

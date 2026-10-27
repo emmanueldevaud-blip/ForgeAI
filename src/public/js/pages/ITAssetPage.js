@@ -25,8 +25,18 @@ import {
   discoverAllRanges,
   setManagementUrl,
   detectManagementUrl,
-  checkManagementUrl
-} from '../services/itAssetApi.js?v=2';
+  checkManagementUrl,
+  wakeItAsset,
+  shutdownItAsset,
+  getAssetRdpUrl,
+} from '../services/itAssetApi.js?v=3';
+
+function isWindowsAsset(item) {
+  if (!item) return false;
+  if (item.asset_type === 'pc_windows') return true;
+  const os = String(item.os || '').toLowerCase();
+  return os.includes('windows') || os.includes('win10') || os.includes('win11');
+}
 
 const ASSET_TYPES = [
   { value: 'pc_windows', label: 'Poste Windows' },
@@ -137,6 +147,9 @@ export class ITAssetPage {
         { key: 'status', label: 'Statut', sortable: true, render: (item) => this._renderStatus(item.status) },
       ],
       actions: [
+        { key: 'wake', label: 'Allumer (Wake-on-LAN)', icon: 'wake', visible: (item) => isWindowsAsset(item), permission: 'it_asset.update' },
+        { key: 'shutdown', label: 'Éteindre', icon: 'shutdown', variant: 'danger', visible: (item) => isWindowsAsset(item), permission: 'it_asset.update' },
+        { key: 'rdp', label: 'Connexion bureau distant', icon: 'rdp', visible: (item) => isWindowsAsset(item), permission: 'it_asset.view' },
         { key: 'edit', label: 'Modifier', icon: 'edit', permission: 'it_asset.update' },
         { key: 'view', label: 'Détails', icon: 'eye', permission: 'it_asset.view' },
         { key: 'delete', label: 'Supprimer', icon: 'trash', permission: 'it_asset.delete', variant: 'danger' },
@@ -325,6 +338,15 @@ export class ITAssetPage {
 
   _handleAction(action, item) {
     switch (action) {
+      case 'wake':
+        this._wakeAsset(item);
+        break;
+      case 'shutdown':
+        this._showShutdownModal(item);
+        break;
+      case 'rdp':
+        this._downloadRdp(item);
+        break;
       case 'edit':
         this._showAssetModal(item);
         break;
@@ -889,6 +911,11 @@ export class ITAssetPage {
         </dl>
         <div class="asset-actions">
           <button class="btn btn-secondary" data-section="list">Retour à la liste</button>
+          ${isWindowsAsset(asset) ? `
+            ${authStore.hasPermission('it_asset.update') ? `<button class="btn btn-secondary" data-action="wake-asset" data-asset-id="${asset.id}" title="Envoyer un paquet Wake-on-LAN">⚡ Allumer</button>` : ''}
+            ${authStore.hasPermission('it_asset.update') ? `<button class="btn btn-danger" data-action="shutdown-asset" data-asset-id="${asset.id}" title="Éteindre le poste Windows">⏻ Éteindre</button>` : ''}
+            <button class="btn btn-primary" data-action="rdp-asset" data-asset-id="${asset.id}" title="Connexion au bureau distant">🖥️ Bureau distant</button>
+          ` : ''}
           ${authStore.hasPermission('it_asset.update') ? `<button class="btn btn-secondary" data-action="edit-asset" data-asset-id="${asset.id}">Modifier</button>` : ''}
           <button class="btn btn-primary" data-action="check-asset" data-asset-id="${asset.id}">Vérifier</button>
         </div>
@@ -1027,9 +1054,18 @@ export class ITAssetPage {
             <div class="asset-modal-panel" data-asset-panel="alerts"><section><h3>Alertes</h3><div data-asset-alerts>Chargement des alertes...</div></section></div>
             <div class="asset-modal-panel" data-asset-panel="history"><section><h3>Historique</h3><div data-asset-history>Chargement de l’historique...</div></section></div>
           </div>
-          <div class="modal-footer">
-            <button class="btn btn-secondary" data-action="close">Fermer</button>
-            ${authStore.hasPermission('it_asset.update') ? `<button class="btn btn-primary" data-action="edit">Modifier</button>` : ''}
+          <div class="modal-footer" style="display:flex; justify-content:space-between; align-items:center; width:100%; flex-wrap:wrap; gap:var(--spacing-2);">
+            <div style="display:flex; gap:var(--spacing-2); flex-wrap:wrap;">
+              ${isWindowsAsset(asset) ? `
+                ${authStore.hasPermission('it_asset.update') ? '<button type="button" class="btn btn-secondary" data-action="modal-wake" title="Envoyer un paquet Wake-on-LAN">⚡ Allumer</button>' : ''}
+                ${authStore.hasPermission('it_asset.update') ? '<button type="button" class="btn btn-danger" data-action="modal-shutdown" title="Éteindre le poste Windows">⏻ Éteindre</button>' : ''}
+                <button type="button" class="btn btn-primary" data-action="modal-rdp" title="Connexion au bureau distant">🖥️ Bureau distant</button>
+              ` : ''}
+            </div>
+            <div style="display:flex; gap:var(--spacing-2);">
+              <button class="btn btn-secondary" data-action="close">Fermer</button>
+              ${authStore.hasPermission('it_asset.update') ? `<button class="btn btn-primary" data-action="edit">Modifier</button>` : ''}
+            </div>
           </div>
       </div>
     `;
@@ -1068,6 +1104,9 @@ export class ITAssetPage {
         if (target) target.textContent = 'Informations indisponibles.';
       });
     });
+    modal.querySelector('[data-action="modal-wake"]')?.addEventListener('click', () => this._wakeAsset(asset));
+    modal.querySelector('[data-action="modal-shutdown"]')?.addEventListener('click', () => this._showShutdownModal(asset));
+    modal.querySelector('[data-action="modal-rdp"]')?.addEventListener('click', () => this._downloadRdp(asset));
     modal.querySelector('[data-action="edit"]')?.addEventListener('click', () => {
       close();
       this._showAssetModal(asset);
@@ -1197,6 +1236,30 @@ export class ITAssetPage {
         await this.loadAssets();
         this.loading = false;
         this.render();
+      });
+    });
+
+    this.element.querySelectorAll('[data-action="wake-asset"]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const id = parseInt(btn.dataset.assetId);
+        const asset = this.assets.find(a => a.id === id);
+        if (asset) this._wakeAsset(asset);
+      });
+    });
+
+    this.element.querySelectorAll('[data-action="shutdown-asset"]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const id = parseInt(btn.dataset.assetId);
+        const asset = this.assets.find(a => a.id === id);
+        if (asset) this._showShutdownModal(asset);
+      });
+    });
+
+    this.element.querySelectorAll('[data-action="rdp-asset"]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const id = parseInt(btn.dataset.assetId);
+        const asset = this.assets.find(a => a.id === id);
+        if (asset) this._downloadRdp(asset);
       });
     });
 
@@ -1500,6 +1563,105 @@ export class ITAssetPage {
         alert(e.message || 'Erreur lors de l\'enregistrement');
       }
     });
+  }
+
+  async _wakeAsset(asset) {
+    if (!asset) return;
+    const mac = asset.wol_mac || asset.mac_address;
+    if (!mac) {
+      this._showToast(`Adresse MAC manquante pour allumer « ${asset.name} » via Wake-on-LAN.`, 'warning');
+      return;
+    }
+    try {
+      const res = await wakeItAsset(asset.id);
+      this._showToast(res.message || `Paquet Wake-on-LAN envoyé à ${asset.name}`, 'success');
+    } catch (err) {
+      this._showToast(err.message || 'Erreur lors de l’envoi Wake-on-LAN', 'error');
+    }
+  }
+
+  _showShutdownModal(asset) {
+    if (!asset) return;
+    const modal = document.createElement('div');
+    modal.className = 'modal-overlay shutdown-modal-overlay';
+    modal.innerHTML = `
+      <div class="modal-content" style="max-width: 480px;">
+        <div class="modal-header">
+          <h2>Éteindre le poste Windows</h2>
+          <button class="modal-close" data-action="close" aria-label="Fermer">&times;</button>
+        </div>
+        <div class="modal-body">
+          <p style="margin-bottom: var(--spacing-3);">
+            Voulez-vous vraiment éteindre le poste
+            <strong>${this._escape(asset.name)}</strong>
+            ${asset.ip_address ? `(${this._escape(asset.ip_address)})` : ''} ?
+          </p>
+          <div style="margin-bottom: var(--spacing-3);">
+            <label style="display:flex; align-items:center; gap:var(--spacing-2); cursor:pointer;">
+              <input type="checkbox" name="force" checked>
+              <span>Forcer l'extinction immédiate</span>
+            </label>
+          </div>
+          <details style="margin-top: var(--spacing-2); font-size: var(--font-size-sm); color: var(--color-text-secondary);">
+            <summary style="cursor:pointer; margin-bottom: var(--spacing-2);">Identifiants spécifiques (optionnel)</summary>
+            <div style="display:flex; flex-direction:column; gap:var(--spacing-2); padding-top:var(--spacing-1);">
+              <div>
+                <label style="display:block; margin-bottom:4px;">Nom d'utilisateur admin</label>
+                <input type="text" class="form-input" name="shutdown-user" placeholder="ex: Administrateur ou DOMAINE\\admin" style="width:100%;">
+              </div>
+              <div>
+                <label style="display:block; margin-bottom:4px;">Mot de passe</label>
+                <input type="password" class="form-input" name="shutdown-pass" placeholder="Mot de passe" style="width:100%;">
+              </div>
+            </div>
+          </details>
+        </div>
+        <div class="modal-footer" style="display:flex; justify-content:flex-end; gap:var(--spacing-2);">
+          <button type="button" class="btn btn-secondary" data-action="close">Annuler</button>
+          <button type="button" class="btn btn-danger" data-action="confirm-shutdown">Éteindre le poste</button>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(modal);
+    const close = () => modal.remove();
+    modal.querySelectorAll('[data-action="close"]').forEach(b => b.addEventListener('click', close));
+    modal.addEventListener('click', (e) => { if (e.target === modal) close(); });
+
+    modal.querySelector('[data-action="confirm-shutdown"]')?.addEventListener('click', async (e) => {
+      const btn = e.currentTarget;
+      btn.disabled = true;
+      btn.textContent = 'En cours...';
+      const force = modal.querySelector('input[name="force"]')?.checked ?? true;
+      const username = modal.querySelector('input[name="shutdown-user"]')?.value?.trim() || null;
+      const password = modal.querySelector('input[name="shutdown-pass"]')?.value || null;
+
+      try {
+        const res = await shutdownItAsset(asset.id, { force, username, password });
+        this._showToast(res.message || `Ordre d'extinction envoyé à ${asset.name}`, 'success');
+        close();
+        await this.loadAssets();
+      } catch (err) {
+        this._showToast(err.message || "Erreur lors de l'extinction", 'error');
+        btn.disabled = false;
+        btn.textContent = 'Éteindre le poste';
+      }
+    });
+  }
+
+  _downloadRdp(asset) {
+    if (!asset) return;
+    if (!asset.ip_address && !asset.name) {
+      this._showToast(`Adresse IP ou nom manquant pour la connexion RDP à « ${asset.name} ».`, 'warning');
+      return;
+    }
+    const url = getAssetRdpUrl(asset.id);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `${asset.name || 'poste'}.rdp`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    this._showToast(`Téléchargement de la configuration Bureau à distance pour « ${asset.name} ».`, 'info');
   }
 
   _showToast(message, variant = 'success') {

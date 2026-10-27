@@ -5,6 +5,7 @@ import subprocess
 import platform
 import json
 import os
+import shutil
 from datetime import UTC, datetime, timedelta
 from ipaddress import IPv4Network, IPv6Network, IPv4Address, IPv6Address
 from typing import Optional, List, Tuple
@@ -68,6 +69,137 @@ def _normalize_mac(mac: Optional[str]) -> Optional[str]:
 
 def _normalize_ip(ip: Optional[str]) -> Optional[str]:
     return ip
+
+
+def send_wake_on_lan(mac_address: str, broadcast_ips: Optional[list[str]] = None, port: int = 9) -> bool:
+    """Émet un paquet magique Wake-on-LAN en UDP broadcast."""
+    clean_mac = mac_address.replace(":", "").replace("-", "").replace(".", "").strip()
+    if len(clean_mac) != 12:
+        raise ValueError(f"Adresse MAC invalide: '{mac_address}'")
+    try:
+        mac_bytes = bytes.fromhex(clean_mac)
+    except ValueError as exc:
+        raise ValueError(f"Format hexadécimal invalide pour l'adresse MAC: '{mac_address}'") from exc
+
+    magic_packet = b"\xff" * 6 + mac_bytes * 16
+
+    targets = set(broadcast_ips or [])
+    targets.add("255.255.255.255")
+
+    with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+        for target in targets:
+            try:
+                sock.sendto(magic_packet, (target, port))
+                if port != 7:
+                    sock.sendto(magic_packet, (target, 7))
+            except Exception:
+                pass
+    return True
+
+
+async def shutdown_windows_host(
+    ip: str,
+    username: Optional[str] = None,
+    password: Optional[str] = None,
+    force: bool = False,
+    delay_seconds: int = 0,
+    message: Optional[str] = None,
+) -> tuple[bool, str]:
+    """Tente d'éteindre un poste Windows à distance."""
+    custom_cmd = os.environ.get("IT_SHUTDOWN_COMMAND")
+    if custom_cmd:
+        cmd_str = custom_cmd.format(
+            ip=ip,
+            username=username or "",
+            password=password or "",
+            force="-f" if force else "",
+            delay=str(max(0, delay_seconds)),
+            message=message or "",
+        )
+        try:
+            proc = await asyncio.create_subprocess_shell(
+                cmd_str,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=15.0)
+            if proc.returncode == 0:
+                return True, "Commande personnalisée d'extinction exécutée avec succès."
+            err_msg = stderr.decode(errors="replace").strip() or stdout.decode(errors="replace").strip()
+            return False, f"Échec de la commande d'extinction (code {proc.returncode}): {err_msg}"
+        except asyncio.TimeoutError:
+            return False, "Délai dépassé lors de l'exécution de la commande d'extinction."
+        except Exception as exc:
+            return False, f"Erreur lors de l'exécution de la commande: {exc}"
+
+    net_bin = shutil.which("net")
+    if net_bin:
+        args = [net_bin, "rpc", "shutdown", "-I", ip]
+        if username and password:
+            args.extend(["-U", f"{username}%{password}"])
+        elif username:
+            args.extend(["-U", username])
+        if force:
+            args.append("-f")
+        args.extend(["-t", str(max(0, delay_seconds))])
+        if message:
+            args.extend(["-C", message])
+
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                *args,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=12.0)
+            if proc.returncode == 0:
+                return True, f"Commande d'extinction RPC transmise avec succès à {ip}."
+            err_msg = stderr.decode(errors="replace").strip() or stdout.decode(errors="replace").strip()
+            return False, f"Échec de l'extinction RPC ({ip}): {err_msg}"
+        except asyncio.TimeoutError:
+            return False, f"Délai d'attente dépassé lors de la tentative d'extinction de {ip}."
+        except Exception as exc:
+            return False, f"Erreur lors de l'appel net rpc shutdown: {exc}"
+
+    try:
+        reader, writer = await asyncio.wait_for(
+            asyncio.open_connection(ip, 445),
+            timeout=3.0,
+        )
+        writer.close()
+        await writer.wait_closed()
+        return False, (
+            f"L'hôte {ip} est joignable (port 445 SMB ouvert), mais l'outil 'net rpc' "
+            f"(samba-common-bin) n'est pas disponible sur le serveur."
+        )
+    except Exception:
+        pass
+
+    return False, (
+        f"Impossible d'éteindre l'hôte {ip} à distance : l'utilitaire 'net rpc' n'est pas "
+        f"disponible sur le serveur ou l'hôte est injoignable."
+    )
+
+
+def generate_rdp_file_content(ip_address: Optional[str], hostname: Optional[str]) -> str:
+    """Génère la configuration standard d'une session Bureau à distance (.rdp)."""
+    target = ip_address or hostname or ""
+    return (
+        f"full address:s:{target}\r\n"
+        "prompt for credentials:i:1\r\n"
+        "screen mode id:i:2\r\n"
+        "use multimon:i:0\r\n"
+        "session bpp:i:32\r\n"
+        "compression:i:1\r\n"
+        "keyboardhook:i:2\r\n"
+        "audiomode:i:0\r\n"
+        "redirectclipboard:i:1\r\n"
+        "displayconnectionbar:i:1\r\n"
+        "autoreconnection enabled:i:1\r\n"
+        "administrative session:i:0\r\n"
+    )
+
 
 
 _SNMP_OID_PREFIXES = {
@@ -1070,6 +1202,130 @@ class ITAssetService:
             )
 
         return True
+
+    async def wake_asset(self, asset_id: int) -> tuple[bool, str, str]:
+        """Allume un équipement via un paquet Wake-on-LAN (Magic Packet)."""
+        asset = await self.get_it_asset(asset_id)
+        if not asset:
+            raise ValueError(f"Équipement {asset_id} introuvable.")
+
+        mac = asset.wol_mac or asset.mac_address
+        if not mac:
+            raise ValueError(f"Adresse MAC manquante pour réveiller '{asset.name}' via Wake-on-LAN.")
+
+        broadcast_ips = []
+        if asset.ip_address:
+            try:
+                parts = asset.ip_address.split(".")
+                if len(parts) == 4:
+                    broadcast_ips.append(f"{parts[0]}.{parts[1]}.{parts[2]}.255")
+            except Exception:
+                pass
+
+        send_wake_on_lan(mac, broadcast_ips)
+
+        if self.audit and self.current_user:
+            await self.audit.log(
+                action="wake_on_lan",
+                module="it_asset",
+                user=self.current_user,
+                object_type="it_asset",
+                object_id=asset.id,
+                object_repr=f"{asset.reference} - {asset.name}",
+                status="success",
+            )
+
+        await self._log_history(asset_id, "power", asset.status, "wake_on_lan")
+        await self.db.commit()
+
+        return True, f"Paquet Wake-on-LAN envoyé avec succès à {asset.name} ({mac}).", mac
+
+    async def shutdown_asset(
+        self,
+        asset_id: int,
+        force: bool = False,
+        delay_seconds: int = 0,
+        message: Optional[str] = None,
+        username: Optional[str] = None,
+        password: Optional[str] = None,
+    ) -> tuple[bool, str]:
+        """Éteint un poste Windows à distance."""
+        asset = await self.get_it_asset(asset_id)
+        if not asset:
+            raise ValueError(f"Équipement {asset_id} introuvable.")
+
+        ip = asset.ip_address
+        if not ip:
+            raise ValueError(f"Adresse IP manquante pour éteindre '{asset.name}' à distance.")
+
+        final_user = username
+        final_pass = password
+        if not final_user:
+            try:
+                from app.models.ad_integration import ADConfig
+                res = await self.db.execute(select(ADConfig).where(ADConfig.is_active == True).limit(1))
+                ad_cfg = res.scalar_one_or_none()
+                if ad_cfg and ad_cfg.bind_user and ad_cfg.bind_password:
+                    final_user = ad_cfg.bind_user
+                    final_pass = ad_cfg.bind_password
+            except Exception:
+                pass
+
+        success, msg = await shutdown_windows_host(
+            ip=ip,
+            username=final_user,
+            password=final_pass,
+            force=force,
+            delay_seconds=delay_seconds,
+            message=message,
+        )
+
+        if self.audit and self.current_user:
+            await self.audit.log(
+                action="shutdown",
+                module="it_asset",
+                user=self.current_user,
+                object_type="it_asset",
+                object_id=asset.id,
+                object_repr=f"{asset.reference} - {asset.name}",
+                status="success" if success else "failed",
+                details={"ip": ip, "force": force, "result": msg},
+            )
+
+        if success:
+            await self._log_history(asset_id, "power", asset.status, "shutdown")
+            await self.db.commit()
+
+        return success, msg
+
+    async def generate_rdp_content(self, asset_id: int) -> tuple[str, str]:
+        """Génère la configuration de session Bureau à distance (.rdp)."""
+        asset = await self.get_it_asset(asset_id)
+        if not asset:
+            raise ValueError(f"Équipement {asset_id} introuvable.")
+
+        target = asset.ip_address or asset.computer_name_ad or asset.name
+        if not target:
+            raise ValueError(f"Adresse IP ou nom d'hôte manquant pour la connexion RDP à '{asset.name}'.")
+
+        rdp_text = generate_rdp_file_content(asset.ip_address, asset.computer_name_ad or asset.name)
+        base_name = asset.name or asset.reference or "connexion"
+        safe_filename = "".join(c for c in base_name if c.isalnum() or c in "._- ")
+        if not safe_filename:
+            safe_filename = f"asset_{asset.id}"
+
+        if self.audit and self.current_user:
+            await self.audit.log(
+                action="rdp_download",
+                module="it_asset",
+                user=self.current_user,
+                object_type="it_asset",
+                object_id=asset.id,
+                object_repr=f"{asset.reference} - {asset.name}",
+                status="success",
+            )
+
+        return rdp_text, f"{safe_filename}.rdp"
 
     async def import_it_assets(
         self,

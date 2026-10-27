@@ -251,6 +251,67 @@ async def test_domotique_motor_regulation_with_fake_pi(domo_seed, monkeypatch):
     assert heater.state is False
 
 
+@pytest.mark.asyncio
+async def test_outputs_forced_off_without_active_cycle(domo_seed, monkeypatch):
+    db = domo_seed
+
+    fake_state = {
+        "temperature": 8.0,
+        "humidity": 90.0,
+        "weight": None,
+        "outputs": [False] * 8,
+        "timestamp": None,
+    }
+    fake_state["outputs"][1] = True  # groupe froid (AUTO) reste allume
+    fake_state["outputs"][5] = True  # sortie en mode manuel
+
+    async def fake_fetch_state(base_url, timeout=2.0, auth=None):
+        return dict(fake_state)
+
+    sent_commands = []
+
+    async def fake_send_command(base_url, index, state, timeout=2.0, auth=None):
+        sent_commands.append((index, state))
+        fake_state["outputs"][index] = state
+
+    monkeypatch.setattr(domotique_engine.raspberry, "fetch_state", fake_fetch_state)
+    monkeypatch.setattr(domotique_engine.raspberry, "send_command", fake_send_command)
+
+    from datetime import datetime, timedelta, timezone
+
+    from sqlalchemy import select
+
+    from app.models.domotique import DomotiqueDevice, DomotiqueOutput
+
+    device = (await db.execute(select(DomotiqueDevice))).scalars().first()
+    assert device is not None
+    device.base_url = "http://fake-raspberry.local"
+
+    outputs = (
+        await db.execute(
+            select(DomotiqueOutput).where(DomotiqueOutput.device_id == device.id)
+        )
+    ).scalars().all()
+    cooler = next(o for o in outputs if o.index == 1)
+    manual = next(o for o in outputs if o.index == 5)
+    cooler.state = True
+    cooler.updated_at = datetime.now(timezone.utc) - timedelta(seconds=200)
+    manual.mode = "manual"
+    manual.state = True
+    await db.commit()
+
+    await domotique_engine.poll_device(db, device)
+
+    assert sent_commands == [(1, False)], (
+        "sans cycle actif, la sortie automatique allumée doit être éteinte "
+        "et la sortie manuelle ne doit pas être touchée"
+    )
+    await db.refresh(cooler)
+    await db.refresh(manual)
+    assert cooler.state is False
+    assert manual.state is True
+
+
 def test_cooler_anti_short_cycle():
     from datetime import datetime, timedelta, timezone
 

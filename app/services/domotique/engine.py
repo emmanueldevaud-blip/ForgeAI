@@ -744,6 +744,13 @@ async def poll_device(db: AsyncSession, device: DomotiqueDevice) -> None:
         sensors = await _persist_sensor_values(db, device, state)
         await _sync_output_states(db, device, state["outputs"])
 
+    # Hors cycle actif : aucune sortie automatique ne doit rester sous tension.
+    # Chaque poll reessaie l'arret jusqu'a ce que le Raspberry confirme l'OFF
+    # (rattrape un arret rate a l'arret du cycle ou une remise en marche
+    # intempestive).
+    if state is not None and cycle is None:
+        await _all_auto_outputs_off(db, device, None)
+
     # Cycle : poids + phases + regulation (uniquement en cours de cycle actif)
     if cycle is not None and cycle.status == CycleStatus.RUNNING and state is not None:
         if state.get("weight") is not None and cycle.initial_weight:

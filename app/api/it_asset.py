@@ -1,7 +1,7 @@
 import math
 from typing import Optional
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import require_module_enabled, require_permission
@@ -29,6 +29,9 @@ from app.schemas.it_asset import (
     DiscoveryLogResponse,
     ManagementURLRequest,
     ManagementURLResponse,
+    ITAssetWakeResponse,
+    ITAssetShutdownRequest,
+    ITAssetShutdownResponse,
 )
 from app.services.audit import get_audit_service
 from app.services.it_asset import (
@@ -632,3 +635,64 @@ async def check_management_url(
     if not updated:
         raise HTTPException(status_code=404, detail="Asset IT non trouvé")
     return _management_response(updated)
+
+
+@router.post("/{asset_id}/wake", response_model=ITAssetWakeResponse)
+async def wake_it_asset(
+    asset_id: int,
+    current_user: User = Depends(require_permission("it_asset.update")),
+    db: AsyncSession = Depends(get_db),
+):
+    """Envoie un paquet magique Wake-on-LAN pour allumer l'équipement."""
+    service = await get_it_asset_service(db, current_user)
+    try:
+        success, message, mac = await service.wake_asset(asset_id)
+        return ITAssetWakeResponse(success=success, message=message, mac_address=mac)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+
+
+@router.post("/{asset_id}/shutdown", response_model=ITAssetShutdownResponse)
+async def shutdown_it_asset(
+    asset_id: int,
+    data: Optional[ITAssetShutdownRequest] = None,
+    current_user: User = Depends(require_permission("it_asset.update")),
+    db: AsyncSession = Depends(get_db),
+):
+    """Éteint un poste Windows à distance."""
+    service = await get_it_asset_service(db, current_user)
+    req = data or ITAssetShutdownRequest()
+    try:
+        success, message = await service.shutdown_asset(
+            asset_id,
+            force=req.force,
+            delay_seconds=req.delay_seconds,
+            message=req.message,
+            username=req.username,
+            password=req.password,
+        )
+        if not success:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=message)
+        return ITAssetShutdownResponse(success=True, message=message)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+
+
+@router.get("/{asset_id}/rdp")
+async def download_asset_rdp_file(
+    asset_id: int,
+    current_user: User = Depends(require_permission("it_asset.view")),
+    db: AsyncSession = Depends(get_db),
+):
+    """Génère et télécharge le fichier .rdp de connexion au bureau à distance."""
+    service = await get_it_asset_service(db, current_user)
+    try:
+        rdp_content, filename = await service.generate_rdp_content(asset_id)
+        return Response(
+            content=rdp_content,
+            media_type="application/x-rdp",
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+

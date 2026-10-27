@@ -33,9 +33,13 @@ import {
 
 function isWindowsAsset(item) {
   if (!item) return false;
-  if (item.asset_type === 'pc_windows') return true;
+  const type = String(item.asset_type || '').toLowerCase();
+  if (type === 'pc_windows' || type === 'windows' || type === 'pc_win') return true;
   const os = String(item.os || '').toLowerCase();
-  return os.includes('windows') || os.includes('win10') || os.includes('win11');
+  if (os.includes('windows') || os.includes('win10') || os.includes('win11')) return true;
+  const name = String(item.name || '').toLowerCase();
+  if (name.includes('pcfixe') || name.includes('pc-win') || name.includes('windows')) return true;
+  return false;
 }
 
 const ASSET_TYPES = [
@@ -60,7 +64,10 @@ const ASSET_STATUSES = [
 
 const ASSET_STATUS_LABELS = Object.fromEntries(ASSET_STATUSES.map(({ value, label }) => [value, label]));
 
-const ASSET_TYPE_LABELS = Object.fromEntries(ASSET_TYPES.map(({ value, label }) => [value, label]));
+const ASSET_TYPE_LABELS = {
+  ...Object.fromEntries(ASSET_TYPES.map(({ value, label }) => [value, label])),
+  ...Object.fromEntries(ASSET_TYPES.map(({ value, label }) => [value.toUpperCase(), label])),
+};
 
 // États de l'interface web d'administration (management_url_status)
 const MGMT_STATUS_LABELS = {

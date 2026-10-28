@@ -245,20 +245,25 @@ async def _monitoring_loop() -> None:
 
 
 async def _surveillance_motion_loop() -> None:
-    """Boucle de détection mouvement surveillance toutes les 5 s."""
+    """Boucle de détection mouvement surveillance toutes les 5 s."""
+    from sqlalchemy import select
+
     from app.db.session import get_db
+    from app.models.domotique import SurveillanceCamera
     from app.services.surveillance import detect_motion_and_notify
 
     while True:
         try:
             async for db in get_db():
-                cameras = await db.execute(
-                    select(SurveillanceCamera).where(SurveillanceCamera.enabled == True)
+                cameras = (
+                    await db.execute(
+                        select(SurveillanceCamera).where(SurveillanceCamera.enabled == True)
+                    )
                 ).scalars().all()
                 for cam in cameras:
                     if cam.detection_enabled:
                         try:
-                            await detect_motion_and_notify(cam)
+                            await detect_motion_and_notify(db, cam)
                         except Exception as exc:
                             print(f"[SURVEILLE] Erreur détection caméra {cam.name}: {exc}")
         except asyncio.CancelledError:

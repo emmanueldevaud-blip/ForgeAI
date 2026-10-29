@@ -26,7 +26,6 @@ import json
 import logging
 import os
 import struct
-import time
 from datetime import datetime, time, timezone
 from typing import Any
 from urllib.parse import urlsplit
@@ -281,7 +280,7 @@ class NotificationService:
         header = _b64url_encode(json.dumps({"typ": "JWT", "alg": "ES256"}, separators=(",", ":")).encode())
         claims = _b64url_encode(
             json.dumps(
-                {"aud": audience, "exp": int(time.time()) + _VAPID_EXPIRY_SECONDS, "sub": subject},
+                {"aud": audience, "exp": int(datetime.now(timezone.utc).timestamp()) + _VAPID_EXPIRY_SECONDS, "sub": subject},
                 separators=(",", ":"),
             ).encode()
         )

@@ -687,6 +687,7 @@
   inset: 0;
   z-index: var(--z-index-modal);
   display: none;
+  margin: auto;
 }
 
 .modal:not(.hidden),
@@ -707,6 +708,7 @@
   position: relative;
   width: min(680px, 90%);
   max-height: 90vh;
+  max-height: min(90dvh, 90vh);
   margin: auto;
   background: var(--color-modal-bg);
   border-radius: var(--radius-xl);
@@ -3397,6 +3399,7 @@
 .calendar-nav {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: var(--spacing-4);
   margin-bottom: var(--spacing-4);
 }
@@ -5187,6 +5190,7 @@
 .modal-lg {
   width: min(960px, calc(100vw - 2rem));
   max-width: 960px;
+  margin: auto;
 }
 
 .asset-modal-tabs {
@@ -5469,7 +5473,7 @@
 .action-btn:hover:not(:disabled) { border-color: var(--color-border-light); background: var(--color-bg-tertiary); color: var(--color-primary); }
 .action-btn.delete:hover:not(:disabled), .action-btn.btn-danger:hover:not(:disabled) { color: var(--color-danger); background: var(--color-danger-light); }
 .card { border: 1px solid var(--color-border-light); border-radius: var(--radius-lg); background: var(--color-surface-raised); box-shadow: var(--shadow-sm); }
-.card-header { display: flex; align-items: center; justify-content: space-between; gap: var(--spacing-4); padding: var(--spacing-4) var(--spacing-5); border-bottom: 1px solid var(--color-border-light); }
+.card-header { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: var(--spacing-4); padding: var(--spacing-4) var(--spacing-5); border-bottom: 1px solid var(--color-border-light); }
 .card-header h2, .card-header h3 { margin: 0; color: var(--color-text-primary); font-size: var(--font-size-lg); }
 .card-body { padding: var(--spacing-5); }
 :where(.form-control, .form-input, .form-group input, .form-group select, .form-group textarea) { border-radius: var(--control-radius); transition: border-color var(--transition-fast), box-shadow var(--transition-fast), background-color var(--transition-fast); }
@@ -7731,4 +7735,83 @@
   .ai-input-area { gap: var(--spacing-2); }
   .ai-input { min-width: 0; }
   .ai-send-btn { min-width: 88px; padding-left: var(--spacing-3); padding-right: var(--spacing-3); }
+}
+
+/* =========================================================
+   RESPONSIVE — CORRECTIONS GLOBALES (PC / tablette / mobile)
+   ========================================================= */
+
+/* Calendrier maintenance : conteneur sans scroll horizontal */
+[data-calendar],
+[data-types-list] {
+  overflow-x: auto;
+  max-width: 100%;
+}
+
+/* Détails d'un bon de travail : grille 2 colonnes -> 1 colonne */
+@media (max-width: 768px) {
+  .detail-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Barre de périodes (dashboard intendance) : autoriser le wrap */
+@media (max-width: 720px) {
+  .period-toolbar {
+    flex-wrap: wrap;
+  }
+}
+
+/* Barre de navigation calendrier : titre pleine largeur sur mobile */
+@media (max-width: 639px) {
+  .calendar-nav h2 {
+    min-width: 0;
+    flex: 1 1 100%;
+    text-align: left;
+  }
+}
+
+/* Filtres de pages : champs réduits à 100 % sur petit écran */
+@media (max-width: 640px) {
+  .equipment-page .page-filters .form-input,
+  .maintenance-page .page-filters .form-input {
+    min-width: 0;
+    width: 100%;
+  }
+
+  .equipment-page .filter-group,
+  .maintenance-page .page-filters .filter-group,
+  .intendance-dashboard-page .filter-group {
+    min-width: 0;
+    flex: 1 1 100%;
+  }
+
+  .modal-body {
+    padding: var(--spacing-4);
+  }
+}
+
+/* Grille de cartes (modèles d'e-mails housing, ...) */
+.card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: var(--spacing-4);
+}
+
+/* Pièces jointes contrats maintenance : colonnes list + actions */
+.attachments-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--spacing-4);
+  align-items: start;
+}
+
+.attachments-list-col {
+  min-width: 0;
+}
+
+@media (max-width: 639px) {
+  .attachments-layout {
+    grid-template-columns: 1fr;
+  }
 }

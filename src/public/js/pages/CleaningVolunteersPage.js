@@ -219,7 +219,7 @@ export class CleaningVolunteersPage {
     const currentUsage = item?.usage_type || 'cleaning';
     const modal = document.createElement('div');
     modal.className = 'modal-overlay open';
-    modal.style.cssText = 'position:fixed;inset:0;z-index:2000;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.5);';
+    modal.style.cssText = 'position:fixed;inset:0;z-index:2000;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.5);padding:16px;box-sizing:border-box;';
     modal.innerHTML = `
       <div class="modal-content" style="max-width:500px;width:95%;background:var(--color-bg-primary);border-radius:var(--radius-lg);">
         <div class="modal-header">

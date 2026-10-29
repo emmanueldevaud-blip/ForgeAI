@@ -156,7 +156,7 @@ export class MaintenanceContractsPage {
       }
       const byId = new Map(items.map((a) => [String(a.id), a]));
       list.innerHTML = items.map((a) => `
-        <div class="attachment-item" data-select-attachment="${a.id}" style="display:flex;align-items:center;gap:8px;padding:8px;border:1px solid var(--color-border-light);border-radius:var(--radius-sm);margin-bottom:6px;">
+        <div class="attachment-item" data-select-attachment="${a.id}" style="display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:8px;border:1px solid var(--color-border-light);border-radius:var(--radius-sm);margin-bottom:6px;">
           <span data-select-hit style="flex:1;cursor:pointer;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${escapeHtml(a.filename)}">${escapeHtml(a.filename)}</span>
           <span style="color:var(--color-text-secondary);font-size:var(--font-size-sm);white-space:nowrap;">${formatBytes(a.file_size)}</span>
           <a class="btn btn-sm btn-secondary" href="/maintenance/attachments/${a.id}/download">Télécharger</a>

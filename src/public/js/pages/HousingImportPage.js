@@ -182,7 +182,7 @@ export function createHousingImportPage(router) {
               <button class="btn btn-primary" data-action="validate" ${currentBatch?.stats?.ready === 0 ? 'disabled' : ''}>Valider l'import</button>
             </div>
           </div>
-          <div class="table-responsive" style="max-height: calc(100vh - 300px); overflow-y: auto;">
+          <div class="table-responsive" style="max-height: calc(100dvh - 300px); overflow-y: auto;">
             <table class="table">
               <thead>
                 <tr>

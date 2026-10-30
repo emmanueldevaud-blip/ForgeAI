@@ -18,7 +18,7 @@ class Settings(BaseSettings):
     DEBUG: bool = False
     SECRET_KEY: str = Field(..., description="Clé secrète pour JWT (obligatoire)")
     ALGORITHM: str = "HS256"
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 480
     REFRESH_TOKEN_EXPIRE_DAYS: int = 7
 
     # Database

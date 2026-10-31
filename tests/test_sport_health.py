@@ -244,6 +244,17 @@ async def test_recovery_context_for_ai(db_session, admin_user):
     assert ctx["latest"]["body_battery"] == 53
     assert ctx["period_averages"]["resting_hr"] == 42
 
+    # Chaque dernière valeur est datée et le HRV du jour est disponible.
+    today_iso = date.today().isoformat()
+    assert ctx["latest"]["hrv_day"] == today_iso
+    assert ctx["latest"]["readiness_day"] == today_iso
+    assert ctx["latest"]["resting_hr_day"] == today_iso
+    assert ctx["latest"]["stress_day"] == today_iso
+    assert ctx["hrv_available"] is True
+    assert ctx["hrv_day"] == today_iso
+    assert ctx["hrv_today"] == 38
+    assert ctx["hrv_unavailable_reason"] is None
+
     from app.services.sport_analysis import SportAnalysisEngine
     built = SportAnalysisEngine.build_context({}, [], {}, {}, [], recovery=ctx)
     assert built["recovery"]["available"] is True
@@ -281,6 +292,47 @@ async def test_recovery_context_distinguishes_today_body_battery(db_session, adm
     ctx = await service.recovery_context(today)
     assert ctx["latest"]["body_battery_day"] == today.isoformat()
     assert ctx["body_battery_today"] == 88
+
+
+async def test_recovery_context_distinguishes_today_hrv(db_session, admin_user):
+    service = SportService(db_session, admin_user)
+    athlete = await _athlete(db_session, admin_user)
+    today = date.today()
+    yesterday = today - timedelta(days=1)
+    db_session.add(SportHealthDaily(
+        athlete_id=athlete.id,
+        day=yesterday,
+        source_type="garmin",
+        health_json={"hrv": {"hrvSummary": {"status": "BALANCED", "lastNightAvg": 50}}},
+    ))
+    await db_session.commit()
+
+    # HRV de la veille uniquement : la dernière valeur est datée et
+    # l'indisponibilité de la nuit écoulée est annoncée explicitement.
+    ctx = await service.recovery_context(today)
+    assert ctx["latest"]["hrv_ms"] == 50
+    assert ctx["latest"]["hrv_day"] == yesterday.isoformat()
+    assert ctx["hrv_today"] is None
+    assert ctx["hrv_today_status"] is None
+    assert ctx["hrv_available"] is False
+    assert today.isoformat() in ctx["hrv_unavailable_reason"]
+    assert "HRV" in ctx["hrv_unavailable_reason"]
+
+    db_session.add(SportHealthDaily(
+        athlete_id=athlete.id,
+        day=today,
+        source_type="garmin",
+        health_json={"hrv": {"hrvSummary": {"status": "BALANCED", "lastNightAvg": 56}}},
+    ))
+    await db_session.commit()
+
+    # HRV du jour synchronisé : valeur du jour utilisable séparément.
+    ctx = await service.recovery_context(today)
+    assert ctx["latest"]["hrv_day"] == today.isoformat()
+    assert ctx["latest"]["hrv_ms"] == 56
+    assert ctx["hrv_today"] == 56
+    assert ctx["hrv_available"] is True
+    assert ctx["hrv_unavailable_reason"] is None
 
 
 async def test_coach_context_includes_all_health_data(db_session, admin_user):

@@ -1,4 +1,4 @@
-import { getSportHealth } from '../services/sportApi.js?v=6';
+import { getSportHealth } from '../services/sportApi.js?v=7';
 
 const PERIODS = [
   { value: 7, label: '7 jours' },
@@ -72,9 +72,9 @@ export class SportHealthPage {
           ${this._statCard('Score sommeil', this._round(summary.sleep_score_avg))}
           ${this._statCard('HRV (moy.)', summary.hrv_avg == null ? null : `${Math.round(summary.hrv_avg)} ms`)}
           ${this._statCard('Stress (moy.)', this._round(summary.stress_avg))}
-          ${this._statCard('Body Battery', summary.body_battery_last == null ? null : `${Math.round(summary.body_battery_last)} %`)}
+          ${this._statCard('Body Battery', summary.body_battery_last == null ? null : `${Math.round(summary.body_battery_last)} %`, summary.body_battery_day ? `Dernière valeur le ${this._date(summary.body_battery_day, true)}` : null)}
           ${this._statCard('Pas (moy.)', summary.steps_avg == null ? null : Math.round(summary.steps_avg).toLocaleString('fr-FR'))}
-          ${summary.readiness_last == null ? '' : this._statCard('Readiness', Math.round(summary.readiness_last))}
+          ${summary.readiness_last == null ? '' : this._statCard('Readiness', Math.round(summary.readiness_last), summary.readiness_day ? `Dernière valeur le ${this._date(summary.readiness_day, true)}` : null)}
         </section>
         <section class="sport-dashboard-grid sport-dashboard-grid--main" aria-label="Séries de santé">
           ${CARDS.map(card => this._card(card, series[card.key] || [])).join('')}
@@ -98,9 +98,9 @@ export class SportHealthPage {
     this.element.querySelector('[data-action="garmin"]')?.addEventListener('click', () => this.router.navigate('/sport/garmin'));
   }
 
-  _statCard(label, value) {
+  _statCard(label, value, meta = null) {
     if (value == null) return '';
-    return `<article class="sport-stat-card"><div class="sport-stat-top"><span>${label}</span></div><strong>${value}</strong><div class="sport-stat-meta sport-stat-meta--muted">Sur la période sélectionnée</div></article>`;
+    return `<article class="sport-stat-card"><div class="sport-stat-top"><span>${label}</span></div><strong>${value}</strong><div class="sport-stat-meta sport-stat-meta--muted">${meta || 'Sur la période sélectionnée'}</div></article>`;
   }
 
   _card(card, items) {
@@ -110,7 +110,7 @@ export class SportHealthPage {
     const extra = card.extra(latest) || '';
     return `
       <div class="card sport-card">
-        <div class="card-header"><div><span class="sport-eyebrow">${card.eyebrow}</span><h2>${card.title}</h2></div><strong class="sport-health-value">${currentValue}</strong></div>
+        <div class="card-header"><div><span class="sport-eyebrow">${card.eyebrow}</span><h2>${card.title}</h2></div><div class="sport-health-latest"><strong class="sport-health-value">${currentValue}</strong><span class="sport-stat-meta sport-stat-meta--muted">le ${this._date(latest.date, true)}</span></div></div>
         <div class="card-body">
           ${this._chart(items, card.field, card.format)}
           ${extra ? `<p class="text-muted sport-health-caption">${this._escape(extra)} · dernière donnée le ${this._date(latest.date)}</p>` : `<p class="text-muted sport-health-caption">Dernière donnée le ${this._date(latest.date)}</p>`}

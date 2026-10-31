@@ -488,10 +488,12 @@ class SportService:
             "hrv_avg": _avg([item.get("value") for item in series["hrv"]]),
             "stress_avg": _avg([item.get("avg") for item in series["stress"]]),
             "body_battery_last": series["body_battery"][-1].get("last") if series["body_battery"] else None,
+            "body_battery_day": series["body_battery"][-1].get("date") if series["body_battery"] else None,
             "steps_avg": _avg([item.get("steps") for item in series["steps"]]),
             "spo2_avg": _avg([item.get("value") for item in series["spo2"]]),
             "respiration_avg": _avg([item.get("value") for item in series["respiration"]]),
             "readiness_last": series["readiness"][-1].get("score") if series["readiness"] else None,
+            "readiness_day": series["readiness"][-1].get("date") if series["readiness"] else None,
         }
         return {
             "period_days": period_days,
@@ -510,9 +512,17 @@ class SportService:
         series = data["series"]
         summary = data["summary"]
 
-        def latest(key: str, field: str) -> Any:
+        def latest_item(key: str) -> dict | None:
             items = series.get(key) or []
-            return items[-1].get(field) if items else None
+            return items[-1] if items else None
+
+        def latest(key: str, field: str) -> Any:
+            item = latest_item(key)
+            return item.get(field) if item else None
+
+        def latest_day(key: str) -> str | None:
+            item = latest_item(key)
+            return item.get("date") if item else None
 
         # Garmin n'expose le Body Battery du jour courant qu'après sa clôture :
         # on signale séparément la valeur du jour pour éviter à l'IA de
@@ -533,6 +543,14 @@ class SportService:
             (item for item in reversed(sleep_items) if item.get("date") == today_iso), None
         )
 
+        # Même règle pour le HRV : Garmin le publie par matinée (jour de
+        # réveil). Sans contrôle, l'IA présenterait le HRV du jour précédent
+        # comme celui de la nuit écoulée.
+        hrv_items = series.get("hrv") or []
+        hrv_today = next(
+            (item for item in reversed(hrv_items) if item.get("date") == today_iso), None
+        )
+
         return {
             "available": True,
             "days_with_data": data["days_available"],
@@ -545,18 +563,32 @@ class SportService:
                 if sleep_today is not None
                 else f"Sommeil de la nuit écoulée (jour {today_iso}) non synchronisé dans Garmin Connect."
             ),
+            "hrv_available": hrv_today is not None,
+            "hrv_day": hrv_today.get("date") if hrv_today else None,
+            "hrv_today": hrv_today.get("value") if hrv_today else None,
+            "hrv_today_status": hrv_today.get("status") if hrv_today else None,
+            "hrv_unavailable_reason": (
+                None
+                if hrv_today is not None
+                else f"HRV de la nuit écoulée (jour {today_iso}) non synchronisé dans Garmin Connect."
+            ),
             "latest": {
                 "readiness_score": latest("readiness", "score"),
                 "readiness_status": latest("readiness", "status"),
+                "readiness_day": latest_day("readiness"),
                 "sleep_score": sleep_today.get("score") if sleep_today else None,
                 "sleep_total_minutes": sleep_today.get("total_minutes") if sleep_today else None,
                 "hrv_ms": latest("hrv", "value"),
                 "hrv_status": latest("hrv", "status"),
+                "hrv_day": latest_day("hrv"),
                 "resting_hr": latest("heart_rate", "resting"),
+                "resting_hr_day": latest_day("heart_rate"),
                 "stress_avg": latest("stress", "avg"),
+                "stress_day": latest_day("stress"),
                 "body_battery": latest("body_battery", "last"),
                 "body_battery_day": body_battery_items[-1].get("date") if body_battery_items else None,
                 "spo2": latest("spo2", "value"),
+                "spo2_day": latest_day("spo2"),
             },
             "period_averages": {
                 "sleep_score": summary.get("sleep_score_avg"),

@@ -5388,6 +5388,7 @@
 .sport-trend-strip > div { display: flex; align-items: center; justify-content: space-between; gap: var(--spacing-2); padding: var(--spacing-3) var(--spacing-4); background: var(--color-bg-secondary); font-size: var(--font-size-sm); }
 .sport-trend-strip strong { font-size: var(--font-size-lg); }
 .sport-dashboard-grid { display: grid; gap: var(--spacing-4); margin-bottom: var(--spacing-4); }
+.sport-health-latest { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; text-align: right; }
 .sport-dashboard-grid--main { grid-template-columns: minmax(0, 1.65fr) minmax(300px, 1fr); }
 .sport-dashboard-grid--three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .sport-card { min-width: 0; overflow: hidden; }

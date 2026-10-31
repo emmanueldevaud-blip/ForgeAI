@@ -117,6 +117,13 @@ _MORNING_INSTRUCTION = (
     "comme celui de la nuit dernière.\n"
     "- Les lignes de health_7_days sont datées (colonne day) : la nuit écoulée figure uniquement sur "
     "la ligne du jour de référence ; ne prends jamais la ligne précédente à sa place.\n\n"
+    "HRV (règle stricte) :\n"
+    "- recovery.latest.hrv_ms est la dernière valeur connue, datée de recovery.latest.hrv_day ; "
+    "recovery.hrv_today n'est renseigné que si le HRV de la nuit écoulée (jour de référence) est déjà "
+    "synchronisé (recovery.hrv_available et recovery.hrv_unavailable_reason le précisent).\n"
+    "- Si hrv_today est null, annonce « HRV de la nuit dernière pas encore synchronisé » (avec la "
+    "valeur antérieure datée si utile) et ne présente JAMAIS le HRV du jour précédent comme celui de "
+    "cette nuit.\n\n"
     "BODY BATTERY (règle stricte) :\n"
     "- recovery.latest.body_battery est la dernière valeur enregistrée, datée de "
     "recovery.latest.body_battery_day : c'est souvent la fin de journée de la veille.\n"
@@ -148,6 +155,8 @@ _EVENING_INSTRUCTION = (
     "- recovery.latest.sleep_* porte sur la nuit terminée ce matin (jour de réveil = recovery.sleep_day).\n"
     "- Si recovery.sleep_available est false, annonce « Données de sommeil non disponibles » et ne "
     "reprends JAMAIS le sommeil du jour précédent à la place.\n"
+    "- recovery.latest.hrv_* porte sur le HRV daté de recovery.latest.hrv_day : s'il ne vient pas "
+    "d'aujourd'hui, précise de quel jour il date.\n"
 )
 
 _ACTIVITY_INSTRUCTION = (

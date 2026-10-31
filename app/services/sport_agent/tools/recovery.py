@@ -37,7 +37,7 @@ async def get_health_data(ctx: ToolContext, args: dict[str, Any]) -> dict[str, A
 SPECS: list[ToolSpec] = [
     ToolSpec(
         name="get_recovery",
-        description="État de récupération actuel : training readiness, sommeil, HRV, FC repos, stress, Body Battery.",
+        description="État de récupération actuel (chaque dernière valeur est datée) : training readiness, sommeil, HRV, FC repos, stress, Body Battery.",
         input_schema={"type": "object", "properties": {}},
         handler=get_recovery,
         permission="sport.access",

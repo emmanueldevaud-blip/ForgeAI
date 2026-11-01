@@ -819,7 +819,7 @@ class SportService:
                 "type": a.analysis_type,
                 "day": a.analysis_day.isoformat() if a.analysis_day else None,
                 "title": a.title,
-                "summary": (a.summary or "")[:200],
+                "summary": (a.summary or "")[:140],
                 "activity_id": a.activity_id,
                 "generated_at": a.generated_at.isoformat() if a.generated_at else None,
             }
@@ -831,6 +831,27 @@ class SportService:
             activities[:5], weekly, monthly, goals,
             recovery=await self.recovery_context(),
         )
+        # Budget du prompt unique (limite d'entrée Groq 7 000 tokens) : on
+        # ne garde que l'essentiel ; le détail reste en base et accessible
+        # par les outils de l'Agent Sport.
+        recent_keys = (
+            "activity_count", "distance_m", "duration_seconds", "elevation_gain_m",
+            "avg_pace_sec_km", "avg_heart_rate", "sports",
+        )
+        context["recent_activities"] = [
+            {key: item.get(key) for key in recent_keys} for item in context["recent_activities"]
+        ]
+        for period_key in ("weekly_summary", "monthly_summary"):
+            period = context.get(period_key)
+            if isinstance(period, dict):
+                drop = ("previous", "findings", "observations")
+                for key in drop:
+                    period.pop(key, None)
+        if isinstance(context.get("monthly_summary"), dict):
+            context["monthly_summary"].pop("comparison", None)
+        for goal in ((profile or {}).get("goal_analysis") or []):
+            if isinstance(goal.get("recent_28_days"), dict):
+                goal["recent_28_days"] = {key: goal["recent_28_days"].get(key) for key in recent_keys}
         context["recent_analyses"] = recent_analyses
         # Tendances 7 et 30 jours : synthèse + évolution vs période précédente.
         context["period_trends"] = self._period_trends(activities, today)
@@ -898,13 +919,13 @@ class SportService:
         for item in activities:
             if any(value in text for value in (item.started_at.date().isoformat(), str(item.id))):
                 selected[item.id] = item
-        for item in activities[:12] + activities[-12:]:
+        for item in activities[:12]:
             selected[item.id] = item
-        for item in sorted(activities, key=lambda row: (row.distance_m or 0), reverse=True)[:8]:
+        for item in sorted(activities, key=lambda row: row.distance_m or 0, reverse=True)[:3]:
             selected[item.id] = item
-        for item in sorted(activities, key=lambda row: (row.elevation_gain_m or 0), reverse=True)[:8]:
+        for item in sorted(activities, key=lambda row: row.elevation_gain_m or 0, reverse=True)[:3]:
             selected[item.id] = item
-        return sorted(selected.values(), key=lambda row: row.started_at, reverse=True)[:50]
+        return sorted(selected.values(), key=lambda row: row.started_at, reverse=True)[:18]
 
     @staticmethod
     def _coach_activity_brief(activity: SportActivity) -> dict[str, Any]:
@@ -917,32 +938,38 @@ class SportService:
             "duration_seconds": activity.duration_seconds,
             "distance_m": activity.distance_m,
             "elevation_gain_m": activity.elevation_gain_m,
-            "elevation_loss_m": activity.elevation_loss_m,
             "avg_speed_m_s": activity.avg_speed_m_s,
             "avg_pace_sec_km": activity.avg_pace_sec_km,
             "avg_heart_rate": activity.avg_heart_rate,
             "max_heart_rate": activity.max_heart_rate,
-            "avg_cadence": activity.avg_cadence,
             "avg_power_w": activity.avg_power_w,
-            "calories": activity.calories,
         }
 
     @classmethod
     def _coach_weekly_history(cls, activities: list[SportActivity], today: date, history_start: date | None = None) -> list[dict[str, Any]]:
         """Résumés hebdomadaires compacts, avec comparaison exploitable par l'IA."""
         history: list[dict[str, Any]] = []
-        weeks = min(52, max(18, ((today - (history_start or today - timedelta(days=120))).days // 7) + 1))
+        weeks = min(8, max(6, ((today - (history_start or today - timedelta(days=120))).days // 7) + 1))
+        week_keys = (
+            "activity_count", "distance_m", "duration_seconds", "elevation_gain_m",
+            "avg_pace_sec_km", "avg_heart_rate", "days_trained", "sports",
+        )
         for offset in range(0, weeks):
             end = today - timedelta(days=offset * 7)
             start = end - timedelta(days=6)
             items = [item for item in activities if start <= item.started_at.date() <= end]
-            history.append({"start": start.isoformat(), "end": end.isoformat(), "summary": SportAnalysisEngine.summarize(items)})
+            summary = SportAnalysisEngine.summarize(items)
+            history.append({"start": start.isoformat(), "end": end.isoformat(), "summary": {key: summary.get(key) for key in week_keys}})
         return history
 
     @staticmethod
     def _period_trends(activities: list[SportActivity], today: date) -> dict[str, Any]:
-        """Synthèse + évolution (%) sur les fenêtres glissantes de 7 et 30 jours."""
+        """Synthèse + évolution (%) pour les fenêtres glissantes de 7 et 30 jours."""
         trends: dict[str, Any] = {}
+        trend_keys = (
+            "activity_count", "distance_m", "duration_seconds", "elevation_gain_m",
+            "avg_pace_sec_km", "avg_heart_rate", "sports",
+        )
         for days in (7, 30):
             current_start = today - timedelta(days=days - 1)
             previous_start = today - timedelta(days=days * 2 - 1)
@@ -953,7 +980,7 @@ class SportService:
                 item for item in activities if previous_start <= item.started_at.date() < current_start
             )
             trends[f"d{days}"] = {
-                "summary": current,
+                "summary": {key: current.get(key) for key in trend_keys},
                 "change_percent_vs_previous": {
                     key: SportAnalysisEngine.percent_change(current.get(key), previous.get(key))
                     for key in ("distance_m", "duration_seconds", "elevation_gain_m", "activity_count", "avg_pace_sec_km", "avg_heart_rate")
@@ -979,7 +1006,7 @@ class SportService:
                 "id": row.id,
                 "status": row.status,
                 "category": row.category,
-                "recommendation": (row.recommendation or "")[:200],
+                "recommendation": (row.recommendation or "")[:140],
                 "valid_until": row.valid_until.date().isoformat() if row.valid_until else None,
                 "objective_id": row.objective_id,
             }

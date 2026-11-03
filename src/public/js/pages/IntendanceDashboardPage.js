@@ -144,6 +144,21 @@ export class IntendanceDashboardPage {
 
   _dateString(date) { return date.toISOString().split('T')[0]; }
 
+  _formatDateFr(iso) {
+    const [year, month, day] = String(iso || '').split('-');
+    return year && month && day ? `${day}/${month}/${year}` : iso || '';
+  }
+
+  _printFilterSummary() {
+    const parts = [];
+    if (this.filterUser.length) parts.push(`Utilisateur(s) : ${this.filterUser.join(', ')}`);
+    if (this.filterSite.length) {
+      const names = this.filterSite.map(id => this.sites.find(site => Number(site.id) === Number(id))?.name || id);
+      parts.push(`Site(s) : ${names.join(', ')}`);
+    }
+    return parts.length ? `<p class="print-filters">${parts.join(' · ')}</p>` : '';
+  }
+
   _setPeriod(mode, offset = 0) {
     this.periodMode = mode;
     this.periodOffset = offset;
@@ -183,6 +198,7 @@ export class IntendanceDashboardPage {
               <div class="date-range-values period-toolbar"><button type="button" class="btn btn-secondary" data-period-prev aria-label="Période précédente">‹</button><div class="period-mode-buttons" role="group" aria-label="Type de période"><button type="button" class="btn ${this.periodMode === 'month' ? 'btn-primary' : 'btn-secondary'}" data-period-mode="month">Mois</button><button type="button" class="btn ${this.periodMode === 'quarter' ? 'btn-primary' : 'btn-secondary'}" data-period-mode="quarter">Trimestre</button><button type="button" class="btn ${this.periodMode === 'year' ? 'btn-primary' : 'btn-secondary'}" data-period-mode="year">Année</button></div><button type="button" class="btn btn-secondary" data-period-next aria-label="Période suivante">›</button><input type="date" class="form-input" data-date-input="from" value="${dateFromStr}" aria-label="Date de début"><span>–</span><input type="date" class="form-input" data-date-input="to" value="${dateToStr}" aria-label="Date de fin"></div>
             </div>
           </div>
+          ${this.activeView === 'meals' ? '<div class="dashboard-print-action"><button type="button" class="btn btn-secondary" data-print>Imprimer / PDF</button></div>' : ''}
           </div>
           <div class="dashboard-filters-row dashboard-filters-row--bottom">
           ${generalView ? this._renderMultiFilter('category', 'Catégorie', (this.dashboard.categories || []).map(item => item.name), this.filterCategory) : ''}
@@ -193,6 +209,11 @@ export class IntendanceDashboardPage {
         </div>`;
     this.element.innerHTML = `
       <div class="dashboard-container">
+        ${this.activeView === 'meals' ? `<header class="print-header">
+          <h1>Synthèse des dépenses de repas</h1>
+          <p>Du ${this._formatDateFr(dateFromStr)} au ${this._formatDateFr(dateToStr)}</p>
+          ${this._printFilterSummary()}
+        </header>` : ''}
         <div class="admin-tabs intendance-dashboard-tabs" role="tablist" aria-label="Vues du tableau de bord"><button role="tab" class="admin-tab" data-dashboard-view="general" aria-selected="${generalView}" type="button">Général</button><button role="tab" class="admin-tab" data-dashboard-view="meals" aria-selected="${this.activeView === 'meals'}" type="button">Repas</button><button role="tab" class="admin-tab" data-dashboard-view="energy" aria-selected="${this.activeView === 'energy'}" type="button">Énergie</button></div>
         ${filterMarkup}
 
@@ -282,6 +303,7 @@ export class IntendanceDashboardPage {
       this._saveFilterState();
       this.loadDashboard();
     });
+    this.element.querySelector('[data-print]')?.addEventListener('click', () => window.print());
     this.element.querySelector('[data-reset-filters]').onclick = () => { this.filterDateFrom = ''; this.filterDateTo = ''; this.filterUser = []; this.filterSite = []; this.filterCategory = []; this.periodMode = 'month'; this.periodOffset = 0; localStorage.removeItem(this.filterStorageKey); this.loadDashboard(); };
     this._bindMultiFilters();
     this.element.querySelectorAll('[data-list-edit]').forEach(button => button.onclick = () => this.onEditExpense?.(this.expenses.find(item => item.id === Number(button.dataset.listEdit))));

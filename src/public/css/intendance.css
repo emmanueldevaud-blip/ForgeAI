@@ -43,3 +43,32 @@
   .intendance-expenses-page .period-filter { min-width: 100%; }
   .intendance-expenses-page .period-filter .period-dates { flex-direction: column; gap: var(--spacing-2); }
 }
+
+/* Bouton « Imprimer / PDF » de la synthèse (vue Repas) */
+.intendance-dashboard-page .dashboard-filters-row--top { grid-template-columns: minmax(0, 1fr) auto; }
+.intendance-dashboard-page .dashboard-print-action { align-self: end; }
+
+/* Synthèse imprimée : en-tête masqué à l'écran, visible à l'impression */
+.intendance-dashboard-page .print-header { display: none; }
+
+@media print {
+  @page { size: A4; margin: 12mm; }
+  #sidebar, #header, .mobile-sidebar-overlay { display: none !important; }
+  .app-shell { display: block; }
+  .main-content { padding: 0 !important; overflow: visible !important; }
+  .intendance-expenses-page .page-header,
+  .intendance-expenses-page .admin-tabs,
+  .intendance-dashboard-page .dashboard-filters,
+  .intendance-dashboard-page .intendance-expense-list { display: none !important; }
+  .intendance-dashboard-page .print-header { display: block; margin-bottom: var(--spacing-4); }
+  .intendance-dashboard-page .print-header h1 { margin: 0 0 var(--spacing-1); font-size: 18px; }
+  .intendance-dashboard-page .print-header p { margin: 0; font-size: 12px; color: var(--color-text-secondary); }
+  .intendance-dashboard-page .print-header .print-filters { font-style: italic; }
+  .intendance-dashboard-page * { print-color-adjust: exact; -webkit-print-color-adjust: exact; }
+  .intendance-dashboard-page .intendance-kpi-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .intendance-dashboard-page .chart-card,
+  .intendance-dashboard-page .histogram-container,
+  .intendance-dashboard-page .intendance-kpi-card { break-inside: avoid; border-color: var(--color-border-light); }
+  .intendance-dashboard-page .intendance-dashboard-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+

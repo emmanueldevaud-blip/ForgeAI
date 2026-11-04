@@ -9,6 +9,9 @@ depends_on = None
 
 
 def upgrade() -> None:
+    insp = sa.inspect(op.get_bind())
+    if insp.has_table("sport_publications"):
+        return
     op.create_table(
         "sport_publications",
         sa.Column("id", sa.Integer(), autoincrement=True, nullable=False),

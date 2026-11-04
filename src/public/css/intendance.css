@@ -77,10 +77,11 @@
   .intendance-dashboard-page .intendance-dashboard-page .dashboard-filters { display: none !important; }
   .intendance-dashboard-page .chart-card,
   .intendance-dashboard-page .histogram-container,
-  .intendance-dashboard-page .intendance-kpi-card { break-inside: avoid; border-color: var(--color-border-light); }
-  .intendance-dashboard-page .intendance-dashboard-grid { grid-template-columns: 1fr 1fr; gap: 4px; margin-top: 2px; }
+  .intendance-dashboard-page .intendance-kpi-card { break-inside: avoid; border-color: var(--color-border-light); min-height: 0 !important; padding: 4px !important; }
+  .intendance-dashboard-page .histogram-container { min-height: 0 !important; }
+  .intendance-dashboard-page .intendance-dashboard-grid { grid-template-columns: 1fr 1fr; gap: 2px; margin-top: 2px; }
   .intendance-dashboard-page .chart-card--monthly { grid-column: 1 / -1; }
-  .intendance-dashboard-page #monthly-chart { height: 120px !important; }
+  .intendance-dashboard-page #monthly-chart { height: 100px !important; }
   .intendance-dashboard-page .chart-heading { margin-bottom: 2px; }
   .intendance-dashboard-page .chart-heading h2 { font-size: 11px; margin: 0; }
   .intendance-dashboard-page .chart-heading p { font-size: 8px; margin: 0; }

@@ -8,6 +8,7 @@ from decimal import Decimal
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
+from fastapi.responses import StreamingResponse
 from sqlalchemy import String, cast, func, or_, select, update as sa_update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -728,7 +729,6 @@ async def export_missing_sites(
 ):
     """Exporte les dépenses sans site (rapprochement) en Excel, avec une liste déroulante des sites."""
     from io import BytesIO
-    from fastapi.responses import StreamingResponse
     from openpyxl import Workbook
     from openpyxl.styles import Font, PatternFill
     from openpyxl.utils import get_column_letter

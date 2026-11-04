@@ -182,14 +182,11 @@ async def meal_cost_by_site(
                 continue
             # Nom normalisé de l'occupant
             occupant_name = f"{(occ_fn or '').strip()} {(occ_ln or '').strip()}".strip().casefold()
-            persons = max(int(nb_persons or 1), 1)
             for day_offset in range((day_end - day_start).days + 1):
                 day = day_start + timedelta(days=day_offset)
-                # Pour chaque personne (nb_persons), on vérifie le dédoublonnage
-                for person_index in range(persons):
-                    # Clé de dédoublonnage : (date, nom_occupant), tous sites confondus
-                    if (day, occupant_name) not in agenda_meals:
-                        meal_counts[site_identifier].add(("occupancy", occupancy_identifier, day, person_index))
+                # Un repas par occupant et par jour ; dédoublonné sur tous les sites
+                if (day, occupant_name) not in agenda_meals:
+                    meal_counts[site_identifier].add(("occupancy", occupancy_identifier, day, 0))
 
     output = []
     for identifier, name in eligible_sites:

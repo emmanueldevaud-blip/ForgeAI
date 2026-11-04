@@ -95,6 +95,11 @@
   /* Masquer la répartition par utilisateur en impression (focus site/repas/évolution) */
   .intendance-dashboard-page .chart-card--users { display: none !important; }
   .intendance-dashboard-page .intendance-site-card { display: none !important; }
+  .intendance-dashboard-page .print-remarks { display: block !important; margin-top: 6px; padding: 4px 6px; border: 1px solid var(--color-border-light); border-radius: 4px; background: var(--color-bg-secondary); font-size: 8px; line-height: 1.3; }
+  .intendance-dashboard-page .print-remarks h2 { margin: 0 0 2px; font-size: 9px; }
+  .intendance-dashboard-page .print-remarks ul { margin: 0; padding-left: 12px; }
+  .intendance-dashboard-page .print-remarks li { margin: 1px 0; }
 }
 .intendance-dashboard-page .print-persons { display: none; }
+.intendance-dashboard-page .print-remarks { display: none; }
 

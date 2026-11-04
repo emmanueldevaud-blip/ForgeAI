@@ -237,6 +237,15 @@ export class IntendanceDashboardPage {
           <section class="histogram-container chart-card chart-card--monthly"><div class="chart-heading"><div><h2>${this.activeView === 'meals' ? 'Évolution des dépenses de nourriture' : this.activeView === 'energy' ? 'Évolution des dépenses d’énergie' : 'Évolution mensuelle'}</h2></div><div class="chart-legend">${this._renderMonthlyLegend()}</div></div><canvas id="monthly-chart" aria-label="Évolution mensuelle des dépenses par catégorie"></canvas></section>
         </div>
         <section class="histogram-container intendance-expense-list"><div class="chart-heading"><div><h2>Dépenses filtrées</h2><p>${this.expenseListMeta.total || 0} dépense(s) correspondant aux filtres</p></div></div>${this._renderExpenseList()}</section>
+        ${this.activeView === 'meals' ? `<section class="print-remarks">
+          <h2>Remarques — méthode de calcul</h2>
+          <ul>
+            <li><strong>Bureaux</strong> : 1 repas par personne et par jour ouvré (lun-ven) où la personne est présente, a besoin d'un repas et n'est pas en télétravail.</li>
+            <li><strong>Appartements (hébergement)</strong> : 2 repas par occupant et par jour d'occupation (7 j/7). Si l'occupant est déjà inscrit en repas ce jour-là sur un autre site, un repas est déduit (déjeuner au bureau → dîner à l'appartement).</li>
+            <li><strong>Total par site</strong> = repas bureaux + repas appartements (dédoublonnés).</li>
+            <li><strong>Coût par repas</strong> = dépenses de nourriture du site ÷ nombre de repas.</li>
+          </ul>
+        </section>` : ''}
 
       </div>
     `;

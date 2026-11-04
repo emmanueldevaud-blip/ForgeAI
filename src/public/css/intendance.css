@@ -52,6 +52,7 @@
 .intendance-dashboard-page .print-header { display: none; }
 
 @media print {
+  .intendance-dashboard-page { zoom: 0.95; }
   @page { size: A4 landscape; margin: 8mm; }
   #sidebar, #header, .mobile-sidebar-overlay { display: none !important; }
   .app-shell { display: block; }

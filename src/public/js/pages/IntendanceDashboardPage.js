@@ -159,6 +159,13 @@ export class IntendanceDashboardPage {
     return parts.length ? `<p class="print-filters">${parts.join(' · ')}</p>` : '';
   }
 
+  _renderPrintPersons() {
+    const rows = this.mealSiteCosts || [];
+    if (!rows.length) return '<p class="text-muted">Aucune donnée.</p>';
+    const total = rows.reduce((sum, item) => sum + Number(item.meal_count || 0), 0);
+    return `<table><thead><tr><th>Site</th><th class="num">Personnes</th><th class="num">Dépenses (€)</th><th class="num">Coût / pers. (€)</th></tr></thead><tbody>${rows.map(item => `<tr><td>${item.name}</td><td class="num">${item.meal_count}</td><td class="num">${this._money(item.amount)}</td><td class="num">${item.cost_per_person == null ? '—' : this._money(item.cost_per_person)}</td></tr>`).join('')}</tbody><tfoot><tr><td><strong>Total</strong></td><td class="num"><strong>${total}</strong></td><td class="num"><strong>${this._money(rows.reduce((s, i) => s + Number(i.amount || 0), 0))}</strong></td><td class="num">—</td></tr></tfoot></table>`;
+  }
+
   _setPeriod(mode, offset = 0) {
     this.periodMode = mode;
     this.periodOffset = offset;
@@ -213,14 +220,18 @@ export class IntendanceDashboardPage {
           <h1>Synthèse des dépenses de repas</h1>
           <p>Du ${this._formatDateFr(dateFromStr)} au ${this._formatDateFr(dateToStr)}</p>
           ${this._printFilterSummary()}
-        </header>` : ''}
+        </header>
+        <section class="print-persons">
+          <h2>Nombre de personnes par site</h2>
+          ${this._renderPrintPersons()}
+        </section>` : ''}
         <div class="admin-tabs intendance-dashboard-tabs" role="tablist" aria-label="Vues du tableau de bord"><button role="tab" class="admin-tab" data-dashboard-view="general" aria-selected="${generalView}" type="button">Général</button><button role="tab" class="admin-tab" data-dashboard-view="meals" aria-selected="${this.activeView === 'meals'}" type="button">Repas</button><button role="tab" class="admin-tab" data-dashboard-view="energy" aria-selected="${this.activeView === 'energy'}" type="button">Énergie</button></div>
         ${filterMarkup}
 
         <div class="intendance-kpi-grid">${this._renderKpis()}</div>
         <div class="intendance-dashboard-grid">
           ${generalView ? '<section class="histogram-container chart-card"><div class="chart-heading"><div><h2>Répartition par catégorie</h2><p>Cliquer sur une catégorie pour filtrer</p></div><div class="chart-legend"><span class="chart-legend-item"><i class="chart-swatch chart-swatch--category"></i>Part du total</span></div></div>' + this._renderCategoryBars() + '</section>' : ''}
-          ${this.activeView !== 'energy' ? `<section class="histogram-container chart-card"><div class="chart-heading"><div><h2>Répartition par utilisateur</h2><p>Montant attribué et nombre de dépenses</p></div><div class="chart-legend"><span class="chart-legend-item"><i class="chart-swatch chart-swatch--user"></i>Montant (€)</span></div></div>${this._renderUserBars()}</section>` : ''}
+          ${this.activeView !== 'energy' ? `<section class="histogram-container chart-card chart-card--users"><div class="chart-heading"><div><h2>Répartition par utilisateur</h2><p>Montant attribué et nombre de dépenses</p></div><div class="chart-legend"><span class="chart-legend-item"><i class="chart-swatch chart-swatch--user"></i>Montant (€)</span></div></div>${this._renderUserBars()}</section>` : ''}
           <section class="histogram-container chart-card intendance-site-card"><div class="chart-heading"><div><h2>${this.activeView === 'energy' ? 'Coût de l’énergie par site' : 'Répartition par site'}</h2><p>Montant total et nombre de dépenses</p></div><div class="chart-legend"><span class="chart-legend-item"><i class="chart-swatch chart-swatch--user"></i>Montant (€)</span></div></div>${this._renderSiteBars()}</section>
           ${this.activeView === 'meals' ? `<section class="histogram-container chart-card chart-card--monthly"><div class="chart-heading"><div><h2>Coût du repas par personne et par site</h2><p>Dépenses de nourriture divisées par les repas déclarés dans Agenda (jours ouvrés) et les jours d'occupation du module Hébergement (7j/7)</p></div><div class="chart-legend"><span class="chart-legend-item"><i class="chart-swatch chart-swatch--category"></i>Coût par repas (€)</span></div></div>${this._renderMealCostBySite()}</section>` : ''}
           <section class="histogram-container chart-card chart-card--monthly"><div class="chart-heading"><div><h2>${this.activeView === 'meals' ? 'Évolution des dépenses de nourriture' : this.activeView === 'energy' ? 'Évolution des dépenses d’énergie' : 'Évolution mensuelle'}</h2></div><div class="chart-legend">${this._renderMonthlyLegend()}</div></div><canvas id="monthly-chart" aria-label="Évolution mensuelle des dépenses par catégorie"></canvas></section>

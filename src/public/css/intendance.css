@@ -52,23 +52,46 @@
 .intendance-dashboard-page .print-header { display: none; }
 
 @media print {
-  @page { size: A4; margin: 12mm; }
+  @page { size: A4 landscape; margin: 8mm; }
   #sidebar, #header, .mobile-sidebar-overlay { display: none !important; }
   .app-shell { display: block; }
   .main-content { padding: 0 !important; overflow: visible !important; }
   .intendance-expenses-page .page-header,
   .intendance-expenses-page .admin-tabs,
   .intendance-dashboard-page .dashboard-filters,
-  .intendance-dashboard-page .intendance-expense-list { display: none !important; }
-  .intendance-dashboard-page .print-header { display: block; margin-bottom: var(--spacing-4); }
-  .intendance-dashboard-page .print-header h1 { margin: 0 0 var(--spacing-1); font-size: 18px; }
-  .intendance-dashboard-page .print-header p { margin: 0; font-size: 12px; color: var(--color-text-secondary); }
-  .intendance-dashboard-page .print-header .print-filters { font-style: italic; }
+  .intendance-dashboard-page .intendance-expense-list,
+  .intendance-dashboard-page [data-dashboard-view],
+  .intendance-dashboard-page .dashboard-print-action { display: none !important; }
+  .intendance-dashboard-page .print-header { display: block; margin-bottom: var(--spacing-2); }
+  .intendance-dashboard-page .print-header h1 { margin: 0 0 2px; font-size: 15px; }
+  .intendance-dashboard-page .print-header p { margin: 0; font-size: 11px; color: var(--color-text-secondary); }
+  .intendance-dashboard-page .print-header .print-filters { font-style: italic; font-size: 10px; }
+  .intendance-dashboard-page .print-persons { display: block !important; margin: 2px 0 4px; }
+  .intendance-dashboard-page .print-persons h2 { margin: 0 0 1px; font-size: 11px; }
+  .intendance-dashboard-page .print-persons table { width: 100%; border-collapse: collapse; font-size: 9px; }
+  .intendance-dashboard-page .print-persons th, .intendance-dashboard-page .print-persons td { border: 1px solid var(--color-border-light); padding: 1px 3px; text-align: left; line-height: 1.15; }
+  .intendance-dashboard-page .print-persons th { background: var(--color-bg-tertiary); }
+  .intendance-dashboard-page .print-persons td.num, .intendance-dashboard-page .print-persons th.num { text-align: right; }
   .intendance-dashboard-page * { print-color-adjust: exact; -webkit-print-color-adjust: exact; }
-  .intendance-dashboard-page .intendance-kpi-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .intendance-dashboard-page .intendance-kpi-grid { display: none; }
+  .intendance-dashboard-page .intendance-dashboard-page .dashboard-filters { display: none !important; }
   .intendance-dashboard-page .chart-card,
   .intendance-dashboard-page .histogram-container,
   .intendance-dashboard-page .intendance-kpi-card { break-inside: avoid; border-color: var(--color-border-light); }
-  .intendance-dashboard-page .intendance-dashboard-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .intendance-dashboard-page .intendance-dashboard-grid { grid-template-columns: 1fr 1fr; gap: 4px; margin-top: 2px; }
+  .intendance-dashboard-page .chart-card--monthly { grid-column: 1 / -1; }
+  .intendance-dashboard-page #monthly-chart { height: 120px !important; }
+  .intendance-dashboard-page .chart-heading { margin-bottom: 2px; }
+  .intendance-dashboard-page .chart-heading h2 { font-size: 11px; margin: 0; }
+  .intendance-dashboard-page .chart-heading p { font-size: 8px; margin: 0; }
+  .intendance-dashboard-page .intendance-bar-row { padding: 0; font-size: 9px; line-height: 1.15; }
+  .intendance-dashboard-page .intendance-bar-track { height: 5px !important; }
+  .intendance-dashboard-page .print-header { margin-bottom: 2px; }
+  .intendance-dashboard-page .print-header h1 { margin: 0 0 1px; font-size: 14px; }
+  .intendance-dashboard-page .print-header p { margin: 0; font-size: 10px; color: var(--color-text-secondary); }
+  .intendance-dashboard-page .print-header .print-filters { font-style: italic; font-size: 9px; }
+  /* Masquer la répartition par utilisateur en impression (focus site/repas/évolution) */
+  .intendance-dashboard-page .chart-card--users { display: none !important; }
 }
+.intendance-dashboard-page .print-persons { display: none; }
 

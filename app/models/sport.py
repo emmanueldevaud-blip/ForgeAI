@@ -55,6 +55,7 @@ class SportActivity(Base):
 
     __table_args__ = (
         Index("ix_sport_activities_athlete_started", "athlete_id", "started_at"),
+        Index("ix_sport_activities_athlete_sport_started", "athlete_id", "sport_type", "started_at"),
         Index("uq_sport_activity_source_external", "athlete_id", "source_type", "external_id", unique=True),
     )
 
@@ -314,3 +315,44 @@ class SportRecommendation(Base):
     athlete: Mapped["SportAthlete"] = relationship("SportAthlete")
     objective: Mapped["SportGoal | None"] = relationship("SportGoal")
     execution: Mapped["SportAgentExecution | None"] = relationship("SportAgentExecution")
+
+
+class SportPublication(Base):
+    """Publication Instagram preparee a partir d'une activite sportive.
+
+    Une seule publication par activite (index unique) : la regeneration
+    remplace les propositions sans creer de doublon. Aucune donnee
+    d'activite n'est recopiee ici, la publication reference l'activite.
+    Statuts : draft -> validated -> shared.
+    """
+
+    __tablename__ = "sport_publications"
+    __table_args__ = (
+        Index("uq_sport_publication_activity", "activity_id", unique=True),
+        Index("ix_sport_publications_athlete_status", "athlete_id", "status"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    athlete_id: Mapped[int] = mapped_column(ForeignKey("sport_athletes.id", ondelete="CASCADE"), nullable=False, index=True)
+    activity_id: Mapped[int] = mapped_column(ForeignKey("sport_activities.id", ondelete="CASCADE"), nullable=False)
+    status: Mapped[str] = mapped_column(String(30), nullable=False, default="draft", index=True)
+    styles: Mapped[list[Any]] = mapped_column(JSON, nullable=False, default=list)
+    custom_instructions: Mapped[str | None] = mapped_column(Text, nullable=True)
+    proposals: Mapped[list[Any]] = mapped_column(JSON, nullable=False, default=list)
+    selected_proposal: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    title: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    content: Mapped[str | None] = mapped_column(Text, nullable=True)
+    hashtags: Mapped[str | None] = mapped_column(Text, nullable=True)
+    photo_id: Mapped[int | None] = mapped_column(ForeignKey("photos.id", ondelete="SET NULL"), nullable=True)
+    visual_type: Mapped[str] = mapped_column(String(30), nullable=False, default="photo")
+    card_path: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    provider: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    model: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    generated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    validated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    shared_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
+    athlete: Mapped["SportAthlete"] = relationship("SportAthlete")
+    activity: Mapped["SportActivity"] = relationship("SportActivity")

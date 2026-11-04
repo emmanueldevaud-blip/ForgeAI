@@ -30,8 +30,11 @@ export class IntendanceExpensesPage {
   }
   async load() {
     const { from, to } = this._getPeriodDates();
+    const isMissingSites = this.activeTab === 'missing-sites';
+    const params = { page: this.page, page_size: 20, search: this.search, missing: this.missing, sort_by: this.sortBy, sort_order: this.sortOrder };
+    if (!isMissingSites) { params.expense_date_from = from; params.expense_date_to = to; }
     const [data, sites, categories] = await Promise.all([
-      listExpenses({ page: this.page, page_size: 20, search: this.search, missing: this.missing, sort_by: this.sortBy, sort_order: this.sortOrder, expense_date_from: from, expense_date_to: to }),
+      listExpenses(params),
       listSites(), listCategories()
     ]);
     this.items = data.items || []; this.sites = sites.items || []; this.categories = categories || [];

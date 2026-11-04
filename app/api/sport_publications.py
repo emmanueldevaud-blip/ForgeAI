@@ -1,11 +1,14 @@
 """Routes API pour les publications Instagram (module Sport)."""
 
 import logging
-from typing import Optional
+from typing import Any, Optional
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request, status
+from fastapi.responses import RedirectResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.core.config import get_settings
 
 from app.models.sport import SportActivity
 
@@ -26,6 +29,7 @@ from app.services.sport_publications import (
     schedule_publication_notifications,
     style_labels,
 )
+from app.services.sport_instagram import SportInstagramConnectService
 
 logger = logging.getLogger(__name__)
 
@@ -48,6 +52,20 @@ async def get_pub_write_service(
     db: AsyncSession = Depends(get_db),
 ) -> SportPublicationService:
     return SportPublicationService(db, current_user)
+
+
+async def get_meta_service(
+    current_user: User = Depends(require_permission("sport.publications.read")),
+    db: AsyncSession = Depends(get_db),
+) -> SportInstagramConnectService:
+    return SportInstagramConnectService(db)
+
+
+async def get_meta_write_service(
+    current_user: User = Depends(require_permission("sport.publications.write")),
+    db: AsyncSession = Depends(get_db),
+) -> SportInstagramConnectService:
+    return SportInstagramConnectService(db)
 
 
 @router.get("/styles")
@@ -202,6 +220,16 @@ async def generate_card(
     return {"card_path": path}
 
 
+@router.delete("/meta")
+async def meta_disconnect(
+    current_user: User = Depends(require_permission("sport.publications.write")),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    service = SportInstagramConnectService(db)
+    disconnected = await service.disconnect(current_user.id)
+    return {"disconnected": disconnected}
+
+
 @router.delete("/{publication_id}")
 async def delete_publication(
     publication_id: int,
@@ -220,3 +248,69 @@ async def run_publication_notifications(
 ):
     count = await service.notify_new_activities()
     return {"sent": count}
+
+
+@router.get("/meta/auth")
+async def meta_authorize_url(
+    athlete_id: Optional[int] = Query(None, description="ID de l'athlete lie a la connexion Meta"),
+    current_user: User = Depends(require_permission("sport.publications.write")),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    service = SportInstagramConnectService(db)
+    if not athlete_id:
+        pub_service = SportPublicationService(db, current_user)
+        athlete = await pub_service.get_or_create_athlete()
+        athlete_id = athlete.id
+    authorize_url, state = service.build_authorization_url(athlete_id=athlete_id, user_id=current_user.id)
+    return {"authorize_url": authorize_url, "state": state}
+
+
+@router.get("/meta/callback")
+async def meta_callback(
+    request: Request,
+    code: str = Query(...),
+    state: str = Query(...),
+    redirect_uri: Optional[str] = Query(None),
+    current_user: User = Depends(require_permission("sport.publications.write")),
+    db: AsyncSession = Depends(get_db),
+) -> Any:
+    service = SportInstagramConnectService(db)
+    connection = await service.exchange_code(code=code, redirect_uri=redirect_uri, state=state)
+    accept = request.headers.get("accept", "")
+    if "application/json" in accept and "text/html" not in accept:
+        return {
+            "status": connection.status,
+            "instagram_business_account_id": connection.instagram_business_account_id,
+        }
+    return RedirectResponse(url="/sport/publications?connected=1", status_code=status.HTTP_302_FOUND)
+
+
+@router.get("/meta/status")
+async def meta_status(
+    current_user: User = Depends(require_permission("sport.publications.read")),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    service = SportInstagramConnectService(db)
+    settings = get_settings()
+    is_configured = bool(settings.META_APP_ID and settings.META_APP_SECRET)
+    connection = await service.get_connection(current_user.id)
+    if not is_configured:
+        return {
+            "connected": False,
+            "status": "not_configured",
+            "configured": False,
+            "message": "Meta App ID / App Secret non configurés",
+        }
+    if connection is None:
+        return {
+            "connected": False,
+            "status": "disconnected",
+            "configured": True,
+        }
+    return {
+        "connected": True,
+        "status": connection.status,
+        "configured": True,
+        "instagram_business_account_id": connection.instagram_business_account_id,
+        "scopes": connection.scopes,
+    }

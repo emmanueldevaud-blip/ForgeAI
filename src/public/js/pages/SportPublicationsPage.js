@@ -1,4 +1,21 @@
-import { listPublicationStyles, getPublicationSettings, updatePublicationSettings, listPublications, listRecentActivitiesForPublication, getPublicationForActivity, generatePublication, getPublication, updatePublication, validatePublication, markPublicationShared, generatePublicationCard, deletePublication } from '../services/sportApi.js?v=7';
+import {
+  listPublicationStyles,
+  getPublicationSettings,
+  updatePublicationSettings,
+  listPublications,
+  listRecentActivitiesForPublication,
+  getPublicationForActivity,
+  generatePublication,
+  getPublication,
+  updatePublication,
+  validatePublication,
+  markPublicationShared,
+  generatePublicationCard,
+  deletePublication,
+  getInstagramConnectionStatus,
+  connectInstagram,
+  disconnectInstagram,
+} from '../services/sportApi.js?v=9';
 import { listPhotos, photoFileUrl } from '../services/photosApi.js?v=9';
 import { authStore } from '../stores/auth.js';
 
@@ -42,6 +59,7 @@ export class SportPublicationsPage {
     this.toastMsg = null;
     this.showPhotoPicker = false;
     this.loadingPhotos = false;
+    this.instagramStatus = { connected: false, status: 'not_configured' };
   }
 
   async initialize() {
@@ -66,6 +84,19 @@ export class SportPublicationsPage {
       }
       if (!this.customInstructions && this.settings.last_custom_instructions) {
         this.customInstructions = this.settings.last_custom_instructions;
+      }
+      try {
+        this.instagramStatus = (await getInstagramConnectionStatus()) || this.instagramStatus;
+      } catch (e) {
+        this.instagramStatus = { connected: false, status: 'not_configured' };
+      }
+      if (typeof window !== 'undefined' && window.location.search.includes('connected=1')) {
+        this._toast('Compte Instagram connecté avec succès !');
+        try {
+          const url = new URL(window.location.href);
+          url.searchParams.delete('connected');
+          window.history.replaceState({}, '', url.pathname + (url.search ? url.search : ''));
+        } catch (_) {}
       }
     } catch (e) {
       this.error = e?.data?.detail || e?.message || 'Chargement impossible';
@@ -100,8 +131,28 @@ export class SportPublicationsPage {
       const list = this.publications[this.tab] || [];
       body = list.length ? list.map(p => this._publicationRow(p)).join('') : '<p class="text-muted">Aucune publication.</p>';
     }
+
+    let igLabel = 'Non connecté';
+    let igBadgeStyle = 'color:var(--text-muted, #64748b);';
+    if (this.instagramStatus && this.instagramStatus.connected) {
+      const acct = this.instagramStatus.instagram_business_account_id ? ` (ID: ${this.instagramStatus.instagram_business_account_id})` : '';
+      igLabel = `Connecté${acct}`;
+      igBadgeStyle = 'color:#15803d;font-weight:600;';
+    } else if (this.instagramStatus && this.instagramStatus.configured === false) {
+      igLabel = 'Non configuré (Meta App requise)';
+      igBadgeStyle = 'color:#b45309;font-weight:600;';
+    }
+
     return `
       <div class="page-header"><div><h1>Mes publications</h1><p class="page-subtitle">Générez des publications Instagram à partir de vos activités.</p></div></div>
+      <div class="card" style="margin-bottom:12px;">
+        <div class="card-body" style="display:flex;gap:12px;flex-wrap:wrap;align-items:center;">
+          <strong>Instagram</strong>
+          <span style="${igBadgeStyle}" data-ig-status>${this._esc(igLabel)}</span>
+          <button class="btn btn-primary btn-sm" data-ig-connect>${this.instagramStatus && this.instagramStatus.connected ? 'Reconnecter' : 'Connecter Instagram'}</button>
+          ${this.instagramStatus && this.instagramStatus.connected ? '<button class="btn btn-secondary btn-sm" data-ig-disconnect>Se déconnecter</button>' : ''}
+        </div>
+      </div>
       <div class="card" style="margin-bottom:12px;">
         <div class="card-body" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
           ${tabsHtml}
@@ -110,10 +161,47 @@ export class SportPublicationsPage {
           </label>
         </div>
       </div>
-      ${this.error ? `<p class="text-danger">${this._esc(this.error)}</p>` : ''}
-      ${this.toastMsg ? `<p class="text-success">${this._esc(this.toastMsg)}</p>` : ''}
+      ${this.error ? `<div class="alert alert-danger" style="margin-bottom:12px;padding:8px 12px;border-radius:6px;background:#fee2e2;color:#991b1b;border:1px solid #f87171;">${this._esc(this.error)}</div>` : ''}
+      ${this.toastMsg ? `<div class="alert alert-info" style="margin-bottom:12px;padding:8px 12px;border-radius:6px;background:#e0f2fe;color:#075985;border:1px solid #7dd3fc;">${this._esc(this.toastMsg)}</div>` : ''}
       <div class="card"><div class="card-body">${body}</div></div>
     `;
+  }
+
+  async _loadInstagramStatus() {
+    try {
+      const status = await getInstagramConnectionStatus();
+      this.instagramStatus = status || this.instagramStatus;
+    } catch (e) {
+      this.instagramStatus = { connected: false, status: 'not_configured' };
+    }
+    this._rerender();
+  }
+
+  async _connectInstagram() {
+    const activity = this.selectedActivity || (this.recentActivities[0] || null);
+    const athleteId = activity && activity.athlete_id ? activity.athlete_id : null;
+    try {
+      const data = await connectInstagram(athleteId);
+      const url = data && data.authorize_url;
+      if (url) {
+        window.location.href = url;
+      } else {
+        this._toast('URL de connexion Meta non reçue');
+      }
+    } catch (e) {
+      const msg = e?.data?.detail || e?.message || 'Connexion Instagram impossible';
+      this._toast(msg);
+    }
+  }
+
+  async _disconnectInstagram() {
+    try {
+      await disconnectInstagram();
+      await this._loadInstagramStatus();
+      this._toast('Instagram déconnecté');
+    } catch (e) {
+      this._toast(e?.data?.detail || 'Erreur lors de la déconnexion');
+    }
   }
 
   _activityRow(a) {
@@ -286,6 +374,10 @@ export class SportPublicationsPage {
       this.settings.notifications_enabled = e.target.checked;
       try { await updatePublicationSettings({ notifications_enabled: e.target.checked }); } catch (err) { this._toast(err?.data?.detail || 'Erreur'); }
     });
+    const igConnect = this.element.querySelector('[data-ig-connect]');
+    const igDisconnect = this.element.querySelector('[data-ig-disconnect]');
+    if (igConnect) igConnect.addEventListener('click', async () => { await this._connectInstagram(); });
+    if (igDisconnect) igDisconnect.addEventListener('click', async () => { await this._disconnectInstagram(); });
     this.element.querySelectorAll('[data-generate]').forEach(b => b.addEventListener('click', async () => {
       const id = Number(b.dataset.generate);
       await this._openCreate(id);

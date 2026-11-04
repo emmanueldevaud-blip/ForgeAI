@@ -146,3 +146,16 @@ export async function deletePublication(id) {
 export function publicationPhotoUrl(id, size = 'medium') {
   return `/photos/${id}/file?size=${encodeURIComponent(size)}`;
 }
+
+export async function getInstagramConnectionStatus() {
+  return sportApi.get('/publications/meta/status');
+}
+
+export async function connectInstagram(athleteId = null) {
+  const query = athleteId ? `?athlete_id=${encodeURIComponent(athleteId)}` : '';
+  return sportApi.get(`/publications/meta/auth${query}`);
+}
+
+export async function disconnectInstagram() {
+  return sportApi.delete('/publications/meta');
+}

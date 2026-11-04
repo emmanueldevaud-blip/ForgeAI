@@ -275,3 +275,67 @@ async def test_api_generate_flow(client, admin_headers, db_session, monkeypatch)
     st = await client.get("/sport/publications/settings", headers=admin_headers)
     assert st.status_code == 200
     assert st.json()["last_styles"] == ["stats"]
+
+# --------------------------------------------------------------------------- #
+# Meta Instagram connection (Phase 1)
+# --------------------------------------------------------------------------- #
+
+@pytest.mark.asyncio
+async def test_meta_status_not_configured(client, admin_headers, monkeypatch):
+    from app.core.config import get_settings
+
+    monkeypatch.setattr(get_settings(), "META_APP_ID", "", raising=False)
+    monkeypatch.setattr(get_settings(), "META_APP_SECRET", "", raising=False)
+    r = await client.get("/sport/publications/meta/status", headers=admin_headers)
+    assert r.status_code == 200
+    body = r.json()
+    assert body["connected"] is False
+    assert body["status"] == "not_configured"
+
+
+@pytest.mark.asyncio
+async def test_meta_auth_requires_config(client, admin_headers, monkeypatch):
+    from app.core.config import get_settings
+
+    monkeypatch.setattr(get_settings(), "META_APP_ID", "", raising=False)
+    monkeypatch.setattr(get_settings(), "META_APP_SECRET", "", raising=False)
+    r = await client.get("/sport/publications/meta/auth?athlete_id=1", headers=admin_headers)
+    assert r.status_code == 503
+
+
+@pytest.mark.asyncio
+async def test_meta_auth_builds_url(client, admin_headers, monkeypatch):
+    from app.core.config import get_settings
+
+    monkeypatch.setattr(get_settings(), "META_APP_ID", "test-meta-app-id", raising=False)
+    monkeypatch.setattr(get_settings(), "META_APP_SECRET", "test-meta-app-secret", raising=False)
+    monkeypatch.setattr(get_settings(), "META_REDIRECT_URI", "http://localhost:8080/api/sport/publications/meta/callback", raising=False)
+
+    # avec athlete_id explicite
+    r = await client.get("/sport/publications/meta/auth?athlete_id=1", headers=admin_headers)
+    assert r.status_code == 200
+    body = r.json()
+    assert "authorize_url" in body
+    assert "www.facebook.com" in body["authorize_url"]
+    assert "dialog/oauth" in body["authorize_url"]
+    assert "client_id=test-meta-app-id" in body["authorize_url"]
+    assert body["state"].startswith("1:")
+    assert "state=" in body["authorize_url"]
+
+    # sans athlete_id (auto-résolution)
+    r2 = await client.get("/sport/publications/meta/auth", headers=admin_headers)
+    assert r2.status_code == 200
+    assert "authorize_url" in r2.json()
+
+
+@pytest.mark.asyncio
+async def test_meta_disconnect_unknown(client, admin_headers):
+    r = await client.delete("/sport/publications/meta", headers=admin_headers)
+    assert r.status_code == 200
+    assert r.json()["disconnected"] is False
+
+
+@pytest.mark.asyncio
+async def test_meta_rbac_forbidden(client, auth_headers):
+    r = await client.get("/sport/publications/meta/status", headers=auth_headers)
+    assert r.status_code == 403

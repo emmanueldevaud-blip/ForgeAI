@@ -135,6 +135,13 @@ class Settings(BaseSettings):
     SPORT_AGENT_MAX_TOOL_CALLS: int = 16
     SPORT_AGENT_TIMEOUT_SECONDS: int = 60
 
+    # Meta Instagram (OAuth + tokens pour les statistiques Insights).
+    META_APP_ID: str = ""
+    META_APP_SECRET: str = ""
+    META_REDIRECT_URI: str = ""
+    META_VERIFY_TOKEN: str = ""
+    META_API_VERSION: str = "v21.0"
+
     # Agent Développement (orchestration OpenCode pour le développement ForgeAI).
     DEVELOPMENT_AGENT_ENABLED: bool = False
     DEVELOPMENT_AGENT_MAX_STEPS: int = 10

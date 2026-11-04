@@ -356,3 +356,27 @@ class SportPublication(Base):
 
     athlete: Mapped["SportAthlete"] = relationship("SportAthlete", lazy="selectin")
     activity: Mapped["SportActivity"] = relationship("SportActivity", lazy="selectin")
+
+
+class SportInstagramConnection(Base):
+    """Connexion Meta (Instagram Business) pour la recuperation des statistiques Insights."""
+
+    __tablename__ = "sport_instagram_connections"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
+    athlete_id: Mapped[int] = mapped_column(ForeignKey("sport_athletes.id", ondelete="CASCADE"), nullable=False, index=True)
+    instagram_business_account_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    encrypted_access_token: Mapped[str | None] = mapped_column(Text, nullable=True)
+    encrypted_long_lived_token: Mapped[str | None] = mapped_column(Text, nullable=True)
+    status: Mapped[str] = mapped_column(String(30), nullable=False, default="pending", index=True)
+    scopes: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    token_type: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    expires_in: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    obtained_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    metadata_json: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
+    user: Mapped["User | None"] = relationship("User")
+    athlete: Mapped["SportAthlete"] = relationship("SportAthlete")

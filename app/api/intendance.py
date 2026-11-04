@@ -132,8 +132,8 @@ async def meal_cost_by_site(
     # Résolution des noms utilisateurs pour le dédoublonnage (peu importe le site)
     user_name_map = {u.id: (u.full_name or u.username or "").strip().casefold() for u in (await db.execute(select(User))).scalars().all()}
     meal_counts: dict[int, set[tuple]] = {identifier: set() for identifier in eligible_ids}
-    # Set pour dédoublonnage : (date, nom_normalisé) déjà compté via Agenda, tous sites confondus
-    agenda_meals: set[tuple[date, str]] = set()
+    # Comptage des repas Agenda par (date, nom) pour dédoublonnage partiel avec l'hébergement
+    agenda_meal_counts: dict[tuple[date, str], int] = {}
     for site_identifier, presence_date, user_id, external_name, presence_id in meal_rows:
         if presence_date.weekday() >= 5:
             continue
@@ -147,7 +147,8 @@ async def meal_cost_by_site(
         else:
             name = (external_name or "").strip().casefold()
         if name:
-            agenda_meals.add((presence_date, name))
+            key = (presence_date, name)
+            agenda_meal_counts[key] = agenda_meal_counts.get(key, 0) + 1
 
     # Occupations du module Hébergement sur les locaux mappés : un repas par
     # personne et par jour d'occupation, samedi et dimanche inclus.
@@ -185,10 +186,11 @@ async def meal_cost_by_site(
             persons = max(int(nb_persons or 1), 1)
             for day_offset in range((day_end - day_start).days + 1):
                 day = day_start + timedelta(days=day_offset)
-                # Dédoublonnage (tous sites confondus) : si l'occupant est déjà inscrit en repas ce jour-là (sur n'importe quel site), on ne compte pas
-                for person_index in range(persons):
-                    if (day, occupant_name) not in agenda_meals:
-                        meal_counts[site_identifier].add(("occupancy", occupancy_identifier, day, person_index))
+                # Dédoublonnage partiel (tous sites confondus) : on retire autant de repas que l'occupant a de repas Agenda ce jour-là (sur n'importe quel site), le reste est compté
+                dedup = agenda_meal_counts.get((day, occupant_name), 0)
+                count = max(persons - dedup, 0)
+                for person_index in range(count):
+                    meal_counts[site_identifier].add(("occupancy", occupancy_identifier, day, person_index, occupant_name))
 
     output = []
     for identifier, name in eligible_sites:

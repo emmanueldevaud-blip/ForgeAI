@@ -68,8 +68,8 @@
   .intendance-dashboard-page .print-header .print-filters { font-style: italic; font-size: 10px; }
   .intendance-dashboard-page .print-persons { display: block !important; margin: 2px 0 4px; }
   .intendance-dashboard-page .print-persons h2 { margin: 0 0 1px; font-size: 11px; }
-  .intendance-dashboard-page .print-persons table { width: 100%; border-collapse: collapse; font-size: 9px; }
-  .intendance-dashboard-page .print-persons th, .intendance-dashboard-page .print-persons td { border: 1px solid var(--color-border-light); padding: 1px 3px; text-align: left; line-height: 1.15; }
+  .intendance-dashboard-page .print-persons table { width: 100%; border-collapse: collapse; font-size: 8px; }
+  .intendance-dashboard-page .print-persons th, .intendance-dashboard-page .print-persons td { border: 1px solid var(--color-border-light); padding: 1px 2px; text-align: left; line-height: 1.1; }
   .intendance-dashboard-page .print-persons th { background: var(--color-bg-tertiary); }
   .intendance-dashboard-page .print-persons td.num, .intendance-dashboard-page .print-persons th.num { text-align: right; }
   .intendance-dashboard-page * { print-color-adjust: exact; -webkit-print-color-adjust: exact; }
@@ -81,12 +81,12 @@
   .intendance-dashboard-page .histogram-container { min-height: 0 !important; }
   .intendance-dashboard-page .intendance-dashboard-grid { grid-template-columns: 1fr 1fr; gap: 2px; margin-top: 2px; }
   .intendance-dashboard-page .chart-card--monthly { grid-column: 1 / -1; }
-  .intendance-dashboard-page #monthly-chart { height: 100px !important; }
+  .intendance-dashboard-page #monthly-chart { height: 90px !important; }
   .intendance-dashboard-page .chart-heading { margin-bottom: 2px; }
   .intendance-dashboard-page .chart-heading h2 { font-size: 11px; margin: 0; }
   .intendance-dashboard-page .chart-heading p { font-size: 8px; margin: 0; }
-  .intendance-dashboard-page .intendance-bar-row { padding: 0; font-size: 9px; line-height: 1.15; }
-  .intendance-dashboard-page .intendance-bar-track { height: 5px !important; }
+  .intendance-dashboard-page .intendance-bar-row { padding: 0; font-size: 8px; line-height: 1.1; }
+  .intendance-dashboard-page .intendance-bar-track { height: 4px !important; }
   .intendance-dashboard-page .print-header { margin-bottom: 2px; }
   .intendance-dashboard-page .print-header h1 { margin: 0 0 1px; font-size: 14px; }
   .intendance-dashboard-page .print-header p { margin: 0; font-size: 10px; color: var(--color-text-secondary); }

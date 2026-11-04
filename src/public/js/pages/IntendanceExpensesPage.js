@@ -196,6 +196,14 @@ export class IntendanceExpensesPage {
       tableElement.querySelector('thead tr')?.insertAdjacentHTML('afterbegin', '<th></th>');
       tableElement.querySelectorAll('tbody tr[data-id]').forEach(row => row.insertAdjacentHTML('afterbegin', `<td><input type="checkbox" data-expense-id="${row.dataset.id}" aria-label="Sélectionner la dépense"></td>`));
     }
+    tableElement.querySelectorAll('[data-site-edit]').forEach(select => {
+      select.onchange = async () => {
+        const id = Number(select.dataset.siteEdit);
+        const siteId = select.value ? Number(select.value) : null;
+        try { await updateExpense(id, { site_id: siteId }); await this.load(); }
+        catch (error) { alert(error?.message || 'Échec de l\'affectation'); }
+      };
+    });
     const totalPages = this.table.data.totalPages || 1;
     const pager = document.createElement("div");
     pager.className = "users-pagination";

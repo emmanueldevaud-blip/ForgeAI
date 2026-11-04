@@ -680,9 +680,10 @@ async def analyze_import(file: UploadFile = File(...), current_user: User = Depe
         expense_duplicate_key({"expense_date": expense_date, "account_label": account_label, "item_description": item_description, "amount": amount})
         for expense_date, account_label, item_description, amount in existing_rows
     }
+    existing_fingerprints = {r[0] for r in (await db.execute(select(IntendanceExpense.fingerprint))).all()}
     staged = (await db.execute(select(IntendanceImportStagedRow).where(IntendanceImportStagedRow.batch_id == batch.id))).scalars().all()
     for row in staged:
-        row.is_duplicate_existing = expense_duplicate_key(row) in existing
+        row.is_duplicate_existing = expense_duplicate_key(row) in existing or row.fingerprint in existing_fingerprints
     batch.rows_total = len(staged); batch.rows_new = sum(not r.invalid_reason and not r.is_duplicate_existing and not r.is_duplicate_in_file for r in staged); batch.rows_duplicate_existing = sum(r.is_duplicate_existing for r in staged); batch.rows_duplicate_in_file = sum(r.is_duplicate_in_file for r in staged); batch.rows_invalid = sum(bool(r.invalid_reason) for r in staged)
     await db.commit(); await db.refresh(batch)
     return ImportBatchResponse(
@@ -706,13 +707,16 @@ async def validate_import(batch_id: int, current_user: User = Depends(require_pe
     if batch.status == "validated": return ImportValidateResponse(reference=batch.reference, created_count=batch.created_count or 0, skipped_duplicates=batch.rows_total - (batch.created_count or 0))
     rows = (await db.execute(select(IntendanceImportStagedRow).where(IntendanceImportStagedRow.batch_id == batch.id))).scalars().all(); created = 0
     aliases = {x.alias: x.user_name for x in (await db.execute(select(IntendanceCardAlias))).scalars().all()}; codes = {x.code: x for x in (await db.execute(select(IntendanceAccountCode))).scalars().all()}
+    existing_fingerprints = {r[0] for r in (await db.execute(select(IntendanceExpense.fingerprint))).all()}
     for account_code in {row.account_code for row in rows if row.account_code and row.account_code not in codes}:
         code = IntendanceAccountCode(code=account_code, category="Non affecté")
         db.add(code); codes[account_code] = code
     for row in rows:
         if row.invalid_reason or row.is_duplicate_existing or row.is_duplicate_in_file: continue
+        if row.fingerprint in existing_fingerprints: continue
         code = codes.get(row.account_code or "")
         db.add(IntendanceExpense(fingerprint=row.fingerprint, req_number=row.req_number, expense_date=row.expense_date, bank_card=row.bank_card, item_description=row.item_description, quantity=row.quantity, uom=row.uom, amount=row.amount, corporation=row.corporation, cost_center=row.cost_center, account_code=row.account_code, account_label=row.account_label, prepared_by=row.prepared_by, category=code.category if code else None, user_name=aliases.get(row.bank_card), import_batch_id=batch.id, created_by=current_user.id)); created += 1
+        existing_fingerprints.add(row.fingerprint)
     batch.status = "validated"; batch.validated_at = datetime.now(timezone.utc); batch.created_count = created; await db.commit()
     return ImportValidateResponse(reference=batch.reference, created_count=created, skipped_duplicates=len(rows) - created)
 

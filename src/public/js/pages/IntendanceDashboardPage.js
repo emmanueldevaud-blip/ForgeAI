@@ -231,9 +231,9 @@ export class IntendanceDashboardPage {
         <div class="intendance-kpi-grid">${this._renderKpis()}</div>
         <div class="intendance-dashboard-grid">
           ${generalView ? '<section class="histogram-container chart-card"><div class="chart-heading"><div><h2>Répartition par catégorie</h2><p>Cliquer sur une catégorie pour filtrer</p></div><div class="chart-legend"><span class="chart-legend-item"><i class="chart-swatch chart-swatch--category"></i>Part du total</span></div></div>' + this._renderCategoryBars() + '</section>' : ''}
-          ${this.activeView !== 'energy' ? `<section class="histogram-container chart-card chart-card--users"><div class="chart-heading"><div><h2>Répartition par utilisateur</h2><p>Montant attribué et nombre de dépenses</p></div><div class="chart-legend"><span class="chart-legend-item"><i class="chart-swatch chart-swatch--user"></i>Montant (€)</span></div></div>${this._renderUserBars()}</section>` : ''}
-          <section class="histogram-container chart-card intendance-site-card"><div class="chart-heading"><div><h2>${this.activeView === 'energy' ? 'Coût de l’énergie par site' : 'Répartition par site'}</h2></div><div class="chart-legend"><span class="chart-legend-item"><i class="chart-swatch chart-swatch--user"></i>Montant (€)</span></div></div>${this._renderSiteBars()}</section>
-          ${this.activeView === 'meals' ? `<section class="histogram-container chart-card chart-card--monthly"><div class="chart-heading"><div><h2>Coût du repas par personne et par site</h2></div><div class="chart-legend"><span class="chart-legend-item"><i class="chart-swatch chart-swatch--category"></i>Coût par repas (€)</span></div></div>${this._renderMealCostBySite()}</section>` : ''}
+          ${this.activeView !== 'energy' ? `<section class="histogram-container chart-card chart-card--users"><div class="chart-heading"><div><h2>Répartition par utilisateur</h2><p>Montant attribué et nombre de dépenses</p></div></div>${this._renderUserBars()}</section>` : ''}
+          <section class="histogram-container chart-card intendance-site-card"><div class="chart-heading"><div><h2>${this.activeView === 'energy' ? 'Coût de l’énergie par site' : 'Répartition par site'}</h2></div></div>${this._renderSiteBars()}</section>
+          ${this.activeView === 'meals' ? `<section class="histogram-container chart-card chart-card--monthly"><div class="chart-heading"><div><h2>Coût du repas par personne et par site</h2></div></div>${this._renderMealCostBySite()}</section>` : ''}
           <section class="histogram-container chart-card chart-card--monthly"><div class="chart-heading"><div><h2>${this.activeView === 'meals' ? 'Évolution des dépenses de nourriture' : this.activeView === 'energy' ? 'Évolution des dépenses d’énergie' : 'Évolution mensuelle'}</h2></div><div class="chart-legend">${this._renderMonthlyLegend()}</div></div><canvas id="monthly-chart" aria-label="Évolution mensuelle des dépenses par catégorie"></canvas></section>
         </div>
         <section class="histogram-container intendance-expense-list"><div class="chart-heading"><div><h2>Dépenses filtrées</h2><p>${this.expenseListMeta.total || 0} dépense(s) correspondant aux filtres</p></div></div>${this._renderExpenseList()}</section>
@@ -455,8 +455,8 @@ export class IntendanceDashboardPage {
   }
 
   _renderMonthlyLegend() {
-    const categories = [...new Set((this.dashboard.monthly || []).flatMap(item => Object.keys(item.categories || {})))];
-    return categories.map(category => `<span class="chart-legend-item"><i class="chart-swatch" style="background:${this._chartColor(this._monthlyCategoryIndex(category))}"></i>${category}</span>`).join('') || '<span class="chart-legend-item">Aucune donnée</span>';
+    const categories = [...new Set((this.dashboard.monthly || []).flatMap(item => Object.keys(item.categories || {})))].filter(category => category !== 'Nourriture');
+    return categories.map(category => `<span class="chart-legend-item"><i class="chart-swatch" style="background:${this._chartColor(this._monthlyCategoryIndex(category))}"></i>${category}</span>`).join('');
   }
 
   _money(value) { return new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'EUR' }).format(Number(value) || 0); }

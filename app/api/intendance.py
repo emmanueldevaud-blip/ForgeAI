@@ -132,8 +132,8 @@ async def meal_cost_by_site(
     # Résolution des noms utilisateurs pour le dédoublonnage (peu importe le site)
     user_name_map = {u.id: (u.full_name or u.username or "").strip().casefold() for u in (await db.execute(select(User))).scalars().all()}
     meal_counts: dict[int, set[tuple]] = {identifier: set() for identifier in eligible_ids}
-    # Set pour dédoublonnage : (date, nom_normalisé) déjà compté via Agenda, tous sites confondus
-    agenda_meals: set[tuple[date, str]] = set()
+    # Set pour dédoublonnage : (site_id, date, nom_normalisé) déjà compté via Agenda
+    agenda_meals: set[tuple[int, date, str]] = set()
     for site_identifier, presence_date, user_id, external_name, presence_id in meal_rows:
         if presence_date.weekday() >= 5:
             continue
@@ -141,18 +141,18 @@ async def meal_cost_by_site(
         if person_key == "external:":
             person_key = f"presence:{presence_id}"
         meal_counts[site_identifier].add((presence_date, person_key))
-        # Clé normalisée pour dédoublonnage avec hébergement (tous sites confondus)
+        # Clé normalisée pour dédoublonnage avec hébergement
         if user_id is not None:
             name = (external_name or user_name_map.get(user_id) or "").strip().casefold()
         else:
             name = (external_name or "").strip().casefold()
         if name:
-            agenda_meals.add((presence_date, name))
+            agenda_meals.add((site_identifier, presence_date, name))
 
     # Occupations du module Hébergement sur les locaux mappés : un repas par
     # personne et par jour d'occupation, samedi et dimanche inclus.
     # Non comptées lors d'un filtre par utilisateur (occupants ≠ utilisateurs).
-    # Déduplication (tous sites confondus) : si la personne est déjà comptée via Agenda ce jour-là (sur n'importe quel site), on ne la compte pas une 2e fois.
+    # Déduplication : si la personne est déjà comptée via Agenda ce jour-là pour ce site, on ne la compte pas une 2e fois.
     if not user_name:
         occupancy_query = (
             select(IntendanceSite.id, Occupancy.id, Occupancy.arrival_date, Occupancy.departure_date, Occupancy.nb_persons,
@@ -185,7 +185,7 @@ async def meal_cost_by_site(
             for day_offset in range((day_end - day_start).days + 1):
                 day = day_start + timedelta(days=day_offset)
                 # Un repas par occupant et par jour ; dédoublonné sur tous les sites
-                if (day, occupant_name) not in agenda_meals:
+                if (site_identifier, day, occupant_name) not in agenda_meals:
                     meal_counts[site_identifier].add(("occupancy", occupancy_identifier, day, 0))
 
     output = []

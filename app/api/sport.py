@@ -398,6 +398,14 @@ async def sync_garmin(
             athlete.id,
             int(result.get("imported_count") or 0),
         )
+        if int(result.get("imported_count") or 0) > 0:
+            from app.services.sport_publications import schedule_publication_notifications
+
+            background_tasks.add_task(
+                schedule_publication_notifications,
+                service.current_user.id,
+                athlete.id,
+            )
     return result
 
 

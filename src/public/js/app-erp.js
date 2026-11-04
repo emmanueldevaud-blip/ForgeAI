@@ -31,6 +31,7 @@ import { createSportGarminPage } from './pages/SportGarminPage.js?v=5';
 import { createSportHealthPage } from './pages/SportHealthPage.js?v=2';
 import { createSportAnalysesPage } from './pages/SportAnalysesPage.js?v=1';
 import { createSportGoalsPage } from './pages/SportGoalsPage.js?v=1';
+import { createSportPublicationsPage } from './pages/SportPublicationsPage.js?v=1';
 import { createAgendaPage } from './pages/AgendaPage.js?v=77';
 import { createAgendaSettingsPage } from './pages/AgendaSettingsPage.js?v=4';
 import { createAgendaImportPage } from './pages/AgendaImportPage.js?v=1';
@@ -104,6 +105,7 @@ let sportGarminPage = null;
 let sportHealthPage = null;
 let sportAnalysesPage = null;
 let sportGoalsPage = null;
+let sportPublicationsPage = null;
 let agendaPage = null;
 let agendaSettingsPage = null;
 let domotiquePage = null;
@@ -121,7 +123,7 @@ void (function() {
     createDomotiquePage, createDomotiqueConfigPage, createSurveillancePage,
     createPhotosPage, createSouvenirsPage, createITAssetPage,
     createSportDashboardPage, createSportActivitiesPage, createSportGarminPage,
-    createSportHealthPage, createSportAnalysesPage, createSportGoalsPage,
+    createSportHealthPage, createSportAnalysesPage, createSportGoalsPage, createSportPublicationsPage,
     createBuildingsPage, createEquipmentPage, createEquipmentRefsPage,
     createDashboardPage, createMaintenanceRequestsPage, createMaintenanceWorkOrdersPage,
     createMaintenancePreventivePage, createMaintenanceProvidersPage, createMaintenanceContractsPage,
@@ -295,6 +297,9 @@ async function initializeApp() {
     .addRoute('/sport/analyses', async (route) => {
       await showSportAnalysesPage(route);
     }, { requiresAuth: true, permissions: ['sport.analysis.read'], module: 'sport' })
+    .addRoute('/sport/publications', async (route) => {
+      await showSportPublicationsPage(route);
+    }, { requiresAuth: true, permissions: ['sport.publications.read'], module: 'sport' })
     .addRoute('/domotique', async (route) => {
       await showDomotiquePage(route);
     }, { requiresAuth: true, permissions: ['domotique.view'], module: 'domotique' })
@@ -627,6 +632,14 @@ async function ensureSportGoalsPage() {
   return sportGoalsPage;
 }
 
+async function ensureSportPublicationsPage() {
+  if (!sportPublicationsPage) {
+    sportPublicationsPage = createSportPublicationsPage(router);
+  }
+  await sportPublicationsPage.initialize();
+  return sportPublicationsPage;
+}
+
 async function ensureAgendaPage() {
   if (!agendaPage) {
     agendaPage = createAgendaPage(router);
@@ -809,6 +822,18 @@ async function showSportGoalsPage(route) {
     appShell.showContent(page.render());
   } catch (error) {
     console.error('Erreur affichage Objectifs Sport:', error);
+    appShell.showError(error);
+  }
+}
+
+async function showSportPublicationsPage(route) {
+  if (!appShell) return;
+  appShell.showLoading();
+  try {
+    const page = await ensureSportPublicationsPage();
+    appShell.showContent(page.render());
+  } catch (error) {
+    console.error('Erreur affichage Publications Sport:', error);
     appShell.showError(error);
   }
 }

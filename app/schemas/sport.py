@@ -222,3 +222,85 @@ class SportNormalizedActivity(BaseModel):
     external_id: Optional[str] = None
     metadata_json: dict[str, Any] = {}
     track_points: list[dict[str, Any]] = []
+
+
+# --------------------------------------------------------------------------- #
+# Publications Instagram
+# --------------------------------------------------------------------------- #
+
+PUBLICATION_STYLES = [
+    "humor", "stats", "motivation", "inspiring", "story", "ultra", "short", "custom", "mix",
+]
+
+PUBLICATION_STATUSES = ["draft", "validated", "shared"]
+
+
+class PublicationProposalResponse(BaseModel):
+    title: Optional[str] = None
+    content: str
+    hashtags: Optional[str] = None
+    style: Optional[str] = None
+
+
+class SportPublicationResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    athlete_id: int
+    activity_id: int
+    status: str
+    styles: list[str] = []
+    custom_instructions: Optional[str] = None
+    proposals: list[dict[str, Any]] = []
+    selected_proposal: Optional[int] = None
+    title: Optional[str] = None
+    content: Optional[str] = None
+    hashtags: Optional[str] = None
+    photo_id: Optional[int] = None
+    visual_type: str = "photo"
+    card_path: Optional[str] = None
+    provider: Optional[str] = None
+    model: Optional[str] = None
+    generated_at: Optional[datetime] = None
+    validated_at: Optional[datetime] = None
+    shared_at: Optional[datetime] = None
+    created_at: datetime
+    updated_at: datetime
+    activity: Optional[SportActivityResponse] = None
+
+
+class SportPublicationListResponse(BaseModel):
+    items: list[SportPublicationResponse]
+    total: int
+    page: int
+    page_size: int
+    total_pages: int
+
+
+class SportPublicationGenerateRequest(BaseModel):
+    styles: list[str] = Field(default_factory=list)
+    custom_instructions: Optional[str] = Field(None, max_length=2000)
+    regenerate: bool = False
+
+
+class SportPublicationUpdate(BaseModel):
+    title: Optional[str] = Field(None, max_length=200)
+    content: Optional[str] = None
+    hashtags: Optional[str] = None
+    photo_id: Optional[int] = None
+    visual_type: Optional[str] = None
+    selected_proposal: Optional[int] = None
+    styles: Optional[list[str]] = None
+    custom_instructions: Optional[str] = None
+
+
+class SportPublicationSettingsResponse(BaseModel):
+    notifications_enabled: bool = True
+    last_styles: list[str] = []
+    last_custom_instructions: Optional[str] = None
+
+
+class SportPublicationSettingsUpdate(BaseModel):
+    notifications_enabled: Optional[bool] = None
+    last_styles: Optional[list[str]] = None
+    last_custom_instructions: Optional[str] = None

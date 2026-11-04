@@ -9,7 +9,7 @@ from fastapi.staticfiles import StaticFiles
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 
-from app.api import auth, audit, buildings, dashboard, development, domotique, equipment, housing, it_asset, maintenance, modules, admin, volunteer, sport, administrative, agenda, notifications, photos, ai, intendance
+from app.api import auth, audit, buildings, dashboard, development, domotique, equipment, housing, it_asset, maintenance, modules, admin, volunteer, sport, administrative, agenda, notifications, photos, ai, intendance, sport_publications
 from app.core.config import get_settings
 from app.core.limiter import limiter
 from app.db.session import close_db, init_db
@@ -382,6 +382,7 @@ app.include_router(maintenance.router)
 app.include_router(development.router)
 app.include_router(volunteer.router)
 app.include_router(sport.router)
+app.include_router(sport_publications.router)
 app.include_router(domotique.router)
 app.include_router(notifications.router)
 app.include_router(administrative.router)

@@ -354,5 +354,5 @@ class SportPublication(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
 
-    athlete: Mapped["SportAthlete"] = relationship("SportAthlete")
-    activity: Mapped["SportActivity"] = relationship("SportActivity")
+    athlete: Mapped["SportAthlete"] = relationship("SportAthlete", lazy="selectin")
+    activity: Mapped["SportActivity"] = relationship("SportActivity", lazy="selectin")

@@ -160,6 +160,20 @@ class SportGarminConnectService:
                         int(outcome.get("imported_count") or 0),
                     )
 
+                # Notifications de publications Instagram (toggle dans metadata).
+                if (
+                    outcome.get("status") == "success"
+                    and connection.athlete
+                    and connection.athlete.user_id
+                    and int(outcome.get("imported_count") or 0) > 0
+                ):
+                    from app.services.sport_publications import fire_publication_notifications
+
+                    fire_publication_notifications(
+                        connection.athlete.user_id,
+                        connection.athlete.id,
+                    )
+
     async def _sync_connection(self, connection: SportGarminConnection, athlete: SportAthlete, full_history: bool = False) -> dict:
         started = datetime.now(timezone.utc)
         connection.last_sync_started_at = started

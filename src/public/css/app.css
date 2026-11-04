@@ -7816,3 +7816,8 @@
     grid-template-columns: 1fr;
   }
 }
+
+/* Sport publications (Instagram) */
+.sport-publications .page-header { margin-bottom: var(--spacing-4); }
+.sport-publications .card { margin-bottom: var(--spacing-3); }
+.sport-publications .modal-overlay { backdrop-filter: blur(2px); }

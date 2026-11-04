@@ -82,3 +82,67 @@ export async function generateVapidKeys() {
 export async function updateSportNotificationConfig(data) {
   return sportApi.put('/notifications/config', data);
 }
+
+// --------------------------------------------------------------------------- #
+// Publications Instagram
+// --------------------------------------------------------------------------- #
+
+export async function listPublicationStyles() {
+  return sportApi.get('/publications/styles');
+}
+
+export async function getPublicationSettings() {
+  return sportApi.get('/publications/settings');
+}
+
+export async function updatePublicationSettings(data) {
+  return sportApi.put('/publications/settings', data);
+}
+
+export async function listPublications(params = {}) {
+  const query = new URLSearchParams();
+  if (params.status) query.append('status', params.status);
+  if (params.page) query.append('page', params.page);
+  if (params.page_size) query.append('page_size', params.page_size);
+  return sportApi.get(`/publications${query.toString() ? `?${query}` : ''}`);
+}
+
+export async function listRecentActivitiesForPublication(limit = 20) {
+  return sportApi.get(`/publications/activities?limit=${encodeURIComponent(limit)}`);
+}
+
+export async function getPublicationForActivity(activityId) {
+  return sportApi.get(`/publications/activity/${encodeURIComponent(activityId)}`);
+}
+
+export async function generatePublication(activityId, data) {
+  return sportApi.post(`/publications/activity/${encodeURIComponent(activityId)}/generate`, data);
+}
+
+export async function getPublication(id) {
+  return sportApi.get(`/publications/${encodeURIComponent(id)}`);
+}
+
+export async function updatePublication(id, data) {
+  return sportApi.patch(`/publications/${encodeURIComponent(id)}`, data);
+}
+
+export async function validatePublication(id) {
+  return sportApi.post(`/publications/${encodeURIComponent(id)}/validate`, {});
+}
+
+export async function markPublicationShared(id) {
+  return sportApi.post(`/publications/${encodeURIComponent(id)}/share`, {});
+}
+
+export async function generatePublicationCard(id) {
+  return sportApi.post(`/publications/${encodeURIComponent(id)}/card`, {});
+}
+
+export async function deletePublication(id) {
+  return sportApi.delete(`/publications/${encodeURIComponent(id)}`);
+}
+
+export function publicationPhotoUrl(id, size = 'medium') {
+  return `/photos/${id}/file?size=${encodeURIComponent(size)}`;
+}

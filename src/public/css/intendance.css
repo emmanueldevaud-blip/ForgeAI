@@ -94,6 +94,7 @@
   .intendance-dashboard-page .print-header .print-filters { font-style: italic; font-size: 9px; }
   /* Masquer la répartition par utilisateur en impression (focus site/repas/évolution) */
   .intendance-dashboard-page .chart-card--users { display: none !important; }
+  .intendance-dashboard-page .intendance-site-card { display: none !important; }
 }
 .intendance-dashboard-page .print-persons { display: none; }
 

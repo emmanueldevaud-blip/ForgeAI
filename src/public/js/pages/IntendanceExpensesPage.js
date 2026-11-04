@@ -5,7 +5,7 @@ import { listRooms, listBuildings } from '../services/buildingsApi.js';
 import { getAgendaUsers } from '../services/agendaApi.js';
 import { listUsers } from '../services/adminApi.js';
 import { authStore } from '../stores/auth.js';
-import { createIntendanceDashboardPage } from './IntendanceDashboardPage.js?v=2';
+import { createIntendanceDashboardPage } from './IntendanceDashboardPage.js?v=4';
 
 export class IntendanceExpensesPage {
   constructor() {

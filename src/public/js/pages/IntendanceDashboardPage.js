@@ -163,7 +163,7 @@ export class IntendanceDashboardPage {
     const rows = this.mealSiteCosts || [];
     if (!rows.length) return '<p class="text-muted">Aucune donnée.</p>';
     const total = rows.reduce((sum, item) => sum + Number(item.meal_count || 0), 0);
-    return `<table><thead><tr><th>Site</th><th class="num">Personnes</th><th class="num">Dépenses (€)</th><th class="num">Coût / pers. (€)</th></tr></thead><tbody>${rows.map(item => `<tr><td>${item.name}</td><td class="num">${item.meal_count}</td><td class="num">${this._money(item.amount)}</td><td class="num">${item.cost_per_person == null ? '—' : this._money(item.cost_per_person)}</td></tr>`).join('')}</tbody><tfoot><tr><td><strong>Total</strong></td><td class="num"><strong>${total}</strong></td><td class="num"><strong>${this._money(rows.reduce((s, i) => s + Number(i.amount || 0), 0))}</strong></td><td class="num">—</td></tr></tfoot></table>`;
+    return `<table><thead><tr><th>Site</th><th class="num">Repas</th><th class="num">Dépenses (€)</th><th class="num">Coût / repas (€)</th></tr></thead><tbody>${rows.map(item => `<tr><td>${item.name}</td><td class="num">${item.meal_count}</td><td class="num">${this._money(item.amount)}</td><td class="num">${item.cost_per_person == null ? '—' : this._money(item.cost_per_person)}</td></tr>`).join('')}</tbody><tfoot><tr><td><strong>Total</strong></td><td class="num"><strong>${total}</strong></td><td class="num"><strong>${this._money(rows.reduce((s, i) => s + Number(i.amount || 0), 0))}</strong></td><td class="num">—</td></tr></tfoot></table>`;
   }
 
   _setPeriod(mode, offset = 0) {
@@ -222,7 +222,7 @@ export class IntendanceDashboardPage {
           ${this._printFilterSummary()}
         </header>
         <section class="print-persons">
-          <h2>Nombre de personnes par site</h2>
+          <h2>Nombre de repas par site</h2>
           ${this._renderPrintPersons()}
         </section>` : ''}
         <div class="admin-tabs intendance-dashboard-tabs" role="tablist" aria-label="Vues du tableau de bord"><button role="tab" class="admin-tab" data-dashboard-view="general" aria-selected="${generalView}" type="button">Général</button><button role="tab" class="admin-tab" data-dashboard-view="meals" aria-selected="${this.activeView === 'meals'}" type="button">Repas</button><button role="tab" class="admin-tab" data-dashboard-view="energy" aria-selected="${this.activeView === 'energy'}" type="button">Énergie</button></div>

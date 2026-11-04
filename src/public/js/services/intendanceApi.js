@@ -32,3 +32,4 @@ export const analyzeImport = (file) => {
 };
 export const validateImport = (id) => api.post(`/imports/${id}/validate`, {});
 export const reassignReferences = () => api.post('/reassign', {});
+export const exportMissingSites = () => fetch('/intendance/expenses/export-missing', { credentials: 'include' });

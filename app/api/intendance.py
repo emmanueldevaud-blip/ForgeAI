@@ -721,6 +721,80 @@ async def validate_import(batch_id: int, current_user: User = Depends(require_pe
     return ImportValidateResponse(reference=batch.reference, created_count=created, skipped_duplicates=len(rows) - created)
 
 
+@router.get("/export-missing", response_class=StreamingResponse)
+async def export_missing_sites(
+    current_user: User = Depends(require_permission("intendance.expenses.view")),
+    db: AsyncSession = Depends(get_db),
+):
+    """Exporte les dépenses sans site (rapprochement) en Excel, avec une liste déroulante des sites."""
+    from io import BytesIO
+    from fastapi.responses import StreamingResponse
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, PatternFill
+    from openpyxl.utils import get_column_letter
+    from openpyxl.worksheet.datavalidation import DataValidation
+
+    rows = (await db.execute(
+        select(IntendanceExpense)
+        .options(selectinload(IntendanceExpense.site))
+        .where(IntendanceExpense.site_id.is_(None))
+        .order_by(IntendanceExpense.expense_date.desc(), IntendanceExpense.id.desc())
+    )).scalars().all()
+
+    sites = (await db.execute(
+        select(IntendanceSite).where(IntendanceSite.is_active.is_(True)).order_by(IntendanceSite.name)
+    )).scalars().all()
+    site_names = [s.name for s in sites]
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Rapprochement"
+    headers = ["ID", "Date", "Demande", "Libellé", "Utilisateur", "Montant (€)", "Site"]
+    ws.append(headers)
+    header_fill = PatternFill("solid", fgColor="1F3864")
+    header_font = Font(color="FFFFFF", bold=True)
+    for col_idx, _ in enumerate(headers, start=1):
+        cell = ws.cell(row=1, column=col_idx)
+        cell.fill = header_fill
+        cell.font = header_font
+    for expense in rows:
+        ws.append([
+            expense.id,
+            expense.expense_date,
+            expense.req_number,
+            expense.item_description,
+            expense.user_name,
+            float((expense.amount or 0) * (expense.quantity or 1)),
+            expense.site.name if expense.site else None,
+        ])
+    # Hidden sheet with site names for the dropdown
+    sites_sheet = wb.create_sheet("Sites")
+    for i, name in enumerate(site_names, start=1):
+        sites_sheet.cell(row=i, column=1, value=name)
+    sites_sheet.sheet_state = "hidden"
+    if site_names:
+        last = len(site_names)
+        dv = DataValidation(type="list", formula1=f"'Sites'!$A$1:$A${last}", allow_blank=True)
+        ws.add_data_validation(dv)
+        if rows:
+            dv.add(f"G2:G{len(rows) + 1}")
+    # Column widths
+    widths = [8, 12, 12, 60, 24, 12, 28]
+    for i, w in enumerate(widths, start=1):
+        ws.column_dimensions[get_column_letter(i)].width = w
+    ws.freeze_panes = "A2"
+
+    buffer = BytesIO()
+    wb.save(buffer)
+    buffer.seek(0)
+    filename = "rapprochement_sites.xlsx"
+    return StreamingResponse(
+        buffer,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
 @router.post("/reassign", response_model=dict)
 async def reassign_references(current_user: User = Depends(require_permission("intendance.expenses.import")), db: AsyncSession = Depends(get_db)):
     """Réapplique les référentiels configurés sans écraser les corrections manuelles."""

@@ -1,6 +1,6 @@
 import { Table } from '../components/Table.js';
 import { ConfirmDialog } from '../components/ConfirmDialog.js';
-import { listExpenses, updateExpense, deleteExpense, listSites, listAccountCodes, listAliases, listCategories, createCategory, updateCategory, updateUncategorizedCategory, deleteCategory, assignSites, analyzeImport, validateImport, reassignReferences, createAccountCode, updateAccountCode, deleteAccountCode, createAlias, updateAlias, deleteAlias, createSite, updateSite, updateSiteRooms, deleteSite } from '../services/intendanceApi.js';
+import { listExpenses, updateExpense, deleteExpense, listSites, listAccountCodes, listAliases, listCategories, createCategory, updateCategory, updateUncategorizedCategory, deleteCategory, assignSites, analyzeImport, validateImport, reassignReferences, exportMissingSites, createAccountCode, updateAccountCode, deleteAccountCode, createAlias, updateAlias, deleteAlias, createSite, updateSite, updateSiteRooms, deleteSite } from '../services/intendanceApi.js';
 import { listRooms, listBuildings } from '../services/buildingsApi.js';
 import { getAgendaUsers } from '../services/agendaApi.js';
 import { listUsers } from '../services/adminApi.js';
@@ -69,13 +69,32 @@ export class IntendanceExpensesPage {
   render() {
     if (!this.element) this.element = document.createElement('div'); this.element.className = 'page-content intendance-expenses-page';
     const tabLabels = { dashboard: 'Tableau de bord', 'missing-sites': 'Rapprochement', references: 'Codes', users: 'Utilisateurs', sites: 'Sites', settings: 'Catégories' };
-    this.element.innerHTML = `<div class="page-header"><div class="page-header-left"><h1>${tabLabels[this.activeTab] || 'Tableau de bord'}</h1><div class="import-progress" data-progress hidden></div></div><div class="page-header-right">${this.activeTab === 'missing-sites' ? '<label class="btn btn-primary"><input data-import type="file" accept=".xlsx" hidden>Importer Excel</label><button type="button" class="btn btn-secondary" data-reassign>Actualiser</button>' : ''}</div></div><div class="admin-tabs" role="tablist" aria-label="Navigation du suivi des dépenses">${[['dashboard','Tableau de bord'],['missing-sites','Rapprochement'],['references','Codes'],['users','Utilisateurs'],['sites','Sites'],['settings','Catégories']].map(([key,label]) => `<button role="tab" class="admin-tab" data-tab="${key}" aria-selected="${this.activeTab === key}" aria-controls="panel-${key}" type="button">${label}</button>`).join('')}</div><div id="panel-${this.activeTab}" class="admin-tab-panel admin-tab-panel--active" role="tabpanel" data-tab-content></div>`;
+    this.element.innerHTML = `<div class="page-header"><div class="page-header-left"><h1>${tabLabels[this.activeTab] || 'Tableau de bord'}</h1><div class="import-progress" data-progress hidden></div></div><div class="page-header-right">${this.activeTab === 'missing-sites' ? '<label class="btn btn-primary"><input data-import type="file" accept=".xlsx" hidden>Importer Excel</label><button type="button" class="btn btn-secondary" data-export>Exporter Excel</button><button type="button" class="btn btn-secondary" data-reassign>Actualiser</button>' : ''}</div></div><div class="admin-tabs" role="tablist" aria-label="Navigation du suivi des dépenses">${[['dashboard','Tableau de bord'],['missing-sites','Rapprochement'],['references','Codes'],['users','Utilisateurs'],['sites','Sites'],['settings','Catégories']].map(([key,label]) => `<button role="tab" class="admin-tab" data-tab="${key}" aria-selected="${this.activeTab === key}" aria-controls="panel-${key}" type="button">${label}</button>`).join('')}</div><div id="panel-${this.activeTab}" class="admin-tab-panel admin-tab-panel--active" role="tabpanel" data-tab-content></div>`;
     this._bind(); this._renderTabContent(); return this.element;
   }
   _bind() {
     this.element.querySelectorAll('[data-tab]').forEach(button => button.onclick = async () => { this.activeTab = button.dataset.tab; this.page = 1; this.missing = this.activeTab === 'missing-sites' ? 'site' : ''; this.render(); if (this.activeTab === 'details' || this.activeTab === 'missing-sites') await this.load(); else await this.loadReferences(); });
     this.element.querySelector('[data-import]')?.addEventListener('change', e => this._runImport(e.target.files[0]));
     this.element.querySelector('[data-reassign]')?.addEventListener('click', () => this._reassignReferences());
+    this.element.querySelector('[data-export]')?.addEventListener('click', () => this._exportMissing());
+  }
+  async _exportMissing() {
+    const button = this.element.querySelector('[data-export]');
+    if (button) { button.disabled = true; button.textContent = 'Export…'; }
+    try {
+      const response = await exportMissingSites();
+      if (!response.ok) throw new Error('Échec de l\'export');
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = 'rapprochement_sites.xlsx';
+      document.body.appendChild(a); a.click(); a.remove();
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      alert(error?.message || 'Échec de l\'export Excel');
+    } finally {
+      if (button) { button.disabled = false; button.textContent = 'Exporter Excel'; }
+    }
   }
   async _reassignReferences() { const button = this.element.querySelector('[data-reassign]'); if (button) { button.disabled = true; button.textContent = 'Actualisation…' }; this.importState = { step: 3, status: 'Réaffectation des catégories et utilisateurs…' }; this._renderProgress(); try { const result = await reassignReferences(); this.importState = { step: 5, status: 'Affectation automatique terminée', result: { created_count: 0, categories_updated: result.categories_updated, users_updated: result.users_updated } }; this._renderProgress(); if (this.activeTab === 'dashboard') this._renderDashboard(); else await this.load(); this._hideProgressSoon(); } catch (error) { this.importState = { step: 0, status: error.message || 'Échec de l’affectation automatique', error: true }; this._renderProgress(); } finally { if (button) { button.disabled = false; button.textContent = 'Actualiser'; } } }
   async _runImport(file) {

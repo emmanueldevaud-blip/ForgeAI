@@ -1,4 +1,4 @@
-import { connectGarmin, disconnectGarmin, generateVapidKeys, getGarminConnection, getSportAthleteProfile, getSportNotificationConfig, syncGarmin, updateSportNotificationConfig } from '../services/sportApi.js?v=6';
+import { connectGarmin, disconnectGarmin, generateVapidKeys, getGarminConnection, getSportAthleteProfile, getSportNotificationConfig, syncGarmin, updateSportHeartRateConfig, updateSportNotificationConfig } from '../services/sportApi.js?v=6';
 import { enablePhoneNotifications, isPushSupported, sendTestNotification } from '../services/notificationsApi.js?v=2';
 
 export class SportGarminPage {
@@ -93,6 +93,24 @@ export class SportGarminPage {
       data.initial_sync_days = Number(data.initial_sync_days);
       try { this.connection = await connectGarmin(data); this._rerender(); }
       catch (error) { this._message(error.data?.detail || error.message || 'Connexion Garmin impossible'); }
+    });
+    this.element.querySelector('.sport-heart-rate-form')?.addEventListener('submit', async event => {
+      event.preventDefault();
+      const form = event.currentTarget;
+      const button = form.querySelector('button');
+      const status = form.querySelector('[data-heart-rate-status]');
+      button.disabled = true;
+      status.textContent = 'Enregistrement...';
+      try {
+        const values = Object.fromEntries(new FormData(form).entries());
+        const customZones = [...form.querySelectorAll('[name="zone"]')].map(input => input.value ? Number(input.value) : null);
+        this.profile = await updateSportHeartRateConfig({ rest_hr: values.rest_hr ? Number(values.rest_hr) : null, max_hr: values.max_hr ? Number(values.max_hr) : null, custom_zones: customZones.every(value => value == null) ? null : customZones });
+        status.textContent = 'Configuration enregistrée.';
+      } catch (error) {
+        status.textContent = 'Configuration invalide ou indisponible.';
+      } finally {
+        button.disabled = false;
+      }
     });
     this.element.querySelector('[data-action="sync"]')?.addEventListener('click', async () => {
       this._message('Synchronisation en cours...');

@@ -7,7 +7,7 @@ from datetime import datetime, timedelta, timezone
 import httpx
 from httpx import HTTPStatusError
 from fastapi import HTTPException
-from sqlalchemy import select
+from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
@@ -139,6 +139,45 @@ class SportInstagramConnectService:
         return f"{self._dialog_url}?{urlencode(params)}", state
 
     async def exchange_code(self, code: str, redirect_uri: str | None, state: str) -> SportInstagramConnection:
+        """Exchange OAuth code for Instagram connection.
+
+        Two-phase atomic flow:
+        1. Transaction A: Validate and consume state atomically (UPDATE + commit)
+        2. External calls: Exchange code with Meta, fetch Instagram account
+        3. Transaction B: Create/update connection (commit or rollback)
+        """
+        # 1. Transaction A: Validate and consume state atomically
+        from sqlalchemy import update, func
+        now = datetime.now(timezone.utc)
+
+        # Atomic consumption: UPDATE with rowcount check
+        stmt = (
+            update(SportInstagramOAuthState)
+            .where(
+                SportInstagramOAuthState.state == state,
+                SportInstagramOAuthState.consumed == False,
+                SportInstagramOAuthState.expires_at >= func.utc_timestamp(),
+            )
+            .values(consumed=True)
+        )
+        result = await self.db.execute(stmt)
+        if result.rowcount != 1:
+            raise HTTPException(status_code=400, detail="Etat OAuth invalide ou expire")
+
+        # Retrieve state data before it's deleted
+        q = await self.db.execute(
+            select(SportInstagramOAuthState).where(SportInstagramOAuthState.state == state)
+        )
+        oauth_state = q.scalar_one()
+        athlete_id = oauth_state.athlete_id
+        user_id = oauth_state.user_id
+
+        # Commit state consumption immediately (Transaction A)
+        await self.db.delete(oauth_state)
+        await self.db.flush()
+        await self.db.commit()
+
+        # 2. External calls: Exchange code with Meta (no DB lock held)
         app_id, app_secret, default_redirect, _ = await self._app_credentials()
         redirect_to = redirect_uri or default_redirect
         if not redirect_to:
@@ -179,9 +218,11 @@ class SportInstagramConnectService:
                 )
                 long_response.raise_for_status()
                 long_token = long_response.json().get("access_token")
-            except HTTPStatusError:
+            except HTTPStatusError as exc:
+                logger.warning("Meta long-lived token exchange failed", status=exc.response.status_code)
                 long_token = None
-            except httpx.HTTPError:
+            except httpx.HTTPError as exc:
+                logger.warning("Meta long-lived token exchange network error", error=str(exc))
                 long_token = None
 
             if long_token:
@@ -190,44 +231,7 @@ class SportInstagramConnectService:
         long_lived_token = long_token or short_token
         obtained_at = datetime.now(timezone.utc)
 
-        from sqlalchemy import update
-        now = datetime.now(timezone.utc)
-        stmt = (
-            update(SportInstagramOAuthState)
-            .where(
-                SportInstagramOAuthState.state == state,
-                SportInstagramOAuthState.consumed == False,
-                SportInstagramOAuthState.expires_at >= now,
-            )
-            .values(consumed=True)
-        )
-        result = await self.db.execute(stmt)
-        if result.rowcount != 1:
-            raise HTTPException(status_code=400, detail="Etat OAuth invalide ou expire")
-
-        q = await self.db.execute(
-            select(SportInstagramOAuthState).where(SportInstagramOAuthState.state == state)
-        )
-        oauth_state = q.scalar_one()
-        athlete_id = oauth_state.athlete_id
-        user_id = oauth_state.user_id
-        await self.db.delete(oauth_state)
-        await self.db.flush()
-        await self.db.commit()
-
-        athlete = await self.db.get(SportAthlete, athlete_id)
-        user = await self.db.get(User, user_id)
-
-        if athlete is None or user is None:
-            raise HTTPException(status_code=404, detail="Utilisateur ou athlete introuvable")
-
-        athlete = await self.db.get(SportAthlete, athlete_id)
-        user = await self.db.get(User, user_id)
-
-        if athlete is None or user is None:
-            raise HTTPException(status_code=404, detail="Utilisateur ou athlete introuvable")
-
-        # Détection du compte Instagram Business lié
+        # 4. Fetch Instagram Business account
         ig_account_id = None
         ig_username = None
         try:
@@ -269,42 +273,49 @@ class SportInstagramConnectService:
                         me_data = me_resp.json()
                         ig_account_id = str(me_data.get("id") or "")
                         ig_username = me_data.get("username")
-        except Exception:
-            pass
+        except httpx.HTTPError as exc:
+            logger.warning("Instagram account fetch failed", error=str(exc))
+        except Exception as exc:
+            logger.warning("Unexpected error fetching Instagram account", error=str(exc))
 
-        existing = await self.get_connection(user_id)
-        now = datetime.now(timezone.utc)
-        meta_dict = {"username": ig_username} if ig_username else {}
-        if existing is not None:
-            existing.instagram_business_account_id = ig_account_id or existing.instagram_business_account_id
-            existing.encrypted_access_token = _encrypt_token(long_lived_token)
-            existing.encrypted_long_lived_token = _encrypt_token(long_token)
-            existing.status = "active"
-            existing.token_type = token_data.get("token_type") or "bearer"
-            existing.expires_in = token_data.get("expires_in")
-            existing.obtained_at = obtained_at
-            existing.metadata_json = meta_dict
-            existing.updated_at = now
+        # 4. Transaction B: Create/update connection
+        try:
+            existing = await self.get_connection(user_id)
+            meta_dict = {"username": ig_username} if ig_username else {}
+            long_lived_token = long_token or short_token
+
+            if existing is not None:
+                existing.instagram_business_account_id = ig_account_id or existing.instagram_business_account_id
+                existing.encrypted_access_token = _encrypt_token(long_lived_token or short_token)
+                existing.encrypted_long_lived_token = _encrypt_token(long_token or short_token)
+                existing.status = "active"
+                existing.token_type = token_data.get("token_type") or "bearer"
+                existing.expires_in = token_data.get("expires_in")
+                existing.obtained_at = datetime.now(timezone.utc)
+                existing.metadata_json = meta_dict
+                existing.updated_at = datetime.now(timezone.utc)
+                connection = existing
+            else:
+                connection = SportInstagramConnection(
+                    user_id=user_id,
+                    athlete_id=athlete_id,
+                    instagram_business_account_id=ig_account_id,
+                    status="active",
+                    encrypted_access_token=_encrypt_token(long_lived_token or short_token),
+                    encrypted_long_lived_token=_encrypt_token(long_token or short_token),
+                    token_type=token_data.get("token_type") or "bearer",
+                    expires_in=token_data.get("expires_in"),
+                    obtained_at=datetime.now(timezone.utc),
+                    metadata_json=meta_dict,
+                )
+                self.db.add(connection)
+
             await self.db.flush()
             await self.db.commit()
-            return existing
-
-        connection = SportInstagramConnection(
-            user_id=user_id,
-            athlete_id=athlete_id,
-            instagram_business_account_id=ig_account_id,
-            status="active",
-            encrypted_access_token=_encrypt_token(long_lived_token),
-            encrypted_long_lived_token=_encrypt_token(long_token),
-            token_type=token_data.get("token_type") or "bearer",
-            expires_in=token_data.get("expires_in"),
-            obtained_at=obtained_at,
-            metadata_json=meta_dict,
-        )
-        self.db.add(connection)
-        await self.db.flush()
-        await self.db.commit()
-        return connection
+            return connection
+        except Exception:
+            await self.db.rollback()
+            raise
 
     async def disconnect(self, user_id: int) -> bool:
         connection = await self.get_connection(user_id)

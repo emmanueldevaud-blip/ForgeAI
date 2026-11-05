@@ -36,6 +36,7 @@ export class HousingPage {
   }
 
   async initialize() {
+    console.log('[HousingPage] initialize called, permissions:', Array.from(authStore.permissions));
     const planning = createHousingPlanningPage(this.router);
     await planning.initialize();
     this.tabs[0].component = planning;
@@ -48,13 +49,17 @@ export class HousingPage {
     await occupants.initialize();
     this.tabs[2].component = occupants;
 
-    if (authStore.hasPermission('housing.manage_email_templates')) {
+    const hasEmailTemplates = authStore.hasPermission('housing.manage_email_templates');
+    console.log('[HousingPage] has housing.manage_email_templates:', hasEmailTemplates);
+    if (hasEmailTemplates) {
       const emailTemplates = createHousingEmailTemplatesPage();
       await emailTemplates.initialize();
       this.tabs[3].component = emailTemplates;
     }
 
-    if (authStore.hasPermission('housing.manage')) {
+    const hasManage = authStore.hasPermission('housing.manage');
+    console.log('[HousingPage] has housing.manage:', hasManage);
+    if (hasManage) {
       const list = createHousingListPage(this.router);
       await list.initialize();
       this.tabs[4].component = list;
@@ -81,9 +86,37 @@ export class HousingPage {
       const firstAllowed = this.tabs.find(t => authStore.hasPermission(t.permission));
       if (firstAllowed) this._switchTab(firstAllowed.id);
     }
+
+    // Re-initialize components for newly allowed tabs
+    this._initializeMissingComponents();
+  }
+
+  _initializeMissingComponents() {
+    // Initialize email-templates tab if permission granted
+    const emailTab = this.tabs.find(t => t.id === 'email-templates');
+    if (emailTab && !emailTab.component && authStore.hasPermission('housing.manage_email_templates')) {
+      console.log('[HousingPage] Initializing email-templates tab (permission granted)');
+      const page = createHousingEmailTemplatesPage();
+      page.initialize().then(() => {
+        emailTab.component = page;
+        if (emailTab.id === this.currentTab) this._switchTab(emailTab.id);
+      });
+    }
+
+    // Initialize housings tab if permission granted
+    const housingsTab = this.tabs.find(t => t.id === 'housings');
+    if (housingsTab && !housingsTab.component && authStore.hasPermission('housing.manage')) {
+      console.log('[HousingPage] Initializing housings tab (permission granted)');
+      const page = createHousingListPage(this.router);
+      page.initialize().then(() => {
+        housingsTab.component = page;
+        if (housingsTab.id === this.currentTab) this._switchTab(housingsTab.id);
+      });
+    }
   }
 
   _switchTab(tabId) {
+    console.log('[HousingPage] _switchTab called with:', tabId);
     this.currentTab = tabId;
 
     const pageTitle = this.element?.querySelector('[data-housing-page-title]');
@@ -100,16 +133,40 @@ export class HousingPage {
     });
 
     const tab = this.tabs.find(t => t.id === tabId);
-    if (!tab?.component || !authStore.hasPermission(tab.permission)) return;
+    console.log('[HousingPage] tab found:', tab);
+    if (!tab?.component) {
+      console.log('[HousingPage] No component for tab:', tabId);
+      return;
+    }
+    if (!authStore.hasPermission(tab.permission)) {
+      console.log('[HousingPage] No permission for tab:', tabId, 'required:', tab.permission);
+      return;
+    }
 
     const panel = this.element?.querySelector(`[data-tab-panel="${tabId}"]`);
-    if (!panel) return;
+    console.log('[HousingPage] panel found:', panel);
+    if (!panel) {
+      console.log('[HousingPage] Panel not found for:', tabId);
+      return;
+    }
     if (!tab.mounted) {
       panel.innerHTML = '';
-      panel.appendChild(tab.component.render());
-      tab.mounted = true;
+      try {
+        const rendered = tab.component.render();
+        console.log('[HousingPage] rendered element:', rendered);
+        panel.appendChild(rendered);
+        tab.mounted = true;
+      } catch (e) {
+        console.error(`[HousingPage] Erreur rendu onglet ${tabId}:`, e);
+        panel.innerHTML = `<div class="error-message" style="padding: var(--spacing-4); color: var(--color-danger);">Erreur d'affichage: ${e.message}</div>`;
+        return;
+      }
     }
-    tab.component.loadData?.();
+    try {
+      tab.component.loadData?.();
+    } catch (e) {
+      console.error(`[HousingPage] Erreur chargement onglet ${tabId}:`, e);
+    }
   }
 
   _handleTabClick(tabId) {
@@ -129,11 +186,16 @@ export class HousingPage {
   }
 
   render() {
+    console.log('[HousingPage] render called');
     this.currentTab = this._getTabFromPath();
+    console.log('[HousingPage] currentTab from path:', this.currentTab);
     const activeTab = this.tabs.find(t => t.id === this.currentTab);
     if (!activeTab || !authStore.hasPermission(activeTab.permission)) {
       const firstAllowed = this.tabs.find(t => authStore.hasPermission(t.permission));
-      if (firstAllowed) this.currentTab = firstAllowed.id;
+      if (firstAllowed) {
+        console.log('[HousingPage] Switching to first allowed:', firstAllowed.id);
+        this.currentTab = firstAllowed.id;
+      }
     }
     this.tabs.forEach(tab => { tab.mounted = false; });
 
@@ -141,8 +203,9 @@ export class HousingPage {
     this.element.className = 'page-content housing-page';
 
     const allowedTabs = this.tabs.filter(t => authStore.hasPermission(t.permission));
+    console.log('[HousingPage] allowedTabs:', allowedTabs.map(t => t.id));
 
-    this.element.innerHTML = `
+this.element.innerHTML = `
       ${this.currentTab === 'planning' || this.currentTab === 'cleaning' || this.currentTab === 'occupants' || this.currentTab === 'email-templates' || this.currentTab === 'housings' ? `
         <div class="page-header">
           <div class="page-header-left">
@@ -152,7 +215,7 @@ export class HousingPage {
       ` : ''}
 
       ${allowedTabs.length > 1 ? `
-        <div class="admin-tabs" role="tablist" aria-label="Sections d’hébergement">
+        <div class="admin-tabs" role="tablist" aria-label="Sections d'hébergement">
           ${this.tabs.map(tab => `
             <button
               class="admin-tab ${!authStore.hasPermission(tab.permission) ? 'hidden' : ''}"
@@ -181,6 +244,7 @@ export class HousingPage {
       </div>
     `;
 
+    console.log('[HousingPage] element innerHTML set, querying tabs');
     this.element.querySelectorAll('[data-tab]').forEach(btn => {
       btn.addEventListener('click', () => this._handleTabClick(btn.dataset.tab));
     });

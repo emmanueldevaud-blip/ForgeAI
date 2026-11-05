@@ -142,8 +142,10 @@ export function createHousingImportPage(router) {
   }
 
   async function render() {
+    console.log('[HousingImportPage] render called');
     element = document.createElement('div');
-    element.className = 'page';
+    element.className = 'page-content housing-page';
+    element.style.cssText = 'display:flex;flex-direction:column;min-height:calc(100vh - var(--header-height) - var(--spacing-6) * 2);';
     element.innerHTML = `
       <div class="page-header">
         <h1>Import Occupation Logements</h1>

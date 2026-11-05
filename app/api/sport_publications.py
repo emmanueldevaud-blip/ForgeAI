@@ -53,8 +53,19 @@ async def meta_callback(
         connection = await service.exchange_code(code=code, redirect_uri=redirect_uri, state=state)
     except HTTPException as exc:
         return RedirectResponse(url=f"/settings?error={exc.detail}", status_code=status.HTTP_302_FOUND)
+    # Only return JSON for explicit API requests, not browser navigation
     accept = request.headers.get("accept", "")
-    if "application/json" in accept and "text/html" not in accept:
+    # Parse Accept header properly: only return JSON if explicitly requested
+    wants_json = False
+    if accept:
+        # Parse media types
+        parts = [p.strip() for p in accept.split(",")]
+        for part in parts:
+            media_type = part.split(";")[0].strip().lower()
+            if media_type == "application/json":
+                wants_json = True
+                break
+    if wants_json:
         return {
             "status": connection.status,
             "instagram_business_account_id": connection.instagram_business_account_id,

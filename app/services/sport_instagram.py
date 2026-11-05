@@ -244,6 +244,7 @@ class SportInstagramConnectService:
             existing.metadata_json = meta_dict
             existing.updated_at = now
             await self.db.flush()
+            await self.db.commit()
             return existing
 
         connection = SportInstagramConnection(
@@ -260,6 +261,7 @@ class SportInstagramConnectService:
         )
         self.db.add(connection)
         await self.db.flush()
+        await self.db.commit()
         return connection
 
     async def disconnect(self, user_id: int) -> bool:

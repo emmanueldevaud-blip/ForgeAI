@@ -5446,6 +5446,7 @@
 .sport-health-card strong { display: block; margin-top: var(--spacing-1); font-size: var(--font-size-xl); }
 .sport-health-card small { font-size: var(--font-size-xs); font-weight: 400; }
 .sport-health-card p { grid-column: 1 / -1; margin: 0; font-size: var(--font-size-xs); }
+@media (max-width: 640px) { .sport-health-card { grid-template-columns: 1fr; } }
 .sport-mini-bars { display: flex; align-items: flex-end; grid-column: 1 / -1; gap: 6px; height: 58px; padding-top: var(--spacing-2); border-top: 1px solid var(--color-border-light); }
 .sport-mini-bars i { flex: 1; min-height: 4px; border-radius: 3px 3px 0 0; background: var(--color-warning); }
 .sport-goal { display: grid; gap: var(--spacing-2); }

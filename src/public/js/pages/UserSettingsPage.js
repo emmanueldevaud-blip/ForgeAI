@@ -6,6 +6,7 @@ import {
   connectInstagram,
   disconnectInstagram,
 } from '../services/sportApi.js?v=9';
+import { createSportGarminPage } from './SportGarminPage.js?v=7';
 
 export class UserSettingsPage {
   constructor(router) {
@@ -16,6 +17,8 @@ export class UserSettingsPage {
     this.instagramStatus = null;
     this.connectedFlash = false;
     this.currentTab = 'preferences';
+    this.garminPage = null;
+    this.canSeeGarmin = false;
   }
 
   async initialize() {
@@ -49,6 +52,11 @@ export class UserSettingsPage {
     }
     if (this.canSeeInstagram) {
       await this._loadInstagramStatus();
+    }
+    this.canSeeGarmin = this.authStore.hasPermission('sport.activities.write');
+    if (this.canSeeGarmin) {
+      this.garminPage = createSportGarminPage(this.router);
+      try { await this.garminPage.initialize(); } catch (error) { console.error('Erreur chargement parametres Garmin:', error); }
     }
   }
 
@@ -90,6 +98,14 @@ export class UserSettingsPage {
           data-tab="preferences"
           aria-selected="${this.currentTab === 'preferences'}"
         >Préférences</button>
+        ${this.canSeeGarmin ? `
+        <button
+          class="admin-tab ${this.currentTab === 'garmin' ? 'admin-tab--active' : ''}"
+          role="tab"
+          id="tab-garmin"
+          data-tab="garmin"
+          aria-selected="${this.currentTab === 'garmin'}"
+        >Garmin</button>` : ''}
         ${canMeta ? `
         <button
           class="admin-tab ${this.currentTab === 'meta' ? 'admin-tab--active' : ''}"
@@ -133,6 +149,16 @@ export class UserSettingsPage {
             </div>
           </div>
         </div>
+
+        ${this.canSeeGarmin ? `
+        <div
+          class="admin-tab-panel ${this.currentTab === 'garmin' ? 'admin-tab-panel--active' : ''}"
+          data-tab-panel="garmin"
+          role="tabpanel"
+          aria-labelledby="tab-garmin"
+          ${this.currentTab !== 'garmin' ? 'hidden' : ''}
+        >
+        </div>` : ''}
 
         ${canMeta ? `
         <div
@@ -219,6 +245,12 @@ export class UserSettingsPage {
         </div>` : ''}
       </div>
     `;
+
+    const garminPanel = this.element.querySelector('[data-tab-panel="garmin"]');
+    if (garminPanel && this.garminPage) {
+      garminPanel.innerHTML = '';
+      garminPanel.appendChild(this.garminPage.render());
+    }
 
     this._bindEvents();
     return this.element;
@@ -430,6 +462,7 @@ export class UserSettingsPage {
 
   _switchTab(tabId) {
     if (tabId === 'meta' && !this.showMetaTab) return;
+    if (tabId === 'garmin' && !this.canSeeGarmin) return;
     this.currentTab = tabId;
     this.element.querySelectorAll('[data-tab]').forEach((el) => {
       const active = el.dataset.tab === tabId;

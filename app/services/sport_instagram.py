@@ -2,7 +2,7 @@
 
 import base64
 import hashlib
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import httpx
 from fastapi import HTTPException
@@ -10,7 +10,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
-from app.models.sport import SportAthlete, SportInstagramConnection
+from app.models.sport import SportAthlete, SportInstagramConnection, SportInstagramOAuthState
 from app.models.user import User
 
 DEFAULT_META_SCOPES = "instagram_business_basic"
@@ -110,7 +110,18 @@ class SportInstagramConnectService:
 
     async def build_authorization_url(self, athlete_id: int, user_id: int, scopes: str | None = None) -> tuple[str, str]:
         app_id, _, redirect_uri, config_id = await self._app_credentials()
-        state = f"{athlete_id}:{user_id}"
+        import secrets
+        state = secrets.token_urlsafe(32)
+        oauth_state = SportInstagramOAuthState(
+            state=state,
+            user_id=user_id,
+            athlete_id=athlete_id,
+            expires_at=datetime.now(timezone.utc) + timedelta(minutes=10),
+            consumed=False,
+        )
+        self.db.add(oauth_state)
+        await self.db.flush()
+        await self.db.commit()
         from urllib.parse import urlencode
 
         params = {
@@ -170,14 +181,18 @@ class SportInstagramConnectService:
         long_lived_token = long_token or short_token
         obtained_at = datetime.now(timezone.utc)
 
-        parts = state.split(":")
-        if len(parts) != 2:
-            raise HTTPException(status_code=400, detail="Etat OAuth invalide")
-        try:
-            athlete_id = int(parts[0])
-            user_id = int(parts[1])
-        except ValueError as exc:
-            raise HTTPException(status_code=400, detail="Etat OAuth invalide") from exc
+        result = await self.db.execute(
+            select(SportInstagramOAuthState).where(SportInstagramOAuthState.state == state)
+        )
+        oauth_state = result.scalar_one_or_none()
+        if oauth_state is None or oauth_state.consumed or oauth_state.expires_at < datetime.now(timezone.utc):
+            raise HTTPException(status_code=400, detail="Etat OAuth invalide ou expire")
+        oauth_state.consumed = True
+        await self.db.flush()
+        await self.db.commit()
+
+        athlete_id = oauth_state.athlete_id
+        user_id = oauth_state.user_id
 
         athlete = await self.db.get(SportAthlete, athlete_id)
         user = await self.db.get(User, user_id)

@@ -269,11 +269,13 @@ async def meta_callback(
     code: str = Query(...),
     state: str = Query(...),
     redirect_uri: Optional[str] = Query(None),
-    current_user: User = Depends(require_permission("sport.publications.write")),
     db: AsyncSession = Depends(get_db),
 ) -> Any:
     service = SportInstagramConnectService(db)
-    connection = await service.exchange_code(code=code, redirect_uri=redirect_uri, state=state)
+    try:
+        connection = await service.exchange_code(code=code, redirect_uri=redirect_uri, state=state)
+    except HTTPException as exc:
+        return RedirectResponse(url=f"/settings?error={exc.detail}", status_code=status.HTTP_302_FOUND)
     accept = request.headers.get("accept", "")
     if "application/json" in accept and "text/html" not in accept:
         return {

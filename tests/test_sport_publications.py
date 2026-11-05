@@ -319,7 +319,7 @@ async def test_meta_auth_builds_url(client, admin_headers, monkeypatch):
     assert "www.facebook.com" in body["authorize_url"]
     assert "dialog/oauth" in body["authorize_url"]
     assert "client_id=test-meta-app-id" in body["authorize_url"]
-    assert body["state"].startswith("1:")
+    assert len(body["state"]) >= 16
     assert "state=" in body["authorize_url"]
 
     # sans athlete_id (auto-résolution)

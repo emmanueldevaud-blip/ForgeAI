@@ -380,3 +380,14 @@ class SportInstagramConnection(Base):
 
     user: Mapped["User | None"] = relationship("User")
     athlete: Mapped["SportAthlete"] = relationship("SportAthlete")
+
+
+class SportInstagramOAuthState(Base):
+    __tablename__ = "sport_instagram_oauth_states"
+
+    state: Mapped[str] = mapped_column(String(128), primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    athlete_id: Mapped[int] = mapped_column(ForeignKey("sport_athletes.id", ondelete="CASCADE"), nullable=False, index=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    consumed: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)

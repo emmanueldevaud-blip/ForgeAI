@@ -1,8 +1,8 @@
-import { connectGarmin, disconnectGarmin, generateVapidKeys, getGarminConnection, getSportAthleteProfile, getSportNotificationConfig, syncGarmin, updateSportHeartRateConfig, updateSportNotificationConfig } from '../services/sportApi.js?v=6';
+import { connectGarmin, disconnectGarmin, generateVapidKeys, getGarminConnection, getSportAthleteProfile, getSportDashboard, getSportNotificationConfig, syncGarmin, updateSportHeartRateConfig, updateSportNotificationConfig } from '../services/sportApi.js?v=6';
 import { enablePhoneNotifications, isPushSupported, sendTestNotification } from '../services/notificationsApi.js?v=2';
 
 export class SportGarminPage {
-  constructor() { this.element = null; this.connection = null; this.notifications = null; this.pushSupported = false; this.pushMessage = null; this.profile = null; }
+  constructor() { this.element = null; this.connection = null; this.notifications = null; this.pushSupported = false; this.pushMessage = null; this.profile = null; this.dashboard = null; }
 
   async initialize() {
     const [connection, notifications, pushSupported, profile] = await Promise.all([
@@ -15,6 +15,7 @@ export class SportGarminPage {
     this.notifications = notifications;
     this.pushSupported = pushSupported;
     this.profile = profile;
+    try { this.dashboard = await getSportDashboard(); } catch { this.dashboard = null; }
   }
 
   render() {
@@ -177,7 +178,10 @@ export class SportGarminPage {
     const config = this.profile?.heart_rate || {};
     const zones = config.custom_zones || [];
     const zoneInputs = [0, 1, 2, 3, 4].map(index => `<label>Z${index + 1} max<input class="form-control" name="zone" type="number" min="40" max="250" value="${zones[index] ?? ''}" placeholder="limite bpm"></label>`).join('');
-    return `<div class="card sport-card"><div class="card-header"><div><span class="sport-eyebrow">RÉCUPÉRATION</span><h2>Fréquence cardiaque</h2></div></div><div class="card-body sport-health-card">${this.connection && this.connection.connected ? `<div><span>FC moyenne</span><strong>${Math.round(this.connection.avg_bpm || 0)} <small>bpm</small></strong></div>${this.connection.max_bpm != null ? `<div><span>FC max</span><strong>${Math.round(this.connection.max_bpm)} <small>bpm</small></strong></div>` : ''}` : '<p class="text-muted">Aucune fréquence cardiaque disponible.</p>'}<form class="sport-heart-rate-form"><label>FC repos<input class="form-control" name="rest_hr" type="number" min="20" max="250" value="${config.rest_hr ?? ''}" placeholder="ex. 50"></label><label>FC max<input class="form-control" name="max_hr" type="number" min="80" max="250" value="${config.max_hr ?? ''}" placeholder="ex. 190"></label><div class="sport-zones-config"><span>Limites personnalisées (optionnel)</span>${zoneInputs}</div><button class="btn btn-secondary" type="submit">Enregistrer</button><small data-heart-rate-status class="text-muted">Les zones personnalisées doivent être croissantes.</small></form></div></div>`;
+    const heartRate = (this.dashboard && this.dashboard.heart_rate) || {};
+    const avgBpm = heartRate.avg_bpm != null ? heartRate.avg_bpm : (this.connection && this.connection.connected ? this.connection.avg_bpm : null);
+    const maxBpm = heartRate.max_bpm != null ? heartRate.max_bpm : (this.connection && this.connection.connected ? this.connection.max_bpm : null);
+    return `<div class="card sport-card"><div class="card-header"><div><span class="sport-eyebrow">RÉCUPÉRATION</span><h2>Fréquence cardiaque</h2></div></div><div class="card-body sport-health-card">${avgBpm != null ? `<div><span>FC moyenne</span><strong>${Math.round(avgBpm)} <small>bpm</small></strong></div>${maxBpm != null ? `<div><span>FC max</span><strong>${Math.round(maxBpm)} <small>bpm</small></strong></div>` : ''}` : '<p class="text-muted">Aucune fréquence cardiaque disponible.</p>'}<form class="sport-heart-rate-form"><label>FC repos<input class="form-control" name="rest_hr" type="number" min="20" max="250" value="${config.rest_hr ?? ''}" placeholder="ex. 50"></label><label>FC max<input class="form-control" name="max_hr" type="number" min="80" max="250" value="${config.max_hr ?? ''}" placeholder="ex. 190"></label><div class="sport-zones-config"><span>Limites personnalisées (optionnel)</span>${zoneInputs}</div><button class="btn btn-secondary" type="submit">Enregistrer</button><small data-heart-rate-status class="text-muted">Les zones personnalisées doivent être croissantes.</small></form></div></div>`;
   }
 }
 

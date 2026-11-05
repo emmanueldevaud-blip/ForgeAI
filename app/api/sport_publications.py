@@ -34,6 +34,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter(
     prefix="/sport/publications",
     tags=["sport"],
+    dependencies=[Depends(require_module_enabled("sport"))],
 )
 
 public_router = APIRouter(prefix="/sport/publications")

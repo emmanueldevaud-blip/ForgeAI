@@ -5,6 +5,7 @@ import hashlib
 from datetime import datetime, timedelta, timezone
 
 import httpx
+from httpx import HTTPStatusError
 from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -144,19 +145,25 @@ class SportInstagramConnectService:
             raise HTTPException(status_code=503, detail="Meta OAuth redirect_uri non configure")
 
         async with httpx.AsyncClient(timeout=20.0) as client:
-            token_response = await client.post(
-                f"{self._base_url}/oauth/access_token",
-                params={
-                    "grant_type": "authorization_code",
-                    "client_id": app_id,
-                    "client_secret": app_secret,
-                    "redirect_uri": redirect_to,
-                    "code": code,
-                },
-            )
-            token_response.raise_for_status()
-            token_data = token_response.json()
-            short_token = token_data.get("access_token")
+            try:
+                token_response = await client.post(
+                    f"{self._base_url}/oauth/access_token",
+                    params={
+                        "grant_type": "authorization_code",
+                        "client_id": app_id,
+                        "client_secret": app_secret,
+                        "redirect_uri": redirect_to,
+                        "code": code,
+                    },
+                )
+                token_response.raise_for_status()
+                token_data = token_response.json()
+                short_token = token_data.get("access_token")
+            except HTTPStatusError as exc:
+                raise HTTPException(
+                    status_code=exc.response.status_code,
+                    detail=f"Meta token exchange failed: {exc.response.text}"
+                ) from exc
 
             long_token = None
             try:
@@ -172,6 +179,8 @@ class SportInstagramConnectService:
                 )
                 long_response.raise_for_status()
                 long_token = long_response.json().get("access_token")
+            except HTTPStatusError:
+                long_token = None
             except httpx.HTTPError:
                 long_token = None
 

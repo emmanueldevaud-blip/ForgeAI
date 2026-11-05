@@ -6,7 +6,7 @@ import {
   connectInstagram,
   disconnectInstagram,
 } from '../services/sportApi.js?v=9';
-import { createSportGarminPage } from './SportGarminPage.js?v=7';
+import { createSportGarminPage } from './SportGarminPage.js?v=5';
 
 export class UserSettingsPage {
   constructor(router) {
@@ -28,9 +28,9 @@ export class UserSettingsPage {
       console.error('Erreur chargement utilisateur:', error);
     }
     this.user = authStore.currentUser;
-    this.canConfigureMeta = authStore.hasPermission('settings_view');
-    this.canSeeInstagram = authStore.hasPermission('sport.publications.read');
-    this.canManageInstagram = authStore.hasPermission('sport.publications.write');
+    this.canConfigureMeta = !!authStore?.authenticated && authStore.hasPermission('settings_view');
+    this.canSeeInstagram = !!authStore?.authenticated && authStore.hasPermission('sport.publications.read');
+    this.canManageInstagram = !!authStore?.authenticated && authStore.hasPermission('sport.publications.write');
     this.showMetaTab = this.canConfigureMeta || this.canSeeInstagram;
 
     if (typeof window !== 'undefined' && window.location.search.includes('connected=1')) {
@@ -53,7 +53,7 @@ export class UserSettingsPage {
     if (this.canSeeInstagram) {
       await this._loadInstagramStatus();
     }
-    this.canSeeGarmin = authStore.hasPermission('sport.activities.write');
+    this.canSeeGarmin = !!authStore?.authenticated && authStore.hasPermission('sport.activities.write');
     if (this.canSeeGarmin) {
       this.garminPage = createSportGarminPage(this.router);
       try { await this.garminPage.initialize(); } catch (error) { console.error('Erreur chargement parametres Garmin:', error); }

@@ -166,7 +166,6 @@ export class UserSettingsPage {
           data-tab-panel="meta"
           role="tabpanel"
           aria-labelledby="tab-meta"
-          style="display: flex; flex-direction: column; gap: var(--spacing-5);"
           ${this.currentTab !== 'meta' ? 'hidden' : ''}
         >
           ${this.canConfigureMeta ? `

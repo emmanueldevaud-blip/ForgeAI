@@ -1,5 +1,6 @@
 """Tests de l'API de configuration Meta (/admin/settings/meta)."""
 
+import httpx
 import pytest
 from sqlalchemy import select
 
@@ -147,3 +148,89 @@ async def test_meta_status_falls_back_to_env_when_db_empty(client, admin_headers
 
     assert response.status_code == 200
     assert response.json()["configured"] is True
+
+
+# ============================================================
+# TEST DE CONNEXION (POST /admin/settings/meta/test)
+# ============================================================
+
+
+def _mock_meta_client(monkeypatch, handler):
+    """Remplace httpx.AsyncClient par un client MockTransport (API Meta factice)."""
+    real_async_client = httpx.AsyncClient
+
+    def factory(*args, **kwargs):
+        kwargs.pop("timeout", None)
+        return real_async_client(transport=httpx.MockTransport(handler), **kwargs)
+
+    monkeypatch.setattr("app.api.admin.httpx.AsyncClient", factory)
+
+
+async def test_meta_test_requires_saved_config(client, admin_headers):
+    response = await client.post("/admin/settings/meta/test", json={}, headers=admin_headers)
+
+    assert response.status_code == 400
+    assert "App ID" in response.json()["detail"]
+
+
+async def test_meta_test_success_validates_saved_credentials(client, admin_headers, monkeypatch):
+    saved = await client.put(
+        "/admin/settings/meta",
+        json=payload(app_id="test-app-id", app_secret="test-secret"),
+        headers=admin_headers,
+    )
+    assert saved.status_code == 200
+
+    seen = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["url"] = str(request.url)
+        seen["client_id"] = request.url.params.get("client_id")
+        seen["client_secret"] = request.url.params.get("client_secret")
+        return httpx.Response(
+            200,
+            json={"access_token": "app-token", "token_type": "bearer"},
+            request=request,
+        )
+
+    _mock_meta_client(monkeypatch, handler)
+
+    response = await client.post("/admin/settings/meta/test", json={}, headers=admin_headers)
+
+    assert response.status_code == 200
+    assert "validée" in response.json()["message"]
+    assert "test-app-id" in response.json()["message"]
+    # Les identifiants enregistrés en DB sont bien ceux envoyés à Meta.
+    assert seen["client_id"] == "test-app-id"
+    assert seen["client_secret"] == "test-secret"
+    assert "graph.facebook.com" in seen["url"]
+    # Le secret ne doit jamais figurer dans la réponse.
+    assert "test-secret" not in response.text
+
+
+async def test_meta_test_invalid_credentials_returns_502(client, admin_headers, monkeypatch):
+    saved = await client.put(
+        "/admin/settings/meta",
+        json=payload(app_id="bad-app", app_secret="bad-secret"),
+        headers=admin_headers,
+    )
+    assert saved.status_code == 200
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            400,
+            json={"error": {"message": "Invalid client_id"}},
+            request=request,
+        )
+
+    _mock_meta_client(monkeypatch, handler)
+
+    response = await client.post("/admin/settings/meta/test", json={}, headers=admin_headers)
+
+    assert response.status_code == 502
+    assert "Invalid client_id" in response.json()["detail"]
+
+
+async def test_meta_test_requires_permission(client, auth_headers):
+    response = await client.post("/admin/settings/meta/test", json={}, headers=auth_headers)
+    assert response.status_code == 403

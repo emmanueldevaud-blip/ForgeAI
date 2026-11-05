@@ -22,6 +22,10 @@ export async function updateMetaSettings(settings) {
   return adminApi.put('/settings/meta', settings);
 }
 
+export async function testMetaSettings() {
+  return adminApi.post('/settings/meta/test', {});
+}
+
 export async function getAiSettings() {
   return adminApi.get('/settings/ai');
 }

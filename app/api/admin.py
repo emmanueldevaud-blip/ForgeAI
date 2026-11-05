@@ -2,6 +2,7 @@ import asyncio
 import smtplib
 from email.message import EmailMessage
 
+import httpx
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -239,6 +240,51 @@ async def update_meta_settings(
             ))
     await db.commit()
     return await get_meta_settings(current_user=current_user, db=db)
+
+
+@settings_router.post("/meta/test", response_model=MessageResponse)
+async def test_meta_settings(
+    current_user: User = Depends(require_permission("settings_update")),
+    db: AsyncSession = Depends(get_db),
+):
+    from app.services.sport_instagram import SportInstagramConnectService
+
+    service = SportInstagramConnectService(db)
+    values = await service.load_meta_values()
+    if not values["app_id"] or not values["app_secret"]:
+        raise HTTPException(status_code=400, detail="Enregistrez d'abord l'App ID et l'App Secret Meta")
+
+    from app.core.config import get_settings
+
+    version = get_settings().META_API_VERSION or "v21.0"
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            response = await client.get(
+                f"https://graph.facebook.com/{version}/oauth/access_token",
+                params={
+                    "grant_type": "client_credentials",
+                    "client_id": values["app_id"],
+                    "client_secret": values["app_secret"],
+                },
+            )
+    except httpx.HTTPError as exc:
+        raise HTTPException(status_code=502, detail=f"Impossible de joindre Meta : {exc}") from exc
+
+    if response.status_code != 200:
+        try:
+            meta_message = response.json().get("error", {}).get("message") or response.text
+        except ValueError:
+            meta_message = response.text
+        raise HTTPException(status_code=502, detail=f"Échec du test Meta : {meta_message}")
+
+    try:
+        has_token = bool(response.json().get("access_token"))
+    except ValueError:
+        has_token = False
+    if not has_token:
+        raise HTTPException(status_code=502, detail="Échec du test Meta : réponse inattendue de l'API")
+
+    return {"message": f"Connexion Meta validée : l'App ID {values['app_id']} est accepté."}
 
 
 def _effective_ai_values(overrides: dict[str, str]) -> dict:

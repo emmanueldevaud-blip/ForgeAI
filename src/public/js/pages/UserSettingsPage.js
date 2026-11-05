@@ -1,6 +1,6 @@
 import { authStore } from '../stores/auth.js';
 import { api } from '../services/api.js';
-import { getMetaSettings, updateMetaSettings } from '../services/adminApi.js?v=3';
+import { getMetaSettings, updateMetaSettings, testMetaSettings } from '../services/adminApi.js?v=4';
 
 export class UserSettingsPage {
   constructor(router) {
@@ -47,6 +47,7 @@ export class UserSettingsPage {
     const needsWorkstation = !!this.user.default_needs_workstation;
     const canMeta = !!this.canConfigureMeta;
     if (!canMeta) this.currentTab = 'preferences';
+    const metaConfigured = !!(this.metaSettings?.app_id && this.metaSettings?.app_secret_configured);
 
     this.element.innerHTML = `
       <div class="page-header">
@@ -122,24 +123,34 @@ export class UserSettingsPage {
                 <span class="eyebrow">Meta — Instagram Business</span>
                 <p class="text-muted">Connexion OAuth utilisée pour les statistiques des publications.</p>
               </div>
+              <span class="status-badge ${metaConfigured ? 'active' : 'inactive'}" data-meta-badge>
+                ${metaConfigured ? 'Configurée' : 'Non configurée'}
+              </span>
             </div>
             <form data-form="meta-settings" class="card-body">
               <div class="form-row">
-                <label><span>App ID *</span><input name="app_id" maxlength="100" required></label>
-                <label><span>App Secret</span>
-                  <input name="app_secret" type="password" autocomplete="new-password" maxlength="500" placeholder="Non configurée">
-                </label>
+                <div class="form-group">
+                  <label><span>App ID *</span>
+                    <input name="app_id" maxlength="100" required placeholder="Identifiant de l'application Meta">
+                  </label>
+                </div>
+                <div class="form-group">
+                  <label><span>App Secret</span>
+                    <input name="app_secret" type="password" autocomplete="new-password" maxlength="500" placeholder="Non configurée">
+                    <small class="form-help" data-role="secret-help">Laisser vide pour conserver la valeur enregistrée.</small>
+                  </label>
+                </div>
               </div>
               <div class="form-row">
-                <label><span>Adresse de callback</span>
-                  <input name="redirect_uri" type="url" maxlength="500" placeholder="https://…/sport/publications/meta/callback">
-                </label>
+                <div class="form-group" style="grid-column: 1 / -1;">
+                  <label><span>Adresse de callback</span>
+                    <input name="redirect_uri" type="url" maxlength="500" placeholder="https://…/sport/publications/meta/callback">
+                    <small class="form-help">Doit correspondre à l'URL de redirection déclarée dans l'application Meta.</small>
+                  </label>
+                </div>
               </div>
-              <p class="page-subtitle">
-                Laissez le secret vide pour conserver la valeur enregistrée.
-                L'adresse de callback doit correspondre à celle déclarée dans l'application Meta.
-              </p>
               <div class="form-actions">
+                <button class="btn btn-secondary" type="button" data-meta-test>Tester la connexion</button>
                 <button class="btn btn-primary" type="submit">Enregistrer</button>
                 <span data-role="meta-status" role="status"></span>
               </div>
@@ -179,6 +190,7 @@ export class UserSettingsPage {
 
     const metaForm = this.element.querySelector('[data-form="meta-settings"]');
     if (metaForm) {
+      const message = this.element.querySelector('[data-role="meta-status"]');
       const setValue = (name, value) => { metaForm.elements[name].value = value ?? ''; };
       setValue('app_id', this.metaSettings?.app_id);
       setValue('redirect_uri', this.metaSettings?.redirect_uri);
@@ -189,12 +201,16 @@ export class UserSettingsPage {
           : 'Non configurée';
       }
 
+      const setStatus = (text, success) => {
+        message.textContent = text;
+        message.classList.toggle('text-success', !!success);
+      };
+
       metaForm.addEventListener('submit', async (event) => {
         event.preventDefault();
         const submitBtn = metaForm.querySelector('[type="submit"]');
         if (submitBtn?.disabled) return;
         if (submitBtn) submitBtn.disabled = true;
-        const message = this.element.querySelector('[data-role="meta-status"]');
         try {
           this.metaSettings = await updateMetaSettings({
             app_id: metaForm.elements.app_id.value.trim(),
@@ -205,14 +221,39 @@ export class UserSettingsPage {
           if (secretInput && this.metaSettings?.app_secret_configured) {
             secretInput.placeholder = 'Configurée — laisser vide pour conserver';
           }
-          message.textContent = 'Paramètres Meta enregistrés.';
+          this._updateMetaBadge();
+          setStatus('Paramètres Meta enregistrés.', true);
         } catch (error) {
-          message.textContent = error.message || "Erreur lors de l'enregistrement.";
+          setStatus(error.message || "Erreur lors de l'enregistrement.", false);
         } finally {
           if (submitBtn) submitBtn.disabled = false;
         }
       });
+
+      const testBtn = metaForm.querySelector('[data-meta-test]');
+      testBtn?.addEventListener('click', async () => {
+        if (testBtn.disabled) return;
+        testBtn.disabled = true;
+        setStatus('Test en cours…', false);
+        try {
+          const result = await testMetaSettings();
+          setStatus(result.message || 'Connexion Meta validée.', true);
+        } catch (error) {
+          setStatus(error.data?.detail || error.message || 'Échec du test Meta.', false);
+        } finally {
+          testBtn.disabled = false;
+        }
+      });
     }
+  }
+
+  _updateMetaBadge() {
+    const badge = this.element?.querySelector('[data-meta-badge]');
+    if (!badge) return;
+    const configured = !!(this.metaSettings?.app_id && this.metaSettings?.app_secret_configured);
+    badge.textContent = configured ? 'Configurée' : 'Non configurée';
+    badge.classList.toggle('active', configured);
+    badge.classList.toggle('inactive', !configured);
   }
 
   _switchTab(tabId) {

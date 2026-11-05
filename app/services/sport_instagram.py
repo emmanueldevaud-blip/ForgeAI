@@ -181,18 +181,36 @@ class SportInstagramConnectService:
         long_lived_token = long_token or short_token
         obtained_at = datetime.now(timezone.utc)
 
-        result = await self.db.execute(
+        from sqlalchemy import update
+        now = datetime.now(timezone.utc)
+        stmt = (
+            update(SportInstagramOAuthState)
+            .where(
+                SportInstagramOAuthState.state == state,
+                SportInstagramOAuthState.consumed == False,
+                SportInstagramOAuthState.expires_at >= now,
+            )
+            .values(consumed=True)
+        )
+        result = await self.db.execute(stmt)
+        if result.rowcount != 1:
+            raise HTTPException(status_code=400, detail="Etat OAuth invalide ou expire")
+
+        q = await self.db.execute(
             select(SportInstagramOAuthState).where(SportInstagramOAuthState.state == state)
         )
-        oauth_state = result.scalar_one_or_none()
-        if oauth_state is None or oauth_state.consumed or oauth_state.expires_at < datetime.now(timezone.utc):
-            raise HTTPException(status_code=400, detail="Etat OAuth invalide ou expire")
-        oauth_state.consumed = True
+        oauth_state = q.scalar_one()
+        athlete_id = oauth_state.athlete_id
+        user_id = oauth_state.user_id
+        await self.db.delete(oauth_state)
         await self.db.flush()
         await self.db.commit()
 
-        athlete_id = oauth_state.athlete_id
-        user_id = oauth_state.user_id
+        athlete = await self.db.get(SportAthlete, athlete_id)
+        user = await self.db.get(User, user_id)
+
+        if athlete is None or user is None:
+            raise HTTPException(status_code=404, detail="Utilisateur ou athlete introuvable")
 
         athlete = await self.db.get(SportAthlete, athlete_id)
         user = await self.db.get(User, user_id)

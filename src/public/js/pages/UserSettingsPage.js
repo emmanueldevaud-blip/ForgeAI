@@ -33,15 +33,43 @@ export class UserSettingsPage {
     this.canManageInstagram = !!authStore?.authenticated && authStore.hasPermission('sport.publications.write');
     this.showMetaTab = this.canConfigureMeta || this.canSeeInstagram;
 
-    if (typeof window !== 'undefined' && window.location.search.includes('connected=1')) {
-      this.connectedFlash = true;
+    // Handle OAuth callback parameters
+    if (typeof window !== 'undefined') {
+      const searchParams = new URLSearchParams(window.location.search);
+      let shouldShowMetaTab = false;
+      let errorMessage = null;
+      let successMessage = null;
+
+      if (searchParams.has('error')) {
+        errorMessage = decodeURIComponent(searchParams.get('error'));
+        searchParams.delete('error');
+        shouldShowMetaTab = true;
+      }
+      if (searchParams.has('connected')) {
+        successMessage = 'Compte Instagram connecté avec succès !';
+        searchParams.delete('connected');
+        shouldShowMetaTab = true;
+      }
+      // If both present, error takes precedence (security)
+      if (shouldShowMetaTab && this.showMetaTab) {
+        this.currentTab = 'meta';
+      }
+      // Update URL without reload
       try {
         const url = new URL(window.location.href);
-        url.searchParams.delete('connected');
-        window.history.replaceState({}, '', url.pathname + (url.search ? url.search : ''));
+        url.search = searchParams.toString();
+        window.history.replaceState({}, '', url.pathname + (url.search ? '?' + url.search : ''));
       } catch (_) {}
-      if (this.showMetaTab) this.currentTab = 'meta';
+
+      if (errorMessage) {
+        this.oauthError = errorMessage;
+      }
+      if (successMessage && !errorMessage) {
+        this.connectedFlash = true;
+      }
     }
+
+    this.oauthError = null;
 
     if (this.canConfigureMeta) {
       try {
@@ -217,6 +245,20 @@ export class UserSettingsPage {
             </form>
           </div>` : ''}
 
+          ${this.oauthError ? `
+          <div class="card">
+            <div class="card-body">
+              <div class="alert alert-error">${this._escape(this.oauthError)}</div>
+            </div>
+          </div>` : ''}
+
+          ${this.connectedFlash ? `
+          <div class="card">
+            <div class="card-body">
+              <div class="alert alert-success">Compte Instagram connecté avec succès !</div>
+            </div>
+          </div>` : ''}
+
           ${this.canSeeInstagram ? `
           <div class="card">
             <div class="card-header">
@@ -389,6 +431,16 @@ export class UserSettingsPage {
       await this._loadInstagramStatus();
       setIgMessage('Compte Instagram connecté avec succès !', true);
     }
+  }
+
+  _escape(text) {
+    if (text == null) return '';
+    return String(text)
+      .replaceAll('&', '&')
+      .replaceAll('<', '<')
+      .replaceAll('>', '>')
+      .replaceAll('"', '"')
+      .replaceAll("'", '&#039;');
   }
 
   async _loadInstagramStatus() {

@@ -377,6 +377,9 @@ async function initializeApp() {
   });
 
   router
+    .addRoute('/403', () => {
+      showForbiddenPage();
+    })
     .addRoute('/404', () => {
       showNotFoundPage();
     })

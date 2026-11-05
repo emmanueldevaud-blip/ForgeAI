@@ -144,12 +144,14 @@ class MetaSettingsResponse(BaseModel):
     app_id: str = ""
     app_secret_configured: bool = False
     redirect_uri: str = ""
+    config_id: str = ""
 
 
 class MetaSettingsUpdate(BaseModel):
     app_id: str = Field("", max_length=100)
     app_secret: Optional[str] = Field(None, max_length=500)
     redirect_uri: str = Field("", max_length=500)
+    config_id: str = Field("", max_length=100)
 
 
 class AiProviderSettings(BaseModel):

@@ -176,6 +176,14 @@ export class UserSettingsPage {
                   </label>
                 </div>
               </div>
+              <div class="form-row">
+                <div class="form-group" style="grid-column: 1 / -1;">
+                  <label><span>Configuration ID (Unified Login)</span>
+                    <input name="config_id" maxlength="100" placeholder="ID de configuration Facebook Login for Business">
+                    <small class="form-help">Obligatoire pour les nouvelles apps Meta (API setup with Unified Login). Laisser vide pour l'ancien flux par permission (scope).</small>
+                  </label>
+                </div>
+              </div>
               <div class="form-actions">
                 <button class="btn btn-secondary" type="button" data-meta-test>Tester la connexion</button>
                 <button class="btn btn-primary" type="submit">Enregistrer</button>
@@ -246,6 +254,7 @@ export class UserSettingsPage {
       const setValue = (name, value) => { metaForm.elements[name].value = value ?? ''; };
       setValue('app_id', this.metaSettings?.app_id);
       setValue('redirect_uri', this.metaSettings?.redirect_uri);
+      setValue('config_id', this.metaSettings?.config_id);
       const secretInput = metaForm.elements.app_secret;
       if (secretInput) {
         secretInput.placeholder = this.metaSettings?.app_secret_configured
@@ -268,6 +277,7 @@ export class UserSettingsPage {
             app_id: metaForm.elements.app_id.value.trim(),
             app_secret: metaForm.elements.app_secret.value,
             redirect_uri: metaForm.elements.redirect_uri.value.trim(),
+            config_id: metaForm.elements.config_id.value.trim(),
           });
           metaForm.elements.app_secret.value = '';
           if (secretInput && this.metaSettings?.app_secret_configured) {

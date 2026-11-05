@@ -22,7 +22,7 @@ import { createMaintenanceCalendarPage } from './pages/MaintenanceCalendarPage.j
 import { createAIAssistantPage } from './pages/AIAssistantPage.js?v=31';
 import { createHousingPage } from './pages/HousingPage.js';
 import { createProfilePage } from './pages/ProfilePage.js?v=2';
-import { createSettingsPage } from './pages/UserSettingsPage.js?v=4';
+import { createSettingsPage } from './pages/UserSettingsPage.js?v=5';
 import { createCleaningVolunteersPage } from './pages/CleaningVolunteersPage.js?v=5';
 import { createAdministrativeProgramsPage } from './pages/AdministrativeProgramsPage.js';
 import { createSportDashboardPage } from './pages/SportDashboardPage.js?v=5';

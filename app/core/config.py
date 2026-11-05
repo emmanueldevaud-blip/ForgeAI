@@ -139,8 +139,9 @@ class Settings(BaseSettings):
     META_APP_ID: str = ""
     META_APP_SECRET: str = ""
     META_REDIRECT_URI: str = ""
+    META_CONFIG_ID: str = ""
     META_VERIFY_TOKEN: str = ""
-    META_API_VERSION: str = "v21.0"
+    META_API_VERSION: str = "v26.0"
 
     # Agent Développement (orchestration OpenCode pour le développement ForgeAI).
     DEVELOPMENT_AGENT_ENABLED: bool = False

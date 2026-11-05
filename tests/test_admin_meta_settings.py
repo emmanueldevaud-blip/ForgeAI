@@ -36,6 +36,7 @@ def payload(**overrides):
         "app_id": "",
         "app_secret": "",
         "redirect_uri": "",
+        "config_id": "",
     }
     body.update(overrides)
     return body
@@ -137,6 +138,66 @@ async def test_meta_auth_builds_url_from_db_values(client, admin_headers, monkey
     body = response.json()
     assert "client_id=db-app-id" in body["authorize_url"]
     assert "redirect_uri=https%3A%2F%2Fexample.com%2Fcb" in body["authorize_url"]
+
+
+async def test_meta_settings_returns_config_id(client, admin_headers):
+    response = await client.put(
+        "/admin/settings/meta",
+        json=payload(app_id="123456", app_secret="secret", redirect_uri="https://example.com/cb", config_id="cfg-456"),
+        headers=admin_headers,
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["config_id"] == "cfg-456"
+
+
+async def test_meta_auth_builds_url_with_config_id(client, admin_headers, monkeypatch):
+    """Avec une Configuration ID (Unified Login), le dialogue Meta utilise config_id et non scope."""
+    saved = await client.put(
+        "/admin/settings/meta",
+        json=payload(
+            app_id="db-app-id",
+            app_secret="db-secret",
+            redirect_uri="https://example.com/cb",
+            config_id="cfg-123",
+        ),
+        headers=admin_headers,
+    )
+    assert saved.status_code == 200
+
+    settings = get_settings()
+    monkeypatch.setattr(settings, "META_APP_ID", "", raising=False)
+    monkeypatch.setattr(settings, "META_APP_SECRET", "", raising=False)
+    monkeypatch.setattr(settings, "META_REDIRECT_URI", "", raising=False)
+
+    response = await client.get("/sport/publications/meta/auth?athlete_id=1", headers=admin_headers)
+
+    assert response.status_code == 200
+    body = response.json()
+    assert "config_id=cfg-123" in body["authorize_url"]
+    assert "override_default_response_type=true" in body["authorize_url"]
+    assert "scope=" not in body["authorize_url"]
+
+
+async def test_meta_auth_builds_url_legacy_scope_without_config_id(client, admin_headers, monkeypatch):
+    saved = await client.put(
+        "/admin/settings/meta",
+        json=payload(app_id="db-app-id", app_secret="db-secret", redirect_uri="https://example.com/cb"),
+        headers=admin_headers,
+    )
+    assert saved.status_code == 200
+
+    settings = get_settings()
+    monkeypatch.setattr(settings, "META_APP_ID", "", raising=False)
+    monkeypatch.setattr(settings, "META_APP_SECRET", "", raising=False)
+    monkeypatch.setattr(settings, "META_REDIRECT_URI", "", raising=False)
+
+    response = await client.get("/sport/publications/meta/auth?athlete_id=1", headers=admin_headers)
+
+    assert response.status_code == 200
+    body = response.json()
+    assert "config_id=" not in body["authorize_url"]
+    assert "scope=instagram_business_basic" in body["authorize_url"]
 
 
 async def test_meta_status_falls_back_to_env_when_db_empty(client, admin_headers, monkeypatch):

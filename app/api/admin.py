@@ -204,6 +204,7 @@ async def get_meta_settings(
         app_id=get_value("meta_app_id"),
         app_secret_configured=bool(get_value("meta_app_secret")),
         redirect_uri=get_value("meta_redirect_uri"),
+        config_id=get_value("meta_config_id"),
     )
 
 
@@ -221,6 +222,7 @@ async def update_meta_settings(
     values = {
         "meta_app_id": data.app_id or "",
         "meta_redirect_uri": data.redirect_uri or "",
+        "meta_config_id": data.config_id or "",
     }
     if data.app_secret is not None and data.app_secret != "":
         values["meta_app_secret"] = data.app_secret

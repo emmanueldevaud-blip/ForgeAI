@@ -85,7 +85,7 @@ class SportInstagramConnectService:
             .join(Module)
             .where(
                 Module.code == "administration",
-                ModuleConfig.key.in_(("meta_app_id", "meta_app_secret", "meta_redirect_uri")),
+                ModuleConfig.key.in_(("meta_app_id", "meta_app_secret", "meta_redirect_uri", "meta_config_id")),
             )
         )
         configs = {
@@ -98,33 +98,36 @@ class SportInstagramConnectService:
             "app_id": configs.get("meta_app_id") or settings.META_APP_ID,
             "app_secret": configs.get("meta_app_secret") or settings.META_APP_SECRET,
             "redirect_uri": configs.get("meta_redirect_uri") or settings.META_REDIRECT_URI,
+            "config_id": configs.get("meta_config_id") or settings.META_CONFIG_ID,
         }
 
-    async def _app_credentials(self) -> tuple[str, str, str]:
+    async def _app_credentials(self) -> tuple[str, str, str, str]:
         values = await self.load_meta_values()
         if not values["app_id"] or not values["app_secret"]:
             raise HTTPException(status_code=503, detail="Meta OAuth non configuré (App ID ou App Secret manquant)")
         redirect_uri = values["redirect_uri"] or "http://localhost:8000/sport/publications/meta/callback"
-        return values["app_id"], values["app_secret"], redirect_uri
+        return values["app_id"], values["app_secret"], redirect_uri, values["config_id"]
 
     async def build_authorization_url(self, athlete_id: int, user_id: int, scopes: str | None = None) -> tuple[str, str]:
-        app_id, _, redirect_uri = await self._app_credentials()
+        app_id, _, redirect_uri, config_id = await self._app_credentials()
         state = f"{athlete_id}:{user_id}"
         from urllib.parse import urlencode
 
-        query = urlencode(
-            {
-                "client_id": app_id,
-                "redirect_uri": redirect_uri,
-                "scope": scopes or DEFAULT_META_SCOPES,
-                "response_type": "code",
-                "state": state,
-            }
-        )
-        return f"{self._dialog_url}?{query}", state
+        params = {
+            "client_id": app_id,
+            "redirect_uri": redirect_uri,
+            "response_type": "code",
+            "state": state,
+        }
+        if config_id:
+            params["config_id"] = config_id
+            params["override_default_response_type"] = "true"
+        else:
+            params["scope"] = scopes or DEFAULT_META_SCOPES
+        return f"{self._dialog_url}?{urlencode(params)}", state
 
     async def exchange_code(self, code: str, redirect_uri: str | None, state: str) -> SportInstagramConnection:
-        app_id, app_secret, default_redirect = await self._app_credentials()
+        app_id, app_secret, default_redirect, _ = await self._app_credentials()
         redirect_to = redirect_uri or default_redirect
         if not redirect_to:
             raise HTTPException(status_code=503, detail="Meta OAuth redirect_uri non configure")
@@ -141,22 +144,29 @@ class SportInstagramConnectService:
                 },
             )
             token_response.raise_for_status()
-            short_token = token_response.json().get("access_token")
+            token_data = token_response.json()
+            short_token = token_data.get("access_token")
 
-            long_response = await client.get(
-                f"{self._base_url}/oauth/access_token",
-                params={
-                    "grant_type": "fb_exchange_long_lived",
-                    "client_id": app_id,
-                    "client_secret": app_secret,
-                    "redirect_uri": redirect_to,
-                    "fb_exchange_long_lived_token": short_token,
-                },
-            )
-            long_response.raise_for_status()
-            long_token = long_response.json().get("access_token")
+            long_token = None
+            try:
+                long_response = await client.get(
+                    f"{self._base_url}/oauth/access_token",
+                    params={
+                        "grant_type": "fb_exchange_long_lived",
+                        "client_id": app_id,
+                        "client_secret": app_secret,
+                        "redirect_uri": redirect_to,
+                        "fb_exchange_long_lived_token": short_token,
+                    },
+                )
+                long_response.raise_for_status()
+                long_token = long_response.json().get("access_token")
+            except httpx.HTTPError:
+                long_token = None
 
-        token_data = long_response.json()
+            if long_token:
+                token_data = long_response.json()
+
         long_lived_token = long_token or short_token
         obtained_at = datetime.now(timezone.utc)
 
@@ -180,20 +190,34 @@ class SportInstagramConnectService:
         ig_username = None
         try:
             async with httpx.AsyncClient(timeout=10.0) as fetch_client:
-                acc_resp = await fetch_client.get(
-                    f"{self._base_url}/me/accounts",
+                assigned_resp = await fetch_client.get(
+                    f"{self._base_url}/me/assigned_instagram_accounts",
                     params={
-                        "fields": "id,name,instagram_business_account{id,username}",
+                        "fields": "id,username",
                         "access_token": long_lived_token,
                     },
                 )
-                if acc_resp.status_code == 200:
-                    for page in acc_resp.json().get("data", []):
-                        ig = page.get("instagram_business_account")
-                        if ig and ig.get("id"):
-                            ig_account_id = str(ig["id"])
-                            ig_username = ig.get("username")
+                if assigned_resp.status_code == 200:
+                    for acct in assigned_resp.json().get("data", []):
+                        if acct.get("id"):
+                            ig_account_id = str(acct["id"])
+                            ig_username = acct.get("username")
                             break
+                if not ig_account_id:
+                    acc_resp = await fetch_client.get(
+                        f"{self._base_url}/me/accounts",
+                        params={
+                            "fields": "id,name,instagram_business_account{id,username}",
+                            "access_token": long_lived_token,
+                        },
+                    )
+                    if acc_resp.status_code == 200:
+                        for page in acc_resp.json().get("data", []):
+                            ig = page.get("instagram_business_account")
+                            if ig and ig.get("id"):
+                                ig_account_id = str(ig["id"])
+                                ig_username = ig.get("username")
+                                break
                 if not ig_account_id:
                     me_resp = await fetch_client.get(
                         f"{self._base_url}/me",

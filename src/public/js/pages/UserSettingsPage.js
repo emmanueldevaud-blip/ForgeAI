@@ -340,7 +340,7 @@ export class UserSettingsPage {
       });
     }
 
-    await this._bindInstagram();
+    this._bindInstagram();
   }
 
   async _bindInstagram() {

@@ -387,6 +387,7 @@ export class UserSettingsPage {
 
     if (this.connectedFlash) {
       this.connectedFlash = false;
+      await this._loadInstagramStatus();
       setIgMessage('Compte Instagram connecté avec succès !', true);
     }
   }

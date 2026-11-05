@@ -1,6 +1,11 @@
 import { authStore } from '../stores/auth.js';
 import { api } from '../services/api.js';
 import { getMetaSettings, updateMetaSettings, testMetaSettings } from '../services/adminApi.js?v=4';
+import {
+  getInstagramConnectionStatus,
+  connectInstagram,
+  disconnectInstagram,
+} from '../services/sportApi.js?v=9';
 
 export class UserSettingsPage {
   constructor(router) {
@@ -8,6 +13,8 @@ export class UserSettingsPage {
     this.element = null;
     this.user = null;
     this.metaSettings = null;
+    this.instagramStatus = null;
+    this.connectedFlash = false;
     this.currentTab = 'preferences';
   }
 
@@ -19,12 +26,29 @@ export class UserSettingsPage {
     }
     this.user = authStore.currentUser;
     this.canConfigureMeta = authStore.hasPermission('settings_view');
+    this.canSeeInstagram = authStore.hasPermission('sport.publications.read');
+    this.canManageInstagram = authStore.hasPermission('sport.publications.write');
+    this.showMetaTab = this.canConfigureMeta || this.canSeeInstagram;
+
+    if (typeof window !== 'undefined' && window.location.search.includes('connected=1')) {
+      this.connectedFlash = true;
+      try {
+        const url = new URL(window.location.href);
+        url.searchParams.delete('connected');
+        window.history.replaceState({}, '', url.pathname + (url.search ? url.search : ''));
+      } catch (_) {}
+      if (this.showMetaTab) this.currentTab = 'meta';
+    }
+
     if (this.canConfigureMeta) {
       try {
         this.metaSettings = await getMetaSettings();
       } catch (error) {
         console.error('Erreur chargement paramètres Meta:', error);
       }
+    }
+    if (this.canSeeInstagram) {
+      await this._loadInstagramStatus();
     }
   }
 
@@ -45,9 +69,10 @@ export class UserSettingsPage {
     }
 
     const needsWorkstation = !!this.user.default_needs_workstation;
-    const canMeta = !!this.canConfigureMeta;
+    const canMeta = !!this.showMetaTab;
     if (!canMeta) this.currentTab = 'preferences';
     const metaConfigured = !!(this.metaSettings?.app_id && this.metaSettings?.app_secret_configured);
+    const igInfo = this._instagramInfo();
 
     this.element.innerHTML = `
       <div class="page-header">
@@ -115,8 +140,10 @@ export class UserSettingsPage {
           data-tab-panel="meta"
           role="tabpanel"
           aria-labelledby="tab-meta"
+          style="display: flex; flex-direction: column; gap: var(--spacing-5);"
           ${this.currentTab !== 'meta' ? 'hidden' : ''}
         >
+          ${this.canConfigureMeta ? `
           <div class="card">
             <div class="card-header">
               <div>
@@ -155,7 +182,32 @@ export class UserSettingsPage {
                 <span data-role="meta-status" role="status"></span>
               </div>
             </form>
-          </div>
+          </div>` : ''}
+
+          ${this.canSeeInstagram ? `
+          <div class="card">
+            <div class="card-header">
+              <div>
+                <span class="eyebrow">Connexion Instagram</span>
+                <p class="text-muted">Compte Instagram Business relié à vos publications.</p>
+              </div>
+              <span class="status-badge ${igInfo.badgeClass}" data-ig-badge>${igInfo.badgeText}</span>
+            </div>
+            <div class="card-body">
+              <p class="page-subtitle" data-ig-detail>${igInfo.detail}</p>
+              ${this.canManageInstagram ? `
+              <div class="form-actions">
+                <button class="btn btn-primary" type="button" data-ig-connect>
+                  ${this.instagramStatus?.connected ? 'Reconnecter' : 'Connecter Instagram'}
+                </button>
+                ${this.instagramStatus?.connected ? '<button class="btn btn-secondary" type="button" data-ig-disconnect>Se déconnecter</button>' : ''}
+                <span data-role="ig-status" role="status"></span>
+              </div>` : `
+              <div class="form-actions">
+                <span data-role="ig-status" role="status"></span>
+              </div>`}
+            </div>
+          </div>` : ''}
         </div>` : ''}
       </div>
     `;
@@ -245,6 +297,116 @@ export class UserSettingsPage {
         }
       });
     }
+
+    this._bindInstagram();
+  }
+
+  _bindInstagram() {
+    const setIgMessage = (text, success) => {
+      const el = this.element?.querySelector('[data-role="ig-status"]');
+      if (!el) return;
+      el.textContent = text;
+      el.classList.toggle('text-success', !!success);
+    };
+
+    this.element.querySelector('[data-ig-connect]')?.addEventListener('click', async (event) => {
+      const btn = event.currentTarget;
+      if (btn.disabled) return;
+      btn.disabled = true;
+      try {
+        const data = await connectInstagram(null);
+        const url = data && data.authorize_url;
+        if (url) {
+          window.location.href = url;
+          return;
+        }
+        setIgMessage('URL de connexion Meta non reçue', false);
+      } catch (error) {
+        setIgMessage(error?.data?.detail || error?.message || 'Connexion Instagram impossible', false);
+      } finally {
+        btn.disabled = false;
+      }
+    });
+
+    this.element.querySelector('[data-ig-disconnect]')?.addEventListener('click', async (event) => {
+      const btn = event.currentTarget;
+      if (btn.disabled) return;
+      btn.disabled = true;
+      setIgMessage('Déconnexion en cours…', false);
+      try {
+        await disconnectInstagram();
+        await this._loadInstagramStatus();
+        setIgMessage('Instagram déconnecté', true);
+      } catch (error) {
+        setIgMessage(error?.data?.detail || 'Erreur lors de la déconnexion', false);
+        btn.disabled = false;
+      }
+    });
+
+    if (this.connectedFlash) {
+      this.connectedFlash = false;
+      setIgMessage('Compte Instagram connecté avec succès !', true);
+    }
+  }
+
+  async _loadInstagramStatus() {
+    try {
+      this.instagramStatus = (await getInstagramConnectionStatus()) || this.instagramStatus;
+    } catch (error) {
+      this.instagramStatus = { connected: false, status: 'not_configured' };
+    }
+    if (this.element) {
+      const badge = this.element.querySelector('[data-ig-badge]');
+      const detail = this.element.querySelector('[data-ig-detail]');
+      if (badge || detail) {
+        const info = this._instagramInfo();
+        if (badge) {
+          badge.textContent = info.badgeText;
+          badge.className = `status-badge ${info.badgeClass}`;
+        }
+        if (detail) detail.textContent = info.detail;
+        const cardBody = badge?.closest('.card')?.querySelector('.card-body');
+        if (cardBody && this.canManageInstagram) {
+          const actions = cardBody.querySelector('.form-actions');
+          if (actions) {
+            const keepMsg = actions.querySelector('[data-role="ig-status"]');
+            const msgHtml = keepMsg ? keepMsg.outerHTML : '<span data-role="ig-status" role="status"></span>';
+            actions.innerHTML = `
+              <button class="btn btn-primary" type="button" data-ig-connect>
+                ${this.instagramStatus?.connected ? 'Reconnecter' : 'Connecter Instagram'}
+              </button>
+              ${this.instagramStatus?.connected ? '<button class="btn btn-secondary" type="button" data-ig-disconnect>Se déconnecter</button>' : ''}
+              ${msgHtml}
+            `;
+            this._bindInstagram();
+          }
+        }
+      }
+    }
+  }
+
+  _instagramInfo() {
+    const status = this.instagramStatus || {};
+    if (status.connected) {
+      const acct = status.instagram_business_account_id ? ` (ID : ${status.instagram_business_account_id})` : '';
+      return {
+        badgeClass: 'active',
+        badgeText: 'Connecté',
+        detail: `Compte Instagram connecté${acct}. Les publications peuvent être partagées.`,
+      };
+    }
+    if (status.configured === false) {
+      return {
+        badgeClass: 'badge-warning',
+        badgeText: 'Non configuré',
+        detail: "Meta App non configurée : renseignez l'App ID et l'App Secret ci-dessus.",
+      };
+    }
+    return {
+      badgeClass: 'inactive',
+      badgeText: 'Non connecté',
+      detail: 'Aucun compte Instagram connecté pour le moment.',
+    };
   }
 
   _updateMetaBadge() {
@@ -257,7 +419,7 @@ export class UserSettingsPage {
   }
 
   _switchTab(tabId) {
-    if (tabId === 'meta' && !this.canConfigureMeta) return;
+    if (tabId === 'meta' && !this.showMetaTab) return;
     this.currentTab = tabId;
     this.element.querySelectorAll('[data-tab]').forEach((el) => {
       const active = el.dataset.tab === tabId;

@@ -280,7 +280,7 @@ async def meta_callback(
             "status": connection.status,
             "instagram_business_account_id": connection.instagram_business_account_id,
         }
-    return RedirectResponse(url="/sport/publications?connected=1", status_code=status.HTTP_302_FOUND)
+    return RedirectResponse(url="/settings?connected=1", status_code=status.HTTP_302_FOUND)
 
 
 @router.get("/meta/status")

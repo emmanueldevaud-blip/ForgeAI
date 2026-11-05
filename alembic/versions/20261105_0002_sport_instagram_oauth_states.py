@@ -16,7 +16,10 @@ depends_on = None
 
 
 def upgrade():
-    op.create_table(
+    from sqlalchemy import text
+    conn = op.get_bind()
+    conn.execute(text("CREATE TABLE IF NOT EXISTS sport_instagram_oauth_states (state VARCHAR(128) PRIMARY KEY, user_id INTEGER NOT NULL, athlete_id INTEGER NOT NULL, expires_at DATETIME NOT NULL, consumed BOOLEAN NOT NULL DEFAULT FALSE, created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE, FOREIGN KEY (athlete_id) REFERENCES sport_athletes(id) ON DELETE CASCADE)"))
+    return
         "sport_instagram_oauth_states",
         sa.Column("state", sa.String(length=128), nullable=False),
         sa.Column("user_id", sa.Integer(), nullable=False),

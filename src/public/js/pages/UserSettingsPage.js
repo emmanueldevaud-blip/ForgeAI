@@ -340,10 +340,10 @@ export class UserSettingsPage {
       });
     }
 
-    this._bindInstagram();
+    await this._bindInstagram();
   }
 
-  _bindInstagram() {
+  async _bindInstagram() {
     const setIgMessage = (text, success) => {
       const el = this.element?.querySelector('[data-role="ig-status"]');
       if (!el) return;

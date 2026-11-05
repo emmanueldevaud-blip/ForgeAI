@@ -34,8 +34,33 @@ logger = logging.getLogger(__name__)
 router = APIRouter(
     prefix="/sport/publications",
     tags=["sport"],
-    dependencies=[Depends(require_module_enabled("sport"))],
 )
+
+public_router = APIRouter(prefix="/sport/publications")
+
+
+@public_router.get("/meta/callback")
+async def meta_callback(
+    request: Request,
+    code: str = Query(...),
+    state: str = Query(...),
+    redirect_uri: Optional[str] = Query(None),
+    db: AsyncSession = Depends(get_db),
+) -> Any:
+    service = SportInstagramConnectService(db)
+    try:
+        connection = await service.exchange_code(code=code, redirect_uri=redirect_uri, state=state)
+    except HTTPException as exc:
+        return RedirectResponse(url=f"/settings?error={exc.detail}", status_code=status.HTTP_302_FOUND)
+    accept = request.headers.get("accept", "")
+    if "application/json" in accept and "text/html" not in accept:
+        return {
+            "status": connection.status,
+            "instagram_business_account_id": connection.instagram_business_account_id,
+        }
+    return RedirectResponse(url="/settings?connected=1", status_code=status.HTTP_302_FOUND)
+
+
 
 
 async def get_pub_service(
@@ -263,26 +288,7 @@ async def meta_authorize_url(
     return {"authorize_url": authorize_url, "state": state}
 
 
-@router.get("/meta/callback")
-async def meta_callback(
-    request: Request,
-    code: str = Query(...),
-    state: str = Query(...),
-    redirect_uri: Optional[str] = Query(None),
-    db: AsyncSession = Depends(get_db),
-) -> Any:
-    service = SportInstagramConnectService(db)
-    try:
-        connection = await service.exchange_code(code=code, redirect_uri=redirect_uri, state=state)
-    except HTTPException as exc:
-        return RedirectResponse(url=f"/settings?error={exc.detail}", status_code=status.HTTP_302_FOUND)
-    accept = request.headers.get("accept", "")
-    if "application/json" in accept and "text/html" not in accept:
-        return {
-            "status": connection.status,
-            "instagram_business_account_id": connection.instagram_business_account_id,
-        }
-    return RedirectResponse(url="/settings?connected=1", status_code=status.HTTP_302_FOUND)
+
 
 
 @router.get("/meta/status")

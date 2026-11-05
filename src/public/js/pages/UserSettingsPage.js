@@ -53,7 +53,7 @@ export class UserSettingsPage {
     if (this.canSeeInstagram) {
       await this._loadInstagramStatus();
     }
-    this.canSeeGarmin = this.authStore.hasPermission('sport.activities.write');
+    this.canSeeGarmin = authStore.hasPermission('sport.activities.write');
     if (this.canSeeGarmin) {
       this.garminPage = createSportGarminPage(this.router);
       try { await this.garminPage.initialize(); } catch (error) { console.error('Erreur chargement parametres Garmin:', error); }

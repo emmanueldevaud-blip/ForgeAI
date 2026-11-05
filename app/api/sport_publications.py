@@ -8,8 +8,6 @@ from fastapi.responses import RedirectResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.config import get_settings
-
 from app.models.sport import SportActivity
 
 from app.api.deps import get_db, require_module_enabled, require_permission
@@ -261,7 +259,7 @@ async def meta_authorize_url(
         pub_service = SportPublicationService(db, current_user)
         athlete = await pub_service.get_or_create_athlete()
         athlete_id = athlete.id
-    authorize_url, state = service.build_authorization_url(athlete_id=athlete_id, user_id=current_user.id)
+    authorize_url, state = await service.build_authorization_url(athlete_id=athlete_id, user_id=current_user.id)
     return {"authorize_url": authorize_url, "state": state}
 
 
@@ -291,8 +289,8 @@ async def meta_status(
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     service = SportInstagramConnectService(db)
-    settings = get_settings()
-    is_configured = bool(settings.META_APP_ID and settings.META_APP_SECRET)
+    values = await service.load_meta_values()
+    is_configured = bool(values["app_id"] and values["app_secret"])
     connection = await service.get_connection(current_user.id)
     if not is_configured:
         return {

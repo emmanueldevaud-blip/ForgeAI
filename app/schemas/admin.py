@@ -140,6 +140,18 @@ class SmtpTestRequest(BaseModel):
     recipient: EmailStr
 
 
+class MetaSettingsResponse(BaseModel):
+    app_id: str = ""
+    app_secret_configured: bool = False
+    redirect_uri: str = ""
+
+
+class MetaSettingsUpdate(BaseModel):
+    app_id: str = Field("", max_length=100)
+    app_secret: Optional[str] = Field(None, max_length=500)
+    redirect_uri: str = Field("", max_length=500)
+
+
 class AiProviderSettings(BaseModel):
     enabled: bool = True
     api_key_configured: bool = False

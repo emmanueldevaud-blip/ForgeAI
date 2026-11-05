@@ -76,15 +76,39 @@ class SportInstagramConnectService:
     def _dialog_url(self) -> str:
         return f"https://www.facebook.com/{get_settings().META_API_VERSION}/dialog/oauth"
 
-    def _app_credentials(self) -> tuple[str, str, str]:
-        settings = get_settings()
-        if not settings.META_APP_ID or not settings.META_APP_SECRET:
-            raise HTTPException(status_code=503, detail="Meta OAuth non configuré (META_APP_ID ou META_APP_SECRET manquant)")
-        redirect_uri = settings.META_REDIRECT_URI or "http://localhost:8000/sport/publications/meta/callback"
-        return settings.META_APP_ID, settings.META_APP_SECRET, redirect_uri
+    async def load_meta_values(self) -> dict[str, str]:
+        """Valeurs Meta : overlay DB (module administration) > environnement."""
+        from app.models.module import Module, ModuleConfig
 
-    def build_authorization_url(self, athlete_id: int, user_id: int, scopes: str | None = None) -> tuple[str, str]:
-        app_id, _, redirect_uri = self._app_credentials()
+        result = await self.db.execute(
+            select(ModuleConfig)
+            .join(Module)
+            .where(
+                Module.code == "administration",
+                ModuleConfig.key.in_(("meta_app_id", "meta_app_secret", "meta_redirect_uri")),
+            )
+        )
+        configs = {
+            config.key: config.value
+            for config in result.scalars().all()
+            if config.value is not None
+        }
+        settings = get_settings()
+        return {
+            "app_id": configs.get("meta_app_id") or settings.META_APP_ID,
+            "app_secret": configs.get("meta_app_secret") or settings.META_APP_SECRET,
+            "redirect_uri": configs.get("meta_redirect_uri") or settings.META_REDIRECT_URI,
+        }
+
+    async def _app_credentials(self) -> tuple[str, str, str]:
+        values = await self.load_meta_values()
+        if not values["app_id"] or not values["app_secret"]:
+            raise HTTPException(status_code=503, detail="Meta OAuth non configuré (App ID ou App Secret manquant)")
+        redirect_uri = values["redirect_uri"] or "http://localhost:8000/sport/publications/meta/callback"
+        return values["app_id"], values["app_secret"], redirect_uri
+
+    async def build_authorization_url(self, athlete_id: int, user_id: int, scopes: str | None = None) -> tuple[str, str]:
+        app_id, _, redirect_uri = await self._app_credentials()
         state = f"{athlete_id}:{user_id}"
         from urllib.parse import urlencode
 
@@ -100,7 +124,7 @@ class SportInstagramConnectService:
         return f"{self._dialog_url}?{query}", state
 
     async def exchange_code(self, code: str, redirect_uri: str | None, state: str) -> SportInstagramConnection:
-        app_id, app_secret, default_redirect = self._app_credentials()
+        app_id, app_secret, default_redirect = await self._app_credentials()
         redirect_to = redirect_uri or default_redirect
         if not redirect_to:
             raise HTTPException(status_code=503, detail="Meta OAuth redirect_uri non configure")

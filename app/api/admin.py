@@ -57,6 +57,8 @@ from app.schemas.admin import (
     SmtpSettingsResponse,
     SmtpSettingsUpdate,
     SmtpTestRequest,
+    MetaSettingsResponse,
+    MetaSettingsUpdate,
 )
 from app.services.admin import AdminUserService
 from app.services.audit import get_audit_service
@@ -188,6 +190,55 @@ async def test_smtp_settings(
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"Échec du test SMTP : {exc}") from exc
     return {"message": f"E-mail de test envoyé à {data.recipient}"}
+
+
+@settings_router.get("/meta", response_model=MetaSettingsResponse)
+async def get_meta_settings(
+    current_user: User = Depends(require_permission("settings_view")),
+    db: AsyncSession = Depends(get_db),
+):
+    configs = await _get_administration_configs(db)
+    get_value = lambda key, default="": configs.get(key).value if configs.get(key) and configs.get(key).value is not None else default
+    return MetaSettingsResponse(
+        app_id=get_value("meta_app_id"),
+        app_secret_configured=bool(get_value("meta_app_secret")),
+        redirect_uri=get_value("meta_redirect_uri"),
+    )
+
+
+@settings_router.put("/meta", response_model=MetaSettingsResponse)
+async def update_meta_settings(
+    data: MetaSettingsUpdate,
+    current_user: User = Depends(require_permission("settings_update")),
+    db: AsyncSession = Depends(get_db),
+):
+    module_result = await db.execute(select(Module).where(Module.code == "administration"))
+    module = module_result.scalar_one_or_none()
+    if not module:
+        raise HTTPException(status_code=500, detail="Module Administration non trouvé")
+
+    values = {
+        "meta_app_id": data.app_id or "",
+        "meta_redirect_uri": data.redirect_uri or "",
+    }
+    if data.app_secret is not None and data.app_secret != "":
+        values["meta_app_secret"] = data.app_secret
+
+    configs = await _get_administration_configs(db)
+    for key, value in values.items():
+        config = configs.get(key)
+        if config:
+            config.value = value
+        else:
+            db.add(ModuleConfig(
+                module_id=module.id,
+                key=key,
+                value=value,
+                value_type="string",
+                is_secret=key == "meta_app_secret",
+            ))
+    await db.commit()
+    return await get_meta_settings(current_user=current_user, db=db)
 
 
 def _effective_ai_values(overrides: dict[str, str]) -> dict:

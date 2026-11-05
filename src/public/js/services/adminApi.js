@@ -14,6 +14,14 @@ export async function testSmtpSettings(recipient) {
   return adminApi.post('/settings/smtp/test', { recipient });
 }
 
+export async function getMetaSettings() {
+  return adminApi.get('/settings/meta');
+}
+
+export async function updateMetaSettings(settings) {
+  return adminApi.put('/settings/meta', settings);
+}
+
 export async function getAiSettings() {
   return adminApi.get('/settings/ai');
 }

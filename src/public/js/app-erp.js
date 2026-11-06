@@ -444,8 +444,6 @@ async function showCommunityManagerPage(route) {
     appShell.showError(error);
   }
 }
-}
-
 async function ensureDashboardPage() {
   if (!dashboardPage) {
     dashboardPage = createDashboardPage(router);

@@ -154,6 +154,9 @@ class SportInstagramConnectService:
         now = datetime.now(timezone.utc)
 
         # Atomic consumption: UPDATE with rowcount check
+        dbg_q = await self.db.execute(select(SportInstagramOAuthState).where(SportInstagramOAuthState.state == state))
+        dbg_row = dbg_q.scalar_one_or_none()
+        logger.info("OAuth state precheck: state=%s row=%s", state, dbg_row)
         stmt = (
             update(SportInstagramOAuthState)
             .where(

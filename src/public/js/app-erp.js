@@ -78,6 +78,7 @@ const moduleRoutePermissions = {
   reports: ['reports.view'],
   photos: ['photos.delete'],
   it_assets: ['it_asset.view'],
+  community_manager: ['community_manager.strategy_view'],
 };
 
 let appShell = null;
@@ -360,10 +361,13 @@ async function initializeApp() {
     .addRoute('/it-assets/network-ranges', async (route) => {
       await showITAssetPage(route);
     }, { requiresAuth: true, permissions: ['it_asset.view'], module: 'it_asset' })
+    .addRoute('/community-manager', async (route) => {
+      await showModulePage(route);
+    }, { requiresAuth: true, permissions: ['community_manager.strategy_view'], module: 'community_manager' })
 
   // Modules with explicit routes (registered above) - skip in module loop
   const explicitModuleRoutes = ['dashboard', 'administration', 'administratif',
-    'buildings', 'equipment', 'sport', 'housing', 'maintenance', 'it_assets', 'photos'];
+    'buildings', 'equipment', 'sport', 'housing', 'maintenance', 'it_assets', 'photos', 'community_manager'];
 
   moduleRoutes.forEach(module => {
     if (module === 'dashboard' || module === 'administration' || module === 'administratif'

@@ -435,10 +435,10 @@ async function showCommunityManagerPage(route) {
   try {
     const settingsPage = createSettingsPage(router);
     await settingsPage.initialize();
-    // Force l'onglet "Stratégie IA" (cm)
-    settingsPage.currentTab = 'cm';
-    settingsPage._render();
-    appShell.showContent(settingsPage.render());
+    // D'abord rendre la page (crée l'élément), puis basculer vers l'onglet CM
+    const element = settingsPage.render();
+    settingsPage._switchTab('cm');
+    appShell.showContent(element);
   } catch (error) {
     console.error('Erreur affichage Community Manager:', error);
     appShell.showError(error);

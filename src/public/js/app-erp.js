@@ -362,7 +362,7 @@ async function initializeApp() {
       await showITAssetPage(route);
     }, { requiresAuth: true, permissions: ['it_asset.view'], module: 'it_asset' })
     .addRoute('/community-manager', async (route) => {
-      await showModulePage(route);
+      await showCommunityManagerPage(route);
     }, { requiresAuth: true, permissions: ['community_manager.strategy_view'], module: 'community_manager' })
 
   // Modules with explicit routes (registered above) - skip in module loop
@@ -424,6 +424,23 @@ async function showModulePage(route) {
     appShell.showContent(content);
   } catch (error) {
     console.error('Erreur affichage module:', error);
+    appShell.showError(error);
+  }
+}
+
+async function showCommunityManagerPage(route) {
+  if (!appShell) return;
+  appShell.showLoading();
+
+  try {
+    const settingsPage = createSettingsPage(router);
+    await settingsPage.initialize();
+    // Force l'onglet "Stratégie IA" (cm)
+    settingsPage.currentTab = 'cm';
+    settingsPage._render();
+    appShell.showContent(settingsPage.render());
+  } catch (error) {
+    console.error('Erreur affichage Community Manager:', error);
     appShell.showError(error);
   }
 }

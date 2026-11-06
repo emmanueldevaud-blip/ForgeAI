@@ -728,6 +728,9 @@ export class UserSettingsPage {
               <button class="btn btn-primary" type="submit" ${this.cmGenerating ? 'disabled' : ''}>
                 ${this.cmGenerating ? 'Génération en cours…' : 'Générer le calendrier'}
               </button>
+              <button class="btn btn-secondary" type="button" data-action="cm-edit-strategy">
+                Modifier la stratégie
+              </button>
               <span data-role="cm-generate-status" role="status" class="${this.cmSuccess ? 'text-success' : ''} ${this.cmError ? 'text-error' : ''}"></span>
             </div>
           </form>
@@ -1054,6 +1057,13 @@ export class UserSettingsPage {
 
     // Régénérer
     this.element.querySelector('[data-cm-regenerate]')?.addEventListener('click', () => this._regenerateCMCalendar());
+
+    // Modifier la stratégie
+    this.element.querySelector('[data-action="cm-edit-strategy"]')?.addEventListener('click', () => {
+      this.cmStrategy = null;
+      this.cmCalendar = [];
+      this._refreshCMTab();
+    });
   }
 
   _switchTab(tabId) {

@@ -435,14 +435,15 @@ async function showCommunityManagerPage(route) {
   try {
     const settingsPage = createSettingsPage(router);
     await settingsPage.initialize();
-    // D'abord rendre la page (crée l'élément), puis basculer vers l'onglet CM
     const element = settingsPage.render();
-    settingsPage._switchTab('cm');
     appShell.showContent(element);
+    // Switch to CM tab after content is in DOM
+    settingsPage._switchTab('cm');
   } catch (error) {
     console.error('Erreur affichage Community Manager:', error);
     appShell.showError(error);
   }
+}
 }
 
 async function ensureDashboardPage() {

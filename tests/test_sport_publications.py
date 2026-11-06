@@ -339,3 +339,10 @@ async def test_meta_disconnect_unknown(client, admin_headers):
 async def test_meta_rbac_forbidden(client, auth_headers):
     r = await client.get("/sport/publications/meta/status", headers=auth_headers)
     assert r.status_code == 403
+
+@pytest.mark.asyncio
+async def test_meta_logger_no_typeerror(client, admin_headers):
+    """Test: logger fix prevents TypeError 500 on OAuth exchange."""
+    r = await client.get("/sport/publications/meta/auth?athlete_id=1")
+    # With the logger fix, should not get 500 from TypeError
+    assert r.status_code != 500, "Logger fix should prevent 500 from TypeError"

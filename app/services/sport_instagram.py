@@ -227,7 +227,7 @@ class SportInstagramConnectService:
                 long_response.raise_for_status()
                 long_token = long_response.json().get("access_token")
             except HTTPStatusError as exc:
-                logger.warning("Meta long-lived token exchange failed", status=exc.response.status_code)
+                logger.warning(f"Meta long-lived token exchange failed (HTTP {exc.response.status_code})")
                 long_token = None
             except httpx.HTTPError as exc:
                 logger.warning("Meta long-lived token exchange network error", error=str(exc))
@@ -235,8 +235,13 @@ class SportInstagramConnectService:
 
             if long_token:
                 token_data = long_response.json()
-
-        long_lived_token = long_token or short_token
+                long_lived_token = long_token
+            else:
+                # Échec de l'échange longévité — pas de jeton longue durée obtenu.
+                # Ne JAMAIS utiliser le short-lived token comme solution de repli.
+                # Déclarer Instagram déconnecté si aucun jeton valide n'a été obtenu.
+                long_lived_token = None
+                short_token = None
         obtained_at = datetime.now(timezone.utc)
 
         # 4. Fetch Instagram Business account

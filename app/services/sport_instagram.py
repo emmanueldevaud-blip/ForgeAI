@@ -113,6 +113,7 @@ class SportInstagramConnectService:
         return values["app_id"], values["app_secret"], redirect_uri, values["config_id"]
 
     async def build_authorization_url(self, athlete_id: int, user_id: int, scopes: str | None = None) -> tuple[str, str]:
+        app_id, _, redirect_uri, config_id = await self._app_credentials()
         import secrets
         state = secrets.token_urlsafe(32)
         oauth_state = SportInstagramOAuthState(

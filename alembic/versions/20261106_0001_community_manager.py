@@ -1,7 +1,7 @@
 """Add Community Manager tables: strategy and editorial calendar.
 
 Revision ID: 20261106_0001_community_manager
-Revises: 20261105_0002_sport_instagram_oauth_states
+Revises: 20261105_0002
 Create Date: 2026-11-06
 """
 
@@ -11,7 +11,7 @@ from sqlalchemy.dialects import mysql
 
 # revision identifiers, used by Alembic.
 revision = "20261106_0001_community_manager"
-down_revision = "20261105_0002_sport_instagram_oauth_states"
+down_revision = "20261105_0002"
 branch_labels = None
 depends_on = None
 

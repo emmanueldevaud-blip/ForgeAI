@@ -55,20 +55,17 @@ export class HousingListPage {
   }
 
   async loadData() {
-    console.log('[HousingListPage] loadData called');
     try {
       const params = { page: this.page, page_size: this.pageSize, sort_by: this.sortBy, sort_order: this.sortOrder };
       if (this.search) params.search = this.search;
-      console.log('[HousingListPage] fetching with params:', params);
       const r = await listHousings(params);
-      console.log('[HousingListPage] response:', r);
       this.items = r.items || [];
       this.total = r.total || 0;
       this.totalPages = r.total_pages || 1;
       this.error = null;
       this.renderTableState();
     } catch (e) {
-      console.error('[HousingListPage] Erreur chargement hébergements:', e);
+      console.error('Erreur chargement hébergements:', e);
       this.error = e?.message || 'Erreur lors du chargement';
       this.renderTableState();
     }
@@ -90,17 +87,19 @@ export class HousingListPage {
     this.element.querySelector('[data-page="next"]')?.setAttribute('disabled', this.page >= this.totalPages);
     
     // Display error if any
-    if (this.error) {
-      const errorEl = this.element.querySelector('[data-error]');
-      if (errorEl) {
+    const errorEl = this.element.querySelector('[data-error]');
+    if (errorEl) {
+      if (this.error) {
         errorEl.textContent = this.error;
-        errorEl.hidden = false;
+        errorEl.classList.remove('hidden');
+      } else {
+        errorEl.textContent = '';
+        errorEl.classList.add('hidden');
       }
     }
   }
 
   render() {
-    console.log('[HousingListPage] render called');
     this.element = document.createElement('div');
     this.element.className = 'page-content housing-page';
     this.element.style.cssText = 'display:flex;flex-direction:column;min-height:calc(100vh - var(--header-height) - var(--spacing-6) * 2);';
@@ -109,7 +108,7 @@ export class HousingListPage {
         <input type="text" class="form-input" placeholder="Rechercher..." data-filter="search" value="${this.search}">
       </div>
       <div class="page-info"><span data-count>${this.total} hébergement${this.total > 1 ? 's' : ''}</span></div>
-      <div data-error class="error-message" hidden></div>
+      <div data-error class="error-message hidden"></div>
       <div data-table style="flex:1;"></div>
       <div class="pagination"><button class="btn btn-secondary" data-page="prev" ${this.page <= 1 ? 'disabled' : ''}>Précédent</button><span data-page-info>Page ${this.page} / ${this.totalPages}</span><button class="btn btn-secondary" data-page="next" ${this.page >= this.totalPages ? 'disabled' : ''}>Suivant</button></div>
     `;

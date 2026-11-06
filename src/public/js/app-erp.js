@@ -20,7 +20,7 @@ import { createMaintenanceContractsPage } from './pages/MaintenanceContractsPage
 import { createMaintenanceRefsPage } from './pages/MaintenanceRefsPage.js';
 import { createMaintenanceCalendarPage } from './pages/MaintenanceCalendarPage.js';
 import { createAIAssistantPage } from './pages/AIAssistantPage.js?v=31';
-import { createHousingPage } from './pages/HousingPage.js';
+import { createHousingPage } from './pages/HousingPage.js?v=1';
 import { createProfilePage } from './pages/ProfilePage.js?v=2';
 import { createSettingsPage } from './pages/UserSettingsPage.js?v=6';
 import { createCleaningVolunteersPage } from './pages/CleaningVolunteersPage.js?v=5';
@@ -1112,7 +1112,7 @@ async function showHousingImportPage(route) {
 
   try {
     const page = await ensureHousingImportPage();
-    const content = page.render();
+    const content = await page.render();
     appShell.showContent(content);
   } catch (error) {
     console.error('Erreur affichage import hébergement:', error);

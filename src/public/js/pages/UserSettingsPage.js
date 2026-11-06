@@ -69,8 +69,6 @@ export class UserSettingsPage {
       }
     }
 
-    this.oauthError = null;
-
     if (this.canConfigureMeta) {
       try {
         this.metaSettings = await getMetaSettings();

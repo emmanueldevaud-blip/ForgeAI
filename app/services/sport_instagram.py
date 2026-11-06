@@ -2,6 +2,7 @@
 
 import base64
 import hashlib
+import logging
 from datetime import datetime, timedelta, timezone
 
 import httpx
@@ -15,6 +16,8 @@ from app.models.sport import SportAthlete, SportInstagramConnection, SportInstag
 from app.models.user import User
 
 DEFAULT_META_SCOPES = "instagram_business_basic"
+
+logger = logging.getLogger(__name__)
 
 
 def _fernet():

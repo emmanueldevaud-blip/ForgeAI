@@ -352,6 +352,7 @@ def _is_spa_navigation(request: Request) -> bool:
         and request.headers.get("accept", "").startswith("text/html")
         and not any(request.url.path.startswith(f"/{prefix}") for prefix in SPA_PREFIXES)
         and not request.url.path.startswith("/housing/public/")
+        and not request.url.path.startswith("/sport/publications/meta/")
     )
 
 

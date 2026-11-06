@@ -232,7 +232,13 @@ PUBLICATION_STYLES = [
     "humor", "stats", "motivation", "inspiring", "story", "ultra", "short", "custom", "mix",
 ]
 
-PUBLICATION_STATUSES = ["draft", "validated", "shared"]
+PUBLICATION_STATUSES = ["draft", "validated", "scheduled", "shared", "failed", "refused"]
+
+PUBLICATION_CREATED_FROM = ["activity", "calendar"]
+
+PUBLICATION_TONES = [
+    "humor", "self_deprecation", "stats", "storytelling", "inspiration", "expert", "professional",
+]
 
 
 class PublicationProposalResponse(BaseModel):
@@ -247,7 +253,8 @@ class SportPublicationResponse(BaseModel):
 
     id: int
     athlete_id: int
-    activity_id: int
+    activity_id: Optional[int] = None
+    calendar_entry_id: Optional[int] = None
     status: str
     styles: list[str] = []
     custom_instructions: Optional[str] = None
@@ -263,10 +270,20 @@ class SportPublicationResponse(BaseModel):
     model: Optional[str] = None
     generated_at: Optional[datetime] = None
     validated_at: Optional[datetime] = None
+    scheduled_at: Optional[datetime] = None
     shared_at: Optional[datetime] = None
+    failed_at: Optional[datetime] = None
+    error_message: Optional[str] = None
     created_at: datetime
     updated_at: datetime
     activity: Optional[SportActivityResponse] = None
+    calendar_entry: Optional[EditorialCalendarEntryResponse] = None
+
+    # V2 fields
+    tone_used: Optional[str] = None
+    visual_generation_prompt: Optional[str] = None
+    visual_generation_provider: Optional[str] = None
+    created_from: Optional[str] = None
 
 
 class SportPublicationListResponse(BaseModel):
@@ -292,6 +309,11 @@ class SportPublicationUpdate(BaseModel):
     selected_proposal: Optional[int] = None
     styles: Optional[list[str]] = None
     custom_instructions: Optional[str] = None
+    # V2 fields
+    tone_used: Optional[str] = Field(None, max_length=50)
+    visual_generation_prompt: Optional[str] = None
+    visual_generation_provider: Optional[str] = None
+    scheduled_at: Optional[datetime] = None
 
 
 class SportPublicationSettingsResponse(BaseModel):
@@ -304,6 +326,91 @@ class SportPublicationSettingsUpdate(BaseModel):
     notifications_enabled: Optional[bool] = None
     last_styles: Optional[list[str]] = None
     last_custom_instructions: Optional[str] = None
+
+
+# --------------------------------------------------------------------------- #
+# Community Manager V2 - Studio de création
+# --------------------------------------------------------------------------- #
+
+
+class PublicationGenerateFromCalendarRequest(BaseModel):
+    """Requête pour générer une publication depuis une entrée de calendrier validée."""
+    calendar_entry_id: int
+    tone: Optional[str] = Field(None, max_length=50)
+    styles: list[str] = Field(default_factory=list)
+    custom_instructions: Optional[str] = Field(None, max_length=2000)
+    visual_type: str = Field("photo", pattern="^(photo|generated|carousel|reel)$")
+    # Si photo_id fourni, utiliser cette photo ; sinon laisser l'IA proposer
+    photo_id: Optional[int] = None
+
+
+class PublicationDraftUpdate(BaseModel):
+    """Mise à jour d'un brouillon de publication en cours de création."""
+    title: Optional[str] = Field(None, max_length=200)
+    content: Optional[str] = None
+    hashtags: Optional[str] = None
+    photo_id: Optional[int] = None
+    visual_type: Optional[str] = Field(None, pattern="^(photo|generated|carousel|reel)$")
+    tone_used: Optional[str] = Field(None, max_length=50)
+    visual_generation_prompt: Optional[str] = None
+    visual_generation_provider: Optional[str] = None
+    selected_proposal: Optional[int] = None
+    proposals: Optional[list[dict[str, Any]]] = None
+    styles: Optional[list[str]] = None
+    custom_instructions: Optional[str] = None
+
+
+class PublicationDraftResponse(SportPublicationResponse):
+    """Réponse complète pour un brouillon (inclut toutes les propositions)."""
+    pass
+
+
+class PublicationGenerateFromCalendarResponse(BaseModel):
+    """Réponse pour génération depuis calendrier."""
+    publication_id: int
+    status: str
+    proposals: list[dict[str, Any]] = []
+
+
+class PublicationVariantsRequest(BaseModel):
+    """Demande de génération de variantes de texte."""
+    publication_id: int
+    tone: Optional[str] = Field(None, max_length=50)
+    styles: Optional[list[str]] = None
+    custom_instructions: Optional[str] = Field(None, max_length=2000)
+    count: int = Field(3, ge=1, le=5)
+
+
+class PublicationVariantsResponse(BaseModel):
+    """Réponse avec les variantes générées."""
+    publication_id: int
+    variants: list[dict[str, Any]] = []
+
+
+class PublicationValidateResponse(BaseModel):
+    """Réponse après validation humaine."""
+    publication_id: int
+    status: str
+    validated_at: datetime
+
+
+class PublicationPreviewRequest(BaseModel):
+    """Demande de prévisualisation Instagram."""
+    publication_id: int
+    format: str = Field("feed", pattern="^(feed|story|reel)$")
+
+
+class PublicationPreviewResponse(BaseModel):
+    """Réponse avec le rendu prévisualisé."""
+    publication_id: int
+    preview_html: str
+    format: str
+
+
+class PublicationValidateRequest(BaseModel):
+    """Validation humaine avant publication."""
+    publication_id: int
+    confirm: bool = True
 
 
 # --------------------------------------------------------------------------- #

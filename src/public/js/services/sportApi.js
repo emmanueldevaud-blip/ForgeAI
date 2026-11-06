@@ -203,3 +203,42 @@ export async function updateCommunityManagerCalendarEntry(entryId, data) {
 export async function deleteCommunityManagerCalendarEntry(entryId) {
   return sportApi.delete(`/community-manager/calendar/${encodeURIComponent(entryId)}`);
 }
+
+// --------------------------------------------------------------------------- #
+// Community Manager V2 - Studio de création
+// --------------------------------------------------------------------------- #
+
+// V2 : Créer un brouillon depuis une entrée de calendrier
+export async function createStudioDraftFromCalendar(data) {
+  return sportApi.post('/publications/studio/from-calendar', data);
+}
+
+// V2 : Récupérer un brouillon
+export async function getStudioDraft(publicationId) {
+  return sportApi.get(`/community-manager/studio/draft/${encodeURIComponent(publicationId)}`);
+}
+
+// V2 : Mettre à jour un brouillon
+export async function updateStudioDraft(publicationId, data) {
+  return sportApi.patch(`/community-manager/studio/draft/${encodeURIComponent(publicationId)}`, data);
+}
+
+// V2 : Générer des variantes de texte
+export async function generateStudioDraftVariants(publicationId, data) {
+  return sportApi.post(`/community-manager/studio/draft/${encodeURIComponent(publicationId)}/variants`, data);
+}
+
+// V2 : Valider un brouillon pour publication
+export async function validateStudioDraft(publicationId, data) {
+  return sportApi.post(`/community-manager/studio/draft/${encodeURIComponent(publicationId)}/validate`, data);
+}
+
+// V2 : Planifier une publication
+export async function scheduleStudioDraft(publicationId, scheduledAt) {
+  return sportApi.post(`/community-manager/studio/draft/${encodeURIComponent(publicationId)}/schedule`, { scheduled_at: scheduledAt });
+}
+
+// V2 : Prévisualiser le rendu Instagram
+export async function previewStudioDraft(publicationId, format = 'feed') {
+  return sportApi.post(`/community-manager/studio/draft/${encodeURIComponent(publicationId)}/preview`, { format });
+}

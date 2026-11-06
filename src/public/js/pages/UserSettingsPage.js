@@ -11,8 +11,10 @@ import {
   getCommunityManagerCalendar,
   updateCommunityManagerCalendarEntry,
   deleteCommunityManagerCalendarEntry,
+  createStudioDraftFromCalendar,
 } from '../services/sportApi.js?v=10';
 import { createSportGarminPage } from './SportGarminPage.js?v=5';
+import { createCommunityManagerStudioPage } from './CommunityManagerStudioPage.js?v=1';
 
 export class UserSettingsPage {
   constructor(router) {
@@ -746,12 +748,25 @@ export class UserSettingsPage {
         <td class="text-muted" style="max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${this._escape(entry.notes || '')}</td>
         <td>
           <div class="form-actions" style="gap: 8px;">
-            <button class="btn btn-sm btn-primary" data-cm-validate data-entry-id="${entry.id}" ${entry.status === 'planifié' ? 'disabled' : ''}>
-              ${entry.status === 'planifié' ? 'Planifié' : 'Valider'}
-            </button>
-            <button class="btn btn-sm btn-secondary" data-cm-reject data-entry-id="${entry.id}" ${entry.status === 'refusé' ? 'disabled' : ''}>
-              ${entry.status === 'refusé' ? 'Refusé' : 'Refuser'}
-            </button>
+            ${entry.status === 'brouillon' ? `
+              <button class="btn btn-sm btn-primary" data-cm-validate data-entry-id="${entry.id}">
+                Valider
+              </button>
+              <button class="btn btn-sm btn-secondary" data-cm-reject data-entry-id="${entry.id}">
+                Refuser
+              </button>
+            ` : ''}
+            ${entry.status === 'planifié' ? `
+              <button class="btn btn-sm btn-primary" data-cm-create-publication data-entry-id="${entry.id}" data-entry-topic="${this._escape(entry.topic)}">
+                Créer la publication
+              </button>
+              <button class="btn btn-sm btn-secondary" data-cm-reject data-entry-id="${entry.id}">
+                Refuser
+              </button>
+            ` : ''}
+            ${entry.status === 'refusé' ? `
+              <span class="text-muted">Refusée</span>
+            ` : ''}
           </div>
         </td>
       </tr>
@@ -959,6 +974,48 @@ export class UserSettingsPage {
     await this._generateCMCalendar(tempForm);
   }
 
+  async _createPublicationFromEntry(entryId, entryTopic) {
+    const btn = this.element.querySelector(`[data-cm-create-publication][data-entry-id="${entryId}"]`);
+    if (btn?.disabled) return;
+    if (btn) btn.disabled = true;
+
+    const setStatus = (text, success) => {
+      const statusEl = this.element.querySelector('[data-role="cm-calendar-status"]');
+      if (statusEl) {
+        statusEl.textContent = text;
+        statusEl.classList.toggle('text-success', !!success);
+        statusEl.classList.toggle('text-error', !success);
+      }
+    };
+
+    try {
+      setStatus('Création du brouillon...', null);
+      if (btn) btn.textContent = 'Création...';
+
+      // Appeler l'API pour créer le brouillon
+      const result = await createStudioDraftFromCalendar({
+        calendar_entry_id: parseInt(entryId, 10),
+        styles: ['stats'],
+        visual_type: 'photo',
+      });
+
+      if (result?.publication_id) {
+        setStatus(`Publication créée pour "${entryTopic}".`, true);
+        // Naviguer vers le studio
+        this.router.navigate(`/settings/cm/studio/${result.publication_id}`);
+      } else {
+        setStatus('Création échouée.', false);
+      }
+    } catch (error) {
+      setStatus(error?.data?.detail || error?.message || 'Création impossible.', false);
+    } finally {
+      if (btn) {
+        btn.disabled = false;
+        btn.textContent = 'Créer la publication';
+      }
+    }
+  }
+
   _refreshCMTab() {
     const panel = this.element.querySelector('[data-tab-panel="cm"]');
     if (panel) {
@@ -988,6 +1045,11 @@ export class UserSettingsPage {
     });
     this.element.querySelectorAll('[data-cm-reject]').forEach(btn => {
       btn.addEventListener('click', () => this._rejectCMEntry(parseInt(btn.dataset.entryId, 10)));
+    });
+
+    // Bouton créer publication
+    this.element.querySelectorAll('[data-cm-create-publication]').forEach(btn => {
+      btn.addEventListener('click', () => this._createPublicationFromEntry(btn.dataset.entryId, btn.dataset.entryTopic));
     });
 
     // Régénérer

@@ -330,17 +330,21 @@ class SportPublication(Base):
     remplace les propositions sans creer de doublon. Aucune donnee
     d'activite n'est recopiee ici, la publication reference l'activite.
     Statuts : draft -> validated -> shared.
+    Sources : activity (V1) ou calendar (V2).
     """
 
     __tablename__ = "sport_publications"
     __table_args__ = (
         Index("uq_sport_publication_activity", "activity_id", unique=True),
         Index("ix_sport_publications_athlete_status", "athlete_id", "status"),
+        Index("ix_sport_publications_calendar_entry", "calendar_entry_id"),
+        Index("ix_sport_publications_created_from", "created_from"),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     athlete_id: Mapped[int] = mapped_column(ForeignKey("sport_athletes.id", ondelete="CASCADE"), nullable=False, index=True)
-    activity_id: Mapped[int] = mapped_column(ForeignKey("sport_activities.id", ondelete="CASCADE"), nullable=False)
+    activity_id: Mapped[int | None] = mapped_column(ForeignKey("sport_activities.id", ondelete="CASCADE"), nullable=True)
+    calendar_entry_id: Mapped[int | None] = mapped_column(ForeignKey("editorial_calendar_entries.id", ondelete="SET NULL"), nullable=True, index=True)
     status: Mapped[str] = mapped_column(String(30), nullable=False, default="draft", index=True)
     styles: Mapped[list[Any]] = mapped_column(JSON, nullable=False, default=list)
     custom_instructions: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -356,12 +360,22 @@ class SportPublication(Base):
     model: Mapped[str | None] = mapped_column(String(100), nullable=True)
     generated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     validated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    scheduled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     shared_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    failed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
 
+    # V2 fields
+    tone_used: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    visual_generation_prompt: Mapped[str | None] = mapped_column(Text, nullable=True)
+    visual_generation_provider: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    created_from: Mapped[str | None] = mapped_column(String(20), nullable=True)  # 'activity' or 'calendar'
+
     athlete: Mapped["SportAthlete"] = relationship("SportAthlete", lazy="selectin")
-    activity: Mapped["SportActivity"] = relationship("SportActivity", lazy="selectin")
+    activity: Mapped["SportActivity | None"] = relationship("SportActivity", lazy="selectin")
+    calendar_entry: Mapped["EditorialCalendarEntry | None"] = relationship("EditorialCalendarEntry", lazy="selectin")
 
 
 class SportInstagramConnection(Base):

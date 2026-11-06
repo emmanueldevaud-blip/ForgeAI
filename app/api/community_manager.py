@@ -1,6 +1,7 @@
 """Routes API V1 pour le Community Manager IA."""
 
 import logging
+from datetime import datetime
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -17,8 +18,19 @@ from app.schemas.sport import (
     CommunityManagerStrategyUpdate,
     EditorialCalendarEntryResponse,
     EditorialCalendarEntryUpdate,
+    PublicationDraftUpdate,
+    PublicationDraftResponse,
+    PublicationGenerateFromCalendarRequest,
+    PublicationGenerateFromCalendarResponse,
+    PublicationPreviewRequest,
+    PublicationPreviewResponse,
+    PublicationValidateRequest,
+    PublicationValidateResponse,
+    PublicationVariantsRequest,
+    PublicationVariantsResponse,
 )
-from app.services.community_manager import CommunityManagerService
+from app.services.ai_gateway import AIGatewayError
+from app.services.community_manager import CommunityManagerService, CommunityManagerStudioService
 
 logger = logging.getLogger(__name__)
 
@@ -55,6 +67,20 @@ async def get_cm_generate_service(
     db: AsyncSession = Depends(get_db),
 ) -> CommunityManagerService:
     return CommunityManagerService(db, current_user)
+
+
+async def get_cm_studio_service(
+    current_user: User = Depends(require_permission("community_manager.calendar_generate")),
+    db: AsyncSession = Depends(get_db),
+) -> CommunityManagerStudioService:
+    return CommunityManagerStudioService(db, current_user)
+
+
+async def get_cm_studio_write_service(
+    current_user: User = Depends(require_permission("community_manager.calendar_generate")),
+    db: AsyncSession = Depends(get_db),
+) -> CommunityManagerStudioService:
+    return CommunityManagerStudioService(db, current_user)
 
 
 # ============================================================
@@ -152,6 +178,133 @@ async def delete_calendar_entry(
 
 
 # ============================================================
+# STUDIO DE CRÉATION V2
+# ============================================================
+
+
+@router.post("/studio/from-calendar", response_model=PublicationGenerateFromCalendarResponse)
+async def create_studio_draft(
+    data: PublicationGenerateFromCalendarRequest,
+    service: CommunityManagerStudioService = Depends(get_cm_studio_write_service),
+):
+    """Créer un brouillon de publication depuis une entrée de calendrier validée."""
+    try:
+        publication = await service.create_draft_from_calendar(data)
+        return PublicationGenerateFromCalendarResponse(
+            publication_id=publication.id,
+            status=publication.status,
+            proposals=publication.proposals or [],
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except AIGatewayError as exc:
+        raise HTTPException(status_code=503, detail="Génération IA impossible") from exc
+    except Exception as exc:
+        logger.exception("[CM-STUDIO] Erreur création brouillon")
+        raise HTTPException(status_code=503, detail="Création impossible") from exc
+
+
+@router.get("/studio/draft/{publication_id}", response_model=PublicationDraftResponse)
+async def get_studio_draft(
+    publication_id: int,
+    service: CommunityManagerStudioService = Depends(get_cm_studio_service),
+):
+    """Récupérer un brouillon de publication en cours de création."""
+    publication = await service.get_draft(publication_id)
+    if not publication:
+        raise HTTPException(status_code=404, detail="Brouillon introuvable")
+    return PublicationDraftResponse.model_validate(publication)
+
+
+@router.patch("/studio/draft/{publication_id}", response_model=PublicationDraftResponse)
+async def update_studio_draft(
+    publication_id: int,
+    data: PublicationDraftUpdate,
+    service: CommunityManagerStudioService = Depends(get_cm_studio_write_service),
+):
+    """Mettre à jour un brouillon (texte, hashtags, visuel, ton, propositions)."""
+    publication = await service.update_draft(publication_id, data)
+    if not publication:
+        raise HTTPException(status_code=404, detail="Brouillon introuvable")
+    return PublicationDraftResponse.model_validate(publication)
+
+
+@router.post("/studio/draft/{publication_id}/variants", response_model=PublicationVariantsResponse)
+async def generate_text_variants(
+    publication_id: int,
+    data: PublicationVariantsRequest,
+    service: CommunityManagerStudioService = Depends(get_cm_studio_write_service),
+):
+    """Générer des variantes de texte pour un brouillon."""
+    try:
+        variants = await service.generate_text_variants(
+            publication_id=publication_id,
+            tone=data.tone,
+            styles=data.styles,
+            custom_instructions=data.custom_instructions,
+            count=data.count,
+        )
+        return PublicationVariantsResponse(publication_id=publication_id, variants=variants)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except AIGatewayError as exc:
+        raise HTTPException(status_code=503, detail="Génération IA impossible") from exc
+    except Exception as exc:
+        logger.exception("[CM-STUDIO] Erreur génération variantes")
+        raise HTTPException(status_code=503, detail="Génération impossible") from exc
+
+
+@router.post("/studio/draft/{publication_id}/validate", response_model=PublicationValidateResponse)
+async def validate_draft_for_publication(
+    publication_id: int,
+    data: PublicationValidateRequest,
+    service: CommunityManagerStudioService = Depends(get_cm_studio_write_service),
+):
+    """Valider un brouillon pour publication (passe en 'validated')."""
+    try:
+        publication = await service.validate_for_publication(publication_id, data)
+        if not publication:
+            raise HTTPException(status_code=404, detail="Brouillon introuvable")
+        return PublicationValidateResponse(
+            publication_id=publication.id,
+            status=publication.status,
+            validated_at=publication.validated_at,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@router.post("/studio/draft/{publication_id}/schedule")
+async def schedule_draft(
+    publication_id: int,
+    scheduled_at: datetime = Query(..., description="Date/heure de publication planifiée"),
+    service: CommunityManagerStudioService = Depends(get_cm_studio_write_service),
+):
+    """Planifier une publication validée."""
+    try:
+        publication = await service.schedule_publication(publication_id, scheduled_at)
+        if not publication:
+            raise HTTPException(status_code=404, detail="Publication introuvable")
+        return {"publication_id": publication.id, "status": publication.status, "scheduled_at": publication.scheduled_at}
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@router.post("/studio/draft/{publication_id}/preview", response_model=PublicationPreviewResponse)
+async def preview_draft(
+    publication_id: int,
+    data: PublicationPreviewRequest,
+    service: CommunityManagerStudioService = Depends(get_cm_studio_service),
+):
+    """Prévisualiser le rendu Instagram d'une publication."""
+    try:
+        preview = await service.get_preview(publication_id, data.format)
+        return PublicationPreviewResponse(**preview)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+# ============================================================
 # ROUTES SPORT PUBLICATIONS (pont vers V1)
 # ============================================================
 
@@ -229,3 +382,37 @@ async def get_community_calendar(
 
     calendar = await service.get_calendar()
     return {"calendar": [entry.model_dump() for entry in calendar]}
+
+
+# ============================================================
+# ROUTES SPORT PUBLICATIONS V2 (pont vers Studio)
+# ============================================================
+
+
+async def get_sport_studio_write_service(
+    current_user: User = Depends(require_permission("sport.publications.write")),
+    db: AsyncSession = Depends(get_db),
+) -> CommunityManagerStudioService:
+    return CommunityManagerStudioService(db, current_user)
+
+
+@sport_router.post("/studio/from-calendar", response_model=PublicationGenerateFromCalendarResponse)
+async def create_studio_draft_from_sport(
+    data: PublicationGenerateFromCalendarRequest,
+    service: CommunityManagerStudioService = Depends(get_sport_studio_write_service),
+):
+    """Créer un brouillon de publication depuis une entrée de calendrier validée (pont frontend sport)."""
+    try:
+        publication = await service.create_draft_from_calendar(data)
+        return PublicationGenerateFromCalendarResponse(
+            publication_id=publication.id,
+            status=publication.status,
+            proposals=publication.proposals or [],
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except AIGatewayError as exc:
+        raise HTTPException(status_code=503, detail="Génération IA impossible") from exc
+    except Exception as exc:
+        logger.exception("[SPORT-STUDIO] Erreur création brouillon")
+        raise HTTPException(status_code=503, detail="Création impossible") from exc

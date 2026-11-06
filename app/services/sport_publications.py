@@ -16,9 +16,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.attributes import flag_modified
 
 from app.models.photo import Photo
-from app.models.sport import SportActivity, SportAthlete, SportPublication
+from app.models.sport import SportActivity, SportAthlete, SportPublication, EditorialCalendarEntry, CommunityManagerStrategy
 from app.models.user import User
-from app.schemas.sport import SportPublicationGenerateRequest
+from app.schemas.sport import SportPublicationGenerateRequest, PublicationGenerateFromCalendarRequest
 from app.services.ai_gateway import AIGatewayError, ai_gateway
 from app.services.notification import NotificationService
 from app.services.sport import SportService
@@ -644,6 +644,240 @@ class SportPublicationService:
         pub.activity = activity
         return pub
 
+    async def generate_from_calendar_entry(
+        self, calendar_entry_id: int, data: Any
+    ) -> Optional[SportPublication]:
+        """Génère une publication Instagram à partir d'une entrée de calendrier validée (V2)."""
+        # Vérifier que l'entrée appartient à l'utilisateur
+        athlete = await self.get_or_create_athlete()
+        strategy_result = await self.db.execute(
+            select(CommunityManagerStrategy).where(
+                CommunityManagerStrategy.athlete_id == athlete.id
+            )
+        )
+        strategy = strategy_result.scalar_one_or_none()
+        if not strategy:
+            raise ValueError("Stratégie éditoriale non configurée")
+
+        entry_result = await self.db.execute(
+            select(EditorialCalendarEntry).where(
+                EditorialCalendarEntry.id == calendar_entry_id,
+                EditorialCalendarEntry.strategy_id == strategy.id,
+            )
+        )
+        entry = entry_result.scalar_one_or_none()
+        if not entry:
+            raise ValueError("Entrée de calendrier introuvable")
+
+        if entry.status != "planifié":
+            raise ValueError("L'entrée doit être validée (statut 'planifié') pour créer une publication")
+
+        # Vérifier s'il existe déjà une publication pour cette entrée
+        existing_pub_result = await self.db.execute(
+            select(SportPublication).where(
+                SportPublication.calendar_entry_id == calendar_entry_id,
+                SportPublication.athlete_id == athlete.id,
+            )
+        )
+        existing_pub = existing_pub_result.scalar_one_or_none()
+
+        styles = data.styles if hasattr(data, "styles") and data.styles else []
+        custom = data.custom_instructions if hasattr(data, "custom_instructions") and data.custom_instructions else None
+        tone = data.tone if hasattr(data, "tone") and data.tone else None
+        visual_type = data.visual_type if hasattr(data, "visual_type") and data.visual_type else "photo"
+        photo_id = data.photo_id if hasattr(data, "photo_id") and data.photo_id else None
+
+        # Si pas de styles fournis, utiliser ceux de la stratégie ou défaut
+        if not styles:
+            styles = ["stats"]
+
+        # Récupérer les activités récentes pour le contexte
+        recent_activities = []
+        activities_result = await self.db.execute(
+            select(SportActivity)
+            .where(SportActivity.athlete_id == athlete.id)
+            .order_by(SportActivity.started_at.desc())
+            .limit(10)
+        )
+        for act in activities_result.scalars().all():
+            recent_activities.append({
+                "id": act.id,
+                "sport_type": act.sport_type,
+                "activity_name": act.activity_name,
+                "started_at": act.started_at.isoformat() if act.started_at else None,
+                "duration_seconds": act.duration_seconds,
+                "distance_m": act.distance_m,
+                "elevation_gain_m": act.elevation_gain_m,
+                "elevation_loss_m": act.elevation_loss_m,
+                "avg_speed_m_s": act.avg_speed_m_s,
+                "avg_pace_sec_km": act.avg_pace_sec_km,
+                "avg_heart_rate": act.avg_heart_rate,
+                "max_heart_rate": act.max_heart_rate,
+                "avg_cadence": act.avg_cadence,
+                "avg_power_w": act.avg_power_w,
+                "calories": act.calories,
+                "temperature_c": act.temperature_c,
+                "source_type": act.source_type,
+            })
+
+        # Construire le prompt pour la génération V2
+        prompt = self._build_v2_generation_prompt(
+            entry=entry,
+            strategy=strategy,
+            recent_activities=recent_activities,
+            styles=styles,
+            custom_instructions=custom,
+            tone=tone,
+            visual_type=visual_type,
+        )
+
+        # Créer ou récupérer la publication
+        if existing_pub:
+            pub = existing_pub
+        else:
+            pub = SportPublication(
+                athlete_id=athlete.id,
+                calendar_entry_id=calendar_entry_id,
+                status="draft",
+                created_from="calendar",
+            )
+            self.db.add(pub)
+            await self.db.flush()
+
+        # Historique pour éviter répétition
+        prev_rows = (
+            await self.db.execute(
+                select(SportPublication).where(
+                    SportPublication.athlete_id == pub.athlete_id,
+                    SportPublication.id != pub.id,
+                ).order_by(SportPublication.created_at.desc()).limit(8)
+            )
+        ).scalars().all()
+        prev_ctx = _previous_publications_context(list(prev_rows))
+
+        # Tons effectifs
+        effective_styles = list(styles)
+        if "mix" in effective_styles:
+            effective_styles = [s for s in effective_styles if s != "mix"]
+            if not effective_styles:
+                effective_styles = ["stats", "humor"]
+
+        style_lines = "\n".join(
+            f"- {STYLE_LABELS.get(s, s)} : {STYLE_INSTRUCTIONS.get(s, '')}" for s in effective_styles
+        )
+        if custom:
+            style_lines += f"\n- Consignes personnalisées de l'utilisateur : {custom}"
+        if tone:
+            style_lines += f"\n- Ton rédactionnel choisi : {tone}"
+
+        mix_note = ""
+        if len(effective_styles) > 1:
+            mix_note = " Mode MIX : combiner les tons sélectionnés dans une même proposition quand c'est pertinent."
+
+        prompt = (
+            f"Sujet éditorial (déjà validé) :\n"
+            f"- Titre : {entry.topic}\n"
+            f"- Thème : {entry.theme or 'Non défini'}\n"
+            f"- Objectif : {entry.objective or 'Non défini'}\n"
+            f"- Note IA : {entry.notes or 'Aucune'}\n"
+            f"- Date suggérée : {entry.date}\n\n"
+            f"Stratégie éditoriale :\n"
+            f"- Identité : {strategy.brand_identity or 'Non définie'}\n"
+            f"- Tons : {', '.join(strategy.tone) if strategy.tone else 'Non définis'}\n"
+            f"- Audience : {strategy.target_audience or 'Non définie'}\n"
+            f"- Objectifs : {', '.join(strategy.objectives) if strategy.objectives else 'Non définis'}\n"
+            f"- Thèmes : {', '.join(strategy.themes) if strategy.themes else 'Non définis'}\n"
+            f"- Réseaux : {', '.join(strategy.networks) if strategy.networks else 'Non définis'}\n\n"
+            f"Activités récentes Garmin (données réelles, NE PAS INVENTER) :\n"
+            f"{json.dumps(recent_activities[:5], ensure_ascii=False, default=str)}\n\n"
+            f"Tons demandés :\n{style_lines}{mix_note}\n\n"
+            f"Historique des publications précédentes (à éviter) :\n{prev_ctx}\n\n"
+            f"Génère 3 propositions de publication Instagram distinctes. "
+            f"Pour chaque proposition retourne un objet avec : title, content, hashtags, format (Reel/carrousel/photo/story), "
+            f"idee_visuelle, objectif (visibilité/partage/interaction/fidélisation). "
+            f"Respecte impérativement le ton demandé et n'invente AUCUNE donnée. "
+            f"Réponds uniquement en JSON avec la clé 'proposals'."
+        )
+
+        started = datetime.now(timezone.utc)
+        try:
+            response = await ai_gateway.generate(
+                prompt=prompt,
+                system_prompt=SYSTEM_PROMPT,
+                temperature=0.7,
+                max_tokens=1800,
+            )
+        except AIGatewayError as exc:
+            logger.warning("[SPORT-PUB-V2] IA indisponible : %s", exc)
+            pub.styles = styles
+            pub.custom_instructions = custom
+            pub.tone_used = tone
+            pub.visual_type = visual_type
+            pub.photo_id = photo_id
+            pub.proposals = []
+            pub.provider = None
+            pub.model = None
+            pub.generated_at = datetime.now(timezone.utc)
+            await self.db.commit()
+            await self.db.refresh(pub)
+            raise
+
+        text = (response.text or "").strip()
+        payload = None
+        try:
+            cleaned = text
+            if cleaned.startswith("```"):
+                cleaned = cleaned.split("```", 2)[1]
+                if cleaned.startswith("json"):
+                    cleaned = cleaned[4:]
+            s, e = cleaned.find("{"), cleaned.rfind("}")
+            if s >= 0 and e > s:
+                payload = json.loads(cleaned[s:e + 1])
+        except (json.JSONDecodeError, ValueError):
+            payload = None
+
+        proposals_raw = []
+        if isinstance(payload, dict) and isinstance(payload.get("proposals"), list):
+            for p in payload["proposals"][:3]:
+                if not isinstance(p, dict):
+                    continue
+                content = str(p.get("content") or "").strip()
+                if not content:
+                    continue
+                proposals_raw.append({
+                    "title": str(p.get("title")).strip() if p.get("title") else None,
+                    "content": content,
+                    "hashtags": str(p.get("hashtags")).strip() if p.get("hashtags") else None,
+                    "format": str(p.get("format")).strip() if p.get("format") else "photo",
+                    "idee_visuelle": str(p.get("idee_visuelle")).strip() if p.get("idee_visuelle") else None,
+                    "objectif": str(p.get("objectif")).strip() if p.get("objectif") else None,
+                })
+
+        if not proposals_raw:
+            proposals_raw = [{"title": "Publication", "content": text, "hashtags": None, "format": "photo", "idee_visuelle": None, "objectif": None}]
+
+        while len(proposals_raw) < 3:
+            proposals_raw.append({"title": None, "content": "", "hashtags": None, "format": "photo", "idee_visuelle": None, "objectif": None})
+        proposals_raw = proposals_raw[:3]
+
+        pub.styles = styles
+        pub.custom_instructions = custom
+        pub.tone_used = tone
+        pub.visual_type = visual_type
+        pub.photo_id = photo_id
+        pub.proposals = proposals_raw
+        pub.selected_proposal = 0
+        pub.title = proposals_raw[0].get("title")
+        pub.content = proposals_raw[0].get("content")
+        pub.hashtags = proposals_raw[0].get("hashtags")
+        pub.provider = getattr(response, "provider_used", None)
+        pub.model = getattr(response, "model_used", None)
+        pub.generated_at = datetime.now(timezone.utc)
+        pub.status = "draft"
+        await self.db.commit()
+        await self.db.refresh(pub)
+        return pub
+
     async def update(self, publication_id: int, data: Any) -> Optional[SportPublication]:
         pub = await self.get_publication(publication_id)
         if pub is None:
@@ -673,6 +907,15 @@ class SportPublicationService:
             pub.styles = self._validate_styles(data.styles) or pub.styles
         if data.custom_instructions is not None:
             pub.custom_instructions = data.custom_instructions.strip() or None
+        # V2 fields
+        if hasattr(data, "tone_used") and data.tone_used is not None:
+            pub.tone_used = data.tone_used
+        if hasattr(data, "visual_generation_prompt") and data.visual_generation_prompt is not None:
+            pub.visual_generation_prompt = data.visual_generation_prompt
+        if hasattr(data, "visual_generation_provider") and data.visual_generation_provider is not None:
+            pub.visual_generation_provider = data.visual_generation_provider
+        if hasattr(data, "scheduled_at") and data.scheduled_at is not None:
+            pub.scheduled_at = data.scheduled_at
         await self.db.commit()
         await self.db.refresh(pub)
         return pub

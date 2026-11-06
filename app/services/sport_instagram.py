@@ -113,7 +113,6 @@ class SportInstagramConnectService:
         return values["app_id"], values["app_secret"], redirect_uri, values["config_id"]
 
     async def build_authorization_url(self, athlete_id: int, user_id: int, scopes: str | None = None) -> tuple[str, str]:
-        app_id, _, redirect_uri, config_id = await self._app_credentials()
         import secrets
         state = secrets.token_urlsafe(32)
         oauth_state = SportInstagramOAuthState(
@@ -126,6 +125,7 @@ class SportInstagramConnectService:
         self.db.add(oauth_state)
         await self.db.flush()
         await self.db.commit()
+        logger.debug(f"STATE_CREATED: state_hash={hashlib.sha256(state.encode()).hexdigest()[:16]}, expires_at={oauth_state.expires_at}, consumed={oauth_state.consumed}")
         from urllib.parse import urlencode
 
         params = {
@@ -164,6 +164,8 @@ class SportInstagramConnectService:
             .values(consumed=True)
         )
         result = await self.db.execute(stmt)
+        state_hash = hashlib.sha256(state.encode()).hexdigest()[:16]
+        logger.debug(f"STATE_VALIDATION: state_hash={state_hash}, rowcount={result.rowcount}, callback_at={now}, consumed_ok={SportInstagramOAuthState.consumed == False}, not_expired={SportInstagramOAuthState.expires_at >= func.utc_timestamp()}")
         if result.rowcount != 1:
             raise HTTPException(status_code=400, detail="Etat OAuth invalide ou expire")
 
@@ -174,11 +176,13 @@ class SportInstagramConnectService:
         oauth_state = q.scalar_one()
         athlete_id = oauth_state.athlete_id
         user_id = oauth_state.user_id
+        logger.debug(f"STATE_FOUND: athlete_id={athlete_id}, user_id={user_id}, stored_consumed={oauth_state.consumed}, stored_expires_at={oauth_state.expires_at}")
 
         # Commit state consumption immediately (Transaction A)
         await self.db.delete(oauth_state)
         await self.db.flush()
         await self.db.commit()
+        logger.debug(f"STATE_CONSUMED: state_hash={state_hash}, deleted_from_db=True")
 
         # 2. External calls: Exchange code with Meta (no DB lock held)
         app_id, app_secret, default_redirect, _ = await self._app_credentials()

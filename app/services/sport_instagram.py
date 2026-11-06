@@ -164,6 +164,7 @@ class SportInstagramConnectService:
             .values(consumed=True)
         )
         result = await self.db.execute(stmt)
+        logger.info("OAuth state validation debug: state=%s rowcount=%s", state, result.rowcount)
         if result.rowcount != 1:
             raise HTTPException(status_code=400, detail="Etat OAuth invalide ou expire")
 

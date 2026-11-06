@@ -13,62 +13,79 @@ branch_labels = None
 depends_on = None
 
 
-def upgrade() -> None:
-    # Add new columns to sport_publications
-    op.add_column(
-        "sport_publications",
-        sa.Column("calendar_entry_id", sa.Integer(), sa.ForeignKey("editorial_calendar_entries.id", ondelete="SET NULL"), nullable=True),
+def _column_exists(conn, table_name, column_name):
+    """Check if a column exists in a table."""
+    result = conn.execute(
+        sa.text(
+            "SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS "
+            "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = :table AND COLUMN_NAME = :column"
+        ),
+        {"table": table_name, "column": column_name}
     )
-    op.add_column(
-        "sport_publications",
-        sa.Column("tone_used", sa.String(50), nullable=True),
-    )
-    op.add_column(
-        "sport_publications",
-        sa.Column("visual_generation_prompt", sa.Text(), nullable=True),
-    )
-    op.add_column(
-        "sport_publications",
-        sa.Column("visual_generation_provider", sa.String(50), nullable=True),
-    )
-    op.add_column(
-        "sport_publications",
-        sa.Column("created_from", sa.String(20), nullable=True),  # 'activity' or 'calendar'
-    )
-    op.add_column(
-        "sport_publications",
-        sa.Column("validated_at", sa.DateTime(timezone=True), nullable=True),
-    )
-    op.add_column(
-        "sport_publications",
-        sa.Column("scheduled_at", sa.DateTime(timezone=True), nullable=True),
-    )
-    op.add_column(
-        "sport_publications",
-        sa.Column("failed_at", sa.DateTime(timezone=True), nullable=True),
-    )
-    op.add_column(
-        "sport_publications",
-        sa.Column("error_message", sa.Text(), nullable=True),
-    )
+    return result.scalar() > 0
 
-    # Add indexes
-    op.create_index("ix_sport_publications_calendar_entry", "sport_publications", ["calendar_entry_id"])
-    op.create_index("ix_sport_publications_created_from", "sport_publications", ["created_from"])
+
+def upgrade() -> None:
+    conn = op.get_bind()
+
+    # Add new columns only if they don't exist
+    columns_to_add = [
+        ("calendar_entry_id", sa.Column("calendar_entry_id", sa.Integer(), sa.ForeignKey("editorial_calendar_entries.id", ondelete="SET NULL"), nullable=True)),
+        ("tone_used", sa.Column("tone_used", sa.String(50), nullable=True)),
+        ("visual_generation_prompt", sa.Column("visual_generation_prompt", sa.Text(), nullable=True)),
+        ("visual_generation_provider", sa.Column("visual_generation_provider", sa.String(50), nullable=True)),
+        ("created_from", sa.Column("created_from", sa.String(20), nullable=True)),
+        ("validated_at", sa.Column("validated_at", sa.DateTime(timezone=True), nullable=True)),
+        ("scheduled_at", sa.Column("scheduled_at", sa.DateTime(timezone=True), nullable=True)),
+        ("failed_at", sa.Column("failed_at", sa.DateTime(timezone=True), nullable=True)),
+        ("error_message", sa.Column("error_message", sa.Text(), nullable=True)),
+    ]
+
+    for col_name, col_def in columns_to_add:
+        if not _column_exists(conn, "sport_publications", col_name):
+            op.add_column("sport_publications", col_def)
+
+    # Add indexes only if they don't exist (MySQL doesn't support IF NOT EXISTS for indexes easily)
+    # We'll try to create them and ignore errors if they exist
+    try:
+        op.create_index("ix_sport_publications_calendar_entry", "sport_publications", ["calendar_entry_id"])
+    except Exception:
+        pass
+
+    try:
+        op.create_index("ix_sport_publications_created_from", "sport_publications", ["created_from"])
+    except Exception:
+        pass
 
     # Update existing records to have created_from='activity'
     op.execute("UPDATE sport_publications SET created_from = 'activity' WHERE created_from IS NULL")
 
 
 def downgrade() -> None:
-    op.drop_index("ix_sport_publications_created_from", table_name="sport_publications")
-    op.drop_index("ix_sport_publications_calendar_entry", table_name="sport_publications")
-    op.drop_column("sport_publications", "error_message")
-    op.drop_column("sport_publications", "failed_at")
-    op.drop_column("sport_publications", "scheduled_at")
-    op.drop_column("sport_publications", "validated_at")
-    op.drop_column("sport_publications", "created_from")
-    op.drop_column("sport_publications", "visual_generation_provider")
-    op.drop_column("sport_publications", "visual_generation_prompt")
-    op.drop_column("sport_publications", "tone_used")
-    op.drop_column("sport_publications", "calendar_entry_id")
+    # Drop indexes
+    try:
+        op.drop_index("ix_sport_publications_created_from", table_name="sport_publications")
+    except Exception:
+        pass
+    try:
+        op.drop_index("ix_sport_publications_calendar_entry", table_name="sport_publications")
+    except Exception:
+        pass
+
+    # Drop columns
+    columns_to_drop = [
+        "error_message",
+        "failed_at",
+        "scheduled_at",
+        "validated_at",
+        "created_from",
+        "visual_generation_provider",
+        "visual_generation_prompt",
+        "tone_used",
+        "calendar_entry_id",
+    ]
+    for col_name in columns_to_drop:
+        try:
+            op.drop_column("sport_publications", col_name)
+        except Exception:
+            pass

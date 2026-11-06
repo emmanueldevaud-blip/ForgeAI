@@ -12,7 +12,7 @@ import {
   updateCommunityManagerCalendarEntry,
   deleteCommunityManagerCalendarEntry,
   createStudioDraftFromCalendar,
-} from '../services/sportApi.js?v=10';
+} from '../services/sportApi.js?v=11';
 import { createSportGarminPage } from './SportGarminPage.js?v=5';
 import { createCommunityManagerStudioPage } from './CommunityManagerStudioPage.js?v=1';
 

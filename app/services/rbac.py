@@ -518,6 +518,11 @@ async def seed_default_rbac(db: AsyncSession) -> None:
         ("sport.publications.read", "Consulter les publications Instagram", "sport"),
         ("sport.publications.write", "Generer et gerer les publications Instagram", "sport"),
         ("sport.admin", "Administrer le module Sport", "sport"),
+        # Community Manager IA
+        ("community_manager.strategy_view", "Voir la stratégie éditoriale", "community_manager"),
+        ("community_manager.strategy_update", "Modifier la stratégie éditoriale", "community_manager"),
+        ("community_manager.calendar_generate", "Générer le calendrier éditorial", "community_manager"),
+        ("community_manager.calendar_view", "Voir le calendrier éditorial", "community_manager"),
         ("administration.programs.view", "Consulter les programmes administratifs", "administration"),
         ("administration.programs.manage", "Gérer les séances et affectations", "administration"),
         ("administration.programs.configure", "Configurer les programmes administratifs", "administration"),

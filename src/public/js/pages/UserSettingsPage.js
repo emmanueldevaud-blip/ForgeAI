@@ -5,7 +5,13 @@ import {
   getInstagramConnectionStatus,
   connectInstagram,
   disconnectInstagram,
-} from '../services/sportApi.js?v=9';
+  getCommunityManagerStrategy,
+  updateCommunityManagerStrategy,
+  generateCommunityManagerCalendar,
+  getCommunityManagerCalendar,
+  updateCommunityManagerCalendarEntry,
+  deleteCommunityManagerCalendarEntry,
+} from '../services/sportApi.js?v=10';
 import { createSportGarminPage } from './SportGarminPage.js?v=5';
 
 export class UserSettingsPage {
@@ -19,6 +25,12 @@ export class UserSettingsPage {
     this.currentTab = 'preferences';
     this.garminPage = null;
     this.canSeeGarmin = false;
+    // Community Manager state
+    this.cmStrategy = null;
+    this.cmCalendar = [];
+    this.cmGenerating = false;
+    this.cmError = null;
+    this.cmSuccess = null;
   }
 
   async initialize() {
@@ -32,6 +44,13 @@ export class UserSettingsPage {
     this.canSeeInstagram = !!authStore?.authenticated && authStore.hasPermission('sport.publications.read');
     this.canManageInstagram = !!authStore?.authenticated && authStore.hasPermission('sport.publications.write');
     this.showMetaTab = this.canConfigureMeta || this.canSeeInstagram;
+
+    // Community Manager permissions
+    this.canViewCMStrategy = !!authStore?.authenticated && authStore.hasPermission('community_manager.strategy_view');
+    this.canUpdateCMStrategy = !!authStore?.authenticated && authStore.hasPermission('community_manager.strategy_update');
+    this.canGenerateCMCalendar = !!authStore?.authenticated && authStore.hasPermission('community_manager.calendar_generate');
+    this.canViewCMCalendar = !!authStore?.authenticated && authStore.hasPermission('community_manager.calendar_view');
+    this.showCMTab = this.canViewCMStrategy || this.canUpdateCMStrategy || this.canGenerateCMCalendar || this.canViewCMCalendar;
 
     // Handle OAuth callback parameters
     if (typeof window !== 'undefined') {
@@ -79,6 +98,9 @@ export class UserSettingsPage {
     if (this.canSeeInstagram) {
       await this._loadInstagramStatus();
     }
+    if (this.showCMTab) {
+      await this._loadCMStrategy();
+    }
     this.canSeeGarmin = !!authStore?.authenticated && authStore.hasPermission('sport.activities.write');
     if (this.canSeeGarmin) {
       this.garminPage = createSportGarminPage(this.router);
@@ -104,9 +126,12 @@ export class UserSettingsPage {
 
     const needsWorkstation = !!this.user.default_needs_workstation;
     const canMeta = !!this.showMetaTab;
-    if (!canMeta) this.currentTab = 'preferences';
+    const canCM = !!this.showCMTab;
+    if (!canMeta && !canCM) this.currentTab = 'preferences';
     const metaConfigured = !!(this.metaSettings?.app_id && this.metaSettings?.app_secret_configured);
     const igInfo = this._instagramInfo();
+    const cmConfigured = !!this.cmStrategy;
+    const cmHasCalendar = this.cmCalendar.length > 0;
 
     this.element.innerHTML = `
       <div class="page-header">
@@ -140,6 +165,14 @@ export class UserSettingsPage {
           data-tab="meta"
           aria-selected="${this.currentTab === 'meta'}"
         >Meta</button>` : ''}
+        ${canCM ? `
+        <button
+          class="admin-tab ${this.currentTab === 'cm' ? 'admin-tab--active' : ''}"
+          role="tab"
+          id="tab-cm"
+          data-tab="cm"
+          aria-selected="${this.currentTab === 'cm'}"
+        >Stratégie IA</button>` : ''}
       </div>
 
       <div class="admin-tab-panels">
@@ -281,6 +314,17 @@ export class UserSettingsPage {
               </div>`}
             </div>
           </div>` : ''}
+        </div>` : ''}
+
+        ${canCM ? `
+        <div
+          class="admin-tab-panel ${this.currentTab === 'cm' ? 'admin-tab-panel--active' : ''}"
+          data-tab-panel="cm"
+          role="tabpanel"
+          aria-labelledby="tab-cm"
+          ${this.currentTab !== 'cm' ? 'hidden' : ''}
+        >
+          ${this._renderCMTab()}
         </div>` : ''}
       </div>
     `;
@@ -510,9 +554,450 @@ export class UserSettingsPage {
     badge.classList.toggle('inactive', !configured);
   }
 
+  // --- Community Manager methods ---
+
+  async _loadCMStrategy() {
+    try {
+      const result = await getCommunityManagerStrategy();
+      if (result?.configured && result?.strategy) {
+        this.cmStrategy = result.strategy;
+      } else {
+        this.cmStrategy = null;
+      }
+      // Charger le calendrier si stratégie existe
+      if (this.cmStrategy) {
+        await this._loadCMCalendar();
+      }
+    } catch (error) {
+      console.error('Erreur chargement stratégie CM:', error);
+      this.cmStrategy = null;
+    }
+  }
+
+  async _loadCMCalendar() {
+    try {
+      const result = await getCommunityManagerCalendar();
+      this.cmCalendar = result?.calendar || [];
+    } catch (error) {
+      console.error('Erreur chargement calendrier CM:', error);
+      this.cmCalendar = [];
+    }
+  }
+
+  _renderCMTab() {
+    const configured = !!this.cmStrategy;
+    const hasCalendar = this.cmCalendar.length > 0;
+
+    if (!configured) {
+      // État 1 : Non configuré -> Formulaire de stratégie
+      return this._renderCMStrategyForm();
+    }
+
+    if (!hasCalendar) {
+      // État 2 : Configuré mais pas de calendrier -> Zone de génération
+      return this._renderCMGenerationZone();
+    }
+
+    // État 3 : Calendrier généré -> Tableau avec propositions
+    return this._renderCMCalendarTable();
+  }
+
+  _renderCMStrategyForm() {
+    const s = this.cmStrategy || {};
+    const tones = ['professional', 'inspirational', 'casual', 'expert', 'motivational', 'educational'];
+    const objectives = ['engagement', 'visibility', 'brand_awareness', 'community_building', 'lead_generation'];
+    const themes = ['running', 'recovery', 'nutrition', 'training', 'gear', 'mental', 'races', 'lifestyle'];
+    const networks = ['instagram', 'facebook', 'linkedin', 'twitter', 'threads'];
+
+    const toneOptions = tones.map(t => `<option value="${t}">${t}</option>`).join('');
+    const objectiveOptions = objectives.map(o => `<option value="${o}">${o}</option>`).join('');
+    const themeOptions = themes.map(t => `<option value="${t}">${t}</option>`).join('');
+    const networkOptions = networks.map(n => `<option value="${n}">${n}</option>`).join('');
+
+    return `
+      <div class="card">
+        <div class="card-header">
+          <div>
+            <span class="eyebrow">Stratégie éditoriale — Community Manager IA</span>
+            <p class="text-muted">Configurez votre identité de marque, vos thèmes et votre ton pour la génération automatique de calendrier éditorial.</p>
+          </div>
+          <span class="status-badge inactive">Non configurée</span>
+        </div>
+        <form data-form="community-manager-strategy" class="card-body">
+          <div class="form-row">
+            <div class="form-group" style="grid-column: 1 / -1;">
+              <label><span>Identité de marque *</span>
+                <input name="brand_identity" type="text" maxlength="200" placeholder="Ex: ForgeAI" value="${this._escape(s.brand_identity || '')}" required>
+              </label>
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label><span>Ton *</span>
+                <select name="tone" multiple size="4" required>
+                  ${toneOptions}
+                </select>
+                <small class="form-help">Maintenez Ctrl/Cmd pour sélectionner plusieurs tons.</small>
+              </label>
+            </div>
+            <div class="form-group">
+              <label><span>Fréquence (pubs/semaine) *</span>
+                <input name="frequency" type="number" min="1" max="14" value="${s.frequency || 3}" required>
+              </label>
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group" style="grid-column: 1 / -1;">
+              <label><span>Audience cible *</span>
+                <textarea name="target_audience" rows="3" maxlength="1000" placeholder="Ex: Athlètes endurance 25-45 ans" required>${this._escape(s.target_audience || '')}</textarea>
+              </label>
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label><span>Objectifs *</span>
+                <select name="objectives" multiple size="4" required>
+                  ${objectiveOptions}
+                </select>
+              </label>
+            </div>
+            <div class="form-group">
+              <label><span>Thèmes *</span>
+                <select name="themes" multiple size="4" required>
+                  ${themeOptions}
+                </select>
+              </label>
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label><span>Réseaux *</span>
+                <select name="networks" multiple size="4" required>
+                  ${networkOptions}
+                </select>
+              </label>
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group" style="grid-column: 1 / -1;">
+              <label><span>Règles éditoriales</span>
+                <textarea name="rules" rows="3" maxlength="2000" placeholder="Ex: Pas de résultats inventés, Utiliser les vraies données Garmin">${this._escape((s.rules || []).join('\n'))}</textarea>
+                <small class="form-help">Une règle par ligne.</small>
+              </label>
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group" style="grid-column: 1 / -1;">
+              <label><span>Sujets interdits</span>
+                <textarea name="forbidden_topics" rows="2" maxlength="1000" placeholder="Ex: politique, concurrentiels">${this._escape((s.forbidden_topics || []).join(', '))}</small>
+                <small class="form-help">Séparés par des virgules.</small>
+              </label>
+            </div>
+          </div>
+          <div class="form-actions">
+            <button class="btn btn-primary" type="submit">Enregistrer la stratégie</button>
+            <span data-role="cm-strategy-status" role="status"></span>
+          </div>
+        </form>
+      </div>
+    `;
+  }
+
+  _renderCMGenerationZone() {
+    return `
+      <div class="card">
+        <div class="card-header">
+          <div>
+            <span class="eyebrow">Génération du calendrier éditorial</span>
+            <p class="text-muted">Stratégie configurée : <strong>${this._escape(this.cmStrategy?.brand_identity || '')}</strong> — ${(this.cmStrategy?.tone || []).join(', ')}</p>
+          </div>
+          <span class="status-badge active">Prête</span>
+        </div>
+        <div class="card-body">
+          <form data-form="cm-generate-calendar">
+            <div class="form-row">
+              <div class="form-group">
+                <label><span>Nombre de propositions *</span>
+                  <input name="count" type="number" min="1" max="20" value="5" required>
+                </label>
+              </div>
+            </div>
+            <div class="form-actions">
+              <button class="btn btn-primary" type="submit" ${this.cmGenerating ? 'disabled' : ''}>
+                ${this.cmGenerating ? 'Génération en cours…' : 'Générer le calendrier'}
+              </button>
+              <span data-role="cm-generate-status" role="status" class="${this.cmSuccess ? 'text-success' : ''} ${this.cmError ? 'text-error' : ''}"></span>
+            </div>
+          </form>
+          ${this.cmError ? `<div class="alert alert-error" style="margin-top: 12px;">${this._escape(this.cmError)}</div>` : ''}
+          ${this.cmSuccess ? `<div class="alert alert-success" style="margin-top: 12px;">${this._escape(this.cmSuccess)}</div>` : ''}
+        </div>
+      </div>
+    `;
+  }
+
+  _renderCMCalendarTable() {
+    const rows = this.cmCalendar.map(entry => `
+      <tr data-entry-id="${entry.id}">
+        <td>${this._formatDate(entry.date)}</td>
+        <td><span class="badge badge-${this._getThemeBadgeClass(entry.theme)}">${this._escape(entry.theme || '')}</span></td>
+        <td>${this._escape(entry.topic)}</td>
+        <td>${this._escape(entry.objective || '')}</td>
+        <td class="text-muted" style="max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${this._escape(entry.notes || '')}</td>
+        <td>
+          <div class="form-actions" style="gap: 8px;">
+            <button class="btn btn-sm btn-primary" data-cm-validate data-entry-id="${entry.id}" ${entry.status === 'planifié' ? 'disabled' : ''}>
+              ${entry.status === 'planifié' ? 'Planifié' : 'Valider'}
+            </button>
+            <button class="btn btn-sm btn-secondary" data-cm-reject data-entry-id="${entry.id}" ${entry.status === 'refusé' ? 'disabled' : ''}>
+              ${entry.status === 'refusé' ? 'Refusé' : 'Refuser'}
+            </button>
+          </div>
+        </td>
+      </tr>
+    `).join('');
+
+    return `
+      <div class="card">
+        <div class="card-header">
+          <div>
+            <span class="eyebrow">Calendrier éditorial — ${this.cmCalendar.length} proposition(s)</span>
+            <p class="text-muted">Validez ou refusez chaque proposition. Les entrées validées passent en statut « planifié ».</p>
+          </div>
+        </div>
+        <div class="card-body" style="overflow-x: auto;">
+          <table class="table" style="min-width: 800px;">
+            <thead>
+              <tr>
+                <th>Date</th>
+                <th>Thème</th>
+                <th>Sujet</th>
+                <th>Objectif</th>
+                <th>Note IA</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${rows}
+            </tbody>
+          </table>
+        </div>
+        <div class="form-actions" style="margin-top: 12px;">
+          <button class="btn btn-secondary" data-cm-regenerate>Régénérer le calendrier</button>
+          <span data-role="cm-calendar-status" role="status"></span>
+        </div>
+      </div>
+    `;
+  }
+
+  _formatDate(dateStr) {
+    if (!dateStr) return '';
+    // Traiter la date comme UTC pour éviter les décalages de fuseau horaire
+    const d = new Date(dateStr + 'T00:00:00Z');
+    return d.toLocaleDateString('fr-FR', { weekday: 'short', day: '2-digit', month: 'short', timeZone: 'UTC' });
+  }
+
+  _getThemeBadgeClass(theme) {
+    const map = {
+      running: 'primary',
+      recovery: 'success',
+      nutrition: 'info',
+      training: 'warning',
+      gear: 'secondary',
+      mental: 'purple',
+      races: 'danger',
+      lifestyle: 'dark',
+    };
+    return map[theme] || 'secondary';
+  }
+
+  async _saveCMStrategy(form) {
+    const message = this.element.querySelector('[data-role="cm-strategy-status"]');
+    const submitBtn = form.querySelector('[type="submit"]');
+    if (submitBtn?.disabled) return;
+    if (submitBtn) submitBtn.disabled = true;
+
+    const getSelectedValues = (name) => {
+      const select = form.elements[name];
+      if (!select) return [];
+      return Array.from(select.selectedOptions).map(o => o.value);
+    };
+
+    const getTextareaLines = (name) => {
+      const textarea = form.elements[name];
+      if (!textarea) return [];
+      return textarea.value.split('\n').map(l => l.trim()).filter(l => l);
+    };
+
+    const getTextareaComma = (name) => {
+      const textarea = form.elements[name];
+      if (!textarea) return [];
+      return textarea.value.split(',').map(l => l.trim()).filter(l => l);
+    };
+
+    const setStatus = (text, success) => {
+      if (message) {
+        message.textContent = text;
+        message.classList.toggle('text-success', !!success);
+        message.classList.toggle('text-error', !success);
+      }
+    };
+
+    try {
+      const data = {
+        brand_identity: form.elements.brand_identity.value.trim(),
+        tone: getSelectedValues('tone'),
+        target_audience: form.elements.target_audience.value.trim(),
+        objectives: getSelectedValues('objectives'),
+        themes: getSelectedValues('themes'),
+        frequency: parseInt(form.elements.frequency.value, 10),
+        networks: getSelectedValues('networks'),
+        rules: getTextareaLines('rules'),
+        forbidden_topics: getTextareaComma('forbidden_topics'),
+      };
+
+      this.cmStrategy = await updateCommunityManagerStrategy(data);
+      setStatus('Stratégie enregistrée avec succès.', true);
+      // Re-render l'onglet pour afficher la zone de génération
+      this._refreshCMTab();
+    } catch (error) {
+      setStatus(error?.data?.detail || error?.message || 'Erreur lors de l\'enregistrement.', false);
+    } finally {
+      if (submitBtn) submitBtn.disabled = false;
+    }
+  }
+
+  async _generateCMCalendar(form) {
+    const message = this.element.querySelector('[data-role="cm-generate-status"]');
+    const submitBtn = form.querySelector('[type="submit"]');
+    if (submitBtn?.disabled) return;
+    if (submitBtn) submitBtn.disabled = true;
+
+    this.cmGenerating = true;
+    this.cmError = null;
+    this.cmSuccess = null;
+    this._refreshCMTab();
+
+    const setStatus = (text, success) => {
+      if (message) {
+        message.textContent = text;
+        message.classList.toggle('text-success', !!success);
+        message.classList.toggle('text-error', !success);
+      }
+    };
+
+    try {
+      const count = parseInt(form.elements.count.value, 10);
+      const result = await generateCommunityManagerCalendar(count);
+      this.cmCalendar = result?.calendar || [];
+      this.cmSuccess = `${this.cmCalendar.length} proposition(s) générée(s).`;
+      this._refreshCMTab();
+    } catch (error) {
+      this.cmError = error?.data?.detail || error?.message || 'Génération impossible.';
+      this._refreshCMTab();
+    } finally {
+      this.cmGenerating = false;
+      if (submitBtn) submitBtn.disabled = false;
+    }
+  }
+
+  async _validateCMEntry(entryId) {
+    const message = this.element.querySelector('[data-role="cm-calendar-status"]');
+    const setStatus = (text, success) => {
+      if (message) {
+        message.textContent = text;
+        message.classList.toggle('text-success', !!success);
+        message.classList.toggle('text-error', !success);
+      }
+    };
+
+    try {
+      await updateCommunityManagerCalendarEntry(entryId, { status: 'planifié' });
+      const entry = this.cmCalendar.find(e => e.id === entryId);
+      if (entry) entry.status = 'planifié';
+      setStatus('Proposition validée et planifiée.', true);
+      this._refreshCMTab();
+    } catch (error) {
+      setStatus(error?.data?.detail || error?.message || 'Validation impossible.', false);
+    }
+  }
+
+  async _rejectCMEntry(entryId) {
+    const message = this.element.querySelector('[data-role="cm-calendar-status"]');
+    const setStatus = (text, success) => {
+      if (message) {
+        message.textContent = text;
+        message.classList.toggle('text-success', !!success);
+        message.classList.toggle('text-error', !success);
+      }
+    };
+
+    try {
+      await deleteCommunityManagerCalendarEntry(entryId);
+      this.cmCalendar = this.cmCalendar.filter(e => e.id !== entryId);
+      setStatus('Proposition refusée et supprimée.', true);
+      this._refreshCMTab();
+    } catch (error) {
+      setStatus(error?.data?.detail || error?.message || 'Refus impossible.', false);
+    }
+  }
+
+  async _regenerateCMCalendar() {
+    // Réutilise la logique de génération avec le count du formulaire ou 5 par défaut
+    const form = this.element.querySelector('[data-form="cm-generate-calendar"]');
+    let count = 5;
+    if (form && form.elements.count) {
+      count = parseInt(form.elements.count.value, 10) || 5;
+    }
+    // Créer un formulaire temporaire pour la régénération
+    const tempForm = {
+      elements: {
+        count: { value: count },
+      },
+      querySelector: () => null,
+    };
+    await this._generateCMCalendar(tempForm);
+  }
+
+  _refreshCMTab() {
+    const panel = this.element.querySelector('[data-tab-panel="cm"]');
+    if (panel) {
+      panel.innerHTML = this._renderCMTab();
+      this._bindCMEvents();
+    }
+  }
+
+  _bindCMEvents() {
+    // Formulaire stratégie
+    const strategyForm = this.element.querySelector('[data-form="community-manager-strategy"]');
+    strategyForm?.addEventListener('submit', (e) => {
+      e.preventDefault();
+      this._saveCMStrategy(strategyForm);
+    });
+
+    // Formulaire génération
+    const generateForm = this.element.querySelector('[data-form="cm-generate-calendar"]');
+    generateForm?.addEventListener('submit', (e) => {
+      e.preventDefault();
+      this._generateCMCalendar(generateForm);
+    });
+
+    // Boutons valider/refuser
+    this.element.querySelectorAll('[data-cm-validate]').forEach(btn => {
+      btn.addEventListener('click', () => this._validateCMEntry(parseInt(btn.dataset.entryId, 10)));
+    });
+    this.element.querySelectorAll('[data-cm-reject]').forEach(btn => {
+      btn.addEventListener('click', () => this._rejectCMEntry(parseInt(btn.dataset.entryId, 10)));
+    });
+
+    // Régénérer
+    this.element.querySelector('[data-cm-regenerate]')?.addEventListener('click', () => this._regenerateCMCalendar());
+  }
+
   _switchTab(tabId) {
     if (tabId === 'meta' && !this.showMetaTab) return;
     if (tabId === 'garmin' && !this.canSeeGarmin) return;
+    if (tabId === 'cm' && !this.showCMTab) return;
     this.currentTab = tabId;
     this.element.querySelectorAll('[data-tab]').forEach((el) => {
       const active = el.dataset.tab === tabId;
@@ -524,6 +1009,10 @@ export class UserSettingsPage {
       el.classList.toggle('admin-tab-panel--active', active);
       el.hidden = !active;
     });
+    // Re-bind CM events when switching to CM tab
+    if (tabId === 'cm' && this.showCMTab) {
+      this._bindCMEvents();
+    }
   }
 }
 

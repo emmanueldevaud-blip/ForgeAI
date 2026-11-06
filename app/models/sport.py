@@ -20,6 +20,12 @@ class SportAthlete(Base):
 
     activities: Mapped[list["SportActivity"]] = relationship("SportActivity", back_populates="athlete", cascade="all, delete-orphan")
     goals: Mapped[list["SportGoal"]] = relationship("SportGoal", back_populates="athlete", cascade="all, delete-orphan")
+    community_manager_strategy: Mapped["CommunityManagerStrategy"] = relationship(
+        "CommunityManagerStrategy",
+        back_populates="athlete",
+        cascade="all, delete-orphan",
+        uselist=False,
+    )
 
 
 class SportActivity(Base):
@@ -391,3 +397,68 @@ class SportInstagramOAuthState(Base):
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     consumed: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
+class CommunityManagerStrategy(Base):
+    """Stratégie éditoriale du Community Manager IA pour un athlète."""
+
+    __tablename__ = "community_manager_strategies"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    athlete_id: Mapped[int] = mapped_column(ForeignKey("sport_athletes.id", ondelete="CASCADE"), nullable=False, unique=True, index=True)
+    brand_identity: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    tone: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False)
+    target_audience: Mapped[str | None] = mapped_column(Text, nullable=True)
+    objectives: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False)
+    themes: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False)
+    frequency: Mapped[int] = mapped_column(Integer, default=3, nullable=False)
+    networks: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False)
+    rules: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False)
+    forbidden_topics: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
+    athlete: Mapped["SportAthlete"] = relationship("SportAthlete", back_populates="community_manager_strategy")
+
+    __table_args__ = (
+        Index("ix_community_manager_strategy_athlete", "athlete_id"),
+    )
+
+
+class EditorialCalendarEntry(Base):
+    """Entrée du calendrier éditorial générée par le Community Manager IA."""
+
+    __tablename__ = "editorial_calendar_entries"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    strategy_id: Mapped[int] = mapped_column(ForeignKey("community_manager_strategies.id", ondelete="CASCADE"), nullable=False, index=True)
+    date: Mapped[date] = mapped_column(Date, nullable=False, index=True)
+    topic: Mapped[str] = mapped_column(Text, nullable=False)
+    theme: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    objective: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    hashtags: Mapped[str | None] = mapped_column(Text, nullable=True)
+    status: Mapped[str] = mapped_column(String(30), nullable=False, default="brouillon", index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
+    strategy: Mapped["CommunityManagerStrategy"] = relationship("CommunityManagerStrategy", back_populates="calendar_entries")
+
+    __table_args__ = (
+        Index("ix_editorial_calendar_strategy_date", "strategy_id", "date"),
+        Index("ix_editorial_calendar_status", "status"),
+    )
+
+
+SportAthlete.community_manager_strategy = relationship(
+    "CommunityManagerStrategy",
+    back_populates="athlete",
+    cascade="all, delete-orphan",
+    uselist=False,
+)
+CommunityManagerStrategy.calendar_entries = relationship(
+    "EditorialCalendarEntry",
+    back_populates="strategy",
+    cascade="all, delete-orphan",
+    order_by="EditorialCalendarEntry.date",
+)

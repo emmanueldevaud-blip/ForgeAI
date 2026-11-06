@@ -78,7 +78,8 @@ from app.models.photo import (
 )
 from app.models.sport import (SportActivity, SportActivityAnalysis, SportAgentExecution, SportAnalysis, SportAthlete, SportAthleteObservation,
                                SportCoachConversation, SportCoachMessage, SportGarminConnection,
-                               SportGarminSyncLog, SportGoal, SportHealthDaily, SportPublication, SportRecommendation, SportTrackPoint)
+                               SportGarminSyncLog, SportGoal, SportHealthDaily, SportPublication, SportRecommendation, SportTrackPoint,
+                               CommunityManagerStrategy, EditorialCalendarEntry)
 from app.models.development import DevelopmentAgentExecution, DevelopmentTask, DevelopmentTaskStatus
 from app.models.administrative import AdministrativeAssignment, AdministrativeCapability, AdministrativeMonthlySession, AdministrativeProgramType, AdministrativeRoleType, VolunteerCapability, VolunteerUnavailability
 from app.models.domotique import (
@@ -179,6 +180,8 @@ __all__ = [
     "SportGarminSyncLog",
     "SportPublication",
     "SportInstagramConnection",
+    "CommunityManagerStrategy",
+    "EditorialCalendarEntry",
     "WorkOrderPart",
     "DevelopmentAgentExecution",
     "DevelopmentTask",

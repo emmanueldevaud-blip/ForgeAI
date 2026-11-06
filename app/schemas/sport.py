@@ -304,3 +304,104 @@ class SportPublicationSettingsUpdate(BaseModel):
     notifications_enabled: Optional[bool] = None
     last_styles: Optional[list[str]] = None
     last_custom_instructions: Optional[str] = None
+
+
+# --------------------------------------------------------------------------- #
+# Community Manager IA
+# --------------------------------------------------------------------------- #
+
+COMMUNITY_MANAGER_TONES = [
+    "professional", "inspirational", "casual", "expert", "motivational", "educational",
+]
+
+COMMUNITY_MANAGER_OBJECTIVES = [
+    "engagement", "visibility", "brand_awareness", "community_building", "lead_generation",
+]
+
+COMMUNITY_MANAGER_THEMES = [
+    "running", "recovery", "nutrition", "training", "gear", "mental", "races", "lifestyle",
+]
+
+COMMUNITY_MANAGER_NETWORKS = [
+    "instagram", "facebook", "linkedin", "twitter", "threads",
+]
+
+CALENDAR_ENTRY_STATUSES = ["brouillon", "planifié", "publié", "refusé"]
+
+
+class CommunityManagerStrategyBase(BaseModel):
+    brand_identity: Optional[str] = Field(None, max_length=200)
+    tone: list[str] = Field(default_factory=list)
+    target_audience: Optional[str] = Field(None, max_length=1000)
+    objectives: list[str] = Field(default_factory=list)
+    themes: list[str] = Field(default_factory=list)
+    frequency: int = Field(3, ge=1, le=14)
+    networks: list[str] = Field(default_factory=list)
+    rules: list[str] = Field(default_factory=list)
+    forbidden_topics: list[str] = Field(default_factory=list)
+
+
+class CommunityManagerStrategyCreate(CommunityManagerStrategyBase):
+    pass
+
+
+class CommunityManagerStrategyUpdate(CommunityManagerStrategyBase):
+    brand_identity: Optional[str] = Field(None, max_length=200)
+    tone: Optional[list[str]] = None
+    target_audience: Optional[str] = Field(None, max_length=1000)
+    objectives: Optional[list[str]] = None
+    themes: Optional[list[str]] = None
+    frequency: Optional[int] = Field(None, ge=1, le=14)
+    networks: Optional[list[str]] = None
+    rules: Optional[list[str]] = None
+    forbidden_topics: Optional[list[str]] = None
+
+
+class CommunityManagerStrategyResponse(CommunityManagerStrategyBase):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    athlete_id: int
+    created_at: datetime
+    updated_at: datetime
+
+
+class EditorialCalendarEntryBase(BaseModel):
+    date: date
+    topic: str = Field(..., min_length=1, max_length=500)
+    theme: Optional[str] = Field(None, max_length=100, pattern="^(running|recovery|nutrition|training|gear|mental|races|lifestyle)$")
+    objective: Optional[str] = Field(None, max_length=100, pattern="^(engagement|visibility|brand_awareness|community_building|lead_generation)$")
+    notes: Optional[str] = Field(None, max_length=2000)
+    hashtags: Optional[str] = Field(None, max_length=500)
+    status: str = Field("brouillon", max_length=30, pattern="^(brouillon|planifié|publié|refusé)$")
+
+
+class EditorialCalendarEntryCreate(EditorialCalendarEntryBase):
+    pass
+
+
+class EditorialCalendarEntryUpdate(BaseModel):
+    date: Optional[date] = None
+    topic: Optional[str] = Field(None, min_length=1, max_length=500)
+    theme: Optional[str] = Field(None, max_length=100, pattern="^(running|recovery|nutrition|training|gear|mental|races|lifestyle)$")
+    objective: Optional[str] = Field(None, max_length=100, pattern="^(engagement|visibility|brand_awareness|community_building|lead_generation)$")
+    notes: Optional[str] = Field(None, max_length=2000)
+    hashtags: Optional[str] = Field(None, max_length=500)
+    status: Optional[str] = Field(None, max_length=30, pattern="^(brouillon|planifié|publié|refusé)$")
+
+
+class EditorialCalendarEntryResponse(EditorialCalendarEntryBase):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    strategy_id: int
+    created_at: datetime
+    updated_at: datetime
+
+
+class CalendarGenerateRequest(BaseModel):
+    count: int = Field(5, ge=1, le=20)
+
+
+class CalendarGenerateResponse(BaseModel):
+    calendar: list[EditorialCalendarEntryResponse]

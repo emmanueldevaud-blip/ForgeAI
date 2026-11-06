@@ -159,3 +159,47 @@ export async function connectInstagram(athleteId = null) {
 export async function disconnectInstagram() {
   return sportApi.delete('/publications/meta');
 }
+
+// --------------------------------------------------------------------------- #
+// Community Manager IA (V1)
+// --------------------------------------------------------------------------- #
+
+// V1 : Récupération stratégie
+export async function loadCommunityStrategy(athleteId) {
+  return sportApi.get(`/publications/community-strategy?athlete_id=${encodeURIComponent(athleteId)}`);
+}
+
+// V1 : Génération de sujets IA
+export async function generateCommunityTopics(count = 5) {
+  return sportApi.post('/publications/community-generate', { count });
+}
+
+// V1 : Récupération calendrier
+export async function getCommunityCalendar(athleteId) {
+  return sportApi.get(`/publications/community-calendar?athlete_id=${encodeURIComponent(athleteId)}`);
+}
+
+// V1 : Routes directes Community Manager (nouvelles routes V1)
+export async function getCommunityManagerStrategy() {
+  return sportApi.get('/community-manager/strategy');
+}
+
+export async function updateCommunityManagerStrategy(data) {
+  return sportApi.put('/community-manager/strategy', data);
+}
+
+export async function generateCommunityManagerCalendar(count = 5) {
+  return sportApi.post('/community-manager/generate-calendar', { count });
+}
+
+export async function getCommunityManagerCalendar() {
+  return sportApi.get('/community-manager/calendar');
+}
+
+export async function updateCommunityManagerCalendarEntry(entryId, data) {
+  return sportApi.patch(`/community-manager/calendar/${encodeURIComponent(entryId)}`, data);
+}
+
+export async function deleteCommunityManagerCalendarEntry(entryId) {
+  return sportApi.delete(`/community-manager/calendar/${encodeURIComponent(entryId)}`);
+}

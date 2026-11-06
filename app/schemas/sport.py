@@ -277,7 +277,7 @@ class SportPublicationResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
     activity: Optional[SportActivityResponse] = None
-    calendar_entry: Optional[EditorialCalendarEntryResponse] = None
+    calendar_entry: Optional["EditorialCalendarEntryResponse"] = None
 
     # V2 fields
     tone_used: Optional[str] = None

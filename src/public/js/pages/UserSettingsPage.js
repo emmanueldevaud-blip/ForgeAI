@@ -209,7 +209,7 @@ export class UserSettingsPage {
               <div class="form-row">
                 <div class="form-group">
                   <label><span>App ID *</span>
-                    <input name="app_id" maxlength="100" required placeholder="Identifiant de l'application Meta">
+                    <input name="app_id" autocomplete="off" maxlength="100" required placeholder="Identifiant de l'application Meta">
                   </label>
                 </div>
                 <div class="form-group">

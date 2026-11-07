@@ -751,30 +751,7 @@ class SportPublicationService:
         )
         existing_pub = existing_pub_result.scalar_one_or_none()
 
-        # Créer ou récupérer la publication
-        if existing_pub:
-            pub = existing_pub
-        else:
-            pub = SportPublication(
-                athlete_id=athlete.id,
-                calendar_entry_id=calendar_entry_id,
-                status="draft",
-                created_from="calendar",
-            )
-            self.db.add(pub)
-            await self.db.flush()
-
-        styles = data.styles if hasattr(data, "styles") and data.styles else []
-        custom = data.custom_instructions if hasattr(data, "custom_instructions") and data.custom_instructions else None
-        tone = data.tone if hasattr(data, "tone") and data.tone else None
-        visual_type = data.visual_type if hasattr(data, "visual_type") and data.visual_type else "photo"
-        photo_id = data.photo_id if hasattr(data, "photo_id") and data.photo_id else None
-
-        # Si pas de styles fournis, utiliser ceux de la stratégie ou défaut
-        if not styles:
-            styles = ["stats"]
-
-        # Récupérer les activités récentes pour le contexte
+        # Récupérer les activités récentes pour le contexte (early init to avoid UnboundLocalError)
         recent_activities = []
         activities_result = await self.db.execute(
             select(SportActivity)
@@ -802,6 +779,29 @@ class SportPublicationService:
                 "temperature_c": act.temperature_c,
                 "source_type": act.source_type,
             })
+
+        # Créer ou récupérer la publication
+        if existing_pub:
+            pub = existing_pub
+        else:
+            pub = SportPublication(
+                athlete_id=athlete.id,
+                calendar_entry_id=calendar_entry_id,
+                status="draft",
+                created_from="calendar",
+            )
+            self.db.add(pub)
+            await self.db.flush()
+
+        styles = data.styles if hasattr(data, "styles") and data.styles else []
+        custom = data.custom_instructions if hasattr(data, "custom_instructions") and data.custom_instructions else None
+        tone = data.tone if hasattr(data, "tone") and data.tone else None
+        visual_type = data.visual_type if hasattr(data, "visual_type") and data.visual_type else "photo"
+        photo_id = data.photo_id if hasattr(data, "photo_id") and data.photo_id else None
+
+        # Si pas de styles fournis, utiliser ceux de la stratégie ou défaut
+        if not styles:
+            styles = ["stats"]
 
         # Construire le prompt pour la génération V2
         prompt = await self._build_v2_generation_prompt(

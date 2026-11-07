@@ -30,7 +30,6 @@ import { createSportDashboardPage } from './pages/SportDashboardPage.js?v=5';
 import { createSportActivitiesPage } from './pages/SportActivitiesPage.js?v=4';
 import { createSportGarminPage } from './pages/SportGarminPage.js?v=5';
 import { createSportHealthPage } from './pages/SportHealthPage.js?v=2';
-import { createSportAnalysesPage } from './pages/SportAnalysesPage.js?v=1';
 import { createSportGoalsPage } from './pages/SportGoalsPage.js?v=1';
 import { createAgendaPage } from './pages/AgendaPage.js?v=77';
 import { createAgendaSettingsPage } from './pages/AgendaSettingsPage.js?v=4';
@@ -104,7 +103,6 @@ let sportDashboardPage = null;
 let sportActivitiesPage = null;
 let sportGarminPage = null;
 let sportHealthPage = null;
-let sportAnalysesPage = null;
 let sportGoalsPage = null;
 
 let agendaPage = null;
@@ -295,9 +293,6 @@ async function initializeApp() {
     .addRoute('/sport/health', async (route) => {
       await showSportHealthPage(route);
     }, { requiresAuth: true, permissions: ['sport.access'], module: 'sport' })
-    .addRoute('/sport/analyses', async (route) => {
-      await showSportAnalysesPage(route);
-    }, { requiresAuth: true, permissions: ['sport.analysis.read'], module: 'sport' })
     .addRoute('/domotique', async (route) => {
       await showDomotiquePage(route);
     }, { requiresAuth: true, permissions: ['domotique.view'], module: 'domotique' })
@@ -634,14 +629,6 @@ async function ensureSportHealthPage() {
   return sportHealthPage;
 }
 
-async function ensureSportAnalysesPage() {
-  if (!sportAnalysesPage) {
-    sportAnalysesPage = createSportAnalysesPage(router);
-  }
-  await sportAnalysesPage.initialize();
-  return sportAnalysesPage;
-}
-
 async function ensureSportGoalsPage() {
   if (!sportGoalsPage) {
     sportGoalsPage = createSportGoalsPage(router);
@@ -810,20 +797,6 @@ async function showSportHealthPage(route) {
     console.error('Erreur affichage Santé Sport:', error);
     appShell.showError(error);
   }
-}
-
-async function showSportAnalysesPage(route) {
-  if (!appShell) return;
-  appShell.showLoading();
-  try {
-    const page = await ensureSportAnalysesPage();
-    appShell.showContent(page.render());
-  } catch (error) {
-    console.error('Erreur affichage Analyses Sport:', error);
-    appShell.showError(error);
-  }
-}
-
 async function showSportGoalsPage(route) {
   if (!appShell) return;
   appShell.showLoading();

@@ -11,7 +11,7 @@ class SportModule(BaseModule):
         super().__init__(ModuleInfo(
             code="sport",
             name="Sport",
-            description="Module de suivi d'activités sportives (course, trail, ultra)",
+            description="Module de suivi d'activites sportives (course, trail, ultra)",
             icon="run",
             order=70,
             status=ModuleStatus.ACTIVE,
@@ -33,58 +33,39 @@ class SportModule(BaseModule):
 
     def get_navigation_items(self, user_permissions: list[str] | None = None):
         if self.info.required_permissions:
+            if not user_permissions:
+                return []
             if "*" in user_permissions:
                 pass
             elif not all(p in user_permissions for p in self.info.required_permissions):
                 return []
 
-        has_activities = (
-            user_permissions and
-            ("*" in user_permissions or
-             "sport.activities.read" in user_permissions)
-        )
         has_goals = (
             user_permissions and
             ("*" in user_permissions or
              "sport.goals.read" in user_permissions)
         )
-        has_analyses = (
+        has_activities = (
             user_permissions and
-            ("*" in user_permissions or "sport.analysis.read" in user_permissions)
+            ("*" in user_permissions or
+             "sport.activities.read" in user_permissions)
         )
 
         children = [{
-            "code": "sport-analyses",
-            "name": "Analyses IA",
-            "icon": "sparkles",
-            "route": "/sport/analyses",
-            "order": -2,
-        }] if has_analyses else []
-
-        children.append({
             "code": "sport-home",
             "name": "Accueil",
             "icon": "dashboard",
             "route": "/sport",
             "order": -1,
-        })
+        }]
 
         if has_activities:
             children.append({
                 "code": "sport-activities",
-                "name": "Activités",
+                "name": "Activites",
                 "icon": "run",
                 "route": "/sport/activities",
                 "order": 0,
-            })
-
-        if has_activities:
-            children.append({
-                "code": "sport-health",
-                "name": "Santé",
-                "icon": "heart-handshake",
-                "route": "/sport/health",
-                "order": 1,
             })
 
         if has_goals:

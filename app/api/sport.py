@@ -9,14 +9,12 @@ from xml.etree.ElementTree import ParseError
 
 from app.api.deps import get_db, require_module_enabled, require_permission
 from app.db.session import get_db_context
-from app.models.sport import SportAnalysis
+from app.models.sport import SportAthlete
 from app.models.user import User
 from app.schemas.sport import (
     SportActivityCreate,
     SportActivityListResponse,
     SportActivityResponse,
-    SportAnalysisListResponse,
-    SportAnalysisResponse,
     SportDashboardResponse,
     SportNotificationConfigResponse,
     SportNotificationConfigUpdate,
@@ -61,13 +59,6 @@ async def get_sport_activity_read_service(
 
 async def get_sport_activity_write_service(
     current_user: User = Depends(require_permission("sport.activities.write")),
-    db: AsyncSession = Depends(get_db),
-) -> SportService:
-    return SportService(db, current_user)
-
-
-async def get_sport_analysis_service(
-    current_user: User = Depends(require_permission("sport.analysis.read")),
     db: AsyncSession = Depends(get_db),
 ) -> SportService:
     return SportService(db, current_user)
@@ -143,83 +134,43 @@ async def list_sport_activities(
 @router.get("/analysis/period")
 async def sport_period_analysis(
     period: int = Query(28),
-    service: SportService = Depends(get_sport_analysis_service),
+    service: SportService = Depends(get_sport_service),
 ):
     return await service.analyze_period(period)
 
 
 @router.get("/analysis/week")
-async def sport_week_analysis(service: SportService = Depends(get_sport_analysis_service)):
+async def sport_week_analysis(service: SportService = Depends(get_sport_service)):
     return await service.analyze_week()
 
 
 @router.get("/analysis/day")
 async def sport_day_analysis(
     day: date | None = Query(None),
-    service: SportService = Depends(get_sport_analysis_service),
+    service: SportService = Depends(get_sport_service),
 ):
     return await service.analyze_day(day)
 
 
 @router.get("/analysis/goals")
-async def sport_goals_analysis(service: SportService = Depends(get_sport_analysis_service)):
+async def sport_goals_analysis(service: SportService = Depends(get_sport_service)):
     return await service.analyze_goals()
 
 
 @router.get("/analysis/month")
-async def sport_month_analysis(service: SportService = Depends(get_sport_analysis_service)):
+async def sport_month_analysis(service: SportService = Depends(get_sport_service)):
     return await service.analyze_month()
 
 
-@router.get("/analyses", response_model=SportAnalysisListResponse)
-async def list_sport_analyses(
-    limit: int = Query(20, ge=1, le=100),
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_permission("sport.analysis.read")),
-):
-    """Analyses automatiques (matin / soir / sortie) de l'utilisateur."""
-    athlete = await SportService(db, current_user).get_or_create_athlete()
-    result = await db.execute(
-        select(SportAnalysis)
-        .where(SportAnalysis.athlete_id == athlete.id)
-        .order_by(SportAnalysis.generated_at.desc())
-        .limit(limit)
-    )
-    items = list(result.scalars().all())
-    total = (
-        await db.execute(
-            select(func.count(SportAnalysis.id)).where(SportAnalysis.athlete_id == athlete.id)
-        )
-    ).scalar() or 0
-    return SportAnalysisListResponse(items=items, total=total)
-
-
-@router.get("/analyses/{analysis_id}", response_model=SportAnalysisResponse)
-async def get_sport_analysis(
-    analysis_id: int,
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_permission("sport.analysis.read")),
-):
-    athlete = await SportService(db, current_user).get_or_create_athlete()
-    analysis = await db.scalar(
-        select(SportAnalysis).where(
-            SportAnalysis.id == analysis_id, SportAnalysis.athlete_id == athlete.id
-        )
-    )
-    if analysis is None:
-        raise HTTPException(status_code=404, detail="Analyse non trouvée")
-    return analysis
-
-
 @router.get("/athlete/profile", response_model=SportAthleteProfileResponse)
-async def sport_athlete_profile(service: SportService = Depends(get_sport_analysis_service)):
+async def sport_athlete_profile(service: SportService = Depends(get_sport_service)):
     return await service.athlete_profile()
 
 
 @router.put("/athlete/heart-rate", response_model=SportAthleteProfileResponse)
-async def update_sport_heart_rate(
+async def sport_athlete_heart_rate(
     data: SportHeartRateConfig,
-    service: SportService = Depends(get_sport_analysis_service),
+    service: SportService = Depends(get_sport_service),
 ):
     try:
         return await service.update_heart_rate_config(data)
@@ -231,7 +182,7 @@ async def update_sport_heart_rate(
 async def sport_activity_analysis(
     activity_id: int,
     background_tasks: BackgroundTasks,
-    service: SportService = Depends(get_sport_analysis_service),
+    service: SportService = Depends(get_sport_service),
 ):
     analysis = await service.analyze_activity(activity_id)
     if not analysis:
@@ -244,7 +195,7 @@ async def sport_activity_analysis(
 
 
 @router.get("/observations", response_model=list[SportObservationResponse])
-async def list_sport_observations(service: SportService = Depends(get_sport_analysis_service)):
+async def list_sport_observations(service: SportService = Depends(get_sport_service)):
     return [{"id": item.id, "activity_id": item.activity_id, "kind": item.kind, "content": item.content,
              "status": item.status, "sources": item.sources_json, "created_at": item.created_at,
              "confirmed_at": item.confirmed_at} for item in await service.list_observations()]
@@ -253,7 +204,7 @@ async def list_sport_observations(service: SportService = Depends(get_sport_anal
 @router.post("/observations", response_model=SportObservationResponse, status_code=201)
 async def create_sport_observation(
     data: SportObservationCreate,
-    service: SportService = Depends(get_sport_analysis_service),
+    service: SportService = Depends(get_sport_service),
 ):
     try:
         item = await service.create_observation(data)

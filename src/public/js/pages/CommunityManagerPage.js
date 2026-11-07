@@ -1,6 +1,6 @@
 /**
  * Community Manager Page - Module dédié
- * Stratégie éditoriale, génération de calendrier et studio de création
+ * Stratégie éditoriale (modale), génération de calendrier et studio de création
  */
 
 import { api } from '../services/api.js';
@@ -20,7 +20,6 @@ export class CommunityManagerPage {
   constructor(router) {
     this.router = router;
     this.element = null;
-    this.currentTab = 'strategy';
     this.cmStrategy = null;
     this.cmCalendar = [];
     this.cmGenerating = false;
@@ -28,6 +27,7 @@ export class CommunityManagerPage {
     this.cmSuccess = null;
     this.studioPage = null;
     this.showStudio = false;
+    this.showStrategyModal = false;
   }
 
   async initialize() {
@@ -65,46 +65,25 @@ export class CommunityManagerPage {
           <h1>Community Manager IA</h1>
           <p class="page-subtitle">Stratégie éditoriale et génération de calendrier par IA</p>
         </div>
+        <div class="page-header-actions">
+          ${this.canUpdateCMStrategy ? `
+            <button class="btn btn-secondary" data-action="open-strategy-modal">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+                <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+              </svg>
+              Stratégie
+            </button>
+          ` : ''}
+        </div>
       </div>
 
-      <div class="admin-tabs" role="tablist" aria-label="Sections Community Manager">
-        <button
-          class="admin-tab ${this.currentTab === 'strategy' ? 'admin-tab--active' : ''}"
-          role="tab"
-          id="tab-strategy"
-          data-tab="strategy"
-          aria-selected="${this.currentTab === 'strategy'}"
-        >Stratégie</button>
-        <button
-          class="admin-tab ${this.currentTab === 'calendar' ? 'admin-tab--active' : ''}"
-          role="tab"
-          id="tab-calendar"
-          data-tab="calendar"
-          aria-selected="${this.currentTab === 'calendar'}"
-          ${!configured ? 'disabled' : ''}
-        >Calendrier</button>
-      </div>
+      ${this._renderStrategyModal()}
 
-      <div class="admin-tab-panels">
-        <div
-          class="admin-tab-panel ${this.currentTab === 'strategy' ? 'admin-tab-panel--active' : ''}"
-          data-tab-panel="strategy"
-          role="tabpanel"
-          aria-labelledby="tab-strategy"
-          ${this.currentTab !== 'strategy' ? 'hidden' : ''}
-        >
-          ${this._renderStrategyTab()}
-        </div>
-
-        <div
-          class="admin-tab-panel ${this.currentTab === 'calendar' ? 'admin-tab-panel--active' : ''}"
-          data-tab-panel="calendar"
-          role="tabpanel"
-          aria-labelledby="tab-calendar"
-          ${this.currentTab !== 'calendar' ? 'hidden' : ''}
-        >
-          ${this._renderCalendarTab()}
-        </div>
+      <div class="cm-main-content">
+        ${!configured ? this._renderEmptyState() : (
+          !hasCalendar ? this._renderGenerationZone() : this._renderCalendarTable()
+        )}
       </div>
     `;
 
@@ -112,21 +91,7 @@ export class CommunityManagerPage {
     return this.element;
   }
 
-  _renderStrategyTab() {
-    const configured = !!this.cmStrategy;
-
-    if (!configured) {
-      return this._renderStrategyForm();
-    }
-
-    if (!this.cmCalendar.length) {
-      return this._renderGenerationZone();
-    }
-
-    return this._renderCalendarTable();
-  }
-
-  _renderStrategyForm() {
+  _renderStrategyModal() {
     const s = this.cmStrategy || {};
     const tones = ['professional', 'inspirational', 'casual', 'expert', 'motivational', 'educational'];
     const objectives = ['engagement', 'visibility', 'brand_awareness', 'community_building', 'lead_generation'];
@@ -139,90 +104,109 @@ export class CommunityManagerPage {
     const networkOptions = networks.map(n => `<option value="${n}">${n}</option>`).join('');
 
     return `
-      <div class="card">
-        <div class="card-header">
-          <div>
-            <span class="eyebrow">Stratégie éditoriale — Community Manager IA</span>
-            <p class="text-muted">Configurez votre identité de marque, vos thèmes et votre ton pour la génération automatique de calendrier éditorial.</p>
-          </div>
-          <span class="status-badge inactive">Non configurée</span>
+      <div class="cm-modal-overlay ${this.showStrategyModal ? '' : 'hidden'}" id="cm-strategy-modal" role="dialog" aria-modal="true" aria-labelledby="strategy-modal-title">
+        <div class="cm-modal cm-modal-lg">
+          <header class="cm-modal-header">
+            <h2 id="strategy-modal-title">Stratégie éditoriale</h2>
+            <button class="cm-modal-close" data-action="close-strategy-modal" aria-label="Fermer">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <line x1="18" y1="6" x2="6" y2="18"></line>
+                <line x1="6" y1="6" x2="18" y2="18"></line>
+              </svg>
+            </button>
+          </header>
+          <form data-form="community-manager-strategy" class="cm-modal-body">
+            <div class="form-row">
+              <div class="form-group" style="grid-column: 1 / -1;">
+                <label><span>Identité de marque *</span>
+                  <input name="brand_identity" type="text" maxlength="200" placeholder="Ex: ForgeAI" value="${this._escape(s.brand_identity || '')}" required>
+                </label>
+              </div>
+            </div>
+            <div class="form-row">
+              <div class="form-group">
+                <label><span>Ton *</span>
+                  <select name="tone" multiple size="4" required>
+                    ${toneOptions}
+                  </select>
+                  <small class="form-help">Maintenez Ctrl/Cmd pour sélectionner plusieurs tons.</small>
+                </label>
+              </div>
+              <div class="form-group">
+                <label><span>Fréquence (pubs/semaine) *</span>
+                  <input name="frequency" type="number" min="1" max="14" value="${s.frequency || 3}" required>
+                </label>
+              </div>
+            </div>
+            <div class="form-row">
+              <div class="form-group" style="grid-column: 1 / -1;">
+                <label><span>Audience cible *</span>
+                  <textarea name="target_audience" rows="3" maxlength="1000" placeholder="Ex: Athlètes endurance 25-45 ans" required>${this._escape(s.target_audience || '')}</textarea>
+                </label>
+              </div>
+            </div>
+            <div class="form-row">
+              <div class="form-group">
+                <label><span>Objectifs *</span>
+                  <select name="objectives" multiple size="4" required>
+                    ${objectiveOptions}
+                  </select>
+                </label>
+              </div>
+              <div class="form-group">
+                <label><span>Thèmes *</span>
+                  <select name="themes" multiple size="4" required>
+                    ${themeOptions}
+                  </select>
+                </label>
+              </div>
+            </div>
+            <div class="form-row">
+              <div class="form-group">
+                <label><span>Réseaux *</span>
+                  <select name="networks" multiple size="4" required>
+                    ${networkOptions}
+                  </select>
+                </label>
+              </div>
+            </div>
+            <div class="form-row">
+              <div class="form-group" style="grid-column: 1 / -1;">
+                <label><span>Règles éditoriales</span>
+                  <textarea name="rules" rows="3" maxlength="2000" placeholder="Ex: Pas de résultats inventés, Utiliser les vraies données Garmin">${this._escape((s.rules || []).join('\n'))}</textarea>
+                  <small class="form-help">Une règle par ligne.</small>
+                </label>
+              </div>
+            </div>
+            <div class="form-row">
+              <div class="form-group" style="grid-column: 1 / -1;">
+                <label><span>Sujets interdits</span>
+                  <textarea name="forbidden_topics" rows="2" maxlength="1000" placeholder="Ex: politique, concurrentiels">${this._escape((s.forbidden_topics || []).join(', '))}</textarea>
+                  <small class="form-help">Séparés par des virgules.</small>
+                </label>
+              </div>
+            </div>
+            <div class="form-actions">
+              <button type="button" class="btn btn-secondary" data-action="close-strategy-modal">Annuler</button>
+              <button class="btn btn-primary" type="submit" ${!this.canUpdateCMStrategy ? 'disabled' : ''}>Enregistrer la stratégie</button>
+              <span data-role="cm-strategy-status" role="status"></span>
+            </div>
+          </form>
         </div>
-        <form data-form="community-manager-strategy" class="card-body">
-          <div class="form-row">
-            <div class="form-group" style="grid-column: 1 / -1;">
-              <label><span>Identité de marque *</span>
-                <input name="brand_identity" type="text" maxlength="200" placeholder="Ex: ForgeAI" value="${this._escape(s.brand_identity || '')}" required>
-              </label>
-            </div>
-          </div>
-          <div class="form-row">
-            <div class="form-group">
-              <label><span>Ton *</span>
-                <select name="tone" multiple size="4" required>
-                  ${toneOptions}
-                </select>
-                <small class="form-help">Maintenez Ctrl/Cmd pour sélectionner plusieurs tons.</small>
-              </label>
-            </div>
-            <div class="form-group">
-              <label><span>Fréquence (pubs/semaine) *</span>
-                <input name="frequency" type="number" min="1" max="14" value="${s.frequency || 3}" required>
-              </label>
-            </div>
-          </div>
-          <div class="form-row">
-            <div class="form-group" style="grid-column: 1 / -1;">
-              <label><span>Audience cible *</span>
-                <textarea name="target_audience" rows="3" maxlength="1000" placeholder="Ex: Athlètes endurance 25-45 ans" required>${this._escape(s.target_audience || '')}</textarea>
-              </label>
-            </div>
-          </div>
-          <div class="form-row">
-            <div class="form-group">
-              <label><span>Objectifs *</span>
-                <select name="objectives" multiple size="4" required>
-                  ${objectiveOptions}
-                </select>
-              </label>
-            </div>
-            <div class="form-group">
-              <label><span>Thèmes *</span>
-                <select name="themes" multiple size="4" required>
-                  ${themeOptions}
-                </select>
-              </label>
-            </div>
-          </div>
-          <div class="form-row">
-            <div class="form-group">
-              <label><span>Réseaux *</span>
-                <select name="networks" multiple size="4" required>
-                  ${networkOptions}
-                </select>
-              </label>
-            </div>
-          </div>
-          <div class="form-row">
-            <div class="form-group" style="grid-column: 1 / -1;">
-              <label><span>Règles éditoriales</span>
-                <textarea name="rules" rows="3" maxlength="2000" placeholder="Ex: Pas de résultats inventés, Utiliser les vraies données Garmin">${this._escape((s.rules || []).join('\n'))}</textarea>
-                <small class="form-help">Une règle par ligne.</small>
-              </label>
-            </div>
-          </div>
-          <div class="form-row">
-            <div class="form-group" style="grid-column: 1 / -1;">
-              <label><span>Sujets interdits</span>
-                <textarea name="forbidden_topics" rows="2" maxlength="1000" placeholder="Ex: politique, concurrentiels">${this._escape((s.forbidden_topics || []).join(', '))}</textarea>
-                <small class="form-help">Séparés par des virgules.</small>
-              </label>
-            </div>
-          </div>
-          <div class="form-actions">
-            <button class="btn btn-primary" type="submit" ${!this.canUpdateCMStrategy ? 'disabled' : ''}>Enregistrer la stratégie</button>
-            <span data-role="cm-strategy-status" role="status"></span>
-          </div>
-        </form>
+      </div>
+    `;
+  }
+
+  _renderEmptyState() {
+    return `
+      <div class="card">
+        <div class="card-body" style="text-align: center; padding: 48px;">
+          <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="margin: 0 auto 16px; opacity: 0.5;">
+            <rect x="3" y="4" width="18" height="18" rx="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line>
+          </svg>
+          <h3>Aucune stratégie configurée</h3>
+          <p class="text-muted">Cliquez sur <strong>Stratégie</strong> dans l'en-tête pour configurer votre identité éditoriale.</p>
+        </div>
       </div>
     `;
   }
@@ -249,9 +233,6 @@ export class CommunityManagerPage {
             <div class="form-actions">
               <button class="btn btn-primary" type="submit" ${this.cmGenerating ? 'disabled' : ''} ${!this.canGenerateCMCalendar ? 'disabled' : ''}>
                 ${this.cmGenerating ? 'Génération en cours…' : 'Générer le calendrier'}
-              </button>
-              <button class="btn btn-secondary" type="button" data-action="cm-edit-strategy" ${!this.canUpdateCMStrategy ? 'disabled' : ''}>
-                Modifier la stratégie
               </button>
               <span data-role="cm-generate-status" role="status" class="${this.cmSuccess ? 'text-success' : ''} ${this.cmError ? 'text-error' : ''}"></span>
             </div>
@@ -328,32 +309,6 @@ export class CommunityManagerPage {
         </div>
       </div>
     `;
-  }
-
-  _renderCalendarTab() {
-    const configured = !!this.cmStrategy;
-    const hasCalendar = this.cmCalendar.length > 0;
-
-    if (!configured) {
-      return `
-        <div class="card">
-          <div class="card-body" style="text-align: center; padding: 48px;">
-            <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="margin: 0 auto 16px; opacity: 0.5;">
-              <rect x="3" y="4" width="18" height="18" rx="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line>
-            </svg>
-            <h3>Aucune stratégie configurée</h3>
-            <p class="text-muted">Configurez d'abord votre stratégie éditoriale dans l'onglet <strong>Stratégie</strong> pour générer un calendrier.</p>
-            <button class="btn btn-primary" data-action="go-to-strategy" style="margin-top: 16px;">Aller à la stratégie</button>
-          </div>
-        </div>
-      `;
-    }
-
-    if (!hasCalendar) {
-      return this._renderGenerationZone();
-    }
-
-    return this._renderCalendarTable();
   }
 
   _formatDate(dateStr) {
@@ -464,7 +419,8 @@ export class CommunityManagerPage {
 
       this.cmStrategy = await updateCommunityManagerStrategy(data);
       setStatus('Stratégie enregistrée avec succès.', true);
-      this._refreshCurrentTab();
+      this._closeStrategyModal();
+      this._refreshContent();
     } catch (error) {
       setStatus(error?.data?.detail || error?.message || 'Erreur lors de l\'enregistrement.', false);
     } finally {
@@ -481,7 +437,7 @@ export class CommunityManagerPage {
     this.cmGenerating = true;
     this.cmError = null;
     this.cmSuccess = null;
-    this._refreshCurrentTab();
+    this._refreshContent();
 
     const setStatus = (text, success) => {
       if (message) {
@@ -496,10 +452,10 @@ export class CommunityManagerPage {
       const result = await generateCommunityManagerCalendar(count);
       this.cmCalendar = result?.calendar || [];
       this.cmSuccess = `${this.cmCalendar.length} proposition(s) générée(s).`;
-      this._refreshCurrentTab();
+      this._refreshContent();
     } catch (error) {
       this.cmError = error?.data?.detail || error?.message || 'Génération impossible.';
-      this._refreshCurrentTab();
+      this._refreshContent();
     } finally {
       this.cmGenerating = false;
       if (submitBtn) submitBtn.disabled = false;
@@ -521,7 +477,7 @@ export class CommunityManagerPage {
       const entry = this.cmCalendar.find(e => e.id === entryId);
       if (entry) entry.status = 'planifié';
       setStatus('Proposition validée et planifiée.', true);
-      this._refreshCurrentTab();
+      this._refreshContent();
     } catch (error) {
       setStatus(error?.data?.detail || error?.message || 'Validation impossible.', false);
     }
@@ -541,7 +497,7 @@ export class CommunityManagerPage {
       await deleteCommunityManagerCalendarEntry(entryId);
       this.cmCalendar = this.cmCalendar.filter(e => e.id !== entryId);
       setStatus('Proposition refusée et supprimée.', true);
-      this._refreshCurrentTab();
+      this._refreshContent();
     } catch (error) {
       setStatus(error?.data?.detail || error?.message || 'Refus impossible.', false);
     }
@@ -614,44 +570,76 @@ export class CommunityManagerPage {
   _closeStudio() {
     this.showStudio = false;
     this.studioPage = null;
-    this._refreshCurrentTab();
+    this._refreshContent();
   }
 
-  _refreshCurrentTab() {
+  _openStrategyModal() {
+    this.showStrategyModal = true;
+    const modal = this.element.querySelector('#cm-strategy-modal');
+    if (modal) {
+      modal.classList.remove('hidden');
+      // Focus first input
+      setTimeout(() => {
+        modal.querySelector('input[name="brand_identity"]')?.focus();
+      }, 10);
+    }
+  }
+
+  _closeStrategyModal() {
+    this.showStrategyModal = false;
+    const modal = this.element.querySelector('#cm-strategy-modal');
+    if (modal) {
+      modal.classList.add('hidden');
+    }
+  }
+
+  _refreshContent() {
     if (this.showStudio && this.studioPage) {
       this.element.innerHTML = '';
       this.element.appendChild(this.studioPage.render());
       return;
     }
 
-    const panel = this.element.querySelector(`[data-tab-panel="${this.currentTab}"]`);
-    if (panel) {
-      if (this.currentTab === 'strategy') {
-        panel.innerHTML = this._renderStrategyTab();
-      } else if (this.currentTab === 'calendar') {
-        panel.innerHTML = this._renderCalendarTab();
+    const content = this.element.querySelector('.cm-main-content');
+    if (content) {
+      const configured = !!this.cmStrategy;
+      const hasCalendar = this.cmCalendar.length > 0;
+      if (!configured) {
+        content.innerHTML = this._renderEmptyState();
+      } else if (!hasCalendar) {
+        content.innerHTML = this._renderGenerationZone();
+      } else {
+        content.innerHTML = this._renderCalendarTable();
       }
       this._bindEvents();
     }
   }
 
   _bindEvents() {
-    this.element.querySelectorAll('[data-tab]').forEach((btn) => {
-      btn.addEventListener('click', () => this._switchTab(btn.dataset.tab));
+    // Strategy modal
+    this.element.querySelector('[data-action="open-strategy-modal"]')?.addEventListener('click', () => this._openStrategyModal());
+    this.element.querySelector('[data-action="close-strategy-modal"]')?.addEventListener('click', () => this._closeStrategyModal());
+
+    // Close modal on overlay click
+    this.element.querySelector('#cm-strategy-modal')?.addEventListener('click', (e) => {
+      if (e.target === e.currentTarget) this._closeStrategyModal();
     });
 
+    // Strategy form
     const strategyForm = this.element.querySelector('[data-form="community-manager-strategy"]');
     strategyForm?.addEventListener('submit', (e) => {
       e.preventDefault();
       this._saveCMStrategy(strategyForm);
     });
 
+    // Generation form
     const generateForm = this.element.querySelector('[data-form="cm-generate-calendar"]');
     generateForm?.addEventListener('submit', (e) => {
       e.preventDefault();
       this._generateCMCalendar(generateForm);
     });
 
+    // Calendar actions
     this.element.querySelectorAll('[data-cm-validate]').forEach(btn => {
       btn.addEventListener('click', () => this._validateCMEntry(parseInt(btn.dataset.entryId, 10)));
     });
@@ -662,30 +650,6 @@ export class CommunityManagerPage {
       btn.addEventListener('click', () => this._createPublicationFromEntry(btn.dataset.entryId, btn.dataset.entryTopic));
     });
     this.element.querySelector('[data-cm-regenerate]')?.addEventListener('click', () => this._regenerateCMCalendar());
-    this.element.querySelector('[data-action="cm-edit-strategy"]')?.addEventListener('click', () => {
-      this.cmStrategy = null;
-      this.cmCalendar = [];
-      this._refreshCurrentTab();
-    });
-    this.element.querySelector('[data-action="go-to-strategy"]')?.addEventListener('click', () => {
-      this._switchTab('strategy');
-    });
-  }
-
-  _switchTab(tabId) {
-    if (tabId === 'calendar' && !this.cmStrategy) return;
-    this.currentTab = tabId;
-    this.element.querySelectorAll('[data-tab]').forEach((el) => {
-      const active = el.dataset.tab === tabId;
-      el.classList.toggle('admin-tab--active', active);
-      el.setAttribute('aria-selected', String(active));
-    });
-    this.element.querySelectorAll('[data-tab-panel]').forEach((el) => {
-      const active = el.dataset.tabPanel === tabId;
-      el.classList.toggle('admin-tab-panel--active', active);
-      el.hidden = !active;
-    });
-    this._refreshCurrentTab();
   }
 }
 

@@ -424,13 +424,11 @@ class PublicationPreviewResponse(BaseModel):
 
 class PublicationValidateRequest(BaseModel):
     """Validation humaine avant publication."""
-    publication_id: int
     confirm: bool = True
 
 
 class PublicationPublishRequest(BaseModel):
     """Publication effective sur Instagram."""
-    publication_id: int
     confirm: bool = True
 
 

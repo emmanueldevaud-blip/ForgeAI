@@ -69,7 +69,8 @@ def _extract_stats_html(content: str) -> str:
     if not stats:
         return ""
     
-    return f'<div style="display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 8px;">{"".join(f"<span style=\"background: #f0f0f0; padding: 4px 8px; border-radius: 4px; font-size: 12px; font-weight: 500;\">{s}</span>" for s in stats)}</div>'
+    stats_html = "".join(f'<span style="background: #f0f0f0; padding: 4px 8px; border-radius: 4px; font-size: 12px; font-weight: 500;">{s}</span>' for s in stats)
+    return f'<div style="display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 8px;">{stats_html}</div>'
 
 
 class CommunityManagerStudioService:
@@ -154,15 +155,20 @@ class CommunityManagerStudioService:
 
         # Mettre à jour les champs fournis
         if data.title is not None:
-            pub.title = data.title
+            if not pub.title_locked:
+                pub.title = data.title
         if data.content is not None:
-            pub.content = data.content
+            if not pub.content_locked:
+                pub.content = data.content
         if data.hashtags is not None:
-            pub.hashtags = data.hashtags
+            if not pub.content_locked:
+                pub.hashtags = data.hashtags
         if data.photo_id is not None:
-            pub.photo_id = data.photo_id
+            if not pub.photo_locked:
+                pub.photo_id = data.photo_id
         if data.visual_type is not None:
-            pub.visual_type = data.visual_type
+            if not pub.photo_locked:
+                pub.visual_type = data.visual_type
         if data.tone_used is not None:
             pub.tone_used = data.tone_used
         if data.visual_generation_prompt is not None:
@@ -176,9 +182,12 @@ class CommunityManagerStudioService:
                 if isinstance(pub.proposals, list) and 0 <= idx < len(pub.proposals):
                     p = pub.proposals[idx]
                     if isinstance(p, dict):
-                        pub.title = p.get("title")
-                        pub.content = p.get("content")
-                        pub.hashtags = p.get("hashtags")
+                        if not pub.title_locked:
+                            pub.title = p.get("title")
+                        if not pub.content_locked:
+                            pub.content = p.get("content")
+                        if not pub.content_locked:
+                            pub.hashtags = p.get("hashtags")
         if data.proposals is not None:
             pub.proposals = data.proposals
         if data.styles is not None:
@@ -187,6 +196,13 @@ class CommunityManagerStudioService:
             pub.styles = validate_styles(data.styles) or pub.styles
         if data.custom_instructions is not None:
             pub.custom_instructions = data.custom_instructions.strip() or None
+        # Lock fields
+        if data.title_locked is not None:
+            pub.title_locked = data.title_locked
+        if data.content_locked is not None:
+            pub.content_locked = data.content_locked
+        if data.photo_locked is not None:
+            pub.photo_locked = data.photo_locked
 
         await self.db.commit()
         await self.db.refresh(pub)
@@ -346,6 +362,176 @@ class CommunityManagerStudioService:
             proposals = [{"title": "Variante", "content": text, "hashtags": None, "format": "photo", "idee_visuelle": None, "objectif": None}]
 
         return proposals[:count]
+
+    async def generate_text(
+        self,
+        publication_id: int,
+        data: PublicationGenerateTextRequest,
+    ) -> Optional[SportPublication]:
+        """Génère un texte court ou long selon le ton."""
+        pub = await self.pub_service.get_publication(publication_id)
+        if not pub:
+            raise ValueError("Publication introuvable")
+
+        if pub.content_locked:
+            raise ValueError("Le texte est verrouillé. Déverrouillez-le pour générer un nouveau texte.")
+
+        if not pub.calendar_entry_id:
+            raise ValueError("Génération de texte uniquement disponible pour publications V2 (depuis calendrier)")
+
+        athlete, strategy = await self._get_athlete_and_strategy()
+
+        entry_result = await self.db.execute(
+            select(EditorialCalendarEntry).where(
+                EditorialCalendarEntry.id == pub.calendar_entry_id,
+                EditorialCalendarEntry.strategy_id == strategy.id,
+            )
+        )
+        entry = entry_result.scalar_one_or_none()
+        if not entry:
+            raise ValueError("Entrée de calendrier introuvable")
+
+        # Récupérer activités récentes
+        activities_result = await self.db.execute(
+            select(SportActivity)
+            .where(SportActivity.athlete_id == athlete.id)
+            .order_by(SportActivity.started_at.desc())
+            .limit(10)
+        )
+        recent_activities = []
+        for act in activities_result.scalars().all():
+            recent_activities.append({
+                "id": act.id,
+                "sport_type": act.sport_type,
+                "activity_name": act.activity_name,
+                "started_at": act.started_at.isoformat() if act.started_at else None,
+                "duration_seconds": act.duration_seconds,
+                "distance_m": act.distance_m,
+                "elevation_gain_m": act.elevation_gain_m,
+                "elevation_loss_m": act.elevation_loss_m,
+                "avg_speed_m_s": act.avg_speed_m_s,
+                "avg_pace_sec_km": act.avg_pace_sec_km,
+                "avg_heart_rate": act.avg_heart_rate,
+                "max_heart_rate": act.max_heart_rate,
+                "avg_cadence": act.avg_cadence,
+                "avg_power_w": act.avg_power_w,
+                "calories": act.calories,
+                "temperature_c": act.temperature_c,
+                "source_type": act.source_type,
+            })
+
+        # Historique pour éviter répétition
+        prev_rows = (
+            await self.db.execute(
+                select(SportPublication).where(
+                    SportPublication.athlete_id == pub.athlete_id,
+                    SportPublication.id != pub.id,
+                ).order_by(SportPublication.created_at.desc()).limit(8)
+            )
+        ).scalars().all()
+        from app.services.sport_publications import _previous_publications_context
+        prev_ctx = _previous_publications_context(list(prev_rows))
+
+        effective_tone = data.tone or pub.tone_used
+        effective_styles = data.styles or pub.styles or ["stats"]
+        effective_custom = data.custom_instructions or pub.custom_instructions
+
+        style_lines = "\n".join(
+            f"- {STYLE_LABELS.get(s, s)} : {STYLE_INSTRUCTIONS.get(s, '')}" for s in effective_styles
+        )
+        if effective_custom:
+            style_lines += f"\n- Consignes personnalisées : {effective_custom}"
+        if effective_tone:
+            style_lines += f"\n- Ton rédactionnel : {effective_tone}"
+
+        length_instruction = ""
+        if data.length == "short":
+            length_instruction = "Génère un texte COURT (max 3-4 lignes, accrocheur, percutant)."
+        else:
+            length_instruction = "Génère un texte LONG (plus développé, narratif, avec contexte et détails)."
+
+        title_instruction = ""
+        if data.use_title and pub.title:
+            title_instruction = f"\nLe titre est déjà défini et verrouillé : \"{pub.title}\". NE LE CHANGE PAS. Écris le texte en cohérence avec ce titre."
+        else:
+            title_instruction = "\nPropose aussi un titre accrocheur en cohérence avec le ton."
+
+        mix_note = ""
+        if len(effective_styles) > 1:
+            mix_note = " Mode MIX : combiner les tons sélectionnés dans une même proposition quand c'est pertinent."
+
+        prompt = (
+            f"Sujet éditorial (déjà validé) :\n"
+            f"- Titre : {entry.topic}\n"
+            f"- Thème : {entry.theme or 'Non défini'}\n"
+            f"- Objectif : {entry.objective or 'Non défini'}\n"
+            f"- Note IA : {entry.notes or 'Aucune'}\n"
+            f"- Date suggérée : {entry.date}\n\n"
+            f"Stratégie éditoriale :\n"
+            f"- Identité : {strategy.brand_identity or 'Non définie'}\n"
+            f"- Tons : {', '.join(strategy.tone) if strategy.tone else 'Non définis'}\n"
+            f"- Audience : {strategy.target_audience or 'Non définie'}\n"
+            f"- Objectifs : {', '.join(strategy.objectives) if strategy.objectives else 'Non définis'}\n"
+            f"- Thèmes : {', '.join(strategy.themes) if strategy.themes else 'Non définis'}\n\n"
+            f"Activités récentes Garmin (données réelles) :\n"
+            f"{json.dumps(recent_activities[:5], ensure_ascii=False, default=str)}\n\n"
+            f"Tons demandés :\n{style_lines}{mix_note}\n\n"
+            f"Historique des publications précédentes (à éviter) :\n{prev_ctx}\n\n"
+            f"{length_instruction}{title_instruction}\n\n"
+            f"Génère UNE SEULE proposition de texte. "
+            f"Pour chaque proposition retourne : title, content, hashtags. "
+            f"Respecte le ton et n'invente AUCUNE donnée. "
+            f"Réponds uniquement en JSON avec la clé 'proposal'."
+        )
+
+        try:
+            response = await ai_gateway.generate(
+                prompt=prompt,
+                system_prompt=SYSTEM_PROMPT,
+                temperature=0.7,
+                max_tokens=1200,
+            )
+        except AIGatewayError as exc:
+            logger.warning("[CM-STUDIO] IA indisponible pour génération texte : %s", exc)
+            raise
+
+        text = (response.text or "").strip()
+        payload = None
+        try:
+            cleaned = text
+            if cleaned.startswith("```"):
+                cleaned = cleaned.split("```", 2)[1]
+                if cleaned.startswith("json"):
+                    cleaned = cleaned[4:]
+            s, e = cleaned.find("{"), cleaned.rfind("}")
+            if s >= 0 and e > s:
+                payload = json.loads(cleaned[s:e + 1])
+        except (json.JSONDecodeError, ValueError):
+            payload = None
+
+        proposal = None
+        if isinstance(payload, dict) and isinstance(payload.get("proposal"), dict):
+            proposal = payload["proposal"]
+        elif isinstance(payload, dict) and isinstance(payload.get("proposals"), list) and payload["proposals"]:
+            proposal = payload["proposals"][0]
+
+        if not proposal:
+            proposal = {"title": "Proposition", "content": text, "hashtags": None}
+
+        # Mettre à jour la publication (seulement si pas verrouillé)
+        if not pub.title_locked and proposal.get("title"):
+            pub.title = proposal.get("title")
+        if not pub.content_locked:
+            pub.content = proposal.get("content")
+        if not pub.content_locked:
+            pub.hashtags = proposal.get("hashtags")
+
+        pub.tone_used = data.tone or pub.tone_used
+        pub.styles = data.styles or pub.styles or ["stats"]
+
+        await self.db.commit()
+        await self.db.refresh(pub)
+        return pub
 
     async def validate_for_publication(
         self, publication_id: int, data: PublicationValidateRequest

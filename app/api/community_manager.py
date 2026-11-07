@@ -308,6 +308,19 @@ async def preview_draft(
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
+@router.get("/studio/draft/{publication_id}/suggested-photos")
+async def get_suggested_photos(
+    publication_id: int,
+    limit: int = Query(15, ge=1, le=50),
+    service: CommunityManagerStudioService = Depends(get_cm_studio_service),
+):
+    """Récupérer les photos suggérées en liaison avec les activités sportives."""
+    try:
+        return await service.get_suggested_photos(publication_id, limit=limit)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
 @router.patch("/studio/draft/{publication_id}/lock/title", response_model=PublicationDraftResponse)
 async def toggle_title_lock(
     publication_id: int,

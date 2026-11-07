@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.models.module import Module, ModuleConfig
-from app.models.sport import CommunityManagerStrategy, EditorialCalendarEntry, SportActivity, SportAthlete
+from app.models.sport import CommunityManagerStrategy, EditorialCalendarEntry, SportActivity, SportAthlete, SportPublication
 from app.models.user import User
 from app.schemas.sport import (
     CalendarGenerateRequest,
@@ -221,7 +221,7 @@ class CommunityManagerService:
             return CalendarGenerateResponse(calendar=response_entries)
 
     async def get_calendar(self) -> list[EditorialCalendarEntryResponse]:
-        """Récupère le calendrier éditorial existant."""
+        """Récupère le calendrier éditorial existant avec statut de publication associée."""
         strategy = await self.get_strategy()
         if not strategy:
             return []
@@ -232,7 +232,27 @@ class CommunityManagerService:
             .order_by(EditorialCalendarEntry.date.asc())
         )
         entries = result.scalars().all()
-        return [EditorialCalendarEntryResponse.model_validate(e) for e in entries]
+        if not entries:
+            return []
+
+        entry_ids = [e.id for e in entries]
+        pubs_result = await self.db.execute(
+            select(SportPublication).where(
+                SportPublication.calendar_entry_id.in_(entry_ids)
+            )
+        )
+        pubs = pubs_result.scalars().all()
+        pub_by_entry = {p.calendar_entry_id: p for p in pubs}
+
+        response_entries = []
+        for e in entries:
+            item = EditorialCalendarEntryResponse.model_validate(e)
+            if e.id in pub_by_entry:
+                item.publication_id = pub_by_entry[e.id].id
+                item.publication_status = pub_by_entry[e.id].status
+            response_entries.append(item)
+
+        return response_entries
 
     async def update_calendar_entry(
         self, entry_id: int, data: EditorialCalendarEntryUpdate

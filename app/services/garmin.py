@@ -187,14 +187,21 @@ class SportGarminConnectService:
             start_date = date(2000, 1, 1) if full_history else (connection.last_sync_at or started - timedelta(days=connection.initial_sync_days)).date() - timedelta(days=2)
             activities = await asyncio.to_thread(client.get_activities_by_date, start_date.isoformat(), date.today().isoformat())
             imported = 0
+            updated = 0
             for summary in activities or []:
                 external_id = str(summary.get("activityId")) if summary.get("activityId") is not None else None
-                if not external_id or await self._activity_exists(athlete.id, external_id):
+                if not external_id:
                     continue
                 try:
                     async with self.db.begin_nested():
-                        await self._import_summary(client, athlete, summary, include_details=not full_history)
-                    imported += 1
+                        existing_activity = await self._get_activity_by_external_id(athlete.id, external_id)
+                        if existing_activity:
+                            # Update existing activity with latest data from Garmin
+                            await self._update_activity(existing_activity, summary, client, include_details=not full_history)
+                            updated += 1
+                        else:
+                            await self._import_summary(client, athlete, summary, include_details=not full_history)
+                            imported += 1
                 except Exception:
                     # A malformed activity must not prevent the remaining activities from syncing.
                     continue
@@ -203,6 +210,7 @@ class SportGarminConnectService:
             connection.last_sync_status = "success"
             log.status = "success"
             log.imported_count = imported
+            log.updated_count = updated
             log.finished_at = datetime.now(timezone.utc)
             await self.db.commit()
             try:
@@ -349,6 +357,65 @@ class SportGarminConnectService:
             )
         )
         return result.scalar_one_or_none() is not None
+
+    async def _get_activity_by_external_id(self, athlete_id: int, external_id: str):
+        result = await self.db.execute(
+            select(SportActivity).where(
+                SportActivity.athlete_id == athlete_id,
+                SportActivity.source_type == "garmin",
+                SportActivity.external_id == external_id,
+            )
+        )
+        return result.scalar_one_or_none()
+
+    async def _update_activity(
+        self,
+        activity: SportActivity,
+        summary: dict[str, Any],
+        client,
+        include_details: bool = True,
+    ):
+        """Update an existing activity with latest data from Garmin."""
+        activity_id = str(summary["activityId"])
+        activity_type = summary.get("activityTypeDTO") or {}
+        if not isinstance(activity_type, dict):
+            activity_type = {}
+        sport_type = activity_type.get("typeKey")
+        if not isinstance(sport_type, str):
+            raw_type = summary.get("activityType")
+            sport_type = raw_type.get("typeKey") if isinstance(raw_type, dict) else raw_type
+        if not isinstance(sport_type, str) or not sport_type:
+            sport_type = "other"
+        started_raw = summary.get("startTimeLocal") or summary.get("startTimeGMT")
+        started_at = datetime.fromisoformat(started_raw.replace("Z", "+00:00")) if started_raw else datetime.now(timezone.utc)
+        if started_at.tzinfo is None:
+            started_at = started_at.replace(tzinfo=timezone.utc)
+        
+        # Update fields from summary
+        activity.sport_type = sport_type
+        activity.activity_name = summary.get("activityName")
+        activity.started_at = datetime.fromisoformat(started_raw.replace("Z", "+00:00")) if started_raw else datetime.now(timezone.utc)
+        if started_at.tzinfo is None:
+            started_at = started_at.replace(tzinfo=timezone.utc)
+        activity.duration_seconds = int(summary.get("duration") or 0)
+        activity.distance_m = summary.get("distance")
+        activity.elevation_gain_m = summary.get("elevationGain")
+        activity.elevation_loss_m = summary.get("elevationLoss")
+        activity.avg_speed_m_s = summary.get("averageSpeed")
+        activity.avg_pace_sec_km = summary.get("averagePace")
+        activity.avg_heart_rate = summary.get("averageHR")
+        activity.max_heart_rate = summary.get("maxHR")
+        activity.avg_cadence = summary.get("averageRunningCadenceInStepsPerMinute") or summary.get("averageCadence")
+        activity.avg_power_w = summary.get("avgPower") or summary.get("averagePower")
+        activity.calories = summary.get("calories")
+        activity.temperature_c = summary.get("averageTemperature")
+        
+        if include_details:
+            details = await self._safe_garmin_call(client.get_activity_details, summary["activityId"])
+            splits = await self._safe_garmin_call(client.get_activity_split_summaries, summary["activityId"])
+            activity.metadata_json = {"garmin_summary": summary, "garmin_details": details, "garmin_splits": splits}
+        
+        await self.db.flush()
 
     async def _import_summary(
         self,

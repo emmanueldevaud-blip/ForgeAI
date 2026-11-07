@@ -273,3 +273,8 @@ export async function lockStudioDraftPhoto(publicationId, locked) {
 export async function generateStudioDraftText(publicationId, data) {
   return cmApi.post(`/community-manager/studio/draft/${encodeURIComponent(publicationId)}/generate-text`, data);
 }
+
+// V3 : Photos suggérées liées aux activités Garmin et dates
+export async function getSuggestedPhotos(publicationId, limit = 15) {
+  return cmApi.get(`/community-manager/studio/draft/${encodeURIComponent(publicationId)}/suggested-photos`, { params: { limit } });
+}

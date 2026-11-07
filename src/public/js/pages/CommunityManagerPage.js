@@ -265,25 +265,30 @@ export class CommunityManagerPage {
         <td class="text-muted" style="max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${this._escape(entry.notes || '')}</td>
         <td>
           <div class="form-actions" style="gap: 8px;">
-            ${entry.status === 'brouillon' ? `
+            ${entry.publication_id ? `
+              <div style="display: inline-flex; align-items: center; gap: 8px;">
+                <span class="status-badge ${this._getPubBadgeClass(entry.publication_status)}">${this._formatPubStatus(entry.publication_status)}</span>
+                <button class="btn btn-sm btn-primary" data-cm-open-studio data-publication-id="${entry.publication_id}">
+                  Ouvrir le Studio
+                </button>
+              </div>
+            ` : (entry.status === 'brouillon' ? `
               <button class="btn btn-sm btn-primary" data-cm-validate data-entry-id="${entry.id}" ${!this.canGenerateCMCalendar ? 'disabled' : ''}>
                 Valider
               </button>
               <button class="btn btn-sm btn-secondary" data-cm-reject data-entry-id="${entry.id}" ${!this.canGenerateCMCalendar ? 'disabled' : ''}>
                 Refuser
               </button>
-            ` : ''}
-            ${entry.status === 'planifié' ? `
+            ` : (entry.status === 'planifié' ? `
               <button class="btn btn-sm btn-primary" data-cm-create-publication data-entry-id="${entry.id}" data-entry-topic="${this._escape(entry.topic)}" ${!this.canGenerateCMCalendar ? 'disabled' : ''}>
                 Créer la publication
               </button>
               <button class="btn btn-sm btn-secondary" data-cm-reject data-entry-id="${entry.id}" ${!this.canGenerateCMCalendar ? 'disabled' : ''}>
                 Refuser
               </button>
-            ` : ''}
-            ${entry.status === 'refusé' ? `
+            ` : `
               <span class="text-muted">Refusée</span>
-            ` : ''}
+            `))}
           </div>
         </td>
       </tr>
@@ -569,7 +574,7 @@ export class CommunityManagerPage {
 
   _openStudio(publicationId) {
     this.showStudio = true;
-    this.studioPage = createCommunityManagerStudioPage(this.router, publicationId);
+    this.studioPage = createCommunityManagerStudioPage(this.router, publicationId, null, () => this._closeStudio());
     this.studioPage.initialize().then(() => {
       if (this.element) {
         this.element.innerHTML = '';
@@ -581,7 +586,12 @@ export class CommunityManagerPage {
   _closeStudio() {
     this.showStudio = false;
     this.studioPage = null;
-    this._refreshContent();
+    this._loadCMCalendar().then(() => {
+      if (this.element) {
+        this.element.innerHTML = '';
+        this.element.appendChild(this.render());
+      }
+    });
   }
 
   _openStrategyModal() {
@@ -676,7 +686,37 @@ export class CommunityManagerPage {
     this.element.querySelectorAll('[data-cm-create-publication]').forEach(btn => {
       btn.addEventListener('click', () => this._createPublicationFromEntry(btn.dataset.entryId, btn.dataset.entryTopic));
     });
+    this.element.querySelectorAll('[data-cm-open-studio]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const pubId = parseInt(btn.dataset.publicationId, 10);
+        if (pubId) this._openStudio(pubId);
+      });
+    });
     this.element.querySelector('[data-cm-regenerate]')?.addEventListener('click', () => this._regenerateCMCalendar());
+  }
+
+  _formatPubStatus(status) {
+    const map = {
+      draft: 'Brouillon',
+      validated: 'Validée',
+      scheduled: 'Planifiée',
+      shared: 'Publiée',
+      failed: 'Échec',
+      publishing: 'Publication...',
+    };
+    return map[status] || status || 'Brouillon';
+  }
+
+  _getPubBadgeClass(status) {
+    const map = {
+      draft: 'inactive',
+      validated: 'active',
+      scheduled: 'warning',
+      shared: 'success',
+      failed: 'danger',
+      publishing: 'warning',
+    };
+    return map[status] || 'inactive';
   }
 }
 

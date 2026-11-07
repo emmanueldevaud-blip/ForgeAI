@@ -345,6 +345,9 @@ class PublicationDraftUpdate(BaseModel):
     proposals: Optional[list[dict[str, Any]]] = None
     styles: Optional[list[str]] = None
     custom_instructions: Optional[str] = None
+    title_locked: Optional[bool] = None
+    content_locked: Optional[bool] = None
+    photo_locked: Optional[bool] = None
 
 
 class PublicationDraftResponse(SportPublicationResponse):
@@ -532,6 +535,8 @@ class EditorialCalendarEntryResponse(EditorialCalendarEntryBase):
     strategy_id: int
     created_at: datetime
     updated_at: datetime
+    publication_id: Optional[int] = None
+    publication_status: Optional[str] = None
 
 
 class CalendarGenerateRequest(BaseModel):

@@ -10,6 +10,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.models.photo import Photo
 from app.models.sport import (
     CommunityManagerStrategy,
     EditorialCalendarEntry,
@@ -452,10 +453,10 @@ class CommunityManagerStudioService:
             length_instruction = "Génère un texte LONG (plus développé, narratif, avec contexte et détails)."
 
         title_instruction = ""
-        if data.use_title and pub.title:
+        if pub.title_locked and pub.title:
             title_instruction = f"\nLe titre est déjà défini et verrouillé : \"{pub.title}\". NE LE CHANGE PAS. Écris le texte en cohérence avec ce titre."
         else:
-            title_instruction = "\nPropose aussi un titre accrocheur en cohérence avec le ton."
+            title_instruction = "\nPropose aussi un titre accrocheur et percutant en cohérence avec le ton choisi."
 
         mix_note = ""
         if len(effective_styles) > 1:
@@ -809,3 +810,77 @@ class CommunityManagerStudioService:
             await self.db.refresh(pub)
             logger.exception(f"Erreur publication Instagram: {e}")
             raise ValueError(f"Erreur de publication: {str(e)}")
+
+    async def get_suggested_photos(self, publication_id: int, limit: int = 15) -> list[dict[str, Any]]:
+        """Récupère des photos suggérées pour la publication en reliant activités Garmin et dates."""
+        pub = await self.pub_service.get_publication(publication_id)
+        if not pub:
+            raise ValueError("Publication introuvable")
+
+        athlete, _ = await self._get_athlete_and_strategy()
+
+        # Récupérer les activités récentes de l'athlète
+        act_res = await self.db.execute(
+            select(SportActivity)
+            .where(SportActivity.athlete_id == athlete.id)
+            .order_by(SportActivity.started_at.desc())
+            .limit(15)
+        )
+        recent_acts = act_res.scalars().all()
+        activity_dates: dict[Any, str] = {}
+        for act in recent_acts:
+            if act.started_at:
+                activity_dates[act.started_at.date()] = act.activity_name or act.sport_type or "Activité Garmin"
+
+        target_date = None
+        if pub.calendar_entry_id:
+            entry_res = await self.db.execute(
+                select(EditorialCalendarEntry).where(EditorialCalendarEntry.id == pub.calendar_entry_id)
+            )
+            entry = entry_res.scalar_one_or_none()
+            if entry and entry.date:
+                target_date = entry.date
+
+        # Récupérer les photos de l'utilisateur
+        photos_res = await self.db.execute(
+            select(Photo)
+            .where(
+                Photo.owner_id == self.current_user.id,
+                Photo.is_deleted.is_(False),
+                Photo.status != "failed",
+            )
+            .order_by(Photo.taken_at.desc())
+            .limit(40)
+        )
+        photos = photos_res.scalars().all()
+
+        results = []
+        for photo in photos:
+            p_date = photo.taken_at.date() if photo.taken_at else None
+            match_reason = "Photo récente"
+            badge_class = "info"
+
+            if target_date and p_date == target_date:
+                match_reason = "Jour de la publication"
+                badge_class = "primary"
+            elif p_date and p_date in activity_dates:
+                match_reason = f"Activité : {activity_dates[p_date]}"
+                badge_class = "success"
+            elif photo.is_favorite:
+                match_reason = "Photo favorite"
+                badge_class = "warning"
+
+            results.append({
+                "id": photo.id,
+                "title": photo.title or photo.original_filename,
+                "taken_at": photo.taken_at.isoformat() if photo.taken_at else None,
+                "thumbnail_url": f"/photos/{photo.id}/file?size=small",
+                "preview_url": f"/photos/{photo.id}/file?size=large",
+                "match_reason": match_reason,
+                "badge_class": badge_class,
+                "is_current": (pub.photo_id == photo.id),
+            })
+            if len(results) >= limit:
+                break
+
+        return results

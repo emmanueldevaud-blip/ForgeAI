@@ -124,7 +124,7 @@ void (function() {
     createDomotiquePage, createDomotiqueConfigPage, createSurveillancePage,
     createPhotosPage, createSouvenirsPage, createITAssetPage,
     createSportDashboardPage, createSportActivitiesPage, createSportGarminPage,
-    createSportHealthPage, createSportAnalysesPage, createSportGoalsPage, createSportPublicationsPage,
+    createSportHealthPage, createSportAnalysesPage, createSportGoalsPage,
     createBuildingsPage, createEquipmentPage, createEquipmentRefsPage,
     createDashboardPage, createMaintenanceRequestsPage, createMaintenanceWorkOrdersPage,
     createMaintenancePreventivePage, createMaintenanceProvidersPage, createMaintenanceContractsPage,

@@ -1,7 +1,7 @@
 """Make activity_id nullable in sport_publications for calendar-based publications.
 
 Revision ID: 20261107_0004
-Revises: 20261107_0003
+Revises: 20261107_0001
 Create Date: 2026-11-07
 """
 from alembic import op

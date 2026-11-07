@@ -161,7 +161,7 @@ class TestMetaPublishService:
     def service(self, mock_db):
         return MetaPublishService(mock_db)
 
-@pytest.mark.asyncio
+    @pytest.mark.asyncio
     async def test_get_valid_token_returns_token(self, service, mock_connection, mock_db):
         """Test récupération token valide."""
         mock_db.execute.return_value.scalar_one_or_none.return_value = mock_connection
@@ -170,7 +170,7 @@ class TestMetaPublishService:
             token = await service._get_valid_token(mock_connection)
             assert token == "long_token"
 
-@pytest.mark.asyncio
+    @pytest.mark.asyncio
     async def test_create_media_container_success(self, service, mock_connection, mock_db):
         """Test création conteneur média réussie."""
         mock_db.execute.return_value.scalar_one_or_none.return_value = mock_connection
@@ -189,7 +189,7 @@ class TestMetaPublishService:
                 assert container_id == "container_123"
                 mock_post.assert_called_once()
 
-@pytest.mark.asyncio
+    @pytest.mark.asyncio
     async def test_create_media_container_no_token(self, service, mock_connection, mock_db):
         """Test création conteneur sans token valide."""
         mock_db.execute.return_value.scalar_one_or_none.return_value = mock_connection
@@ -200,7 +200,7 @@ class TestMetaPublishService:
                     mock_connection, "https://example.com/photo.jpg", "Test"
                 )
 
-@pytest.mark.asyncio
+    @pytest.mark.asyncio
     async def test_publish_media_container_success(self, service, mock_connection, mock_db):
         """Test publication conteneur réussie."""
         mock_db.execute.return_value.scalar_one_or_none.return_value = mock_connection
@@ -226,7 +226,7 @@ class TestMetaPublishService:
                 
                 assert media_id == "media_123"
 
-@pytest.mark.asyncio
+    @pytest.mark.asyncio
     async def test_publish_media_container_timeout(self, service, mock_connection, mock_db):
         """Test timeout publication conteneur."""
         mock_db.execute.return_value.scalar_one_or_none.return_value = mock_connection
@@ -242,7 +242,7 @@ class TestMetaPublishService:
                 with pytest.raises(MetaPublishError, match="Timeout"):
                     await service.publish_media_container(mock_connection, "container_123")
 
-@pytest.mark.asyncio
+    @pytest.mark.asyncio
     async def test_publish_photo_success(self, service, mock_connection, mock_db):
         """Test publication photo complète."""
         mock_db.execute.return_value.scalar_one_or_none.return_value = mock_connection
@@ -328,7 +328,7 @@ class TestMediaPublishService:
         payload = service._verify_signed_token("invalid.token.signature")
         assert payload is None
 
-@pytest.mark.asyncio
+    @pytest.mark.asyncio
     async def test_prepare_media_for_publish_success(self, service):
         """Test préparation média réussie."""
         from app.models.photo import Photo
@@ -359,7 +359,7 @@ class TestMediaPublishService:
         assert "meta_token=" in url
         assert "photos/123/file" in url
 
-@pytest.mark.asyncio
+    @pytest.mark.asyncio
     async def test_prepare_media_for_publish_unauthorized(self, service):
         """Test préparation média accès non autorisé."""
         from app.models.photo import Photo
@@ -380,7 +380,7 @@ class TestMediaPublishService:
         with pytest.raises(MediaPublishError, match="Accès non autorisé"):
             await service.prepare_media_for_publish(photo_id=123, user_id=456)
 
-@pytest.mark.asyncio
+    @pytest.mark.asyncio
     async def test_validate_media_token_valid(self, service):
         """Test validation token valide."""
         from app.models.sport import MediaPublishToken
@@ -408,7 +408,7 @@ class TestMediaPublishService:
         assert result["photo_id"] == 123
         assert result["user_id"] == 456
 
-@pytest.mark.asyncio
+    @pytest.mark.asyncio
     async def test_validate_media_token_consumed(self, service):
         """Test validation token déjà consommé."""
         from app.models.sport import MediaPublishToken
@@ -513,7 +513,7 @@ class TestCommunityManagerStudioServicePublish:
         pub.calendar_entry_id = 1
         return pub
 
-@pytest.mark.asyncio
+    @pytest.mark.asyncio
     async def test_publish_to_instagram_success(self, service, mock_db, mock_user, mock_publication):
         """Test publication Instagram réussie."""
         # Mock athlete and strategy
@@ -620,7 +620,7 @@ class TestCommunityManagerStudioServicePublish:
                 assert result.status == "shared"
                 assert result.instagram_media_id == "media_123"
 
-@pytest.mark.asyncio
+    @pytest.mark.asyncio
     async def test_publish_to_instagram_not_validated(self, service):
         """Test publication refusée si pas validée."""
         pub = MagicMock()
@@ -631,7 +631,7 @@ class TestCommunityManagerStudioServicePublish:
         with pytest.raises(ValueError, match="Seules les publications validées"):
             await service.publish_to_instagram(1, MagicMock(confirm=True))
 
-@pytest.mark.asyncio
+    @pytest.mark.asyncio
     async def test_publish_to_instagram_no_content(self, service):
         """Test publication refusée si contenu vide."""
         pub = MagicMock()
@@ -643,7 +643,7 @@ class TestCommunityManagerStudioServicePublish:
         with pytest.raises(ValueError, match="contenu de la publication est vide"):
             await service.publish_to_instagram(1, MagicMock(confirm=True))
 
-@pytest.mark.asyncio
+    @pytest.mark.asyncio
     async def test_publish_to_instagram_no_visual(self, service):
         """Test publication refusée si pas de visuel."""
         pub = MagicMock()
@@ -658,7 +658,7 @@ with pytest.raises(ValueError, match="visuel est requis"):
             await service.publish_to_instagram(1, MagicMock(confirm=True))
 
 
-@pytest.mark.asyncio
+    @pytest.mark.asyncio
     async def test_publish_to_instagram_no_connection(self, service, mock_db):
         """Test publication refusée si pas de connexion Instagram."""
         pub = MagicMock()
@@ -723,7 +723,7 @@ class TestPublishAPI:
     def mock_db(self):
         return AsyncMock(spec=AsyncSession)
 
-@pytest.mark.asyncio
+    @pytest.mark.asyncio
     async def test_publish_draft_success(self):
         """Test endpoint publication réussi."""
         from app.api.community_manager import publish_draft
@@ -751,7 +751,7 @@ class TestPublishAPI:
         assert result.status == "shared"
         assert result.instagram_media_id == "media_123"
 
-@pytest.mark.asyncio
+    @pytest.mark.asyncio
     async def test_publish_draft_validation_error(self):
         """Test endpoint publication erreur validation."""
         from app.api.community_manager import publish_draft

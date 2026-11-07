@@ -184,6 +184,7 @@ export class CommunityManagerStudioPage {
                   <option value="feed">Feed (1:1)</option>
                   <option value="story">Story (9:16)</option>
                   <option value="reel">Reel (9:16)</option>
+                  <option value="strategic">Stratégique (stats + accroche)</option>
                 </select>
               </footer>
             </div>

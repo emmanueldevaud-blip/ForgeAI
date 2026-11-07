@@ -2,6 +2,7 @@
 
 import json
 import logging
+import re
 from datetime import datetime, timezone
 from typing import Any, Optional
 
@@ -30,6 +31,45 @@ from app.services.sport_instagram_publish import MetaPublishService, MetaPublish
 from app.services.sport_media_publish import MediaPublishService
 
 logger = logging.getLogger(__name__)
+
+
+def _extract_stats_html(content: str) -> str:
+    """Extrait les stats du contenu et génère un HTML léger pour le mode stratégique."""
+    if not content:
+        return ""
+    
+    # Patterns pour extraire les stats courantes (distance, dénivelé, durée, FC, allure, etc.)
+    stats = []
+    
+    # Distance (km)
+    dist_match = re.search(r'(\d+(?:[.,]\d+)?)\s*km', content, re.IGNORECASE)
+    if dist_match:
+        stats.append(f"🏃 {dist_match.group(1)} km")
+    
+    # Dénivelé (D+)
+    elev_match = re.search(r'(\d+)\s*[mM]\s*[Dd][\+]?', content)
+    if elev_match:
+        stats.append(f"⛰️ {elev_match.group(1)} m D+")
+    
+    # Durée
+    dur_match = re.search(r'(\d+h\d{2}min|\d+h\d{2}|\d+min)', content)
+    if dur_match:
+        stats.append(f"⏱️ {dur_match.group(1)}")
+    
+    # FC moyenne
+    fc_match = re.search(r'FC\s*(?:moy|moyenne)?\s*[=:]\s*(\d+)', content, re.IGNORECASE)
+    if fc_match:
+        stats.append(f"❤️ {fc_match.group(1)} bpm")
+    
+    # Allure
+    pace_match = re.search(r'(?:allure|pace)\s*[=:]\s*(\d+[\':]\d{2})', content, re.IGNORECASE)
+    if pace_match:
+        stats.append(f"⚡ {pace_match.group(1)}/km")
+    
+    if not stats:
+        return ""
+    
+    return f'<div style="display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 8px;">{"".join(f"<span style=\"background: #f0f0f0; padding: 4px 8px; border-radius: 4px; font-size: 12px; font-weight: 500;\">{s}</span>" for s in stats)}</div>'
 
 
 class CommunityManagerStudioService:
@@ -368,7 +408,16 @@ class CommunityManagerStudioService:
         title = pub.title or ""
         photo_url = None
         if pub.photo_id:
-            photo_url = f"/photos/{pub.photo_id}/file?size=medium"
+            # Pour l'aperçu, on utilise l'URL avec le token Meta pour que Meta puisse accéder à l'image
+            from app.services.sport_media_publish import MediaPublishService
+            media_service = MediaPublishService(self.db)
+            photo_url = await media_service.prepare_media_for_publish(pub.photo_id, self.current_user.id, expires_in_seconds=3600)
+
+        # Helper pour extraire les stats de l'activité Garmin si disponible
+        stats_html = ""
+        if pub.calendar_entry and pub.calendar_entry.notes:
+            # Essayer d'extraire des stats depuis les notes de l'entrée
+            pass
 
         # HTML de prévisualisation (style Instagram)
         if format == "feed":
@@ -405,7 +454,34 @@ class CommunityManagerStudioService:
                 </div>
             </div>
             """
+        elif format == "strategic":
+            # Mode stratégique : léger, juste stats + accroche courte, pas de blabla
+            # Extraire les stats si disponibles dans le contenu
+            stats_html = self._extract_stats_html(content)
+            html = f"""
+            <div style="max-width: 480px; background: #fff; border-radius: 8px; overflow: hidden; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
+                <div style="padding: 12px 16px; display: flex; align-items: center; gap: 10px; border-bottom: 1px solid #efefef;">
+                    <div style="width: 32px; height: 32px; border-radius: 50%; background: linear-gradient(45deg, #f09433 0%,#e6683c 25%,#dc2743 50%,#cc2366 75%,#bc1888 100%);"></div>
+                    <div>
+                        <div style="font-weight: 600; font-size: 14px;">{self.current_user.username or 'Utilisateur'}</div>
+                        <div style="font-size: 12px; color: #8e8e8e;">{datetime.now().strftime('%d/%m/%Y')}</div>
+                    </div>
+                </div>
+                {f'<img src="{photo_url}" style="width: 100%; height: 480px; object-fit: cover;">' if photo_url else '<div style="width: 100%; height: 480px; background: #fafafa; display: flex; align-items: center; justify-content: center; color: #999;">Aucune image</div>'}
+                <div style="padding: 12px 16px;">
+                    {stats_html}
+                    <div style="font-size: 14px; line-height: 1.5; white-space: pre-wrap; margin-top: 8px;">{content}</div>
+                    {f'<div style="margin-top: 12px; font-size: 13px; color: #8e8e8e; line-height: 1.6;">{hashtags}</div>' if hashtags else ''}
+                </div>
+                <div style="padding: 8px 16px; border-top: 1px solid #efefef; display: flex; gap: 16px; color: #8e8e8e; font-size: 13px;">
+                    <span>♥️ 0</span>
+                    <span>💬 0</span>
+                    <span>📤 0</span>
+                </div>
+            </div>
+            """
         else:
+            # Fallback reel/other
             html = f"""
             <div style="max-width: 480px; background: #fff; border-radius: 8px; overflow: hidden; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
                 <div style="padding: 12px 16px;">{title}</div>

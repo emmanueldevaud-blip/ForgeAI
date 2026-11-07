@@ -654,9 +654,8 @@ class TestCommunityManagerStudioServicePublish:
         
         service.pub_service.get_publication = AsyncMock(return_value=pub)
         
-with pytest.raises(ValueError, match="visuel est requis"):
+        with pytest.raises(ValueError, match="visuel est requis"):
             await service.publish_to_instagram(1, MagicMock(confirm=True))
-
 
     @pytest.mark.asyncio
     async def test_publish_to_instagram_no_connection(self, service, mock_db):
@@ -677,22 +676,28 @@ with pytest.raises(ValueError, match="visuel est requis"):
         mock_athlete = MagicMock(id=10, user_id=1)
         mock_strategy = MagicMock(athlete_id=10)
 
-        # Mock the database query for Instagram connection to return None
-        call_count = {"count": 0}
-
+        # Mock the database to return None for Instagram connection queries
+        # but valid results for other queries
         async def mock_execute(query):
-            call_count["count"] += 1
+            query_str = str(query).lower()
             result = MagicMock()
-            if call_count["count"] == 1:
+            if "sport_athlete" in query_str and "user_id" in query_str:
                 result.scalar_one_or_none.return_value = MagicMock(id=10, user_id=1)
-            elif call_count["count"] == 2:
-                result.scalar_one_or_none.return_value = mock_strategy
-            elif call_count["count"] == 3:
+            elif "community_manager_strategy" in query_str:
+                result.scalar_one_or_none.return_value = MagicMock(
+                    id=100, athlete_id=10, brand_identity="TestBrand",
+                    tone=["professional"], target_audience="Test",
+                    objectives=["engagement"], themes=["running"],
+                    frequency=3, networks=["instagram"],
+                    rules=["Rule 1"], forbidden_topics=["politics"]
+                )
+            elif "photo" in query_str and "id" in query_str:
                 result.scalar_one_or_none.return_value = MagicMock(id=123, owner_id=1)
-            elif call_count["count"] == 4:
+            elif "sport_instagram_connection" in query_str or "instagram" in query_str:
+                # Return None for Instagram connection queries
                 result.scalar_one_or_none.return_value = None
             else:
-                result.scalar_one_or_none.return_value = None
+                result.scalar_one_or_none.return_value = MagicMock(id=123, owner_id=1)
             return result
 
         mock_db.execute.side_effect = mock_execute

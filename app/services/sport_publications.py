@@ -755,8 +755,12 @@ class SportPublicationService:
         if existing_pub:
             pub = existing_pub
         else:
+            # Use most recent activity as reference for calendar-created publications
+            # (activity_id is required in DB but not logically linked for calendar source)
+            recent_activity_id = recent_activities[0]["id"] if recent_activities else None
             pub = SportPublication(
                 athlete_id=athlete.id,
+                activity_id=recent_activity_id,
                 calendar_entry_id=calendar_entry_id,
                 status="draft",
                 created_from="calendar",

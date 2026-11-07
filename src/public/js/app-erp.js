@@ -23,6 +23,7 @@ import { createAIAssistantPage } from './pages/AIAssistantPage.js?v=31';
 import { createHousingPage } from './pages/HousingPage.js?v=1';
 import { createProfilePage } from './pages/ProfilePage.js?v=2';
 import { createSettingsPage } from './pages/UserSettingsPage.js?v=9';
+import { createCommunityManagerPage } from './pages/CommunityManagerPage.js?v=1';
 import { createCleaningVolunteersPage } from './pages/CleaningVolunteersPage.js?v=5';
 import { createAdministrativeProgramsPage } from './pages/AdministrativeProgramsPage.js';
 import { createSportDashboardPage } from './pages/SportDashboardPage.js?v=5';
@@ -132,7 +133,7 @@ void (function() {
     createAIAssistantPage, createIntendanceExpensesPage, createBuildingRefsPage,
     createAdministrationPage, createModulePlaceholderPage, createLoginPage, createRegisterPage,
     createProfilePage, createSettingsPage, createCleaningVolunteersPage,
-    createAdministrativeProgramsPage,
+    createAdministrativeProgramsPage, createCommunityManagerPage,
     createPhotosPage, createSouvenirsPage, createITAssetPage,
   ];
   // Prevent dead code elimination
@@ -433,12 +434,10 @@ async function showCommunityManagerPage(route) {
   appShell.showLoading();
 
   try {
-    const settingsPage = createSettingsPage(router);
-    await settingsPage.initialize();
-    const element = settingsPage.render();
+    const page = createCommunityManagerPage(router);
+    await page.initialize();
+    const element = page.render();
     appShell.showContent(element);
-    // Switch to CM tab after content is in DOM
-    settingsPage._switchTab('cm');
   } catch (error) {
     console.error('Erreur affichage Community Manager:', error);
     appShell.showError(error);

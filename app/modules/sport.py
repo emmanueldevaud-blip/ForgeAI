@@ -52,10 +52,6 @@ class SportModule(BaseModule):
             user_permissions and
             ("*" in user_permissions or "sport.analysis.read" in user_permissions)
         )
-        has_publications = (
-            user_permissions and
-            ("*" in user_permissions or "sport.publications.read" in user_permissions)
-        )
 
         children = [{
             "code": "sport-analyses",
@@ -98,15 +94,6 @@ class SportModule(BaseModule):
                 "icon": "target",
                 "route": "/sport/goals",
                 "order": 2,
-            })
-
-        if has_publications:
-            children.append({
-                "code": "sport-publications",
-                "name": "Mes publications",
-                "icon": "image",
-                "route": "/sport/publications",
-                "order": 3,
             })
 
         return [{

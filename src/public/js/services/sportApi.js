@@ -212,7 +212,7 @@ export async function deleteCommunityManagerCalendarEntry(entryId) {
 
 // V2 : Créer un brouillon depuis une entrée de calendrier
 export async function createStudioDraftFromCalendar(data) {
-  return sportApi.post('/publications/studio/from-calendar', data);
+  return cmApi.post('/community-manager/studio/from-calendar', data);
 }
 
 // V2 : Récupérer un brouillon
@@ -243,4 +243,9 @@ export async function scheduleStudioDraft(publicationId, scheduledAt) {
 // V2 : Prévisualiser le rendu Instagram
 export async function previewStudioDraft(publicationId, format = 'feed') {
   return cmApi.post(`/community-manager/studio/draft/${encodeURIComponent(publicationId)}/preview`, { format });
+}
+
+// V2 : Publier sur Instagram
+export async function publishStudioDraft(publicationId, data) {
+  return cmApi.post(`/community-manager/studio/draft/${encodeURIComponent(publicationId)}/publish`, data);
 }

@@ -300,21 +300,30 @@ async def _ingest(db: AsyncSession, photo: Photo | None, payload: dict) -> None:
     data = await asyncio.to_thread(original_path.read_bytes)
     try:
         meta = await asyncio.to_thread(extract_metadata, data)
-    except MetadataError:
-        if ext in {".heic", ".heif"}:
-            # pillow-heif absent ou HEIC corrompu : l'original reste la
-            # source de vérité (inchangé) et la photo est référencée,
-            # sans miniatures ni analyse.
-            logger.warning("[PHOTO] HEIC non décodable: %s (%s)", photo.id, original_path.name)
+    except MetadataError as exc:
+        # L'extraction des métadonnées a échoué (fichier tronqué/corrompu,
+        # codec absent…). On ne fait pas échouer l'ingest : on tente quand
+        # même les miniatures (Pillow tolère les images tronquées via
+        # LOAD_TRUNCATED_IMAGES) et on marque la photo ready, avec l'erreur
+        # renseignée si les miniatures sont aussi impossibles.
+        logger.warning(
+            "[PHOTO] métadonnées illisibles pour %s (%s): %s",
+            photo.id, original_path.name, exc,
+        )
+        results, thumb_error = await _generate_thumbnails_safe(original_path, thumbs_dir)
+        if results:
+            await _store_thumbnails(db, photo, results)
+            photo.width = results[0].get("source_width") or photo.width
+            photo.height = results[0].get("source_height") or photo.height
             photo.status = "ready"
             photo.analysis_status = "skipped"
-            photo.error = (
-                "HEIC non décodable (pillow-heif absent ou fichier corrompu) : "
-                "miniatures/analyse indisponibles"
-            )
-            await db.commit()
-            return
-        raise
+            photo.error = None
+        else:
+            photo.status = "ready"
+            photo.analysis_status = "skipped"
+            photo.error = f"Métadonnées et miniatures indisponibles : {thumb_error}"
+        await db.commit()
+        return
 
     photo.width = meta["width"]
     photo.height = meta["height"]

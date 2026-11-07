@@ -193,9 +193,15 @@ class CommunityManagerStudioService:
         if data.proposals is not None:
             pub.proposals = data.proposals
         if data.styles is not None:
-            # Valider les styles
-            from app.services.sport_publications import _validate_styles as validate_styles
-            pub.styles = validate_styles(data.styles) or pub.styles
+            # Valider les styles (même logique que sport_publications._validate_styles)
+            from app.services.sport_publications import VALID_STYLES
+
+            cleaned = []
+            for s in data.styles or []:
+                s = (s or "").strip().lower()
+                if s in VALID_STYLES and s not in cleaned:
+                    cleaned.append(s)
+            pub.styles = cleaned or pub.styles
         if data.custom_instructions is not None:
             pub.custom_instructions = data.custom_instructions.strip() or None
         # Lock fields

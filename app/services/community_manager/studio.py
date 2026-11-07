@@ -22,6 +22,7 @@ from app.models.user import User
 from app.schemas.sport import (
     PublicationDraftUpdate,
     PublicationGenerateFromCalendarRequest,
+    PublicationGenerateTextRequest,
     PublicationValidateRequest,
     PublicationPreviewRequest,
 )

@@ -92,17 +92,6 @@ export class CommunityManagerPage {
   }
 
   _renderStrategyModal() {
-    const s = this.cmStrategy || {};
-    const tones = ['professional', 'inspirational', 'casual', 'expert', 'motivational', 'educational'];
-    const objectives = ['engagement', 'visibility', 'brand_awareness', 'community_building', 'lead_generation'];
-    const themes = ['running', 'recovery', 'nutrition', 'training', 'gear', 'mental', 'races', 'lifestyle'];
-    const networks = ['instagram', 'facebook', 'linkedin', 'twitter', 'threads'];
-
-    const toneOptions = tones.map(t => `<option value="${t}">${t}</option>`).join('');
-    const objectiveOptions = objectives.map(o => `<option value="${o}">${o}</option>`).join('');
-    const themeOptions = themes.map(t => `<option value="${t}">${t}</option>`).join('');
-    const networkOptions = networks.map(n => `<option value="${n}">${n}</option>`).join('');
-
     return `
       <div class="cm-modal-overlay ${this.showStrategyModal ? '' : 'hidden'}" id="cm-strategy-modal" role="dialog" aria-modal="true" aria-labelledby="strategy-modal-title">
         <div class="cm-modal cm-modal-lg">
@@ -115,85 +104,107 @@ export class CommunityManagerPage {
               </svg>
             </button>
           </header>
-          <form data-form="community-manager-strategy" class="cm-modal-body">
-            <div class="form-row">
-              <div class="form-group" style="grid-column: 1 / -1;">
-                <label><span>Identité de marque *</span>
-                  <input name="brand_identity" type="text" maxlength="200" placeholder="Ex: ForgeAI" value="${this._escape(s.brand_identity || '')}" required>
-                </label>
-              </div>
-            </div>
-            <div class="form-row">
-              <div class="form-group">
-                <label><span>Ton *</span>
-                  <select name="tone" multiple size="4" required>
-                    ${toneOptions}
-                  </select>
-                  <small class="form-help">Maintenez Ctrl/Cmd pour sélectionner plusieurs tons.</small>
-                </label>
-              </div>
-              <div class="form-group">
-                <label><span>Fréquence (pubs/semaine) *</span>
-                  <input name="frequency" type="number" min="1" max="14" value="${s.frequency || 3}" required>
-                </label>
-              </div>
-            </div>
-            <div class="form-row">
-              <div class="form-group" style="grid-column: 1 / -1;">
-                <label><span>Audience cible *</span>
-                  <textarea name="target_audience" rows="3" maxlength="1000" placeholder="Ex: Athlètes endurance 25-45 ans" required>${this._escape(s.target_audience || '')}</textarea>
-                </label>
-              </div>
-            </div>
-            <div class="form-row">
-              <div class="form-group">
-                <label><span>Objectifs *</span>
-                  <select name="objectives" multiple size="4" required>
-                    ${objectiveOptions}
-                  </select>
-                </label>
-              </div>
-              <div class="form-group">
-                <label><span>Thèmes *</span>
-                  <select name="themes" multiple size="4" required>
-                    ${themeOptions}
-                  </select>
-                </label>
-              </div>
-            </div>
-            <div class="form-row">
-              <div class="form-group">
-                <label><span>Réseaux *</span>
-                  <select name="networks" multiple size="4" required>
-                    ${networkOptions}
-                  </select>
-                </label>
-              </div>
-            </div>
-            <div class="form-row">
-              <div class="form-group" style="grid-column: 1 / -1;">
-                <label><span>Règles éditoriales</span>
-                  <textarea name="rules" rows="3" maxlength="2000" placeholder="Ex: Pas de résultats inventés, Utiliser les vraies données Garmin">${this._escape((s.rules || []).join('\n'))}</textarea>
-                  <small class="form-help">Une règle par ligne.</small>
-                </label>
-              </div>
-            </div>
-            <div class="form-row">
-              <div class="form-group" style="grid-column: 1 / -1;">
-                <label><span>Sujets interdits</span>
-                  <textarea name="forbidden_topics" rows="2" maxlength="1000" placeholder="Ex: politique, concurrentiels">${this._escape((s.forbidden_topics || []).join(', '))}</textarea>
-                  <small class="form-help">Séparés par des virgules.</small>
-                </label>
-              </div>
-            </div>
-            <div class="form-actions">
-              <button type="button" class="btn btn-secondary" data-action="close-strategy-modal">Annuler</button>
-              <button class="btn btn-primary" type="submit" ${!this.canUpdateCMStrategy ? 'disabled' : ''}>Enregistrer la stratégie</button>
-              <span data-role="cm-strategy-status" role="status"></span>
-            </div>
-          </form>
+          ${this._renderStrategyModalContent()}
         </div>
       </div>
+    `;
+  }
+
+  _renderStrategyModalContent() {
+    const s = this.cmStrategy || {};
+    const tones = ['professional', 'inspirational', 'casual', 'expert', 'motivational', 'educational'];
+    const objectives = ['engagement', 'visibility', 'brand_awareness', 'community_building', 'lead_generation'];
+    const themes = ['running', 'recovery', 'nutrition', 'training', 'gear', 'mental', 'races', 'lifestyle'];
+    const networks = ['instagram', 'facebook', 'linkedin', 'twitter', 'threads'];
+
+    const currentTones = s.tone || [];
+    const currentObjectives = s.objectives || [];
+    const currentThemes = s.themes || [];
+    const currentNetworks = s.networks || [];
+
+    const toneOptions = tones.map(t => `<option value="${t}" ${currentTones.includes(t) ? 'selected' : ''}>${t}</option>`).join('');
+    const objectiveOptions = objectives.map(o => `<option value="${o}" ${currentObjectives.includes(o) ? 'selected' : ''}>${o}</option>`).join('');
+    const themeOptions = themes.map(t => `<option value="${t}" ${currentThemes.includes(t) ? 'selected' : ''}>${t}</option>`).join('');
+    const networkOptions = networks.map(n => `<option value="${n}" ${currentNetworks.includes(n) ? 'selected' : ''}>${n}</option>`).join('');
+
+    return `
+      <form data-form="community-manager-strategy" class="cm-modal-body">
+        <div class="form-row">
+          <div class="form-group" style="grid-column: 1 / -1;">
+            <label><span>Identité de marque *</span>
+              <input name="brand_identity" type="text" maxlength="200" placeholder="Ex: ForgeAI" value="${this._escape(s.brand_identity || '')}" required>
+            </label>
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label><span>Ton *</span>
+              <select name="tone" multiple size="4" required>
+                ${toneOptions}
+              </select>
+              <small class="form-help">Maintenez Ctrl/Cmd pour sélectionner plusieurs tons.</small>
+            </label>
+          </div>
+          <div class="form-group">
+            <label><span>Fréquence (pubs/semaine) *</span>
+              <input name="frequency" type="number" min="1" max="14" value="${s.frequency || 3}" required>
+            </label>
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group" style="grid-column: 1 / -1;">
+            <label><span>Audience cible *</span>
+              <textarea name="target_audience" rows="3" maxlength="1000" placeholder="Ex: Athlètes endurance 25-45 ans" required>${this._escape(s.target_audience || '')}</textarea>
+            </label>
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label><span>Objectifs *</span>
+              <select name="objectives" multiple size="4" required>
+                ${objectiveOptions}
+              </select>
+            </label>
+          </div>
+          <div class="form-group">
+            <label><span>Thèmes *</span>
+              <select name="themes" multiple size="4" required>
+                ${themeOptions}
+              </select>
+            </label>
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label><span>Réseaux *</span>
+              <select name="networks" multiple size="4" required>
+                ${networkOptions}
+              </select>
+            </label>
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group" style="grid-column: 1 / -1;">
+            <label><span>Règles éditoriales</span>
+              <textarea name="rules" rows="3" maxlength="2000" placeholder="Ex: Pas de résultats inventés, Utiliser les vraies données Garmin">${this._escape((s.rules || []).join('\n'))}</textarea>
+              <small class="form-help">Une règle par ligne.</small>
+            </label>
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group" style="grid-column: 1 / -1;">
+            <label><span>Sujets interdits</span>
+              <textarea name="forbidden_topics" rows="2" maxlength="1000" placeholder="Ex: politique, concurrentiels">${this._escape((s.forbidden_topics || []).join(', '))}</textarea>
+              <small class="form-help">Séparés par des virgules.</small>
+            </label>
+          </div>
+        </div>
+        <div class="form-actions">
+          <button type="button" class="btn btn-secondary" data-action="close-strategy-modal">Annuler</button>
+          <button class="btn btn-primary" type="submit" ${!this.canUpdateCMStrategy ? 'disabled' : ''}>Enregistrer la stratégie</button>
+          <span data-role="cm-strategy-status" role="status"></span>
+        </div>
+      </form>
     `;
   }
 
@@ -577,11 +588,27 @@ export class CommunityManagerPage {
     this.showStrategyModal = true;
     const modal = this.element.querySelector('#cm-strategy-modal');
     if (modal) {
+      // Re-render modal content with current strategy values
+      modal.innerHTML = this._renderStrategyModalContent();
       modal.classList.remove('hidden');
       // Focus first input
       setTimeout(() => {
         modal.querySelector('input[name="brand_identity"]')?.focus();
       }, 10);
+      // Re-bind form submit event for the newly rendered form
+      const form = modal.querySelector('[data-form="community-manager-strategy"]');
+      form?.addEventListener('submit', (e) => {
+        e.preventDefault();
+        this._saveCMStrategy(form);
+      });
+      // Re-bind close buttons
+      modal.querySelectorAll('[data-action="close-strategy-modal"]').forEach(btn => {
+        btn.addEventListener('click', () => this._closeStrategyModal());
+      });
+      // Close on overlay click
+      modal.addEventListener('click', (e) => {
+        if (e.target === modal) this._closeStrategyModal();
+      });
     }
   }
 

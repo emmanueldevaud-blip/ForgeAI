@@ -691,7 +691,7 @@ export class UserSettingsPage {
           <div class="form-row">
             <div class="form-group" style="grid-column: 1 / -1;">
               <label><span>Sujets interdits</span>
-                <textarea name="forbidden_topics" rows="2" maxlength="1000" placeholder="Ex: politique, concurrentiels">${this._escape((s.forbidden_topics || []).join(', '))}</small>
+                <textarea name="forbidden_topics" rows="2" maxlength="1000" placeholder="Ex: politique, concurrentiels">${this._escape((s.forbidden_topics || []).join(', '))}</textarea>
                 <small class="form-help">Séparés par des virgules.</small>
               </label>
             </div>

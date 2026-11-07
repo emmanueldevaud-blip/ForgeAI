@@ -644,6 +644,76 @@ class SportPublicationService:
         pub.activity = activity
         return pub
 
+    async def _build_v2_generation_prompt(
+        self,
+        pub: SportPublication,
+        entry: EditorialCalendarEntry,
+        strategy: CommunityManagerStrategy,
+        recent_activities: list,
+        styles: list,
+        custom_instructions: Optional[str],
+        tone: Optional[str],
+        visual_type: str,
+    ) -> str:
+        """Construit le prompt pour la génération V2 de publication depuis calendrier."""
+        from sqlalchemy import select
+
+        # Historique pour éviter répétition
+        prev_rows = (
+            await self.db.execute(
+                select(SportPublication).where(
+                    SportPublication.athlete_id == pub.athlete_id,
+                    SportPublication.id != pub.id,
+                ).order_by(SportPublication.created_at.desc()).limit(8)
+            )
+        ).scalars().all()
+        prev_ctx = _previous_publications_context(list(prev_rows))
+
+        # Tons effectifs
+        effective_styles = list(styles)
+        if "mix" in effective_styles:
+            effective_styles = [s for s in effective_styles if s != "mix"]
+            if not effective_styles:
+                effective_styles = ["stats", "humor"]
+
+        style_lines = "\n".join(
+            f"- {STYLE_LABELS.get(s, s)} : {STYLE_INSTRUCTIONS.get(s, '')}" for s in effective_styles
+        )
+        if custom_instructions:
+            style_lines += f"\n- Consignes personnalisées de l'utilisateur : {custom_instructions}"
+        if tone:
+            style_lines += f"\n- Ton rédactionnel choisi : {tone}"
+
+        mix_note = ""
+        if len(effective_styles) > 1:
+            mix_note = " Mode MIX : combiner les tons sélectionnés dans une même proposition quand c'est pertinent."
+
+        prompt = (
+            f"Sujet éditorial (déjà validé) :\n"
+            f"- Titre : {entry.topic}\n"
+            f"- Thème : {entry.theme or 'Non défini'}\n"
+            f"- Objectif : {entry.objective or 'Non défini'}\n"
+            f"- Note IA : {entry.notes or 'Aucune'}\n"
+            f"- Date suggérée : {entry.date}\n\n"
+            f"Stratégie éditoriale :\n"
+            f"- Identité : {strategy.brand_identity or 'Non définie'}\n"
+            f"- Tons : {', '.join(strategy.tone) if strategy.tone else 'Non définis'}\n"
+            f"- Audience : {strategy.target_audience or 'Non définie'}\n"
+            f"- Objectifs : {', '.join(strategy.objectives) if strategy.objectives else 'Non définis'}\n"
+            f"- Thèmes : {', '.join(strategy.themes) if strategy.themes else 'Non définis'}\n"
+            f"- Réseaux : {', '.join(strategy.networks) if strategy.networks else 'Non définis'}\n\n"
+            f"Activités récentes Garmin (données réelles, NE PAS INVENTER) :\n"
+            f"{json.dumps(recent_activities[:5], ensure_ascii=False, default=str)}\n\n"
+            f"Tons demandés :\n{style_lines}{mix_note}\n\n"
+            f"Historique des publications précédentes (à éviter) :\n{prev_ctx}\n\n"
+            f"Génère 3 propositions de publication Instagram distinctes. "
+            f"Pour chaque proposition retourne un objet avec : title, content, hashtags, format (Reel/carrousel/photo/story), "
+            f"idee_visuelle, objectif (visibilité/partage/interaction/fidélisation). "
+            f"Respecte impérativement le ton demandé et n'invente AUCUNE donnée. "
+            f"Réponds uniquement en JSON avec la clé 'proposals'."
+        )
+        return prompt
+
     async def generate_from_calendar_entry(
         self, calendar_entry_id: int, data: Any
     ) -> Optional[SportPublication]:
@@ -680,6 +750,19 @@ class SportPublicationService:
             )
         )
         existing_pub = existing_pub_result.scalar_one_or_none()
+
+        # Créer ou récupérer la publication
+        if existing_pub:
+            pub = existing_pub
+        else:
+            pub = SportPublication(
+                athlete_id=athlete.id,
+                calendar_entry_id=calendar_entry_id,
+                status="draft",
+                created_from="calendar",
+            )
+            self.db.add(pub)
+            await self.db.flush()
 
         styles = data.styles if hasattr(data, "styles") and data.styles else []
         custom = data.custom_instructions if hasattr(data, "custom_instructions") and data.custom_instructions else None
@@ -721,7 +804,8 @@ class SportPublicationService:
             })
 
         # Construire le prompt pour la génération V2
-        prompt = self._build_v2_generation_prompt(
+        prompt = await self._build_v2_generation_prompt(
+            pub=pub,
             entry=entry,
             strategy=strategy,
             recent_activities=recent_activities,
@@ -729,74 +813,6 @@ class SportPublicationService:
             custom_instructions=custom,
             tone=tone,
             visual_type=visual_type,
-        )
-
-        # Créer ou récupérer la publication
-        if existing_pub:
-            pub = existing_pub
-        else:
-            pub = SportPublication(
-                athlete_id=athlete.id,
-                calendar_entry_id=calendar_entry_id,
-                status="draft",
-                created_from="calendar",
-            )
-            self.db.add(pub)
-            await self.db.flush()
-
-        # Historique pour éviter répétition
-        prev_rows = (
-            await self.db.execute(
-                select(SportPublication).where(
-                    SportPublication.athlete_id == pub.athlete_id,
-                    SportPublication.id != pub.id,
-                ).order_by(SportPublication.created_at.desc()).limit(8)
-            )
-        ).scalars().all()
-        prev_ctx = _previous_publications_context(list(prev_rows))
-
-        # Tons effectifs
-        effective_styles = list(styles)
-        if "mix" in effective_styles:
-            effective_styles = [s for s in effective_styles if s != "mix"]
-            if not effective_styles:
-                effective_styles = ["stats", "humor"]
-
-        style_lines = "\n".join(
-            f"- {STYLE_LABELS.get(s, s)} : {STYLE_INSTRUCTIONS.get(s, '')}" for s in effective_styles
-        )
-        if custom:
-            style_lines += f"\n- Consignes personnalisées de l'utilisateur : {custom}"
-        if tone:
-            style_lines += f"\n- Ton rédactionnel choisi : {tone}"
-
-        mix_note = ""
-        if len(effective_styles) > 1:
-            mix_note = " Mode MIX : combiner les tons sélectionnés dans une même proposition quand c'est pertinent."
-
-        prompt = (
-            f"Sujet éditorial (déjà validé) :\n"
-            f"- Titre : {entry.topic}\n"
-            f"- Thème : {entry.theme or 'Non défini'}\n"
-            f"- Objectif : {entry.objective or 'Non défini'}\n"
-            f"- Note IA : {entry.notes or 'Aucune'}\n"
-            f"- Date suggérée : {entry.date}\n\n"
-            f"Stratégie éditoriale :\n"
-            f"- Identité : {strategy.brand_identity or 'Non définie'}\n"
-            f"- Tons : {', '.join(strategy.tone) if strategy.tone else 'Non définis'}\n"
-            f"- Audience : {strategy.target_audience or 'Non définie'}\n"
-            f"- Objectifs : {', '.join(strategy.objectives) if strategy.objectives else 'Non définis'}\n"
-            f"- Thèmes : {', '.join(strategy.themes) if strategy.themes else 'Non définis'}\n"
-            f"- Réseaux : {', '.join(strategy.networks) if strategy.networks else 'Non définis'}\n\n"
-            f"Activités récentes Garmin (données réelles, NE PAS INVENTER) :\n"
-            f"{json.dumps(recent_activities[:5], ensure_ascii=False, default=str)}\n\n"
-            f"Tons demandés :\n{style_lines}{mix_note}\n\n"
-            f"Historique des publications précédentes (à éviter) :\n{prev_ctx}\n\n"
-            f"Génère 3 propositions de publication Instagram distinctes. "
-            f"Pour chaque proposition retourne un objet avec : title, content, hashtags, format (Reel/carrousel/photo/story), "
-            f"idee_visuelle, objectif (visibilité/partage/interaction/fidélisation). "
-            f"Respecte impérativement le ton demandé et n'invente AUCUNE donnée. "
-            f"Réponds uniquement en JSON avec la clé 'proposals'."
         )
 
         started = datetime.now(timezone.utc)

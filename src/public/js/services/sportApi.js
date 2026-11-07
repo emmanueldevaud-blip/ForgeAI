@@ -249,3 +249,27 @@ export async function previewStudioDraft(publicationId, format = 'feed') {
 export async function publishStudioDraft(publicationId, data) {
   return cmApi.post(`/community-manager/studio/draft/${encodeURIComponent(publicationId)}/publish`, data);
 }
+
+// --------------------------------------------------------------------------- #
+// Community Manager V3 - Lock/Unlock & Text Generation
+// --------------------------------------------------------------------------- #
+
+// V3 : Verrouiller/Déverrouiller le titre
+export async function lockStudioDraftTitle(publicationId, locked) {
+  return cmApi.patch(`/community-manager/studio/draft/${encodeURIComponent(publicationId)}/lock/title`, null, { params: { locked } });
+}
+
+// V3 : Verrouiller/Déverrouiller le contenu
+export async function lockStudioDraftContent(publicationId, locked) {
+  return cmApi.patch(`/community-manager/studio/draft/${encodeURIComponent(publicationId)}/lock/content`, null, { params: { locked } });
+}
+
+// V3 : Verrouiller/Déverrouiller le visuel
+export async function lockStudioDraftPhoto(publicationId, locked) {
+  return cmApi.patch(`/community-manager/studio/draft/${encodeURIComponent(publicationId)}/lock/photo`, null, { params: { locked } });
+}
+
+// V3 : Générer un texte (court ou long) selon le ton
+export async function generateStudioDraftText(publicationId, data) {
+  return cmApi.post(`/community-manager/studio/draft/${encodeURIComponent(publicationId)}/generate-text`, data);
+}

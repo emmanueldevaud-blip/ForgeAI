@@ -30,6 +30,8 @@ from app.schemas.sport import (
     PublicationVariantsResponse,
     PublicationPublishRequest,
     PublicationPublishResponse,
+    PublicationGenerateTextRequest,
+    PublicationGenerateTextResponse,
 )
 from app.services.ai_gateway import AIGatewayError
 from app.services.community_manager import CommunityManagerService, CommunityManagerStudioService
@@ -290,6 +292,85 @@ async def schedule_draft(
         return {"publication_id": publication.id, "status": publication.status, "scheduled_at": publication.scheduled_at}
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@router.post("/studio/draft/{publication_id}/preview", response_model=PublicationPreviewResponse)
+async def preview_draft(
+    publication_id: int,
+    data: PublicationPreviewRequest,
+    service: CommunityManagerStudioService = Depends(get_cm_studio_service),
+):
+    """Prévisualiser le rendu Instagram d'une publication."""
+    try:
+        preview = await service.get_preview(publication_id, data.format)
+        return PublicationPreviewResponse(**preview)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@router.patch("/studio/draft/{publication_id}/lock/title", response_model=PublicationDraftResponse)
+async def toggle_title_lock(
+    publication_id: int,
+    locked: bool = Query(...),
+    service: CommunityManagerStudioService = Depends(get_cm_studio_write_service),
+):
+    """Verrouiller ou déverrouiller le titre."""
+    publication = await service.update_draft(publication_id, PublicationDraftUpdate(title_locked=locked))
+    if not publication:
+        raise HTTPException(status_code=404, detail="Brouillon introuvable")
+    return PublicationDraftResponse.model_validate(publication)
+
+
+@router.patch("/studio/draft/{publication_id}/lock/content", response_model=PublicationDraftResponse)
+async def toggle_content_lock(
+    publication_id: int,
+    locked: bool = Query(...),
+    service: CommunityManagerStudioService = Depends(get_cm_studio_write_service),
+):
+    """Verrouiller ou déverrouiller le contenu."""
+    publication = await service.update_draft(publication_id, PublicationDraftUpdate(content_locked=locked))
+    if not publication:
+        raise HTTPException(status_code=404, detail="Brouillon introuvable")
+    return PublicationDraftResponse.model_validate(publication)
+
+
+@router.patch("/studio/draft/{publication_id}/lock/photo", response_model=PublicationDraftResponse)
+async def toggle_photo_lock(
+    publication_id: int,
+    locked: bool = Query(...),
+    service: CommunityManagerStudioService = Depends(get_cm_studio_write_service),
+):
+    """Verrouiller ou déverrouiller le visuel."""
+    publication = await service.update_draft(publication_id, PublicationDraftUpdate(photo_locked=locked))
+    if not publication:
+        raise HTTPException(status_code=404, detail="Brouillon introuvable")
+    return PublicationDraftResponse.model_validate(publication)
+
+
+@router.post("/studio/draft/{publication_id}/generate-text", response_model=PublicationGenerateTextResponse)
+async def generate_text(
+    publication_id: int,
+    data: PublicationGenerateTextRequest,
+    service: CommunityManagerStudioService = Depends(get_cm_studio_write_service),
+):
+    """Générer un texte court ou long selon le ton."""
+    try:
+        publication = await service.generate_text(publication_id, data)
+        if not publication:
+            raise HTTPException(status_code=404, detail="Brouillon introuvable")
+        return PublicationGenerateTextResponse(
+            publication_id=publication.id,
+            title=publication.title,
+            content=publication.content,
+            hashtags=publication.hashtags,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except AIGatewayError as exc:
+        raise HTTPException(status_code=503, detail="Génération IA impossible") from exc
+    except Exception as exc:
+        logger.exception("[CM-STUDIO] Erreur génération texte")
+        raise HTTPException(status_code=503, detail="Génération impossible") from exc
 
 
 @router.post("/studio/draft/{publication_id}/preview", response_model=PublicationPreviewResponse)

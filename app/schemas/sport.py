@@ -284,6 +284,9 @@ class SportPublicationResponse(BaseModel):
     visual_generation_prompt: Optional[str] = None
     visual_generation_provider: Optional[str] = None
     created_from: Optional[str] = None
+    title_locked: bool = False
+    content_locked: bool = False
+    photo_locked: bool = False
 
 
 class SportPublicationListResponse(BaseModel):
@@ -316,6 +319,10 @@ class SportPublicationUpdate(BaseModel):
     scheduled_at: Optional[datetime] = None
     instagram_media_id: Optional[str] = None
     instagram_permalink: Optional[str] = None
+    # Lock fields
+    title_locked: Optional[bool] = None
+    content_locked: Optional[bool] = None
+    photo_locked: Optional[bool] = None
 
 
 class SportPublicationSettingsResponse(BaseModel):
@@ -394,6 +401,31 @@ class PublicationValidateResponse(BaseModel):
     publication_id: int
     status: str
     validated_at: datetime
+
+
+class PublicationPreviewResponse(BaseModel):
+    """Réponse avec le rendu prévisualisé."""
+    publication_id: int
+    preview_html: str
+    format: str
+
+
+class PublicationGenerateTextRequest(BaseModel):
+    """Demande de génération de texte (court ou long) selon le ton."""
+    publication_id: int
+    length: str = Field(..., pattern="^(short|long)$")  # "short" ou "long"
+    tone: Optional[str] = Field(None, max_length=50)
+    use_title: bool = True  # Utiliser le titre comme contexte
+    styles: Optional[list[str]] = None
+    custom_instructions: Optional[str] = Field(None, max_length=2000)
+
+
+class PublicationGenerateTextResponse(BaseModel):
+    """Réponse avec le texte généré."""
+    publication_id: int
+    title: Optional[str] = None
+    content: str
+    hashtags: Optional[str] = None
 
 
 class PublicationPreviewRequest(BaseModel):

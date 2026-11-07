@@ -375,6 +375,11 @@ class SportPublication(Base):
     visual_generation_provider: Mapped[str | None] = mapped_column(String(50), nullable=True)
     created_from: Mapped[str | None] = mapped_column(String(20), nullable=True)  # 'activity' or 'calendar'
 
+    # Lock fields for UX control
+    title_locked: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    content_locked: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    photo_locked: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+
     athlete: Mapped["SportAthlete"] = relationship("SportAthlete", lazy="selectin")
     activity: Mapped["SportActivity | None"] = relationship("SportActivity", lazy="selectin")
     calendar_entry: Mapped["EditorialCalendarEntry | None"] = relationship("EditorialCalendarEntry", lazy="selectin")

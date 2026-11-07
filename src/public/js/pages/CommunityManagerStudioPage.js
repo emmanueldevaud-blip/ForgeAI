@@ -1,9 +1,10 @@
 /**
- * Community Manager Studio Page - V2
- * Studio de création de publications Instagram depuis le calendrier éditorial
+ * Community Manager Studio Page - V3
+ * Studio de création de publications Instagram avec UX repensée
+ * Flux: Ton -> Titre -> Texte -> Visuel -> Aperçu -> Actions
  */
 
-import { api } from '../services/api.js?v=4';
+import { api } from '../services/api.js?v=5';
 import {
   getStudioDraft,
   updateStudioDraft,
@@ -12,7 +13,11 @@ import {
   scheduleStudioDraft,
   previewStudioDraft,
   publishStudioDraft,
-} from '../services/sportApi.js?v=11';
+  generateStudioDraftText,
+  lockStudioDraftTitle,
+  lockStudioDraftContent,
+  lockStudioDraftPhoto,
+} from '../services/sportApi.js?v=12';
 import { publicationPhotoUrl } from '../services/sportApi.js?v=11';
 
 
@@ -20,25 +25,32 @@ export class CommunityManagerStudioPage {
   constructor(router, publicationId, entryData = null) {
     this.router = router;
     this.publicationId = publicationId;
-    this.entryData = entryData; // Données de l'entrée de calendrier si fournie
+    this.entryData = entryData;
     this.element = null;
     this.publication = null;
     this.loading = true;
     this.saving = false;
     this.generating = false;
     this.previewFormat = 'feed';
-    this.activeTab = 'text';
+    this.activeSection = 'text';
     this.error = null;
     this.success = null;
+    this.availableTones = [
+      { value: 'humor', label: 'Humour', desc: 'Second degré, situations absurdes, galères du traileur' },
+      { value: 'self_deprecation', label: 'Autodérision', desc: 'Se moquer de soi-même avec légèreté' },
+      { value: 'stats', label: 'Statistiques', desc: 'Chiffres marquants, analyses, comparaisons' },
+      { value: 'storytelling', label: 'Storytelling', desc: 'Récit d\'aventure avec début, milieu, fin' },
+      { value: 'inspiration', label: 'Inspiration', desc: 'Dépassement de soi, progression, objectifs' },
+      { value: 'expert', label: 'Expert', desc: 'Analyse technique, conseils, données précises' },
+      { value: 'professional', label: 'Professionnel', desc: 'Ton posé, informatif, crédible' },
+    ];
   }
 
   async initialize() {
     try {
       this.publication = await getStudioDraft(this.publicationId);
-      this.loading = false;
     } catch (error) {
       this.error = error?.data?.detail || error?.message || 'Impossible de charger le brouillon';
-      this.loading = false;
     }
   }
 
@@ -48,33 +60,10 @@ export class CommunityManagerStudioPage {
       this.element.className = 'cm-studio-page';
     }
 
-    if (this.loading) {
-      this.element.innerHTML = `
-        <div class="cm-studio-loading">
-          <div class="spinner"></div>
-          <p>Chargement du studio...</p>
-        </div>
-      `;
-      return this.element;
-    }
-
-    if (this.error) {
-      this.element.innerHTML = `
-        <div class="cm-studio-error">
-          <div class="alert alert-error">${this._escape(this.error)}</div>
-          <button class="btn btn-primary" onclick="window.history.back()">Retour au calendrier</button>
-        </div>
-      `;
-      return this.element;
-    }
-
     const pub = this.publication;
-    const entry = pub.calendar_entry;
-    const isV2 = pub.created_from === 'calendar';
 
     this.element.innerHTML = `
-      <div class="cm-studio">
-        <!-- Header -->
+      <div class="cm-studio-page">
         <header class="cm-studio-header">
           <div class="cm-studio-header-left">
             <button class="btn btn-secondary cm-studio-back" data-action="back">
@@ -84,401 +73,187 @@ export class CommunityManagerStudioPage {
               <span>Calendrier</span>
             </button>
             <h1>Studio de création</h1>
-            ${isV2 && entry ? `
-              <span class="cm-studio-entry-badge">
-                ${this._escape(entry.topic)}
-              </span>
-            ` : ''}
           </div>
           <div class="cm-studio-header-right">
             <div class="cm-studio-status">
-              <span class="status-badge ${this._getStatusBadgeClass(pub.status)}">${this._formatStatus(pub.status)}</span>
-            </div>
-            <div class="cm-studio-actions">
-              <button class="btn btn-secondary" data-action="preview" ${!pub.content ? 'disabled' : ''}>
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                  <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>
-                </svg>
-                Aperçu
-              </button>
-              <button class="btn btn-primary" data-action="validate" ${pub.status === 'validated' || pub.status === 'scheduled' || pub.status === 'shared' || pub.status === 'publishing' ? 'disabled' : ''} ${!pub.content ? 'disabled' : ''}>
-                ${pub.status === 'validated' ? 'Validée' : pub.status === 'scheduled' ? 'Planifiée' : pub.status === 'shared' ? 'Publiée' : pub.status === 'publishing' ? 'Publication...' : 'Valider'}
-              </button>
-              <button class="btn btn-success" data-action="publish" ${pub.status !== 'validated' && pub.status !== 'scheduled' ? 'disabled' : ''} ${!pub.content || !pub.photo_id ? 'disabled' : ''}>
-                ${pub.status === 'shared' ? 'Publiée' : pub.status === 'publishing' ? 'Publication...' : 'Publier sur Instagram'}
-              </button>
+              <span class="status-badge ${this._getStatusBadgeClass(this.publication?.status)}">${this._formatStatus(this.publication?.status)}</span>
             </div>
           </div>
         </header>
 
-        <!-- Info bar (V2) -->
-        ${isV2 && entry ? this._renderInfoBar(entry) : ''}
+        ${this.error ? `<div class="cm-studio-alert alert-error">${this._escape(this.error)}</div>` : ''}
+        ${this.success ? `<div class="cm-studio-alert alert-success">${this._escape(this.success)}</div>` : ''}
 
-        <!-- Main content -->
-        <div class="cm-studio-main">
-          <!-- Sidebar: Informations du sujet -->
-          <aside class="cm-studio-sidebar">
-            ${isV2 ? this._renderEntryInfo(entry) : this._renderActivityInfo(pub.activity)}
-            <div class="cm-studio-sidebar-section">
-              <h3>Publication</h3>
-              <dl class="cm-studio-meta">
-                <dt>Statut</dt><dd><span class="status-badge ${this._getStatusBadgeClass(pub.status)}">${this._formatStatus(pub.status)}</span></dd>
-                <dt>Créée le</dt><dd>${this._formatDateTime(pub.created_at)}</dd>
-                ${pub.validated_at ? `<dt>Validée le</dt><dd>${this._formatDateTime(pub.validated_at)}</dd>` : ''}
-                ${pub.scheduled_at ? `<dt>Planifiée pour</dt><dd>${this._formatDateTime(pub.scheduled_at)}</dd>` : ''}
-                ${pub.tone_used ? `<dt>Ton utilisé</dt><dd>${this._escape(pub.tone_used)}</dd>` : ''}
-                <dt>Source</dt><dd>${pub.created_from === 'calendar' ? 'Calendrier éditorial' : 'Activité Garmin'}</dd>
-              </dl>
-            </div>
-          </aside>
-
-          <!-- Main editor area -->
-          <main class="cm-studio-editor">
-            <!-- Tabs -->
-            <nav class="cm-studio-tabs" role="tablist">
-              <button class="cm-studio-tab ${this.activeTab === 'text' ? 'active' : ''}" role="tab" data-tab="text" aria-selected="${this.activeTab === 'text'}">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
-                Texte
-              </button>
-              <button class="cm-studio-tab ${this.activeTab === 'visual' ? 'active' : ''}" role="tab" data-tab="visual" aria-selected="${this.activeTab === 'visual'}">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg>
-                Visuel
-              </button>
-              <button class="cm-studio-tab ${this.activeTab === 'variants' ? 'active' : ''}" role="tab" data-tab="variants" aria-selected="${this.activeTab === 'variants'}">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
-                Variantes
-              </button>
-            </nav>
-
-            <!-- Tab panels -->
-            <div class="cm-studio-tab-panels">
-              <!-- Text tab -->
-              <div class="cm-studio-tab-panel ${this.activeTab === 'text' ? 'active' : ''}" data-tab-panel="text" role="tabpanel">
-                ${this._renderTextTab()}
-              </div>
-
-              <!-- Visual tab -->
-              <div class="cm-studio-tab-panel ${this.activeTab === 'visual' ? 'active' : ''}" data-tab-panel="visual" role="tabpanel">
-                ${this._renderVisualTab()}
-              </div>
-
-              <!-- Variants tab -->
-              <div class="cm-studio-tab-panel ${this.activeTab === 'variants' ? 'active' : ''}" data-tab-panel="variants" role="tabpanel">
-                ${this._renderVariantsTab()}
-              </div>
-            </div>
-          </main>
-
-          <!-- Preview modal -->
-          <div class="cm-modal-overlay" id="cm-preview-modal" role="dialog" aria-modal="true" aria-labelledby="preview-title" hidden>
-            <div class="cm-modal cm-modal-lg">
-              <header class="cm-modal-header">
-                <h2 id="preview-title">Aperçu Instagram</h2>
-                <button class="cm-modal-close" data-action="close-preview" aria-label="Fermer">
-                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        <main class="cm-studio-main">
+          <!-- 1. CHOIX DU TON -->
+          <section class="cm-studio-section">
+            <div class="cm-section-header">
+              <h2>1. Ton rédactionnel</h2>
+              <p class="cm-section-desc">Le ton détermine le style de génération du titre et du texte.</            </div>
+            <div class="cm-tone-selector">
+              ${this.availableTones.map(t => `
+                <button class="cm-tone-card ${this.publication?.tone_used === t.value ? 'active' : ''}" data-tone="${t.value}" title="${t.desc}">
+                  <span class="cm-tone-label">${t.label}</span>
                 </button>
-              </header>
-              <div class="cm-modal-body" id="cm-preview-body"></div>
-              <footer class="cm-modal-footer">
-                <select class="form-select" id="cm-preview-format" style="width: auto;">
-                  <option value="feed">Feed (1:1)</option>
-                  <option value="story">Story (9:16)</option>
-                  <option value="reel">Reel (9:16)</option>
-                  <option value="strategic">Stratégique (stats + accroche)</option>
-                </select>
-              </footer>
+              `).join('')}
             </div>
-          </div>
+          </section>
 
-          <!-- Schedule modal -->
-          <div class="cm-modal-overlay" id="cm-schedule-modal" role="dialog" aria-modal="true" aria-labelledby="schedule-title" hidden>
-            <div class="cm-modal">
-              <header class="cm-modal-header">
-                <h2 id="schedule-title">Planifier la publication</h2>
-                <button class="cm-modal-close" data-action="close-schedule" aria-label="Fermer">
-                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+          <!-- 2. TITRE -->
+          <section class="cm-studio-section">
+            <div class="cm-section-header">
+              <h2>2. Titre</h2>
+              <p class="cm-section-desc">Le titre accrocheur. Verrouillez-le quand il vous convient.</h2>
+            </div>
+            <div class="cm-field-group">
+              <div class="cm-field-input-wrapper">
+                <input type="text" class="cm-input-title" name="title" maxlength="200" placeholder="Titre de la publication" value="${this._escape(this.publication?.title || '')}" ${this.publication?.title_locked ? 'readonly' : ''}>
+                <button class="btn-lock ${this.publication?.title_locked ? 'locked' : ''}" data-action="lock-title" title="${this.publication?.title_locked ? 'Déverrouiller' : 'Verrouiller'}" aria-label="${this.publication?.title_locked ? 'Déverrouiller le titre' : 'Verrouiller le titre'}">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
+                    <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+                  </svg>
                 </button>
-              </header>
-              <div class="cm-modal-body">
-                <form data-form="cm-schedule">
-                  <div class="form-group">
-                    <label><span>Date et heure *</span>
-                      <input type="datetime-local" name="scheduled_at" required>
-                    </label>
-                  </div>
-                  <div class="form-actions">
-                    <button type="button" class="btn btn-secondary" data-action="close-schedule">Annuler</button>
-                    <button type="submit" class="btn btn-primary">Planifier</button>
-                  </div>
-                </form>
+              </div>
+              <p class="cm-field-hint">${this.publication?.title_locked ? 'Titre verrouillé - cliquez pour déverrouiller' : 'Cliquez sur le cadenas pour verrouiller le titre'}</p>
+            </div>
+          </section>
+
+          <!-- 3. TEXTE DE PUBLICATION -->
+          <section class="cm-studio-section">
+            <div class="cm-section-header">
+              <h2>3. Texte de publication</h2>
+              <p class="cm-section-desc">Générez un texte court ou long selon le ton choisi. Verrouillez quand satisfait.</h2>
+            </div>
+
+            <div class="cm-text-actions">
+              <button class="btn btn-outline ${this.generating ? 'disabled' : ''}" data-action="generate-short" ${this.publication?.content_locked ? 'disabled' : ''} title="Générer un texte court (3-4 lignes max)">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <line x1="3" y1="12" x2="21" y2="12"/>
+                  <line x1="3" y1="18" x2="15" y2="18"/>
+                  <line x1="3" y1="6" x2="9" y2="6"/>
+                </svg>
+                Texte court
+              </button>
+              <button class="btn btn-primary ${this.generating ? 'disabled' : ''}" data-action="generate-long" ${this.publication?.content_locked ? 'disabled' : ''} title="Générer un texte long (développé, narratif)">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <line x1="3" y1="12" x2="21" y2="12"/>
+                  <line x1="3" y1="18" x2="21" y2="18"/>
+                  <line x1="3" y1="6" x2="21" y2="6"/>
+                  <line x1="3" y1="14" x2="15" y2="14"/>
+                </svg>
+                Texte long
+              </button>
+            </div>
+
+            <div class="cm-field-group">
+              <textarea class="cm-textarea" name="content" rows="10" placeholder="Écrivez votre publication ici..." ${this.publication?.content_locked ? 'readonly' : ''}>${this._escape(this.publication?.content || '')}</textarea>
+              <div class="cm-field-actions">
+                <button class="btn-lock ${this.publication?.content_locked ? 'locked' : ''}" data-action="lock-content" title="${this.publication?.content_locked ? 'Déverrouiller' : 'Verrouiller'}" aria-label="${this.publication?.content_locked ? 'Déverrouiller le texte' : 'Verrouiller le texte'}">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
+                    <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+                  </svg>
+                </button>
+                <span class="cm-field-hint">${this.publication?.content_locked ? 'Texte verrouillé - cliquez pour déverrouiller' : 'Cliquez sur le cadenas pour verrouiller le texte'}</span>
               </div>
             </div>
-          </div>
-        </div>
-      </div>
-    `;
 
-    this._bindEvents();
-    return this.element;
-  }
-
-  _renderInfoBar(entry) {
-    return `
-      <div class="cm-studio-info-bar">
-        <div class="cm-studio-info-item">
-          <span class="cm-studio-info-label">Thème</span>
-          <span class="badge badge-${this._getThemeBadgeClass(entry.theme)}">${this._escape(entry.theme || '')}</span>
-        </div>
-        <div class="cm-studio-info-item">
-          <span class="cm-studio-info-label">Objectif</span>
-          <span>${this._escape(entry.objective || '')}</span>
-        </div>
-        <div class="cm-studio-info-item">
-          <span class="cm-studio-info-label">Date suggérée</span>
-          <span>${this._formatDate(entry.date)}</span>
-        </div>
-        <div class="cm-studio-info-item">
-          <span class="cm-studio-info-label">Note IA</span>
-          <span class="text-muted">${this._escape(entry.notes || '')}</span>
-        </div>
-      </div>
-    `;
-  }
-
-  _renderEntryInfo(entry) {
-    return `
-      <div class="cm-studio-sidebar-section">
-        <h3>Sujet éditorial</h3>
-        <p class="cm-studio-entry-topic">${this._escape(entry.topic)}</p>
-        <dl class="cm-studio-meta">
-          <dt>Thème</dt><dd><span class="badge badge-${this._getThemeBadgeClass(entry.theme)}">${this._escape(entry.theme || '')}</span></dd>
-          <dt>Objectif</dt><dd>${this._escape(entry.objective || '')}</dd>
-          <dt>Date suggérée</dt><dd>${this._formatDate(entry.date)}</dd>
-        </dl>
-        ${entry.notes ? `<p class="cm-studio-notes">${this._escape(entry.notes)}</p>` : ''}
-      </div>
-    `;
-  }
-
-  _renderActivityInfo(activity) {
-    if (!activity) return '';
-    return `
-      <div class="cm-studio-sidebar-section">
-        <h3>Activité Garmin</h3>
-        <p class="cm-studio-entry-topic">${this._escape(activity.activity_name || activity.sport_type)}</p>
-        <dl class="cm-studio-meta">
-          <dt>Type</dt><dd>${this._escape(activity.sport_type)}</dd>
-          <dt>Date</dt><dd>${this._formatDate(activity.started_at)}</dd>
-          ${activity.distance_m ? `<dt>Distance</dt><dd>${(activity.distance_m / 1000).toFixed(1)} km</dd>` : ''}
-          ${activity.elevation_gain_m ? `<dt>D+</dt><dd>${Math.round(activity.elevation_gain_m)} m</dd>` : ''}
-          ${activity.duration_seconds ? `<dt>Durée</dt><dd>${this._formatDuration(activity.duration_seconds)}</dd>` : ''}
-          ${activity.avg_heart_rate ? `<dt>FC moy.</dt><dd>${Math.round(activity.avg_heart_rate)} bpm</dd>` : ''}
-        </dl>
-      </div>
-    `;
-  }
-
-  _renderTextTab() {
-    const pub = this.publication;
-    const tones = [
-      { value: 'humor', label: 'Humour & autodérision', desc: 'Second degré, situations absurdes, galères du traileur' },
-      { value: 'self_deprecation', label: 'Autodérision', desc: 'Se moquer de soi-même avec légèreté' },
-      { value: 'stats', label: 'Statistiques & performance', desc: 'Chiffres marquants, analyses, comparaisons' },
-      { value: 'storytelling', label: 'Storytelling', desc: 'Récit d\'aventure avec début, milieu, fin' },
-      { value: 'inspiration', label: 'Inspiration & motivation', desc: 'Dépassement de soi, progression, objectifs' },
-      { value: 'expert', label: 'Expert & technique', desc: 'Analyse technique, conseils, données précises' },
-      { value: 'professional', label: 'Professionnel', desc: 'Ton posé, informatif, crédible' },
-    ];
-
-    const toneOptions = tones.map(t => `
-      <option value="${t.value}">${t.label}</option>
-    `).join('');
-
-    return `
-      <form data-form="cm-draft-text" class="cm-studio-form">
-        <div class="cm-studio-form-row">
-          <div class="cm-studio-form-group">
-            <label><span>Titre</span>
-              <input type="text" name="title" maxlength="200" placeholder="Titre de la publication" value="${this._escape(pub.title || '')}">
-            </label>
-          </div>
-        </div>
-
-        <div class="cm-studio-form-row">
-          <div class="cm-studio-form-group">
-            <label><span>Ton rédactionnel</span>
-              <select name="tone_used">
-                <option value="">-- Par défaut (stratégie) --</option>
-                ${toneOptions}
-              </select>
-              <small class="form-help">Remplace le ton de la stratégie pour cette publication.</small>
-            </label>
-          </div>
-        </div>
-
-        <div class="cm-studio-form-row">
-          <div class="cm-studio-form-group" style="grid-column: 1 / -1;">
-            <label><span>Contenu *</span>
-              <textarea name="content" rows="12" placeholder="Écrivez votre publication ici...">${this._escape(pub.content || '')}</textarea>
-              <small class="form-help">Éditez librement. Les modifications sont conservées.</small>
-            </label>
-          </div>
-        </div>
-
-        <div class="cm-studio-form-row">
-          <div class="cm-studio-form-group" style="grid-column: 1 / -1;">
-            <label><span>Hashtags</span>
-              <textarea name="hashtags" rows="3" placeholder="#trail #running #recovery">${this._escape(pub.hashtags || '')}</textarea>
-              <small class="form-help">Séparés par des espaces.</small>
-            </label>
-          </div>
-        </div>
-
-        <div class="cm-studio-form-actions">
-          <button type="submit" class="btn btn-primary" ${this.saving ? 'disabled' : ''}>
-            ${this.saving ? 'Sauvegarde...' : 'Sauvegarder le brouillon'}
-          </button>
-          <span data-role="draft-status" class="${this.success ? 'text-success' : ''} ${this.error ? 'text-error' : ''}"></span>
-        </div>
-      </form>
-
-      ${this.error ? `<div class="alert alert-error" style="margin-top: 12px;">${this._escape(this.error)}</div>` : ''}
-      ${this.success ? `<div class="alert alert-success" style="margin-top: 12px;">${this._escape(this.success)}</div>` : ''}
-    `;
-  }
-
-  _renderVisualTab() {
-    const pub = this.publication;
-    const photoUrl = pub.photo_id ? publicationPhotoUrl(pub.photo_id, 'large') : null;
-
-    return `
-      <div class="cm-studio-visual">
-        <div class="cm-studio-visual-preview">
-          ${photoUrl ? `
-            <img src="${photoUrl}" alt="Visuel de la publication" class="cm-studio-visual-img">
-          ` : `
-            <div class="cm-studio-visual-empty">
-              <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-                <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
-                <circle cx="8.5" cy="8.5" r="1.5"/>
-                <path d="M21 15l-5-5L5 21"/>
-              </svg>
-              <p>Aucun visuel sélectionné</p>
+            <div class="cm-field-group">
+              <label><span>Hashtags</span>
+                <textarea name="hashtags" rows="2" placeholder="#trail #running #recovery">${this._escape(this.publication?.hashtags || '')}</textarea>
+              </label>
             </div>
-          `}
-        </div>
+          </section>
 
-        <div class="cm-studio-visual-tabs">
-          <button class="cm-studio-visual-tab ${pub.visual_type !== 'generated' ? 'active' : ''}" data-visual-tab="photo">Mes photos</button>
-          <button class="cm-studio-visual-tab ${pub.visual_type === 'generated' ? 'active' : ''}" data-visual-tab="generated" disabled>Génération IA</button>
-        </div>
+          <!-- 4. VISUEL -->
+          <section class="cm-studio-section">
+            <div class="cm-section-header">
+              <h2>4. Visuel</h2>
+              <p class="cm-section-desc">Sélectionnez une photo ou générez un visuel (bientôt disponible).</h2>
+            </div>
 
-        <div class="cm-studio-visual-panels">
-          <!-- Mes photos -->
-          <div class="cm-studio-visual-panel active" data-visual-panel="photo">
-            <div class="cm-studio-visual-actions">
-              <button class="btn btn-primary" data-action="select-photo">
+            <div class="cm-visual-preview">
+              ${this.publication?.photo_id ? `
+                <img src="${publicationPhotoUrl(this.publication.photo_id, 'large')}" alt="Visuel de la publication" class="cm-studio-visual-img">
+                <button class="btn-remove-photo" data-action="remove-photo" title="Retirer le visuel" ${this.publication?.photo_locked ? 'disabled' : ''}>
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                </button>
+                <button class="btn-lock ${this.publication?.photo_locked ? 'locked' : ''}" data-action="lock-photo" title="${this.publication?.photo_locked ? 'Déverrouiller' : 'Verrouiller'}" aria-label="${this.publication?.photo_locked ? 'Déverrouiller le visuel' : 'Verrouiller le visuel'}">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
+                    <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+                  </svg>
+                </button>
+              ` : `
+                <div class="cm-studio-visual-empty">
+                  <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                    <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
+                    <circle cx="8.5" cy="8.5" r="1.5"/>
+                    <path d="M21 15l-5-5L5 21"/>
+                  </svg>
+                  <p>Aucun visuel sélectionné</p>
+                </div>
+              `}
+            </div>
+
+            <div class="cm-visual-actions">
+              <button class="btn btn-primary" data-action="select-photo" ${this.publication?.photo_locked ? 'disabled' : ''}>
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                   <path d="M21 19V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2z"/>
                   <path d="M17 5l-5 5 5 5"/>
                 </svg>
                 Sélectionner une photo
               </button>
-              ${pub.photo_id ? `<button class="btn btn-secondary" data-action="remove-photo">Retirer</button>` : ''}
+              <button class="btn btn-secondary" data-action="generate-visual" disabled title="Bientôt disponible">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M12 2a10 10 0 1 0 10 10 4 4 0 0 1-5-5 4 4 0 0 0-5-5"/>
+                  <path d="M2 2l20 20"/>
+                </svg>
+                Générer par IA (bientôt)
+              </button>
             </div>
-            <p class="text-muted" style="font-size: 12px; margin-top: 8px;">
-              Sélectionnez une photo depuis votre bibliothèque ForgeAI Photos.
-              Formats recommandés : 1:1 (feed), 4:5 (portrait), 9:16 (story/reel).
-            </p>
-          </div>
+            <p class="cm-field-hint">Sélectionnez une photo depuis votre bibliothèque ForgeAI Photos. Formats recommandés : 1:1 (feed), 4:5 (portrait), 9:16 (story/reel).</p>
+          </section>
 
-          <!-- Génération IA (placeholder) -->
-          <div class="cm-studio-visual-panel" data-visual-panel="generated">
-            <div class="cm-studio-ai-placeholder">
-              <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-                <path d="M12 2a10 10 0 1 0 10 10 4 4 0 0 1-5-5 4 4 0 0 0-5-5"/>
-                <path d="M2 2l20 20"/>
-              </svg>
-              <h3>Génération d'images IA</h3>
-              <p>Cette fonctionnalité sera disponible dans une prochaine version.</p>
-              <p class="text-muted">Pour l'instant, utilisez vos propres photos depuis la bibliothèque.</p>
-              <div class="cm-studio-ai-prompt-preview" style="display: none;">
-                <label><span>Prompt de génération</span>
-                  <textarea readonly rows="4"></textarea>
-                </label>
-              </div>
+          <!-- 5. APERÇU INSTAGRAM EN TEMPS RÉEL -->
+          <section class="cm-studio-section">
+            <div class="cm-section-header">
+              <h2>5. Aperçu Instagram</h2>
+              <p class="cm-section-desc">Aperçu en temps réel du rendu final.</            </div>
+            <div class="cm-preview-selector">
+              <button class="cm-preview-format-btn ${this.previewFormat === 'feed' ? 'active' : ''}" data-format="feed">Feed (1:1)</button>
+              <button class="cm-preview-format-btn ${this.previewFormat === 'story' ? 'active' : ''}" data-format="story">Story (9:16)</button>
+              <button class="cm-preview-format-btn ${this.previewFormat === 'reel' ? 'active' : ''}" data-format="reel">Reel (9:16)</button>
+              <button class="cm-preview-format-btn ${this.previewFormat === 'strategic' ? 'active' : ''}" data-format="strategic">Stratégique</button>
             </div>
-          </div>
-        </div>
+            <div class="cm-preview-container" id="cm-preview-container">
+              <div class="cm-preview-loading"><div class="spinner"></div><p>Chargement...</p></div>
+            </div>
+          </section>
+
+          <!-- 6. ACTIONS FINALES -->
+          <footer class="cm-studio-footer">
+            <div class="cm-studio-actions-left">
+              <button class="btn btn-secondary" data-action="save">${this.saving ? 'Sauvegarde...' : 'Sauvegarder'}</button>
+              <span class="cm-status" data-role="status"></span>
+            </div>
+            <div class="cm-studio-actions-right">
+              <button class="btn btn-primary" data-action="validate" ${!this.publication?.content ? 'disabled' : ''} ${this.publication?.status === 'validated' || this.publication?.status === 'scheduled' || this.publication?.status === 'shared' ? 'disabled' : ''}>
+                ${this.publication?.status === 'validated' ? 'Validée' : this.publication?.status === 'scheduled' ? 'Planifiée' : this.publication?.status === 'shared' ? 'Publiée' : 'Valider'}
+              </button>
+              <button class="btn btn-success" data-action="publish" ${this.publication?.status !== 'validated' && this.publication?.status !== 'scheduled' ? 'disabled' : ''} ${!this.publication?.content || !this.publication?.photo_id ? 'disabled' : ''}>
+                ${this.publication?.status === 'shared' ? 'Publiée' : this.publication?.status === 'publishing' ? 'Publication...' : 'Publier sur Instagram'}
+              </button>
+            </div>
+          </footer>
+        </main>
       </div>
     `;
-  }
 
-  _renderVariantsTab() {
-    const pub = this.publication;
-    const hasProposals = pub.proposals && pub.proposals.length > 0;
-
-    if (!hasProposals) {
-      return `
-        <div class="cm-studio-empty">
-          <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-            <rect x="3" y="3" width="7" height="7" rx="1"/>
-            <rect x="14" y="3" width="7" height="7" rx="1"/>
-            <rect x="3" y="14" width="7" height="7" rx="1"/>
-            <rect x="14" y="14" width="7" height="7" rx="1"/>
-          </svg>
-          <h3>Aucune variante générée</h3>
-          <p>Générez d'abord des propositions de texte dans l'onglet <strong>Texte</strong> ou cliquez ci-dessous.</p>
-          <div class="cm-studio-form-actions" style="margin-top: 16px;">
-            <button class="btn btn-primary" data-action="generate-variants">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <path d="M12 2a10 10 0 1 0 10 10 4 4 0 0 1-5-5 4 4 0 0 0-5-5"/>
-                <path d="M2 2l20 20"/>
-              </svg>
-              Générer 3 variantes
-            </button>
-          </div>
-        </div>
-      `;
-    }
-
-    return `
-      <div class="cm-studio-variants">
-        <div class="cm-studio-variants-header">
-          <h3>${pub.proposals.length} proposition(s) générée(s)</h3>
-          <button class="btn btn-primary" data-action="regenerate-variants">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M23 4v6h-6"/><path d="M1 20v-6h6"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
-            </svg>
-            Régénérer
-          </button>
-        </div>
-        <div class="cm-studio-variants-list">
-          ${pub.proposals.map((prop, idx) => `
-            <article class="cm-studio-variant ${idx === pub.selected_proposal ? 'selected' : ''}" data-variant-index="${idx}">
-              <div class="cm-studio-variant-header">
-                <span class="cm-studio-variant-index">Variante ${idx + 1}</span>
-                ${idx === pub.selected_proposal ? '<span class="badge badge-success">Sélectionnée</span>' : `
-                  <button class="btn btn-sm btn-secondary" data-action="select-variant" data-index="${idx}">Sélectionner</button>
-                `}
-              </div>
-              ${prop.title ? `<h4 class="cm-studio-variant-title">${this._escape(prop.title)}</h4>` : ''}
-              <div class="cm-studio-variant-content">${this._escape(prop.content)}</div>
-              ${prop.hashtags ? `<div class="cm-studio-variant-hashtags">${this._escape(prop.hashtags)}</div>` : ''}
-              <div class="cm-studio-variant-meta">
-                ${prop.format ? `<span class="badge badge-info">${this._escape(prop.format)}</span>` : ''}
-                ${prop.objectif ? `<span class="badge badge-secondary">${this._escape(prop.objectif)}</span>` : ''}
-              </div>
-              ${prop.idee_visuelle ? `<p class="cm-studio-variant-idee"><strong>Idée visuelle :</strong> ${this._escape(prop.idee_visuelle)}</p>` : ''}
-            </article>
-          `).join('')}
-        </div>
-        <div class="cm-studio-form-actions" style="margin-top: 16px;">
-          <button class="btn btn-primary" data-action="apply-selected-variant" ${!pub.content ? 'disabled' : ''}>
-            Appliquer la variante sélectionnée
-          </button>
-        </div>
-      `;
+    this._bindEvents();
+    this._loadPreview(this.previewFormat);
+    return this.element;
   }
 
   _bindEvents() {
@@ -489,57 +264,54 @@ export class CommunityManagerStudioPage {
       window.history.back();
     });
 
-    // Tabs
-    this.element.querySelectorAll('.cm-studio-tab').forEach(tab => {
-      tab.addEventListener('click', () => {
-        this.activeTab = tab.dataset.tab;
-        this._refreshTabs();
+    // Tone selection
+    this.element.querySelectorAll('[data-tone]').forEach(btn => {
+      btn.addEventListener('click', () => this._selectTone(btn.dataset.tone));
+    });
+
+    // Title lock
+    this.element.querySelector('[data-action="lock-title"]')?.addEventListener('click', () => {
+      this._toggleTitleLock();
+    });
+
+    // Content lock
+    this.element.querySelector('[data-action="lock-content"]')?.addEventListener('click', () => {
+      this._toggleContentLock();
+    });
+
+    // Photo lock
+    this.element.querySelector('[data-action="lock-photo"]')?.addEventListener('click', () => {
+      this._togglePhotoLock();
+    });
+
+    // Title input
+    this.element.querySelector('[name="title"]')?.addEventListener('input', (e) => this._onTitleInput(e));
+
+    // Content input
+    this.element.querySelector('[name="content"]')?.addEventListener('input', (e) => this._onContentInput(e));
+
+    // Hashtags input
+    this.element.querySelector('[name="hashtags"]')?.addEventListener('input', (e) => this._onHashtagsInput(e));
+
+    // Generate short text
+    this.element.querySelector('[data-action="generate-short"]')?.addEventListener('click', () => this._generateText('short'));
+
+    // Generate long text
+    this.element.querySelector('[data-action="generate-long"]')?.addEventListener('click', () => this._generateText('long'));
+
+    // Select photo
+    this.element.querySelector('[data-action="select-photo"]')?.addEventListener('click', () => this._openPhotoSelector());
+
+    // Remove photo
+    this.element.querySelector('[data-action="remove-photo"]')?.addEventListener('click', () => this._removePhoto());
+
+    // Preview format
+    this.element.querySelectorAll('[data-format]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        this.previewFormat = btn.dataset.format;
+        this._updatePreviewFormatButtons();
+        this._loadPreview(this.previewFormat);
       });
-    });
-
-    // Visual tabs
-    this.element.querySelectorAll('[data-visual-tab]').forEach(tab => {
-      tab.addEventListener('click', () => {
-        this._switchVisualTab(tab.dataset.visualTab);
-      });
-    });
-
-    // Form submission - draft text
-    const draftForm = this.element.querySelector('[data-form="cm-draft-text"]');
-    draftForm?.addEventListener('submit', (e) => {
-      e.preventDefault();
-      this._saveDraft(draftForm);
-    });
-
-    // Save draft from any tab
-    this.element.querySelectorAll('[data-action="save-draft"]').forEach(btn => {
-      btn.addEventListener('click', () => this._saveDraftFromActiveTab());
-    });
-
-    // Generate variants
-    this.element.querySelector('[data-action="generate-variants"]')?.addEventListener('click', () => {
-      this._generateVariants();
-    });
-    this.element.querySelector('[data-action="regenerate-variants"]')?.addEventListener('click', () => {
-      this._generateVariants();
-    });
-
-    // Select variant
-    this.element.querySelectorAll('[data-action="select-variant"]').forEach(btn => {
-      btn.addEventListener('click', () => this._selectVariant(parseInt(btn.dataset.index, 10)));
-    });
-
-    // Apply selected variant
-    this.element.querySelector('[data-action="apply-selected-variant"]')?.addEventListener('click', () => {
-      this._applySelectedVariant();
-    });
-
-    // Visual tabs
-    this.element.querySelector('[data-action="select-photo"]')?.addEventListener('click', () => {
-      this._openPhotoSelector();
-    });
-    this.element.querySelector('[data-action="remove-photo"]')?.addEventListener('click', () => {
-      this._removePhoto();
     });
 
     // Preview
@@ -548,10 +320,6 @@ export class CommunityManagerStudioPage {
     });
     this.element.querySelector('[data-action="close-preview"]')?.addEventListener('click', () => {
       this._closeModal('cm-preview-modal');
-    });
-    this.element.querySelector('#cm-preview-format')?.addEventListener('change', (e) => {
-      this.previewFormat = e.target.value;
-      this._showPreview();
     });
 
     // Validate
@@ -586,84 +354,132 @@ export class CommunityManagerStudioPage {
     });
   }
 
-  _refreshTabs() {
-    this.element.querySelectorAll('.cm-studio-tab').forEach(tab => {
-      const active = tab.dataset.tab === this.activeTab;
-      tab.classList.toggle('active', active);
-      tab.setAttribute('aria-selected', active);
-    });
-    this.element.querySelectorAll('.cm-studio-tab-panel').forEach(panel => {
-      const active = panel.dataset.tabPanel === this.activeTab;
-      panel.classList.toggle('active', active);
-      panel.hidden = !active;
-    });
-  }
+  async _selectTone(tone) {
+    if (this.generating) return;
 
-  _switchVisualTab(tabName) {
-    this.element.querySelectorAll('[data-visual-tab]').forEach(tab => {
-      tab.classList.toggle('active', tab.dataset.visualTab === tabName);
+    // Update UI immediately
+    this.element.querySelectorAll('[data-tone]').forEach(btn => {
+      btn.classList.toggle('active', btn.dataset.tone === tone);
     });
-    this.element.querySelectorAll('[data-visual-panel]').forEach(panel => {
-      const active = panel.dataset.visualPanel === tabName;
-      panel.classList.toggle('active', active);
-      panel.hidden = !active;
-    });
-  }
 
-  async _saveDraft(form) {
-    const statusEl = this.element.querySelector('[data-role="draft-status"]');
-    const submitBtn = form?.querySelector('[type="submit"]');
-    if (submitBtn?.disabled) return;
-    if (submitBtn) submitBtn.disabled = true;
-
-    const setStatus = (text, success) => {
-      if (statusEl) {
-        statusEl.textContent = text;
-        statusEl.classList.toggle('text-success', !!success);
-        statusEl.classList.toggle('text-error', !success);
-      }
-    };
-
+    // Update publication
     try {
-      const formData = new FormData(form);
-      const data = {
-        title: formData.get('title') || null,
-        content: formData.get('content') || null,
-        hashtags: formData.get('hashtags') || null,
-        tone_used: formData.get('tone_used') || null,
-      };
-
-      this.saving = true;
-      if (submitBtn) submitBtn.textContent = 'Sauvegarde...';
-
-      const updated = await updateStudioDraft(this.publicationId, data);
+      const updated = await updateStudioDraft(this.publicationId, { tone_used: tone });
       this.publication = updated;
-      setStatus('Brouillon sauvegardé.', true);
-      this.success = 'Brouillon sauvegardé.';
-    } catch (error) {
-      setStatus(error?.data?.detail || error?.message || 'Erreur de sauvegarde.', false);
-      this.error = error?.data?.detail || error?.message || 'Erreur de sauvegarde.';
-    } finally {
-      this.saving = false;
-      if (submitBtn) {
-        submitBtn.disabled = false;
-        submitBtn.textContent = 'Sauvegarder le brouillon';
+      this.publication.tone_used = tone;
+
+      // Auto-regenerate title if not locked
+      if (!this.publication?.title_locked) {
+        await this._regenerateTitle(tone);
       }
+
+      // Auto-regenerate text if not locked
+      if (!this.publication?.content_locked) {
+        await this._generateText('short');
+      }
+    } catch (error) {
+      console.error('Erreur changement ton:', error);
     }
   }
 
-  _saveDraftFromActiveTab() {
-    const form = this.element.querySelector('[data-form="cm-draft-text"]');
-    if (form) this._saveDraft(form);
+  async _regenerateTitle(tone) {
+    try {
+      const result = await generateStudioDraftText(this.publicationId, {
+        publication_id: this.publicationId,
+        length: 'short',
+        tone: tone,
+        use_title: true,
+        styles: this.publication?.styles,
+        custom_instructions: this.publication?.custom_instructions,
+      });
+      if (result?.title && !this.publication?.title_locked) {
+        this.publication.title = result.title;
+        await updateStudioDraft(this.publicationId, { title: result.title });
+      }
+    } catch (error) {
+      console.error('Erreur régénération titre:', error);
+    }
   }
 
-  async _generateVariants() {
-    const statusEl = this.element.querySelector('[data-role="draft-status"]') || this.element.querySelector('[data-role="cm-variants-status"]');
-    const btn = this.element.querySelector('[data-action="generate-variants"], [data-action="regenerate-variants"]');
-    if (btn?.disabled) return;
-    if (btn) btn.disabled = true;
+  _onTitleInput(e) {
+    const title = e.target.value;
+    this.publication.title = title;
+    this._updatePreview();
+  }
+
+  _onContentInput(e) {
+    const content = e.target.value;
+    this.publication.content = content;
+    this._updatePreview();
+  }
+
+  _onHashtagsInput(e) {
+    const hashtags = e.target.value;
+    this.publication.hashtags = hashtags;
+    this._updatePreview();
+  }
+
+  async _toggleTitleLock() {
+    const newLock = !this.publication.title_locked;
+    try {
+      await lockStudioDraftTitle(this.publicationId, newLock);
+      this.publication.title_locked = newLock;
+      this._updateLockUI('title');
+    } catch (error) {
+      console.error('Erreur verrouillage titre:', error);
+    }
+  }
+
+  async _toggleContentLock() {
+    const newLock = !this.publication.content_locked;
+    try {
+      await lockStudioDraftContent(this.publicationId, newLock);
+      this.publication.content_locked = newLock;
+      this._updateLockUI('content');
+    } catch (error) {
+      console.error('Erreur verrouillage contenu:', error);
+    }
+  }
+
+  async _togglePhotoLock() {
+    const newLock = !this.publication.photo_locked;
+    try {
+      await lockStudioDraftPhoto(this.publicationId, newLock);
+      this.publication.photo_locked = newLock;
+      this._updateLockUI('photo');
+    } catch (error) {
+      console.error('Erreur verrouillage photo:', error);
+    }
+  }
+
+  _updateLockUI(type) {
+    const pub = this.publication;
+    const lockBtn = this.element.querySelector(`[data-action="lock-${type}"]`);
+    const input = this.element.querySelector(`[name="${type === 'title' ? 'title' : type === 'content' ? 'content' : 'photo'}"]`);
+    const hint = lockBtn?.parentElement?.querySelector('.cm-field-hint');
+
+    if (lockBtn) {
+      lockBtn.classList.toggle('locked', pub[`${type}_locked`]);
+      lockBtn.title = pub[`${type}_locked`] ? 'Déverrouiller' : 'Verrouiller';
+      lockBtn.setAttribute('aria-label', pub[`${type}_locked`] ? `Déverrouiller le ${type === 'title' ? 'titre' : type === 'content' ? 'texte' : 'visuel'}` : `Verrouiller le ${type === 'title' ? 'titre' : type === 'content' ? 'texte' : 'visuel'}`);
+    }
+    if (input) {
+      input.readOnly = pub[`${type}_locked`];
+    }
+    if (hint) {
+      hint.textContent = pub[`${type}_locked`] ? `${type === 'title' ? 'Titre' : type === 'content' ? 'Texte' : 'Visuel'} verrouillé - cliquez pour déverrouiller` : `Cliquez sur le cadenas pour verrouiller le ${type === 'title' ? 'titre' : type === 'content' ? 'texte' : 'visuel'}`;
+    }
+  }
+
+  async _generateText(length) {
+    if (this.generating) return;
+    if (this.publication?.content_locked) return;
+
+    const btn = this.element.querySelector(`[data-action="generate-${length}"]`);
+    const statusEl = this.element.querySelector('[data-role="status"]');
 
     const setStatus = (text, success) => {
+      const statusEl = this.element.querySelector('[data-role="status"]');
       if (statusEl) {
         statusEl.textContent = text;
         statusEl.classList.toggle('text-success', !!success);
@@ -672,74 +488,87 @@ export class CommunityManagerStudioPage {
     };
 
     try {
-      const form = this.element.querySelector('[data-form="cm-draft-text"]');
-      const formData = form ? new FormData(form) : null;
-      const data = {
-        tone: formData?.get('tone_used') || this.publication.tone_used,
-        styles: this.publication.styles,
-        custom_instructions: this.publication.custom_instructions,
-      };
-
       this.generating = true;
-      if (btn) btn.textContent = 'Génération...';
-      setStatus('Génération des variantes...', null);
+      if (btn) btn.disabled = true;
+      const btnText = btn?.querySelector('span') || btn;
+      if (btnText) btnText.textContent = length === 'short' ? 'Génération...' : 'Génération...';
+      setStatus('Génération en cours...', null);
 
-      const result = await generateStudioDraftVariants(this.publicationId, data);
-      this.publication.proposals = result.variants || [];
-      this.publication = { ...this.publication, ...result };
-      setStatus(`${this.publication.proposals.length} variante(s) générée(s).`, true);
-      this._refreshVariantsTab();
+      const result = await generateStudioDraftText(this.publicationId, {
+        publication_id: this.publicationId,
+        length: length,
+        tone: this.publication.tone_used,
+        use_title: true,
+        styles: this.publication?.styles,
+        custom_instructions: this.publication?.custom_instructions,
+      });
+
+      if (result?.content) {
+        this.publication.content = result.content;
+        this.publication.title = result.title || this.publication.title;
+        this.publication.hashtags = result.hashtags || this.publication.hashtags;
+        this.element.querySelector('[name="content"]').value = this.publication.content;
+        this.element.querySelector('[name="title"]').value = this.publication.title || '';
+        this.element.querySelector('[name="hashtags"]').value = this.publication.hashtags || '';
+        setStatus(`${length === 'short' ? 'Texte court' : 'Texte long'} généré !`, true);
+        this._updatePreview();
+      }
     } catch (error) {
-      setStatus(error?.data?.detail || error?.message || 'Génération impossible.', false);
+      const statusEl = this.element.querySelector('[data-role="status"]');
+      if (statusEl) {
+        statusEl.textContent = error?.data?.detail || error?.message || 'Génération impossible.';
+        statusEl.classList.add('text-error');
+      }
     } finally {
       this.generating = false;
-      if (btn) {
-        btn.disabled = false;
-        btn.textContent = btn.dataset.action === 'regenerate-variants' ? 'Régénérer' : 'Générer 3 variantes';
-      }
+      const btn = this.element.querySelector(`[data-action="generate-${length}"]`);
+      if (btn) btn.disabled = false;
     }
   }
 
-  _refreshVariantsTab() {
-    if (this.activeTab === 'variants') {
-      const panel = this.element.querySelector('[data-tab-panel="variants"]');
-      if (panel) {
-        panel.innerHTML = this._renderVariantsTab();
-        // Re-bind variant events
-        panel.querySelectorAll('[data-action="select-variant"]').forEach(btn => {
-          btn.addEventListener('click', () => this._selectVariant(parseInt(btn.dataset.index, 10)));
-        });
-        panel.querySelector('[data-action="regenerate-variants"]')?.addEventListener('click', () => this._generateVariants());
-        panel.querySelector('[data-action="apply-selected-variant"]')?.addEventListener('click', () => this._applySelectedVariant());
-      }
+  async _openPhotoSelector() {
+    const url = `/photos?select=1&callback=cmStudioPhotoSelected`;
+    window.open(url, 'cmPhotoSelector', 'width=1000,height=700');
+  }
+
+  _removePhoto() {
+    this.publication.photo_id = null;
+    this.publication.visual_type = 'photo';
+    this._refreshVisualTab();
+    this._updatePreview();
+    this._saveDraftFromActiveTab();
+  }
+
+  _showPreview() {
+    this._loadPreview(this.previewFormat);
+    const modal = this.element.querySelector('#cm-preview-modal');
+    if (modal) modal.hidden = false;
+  }
+
+  async _loadPreview(format) {
+    const body = this.element.querySelector('#cm-preview-body');
+    if (!body) return;
+
+    body.innerHTML = '<div class="cm-preview-loading"><div class="spinner"></div><p>Chargement...</p></div>';
+
+    try {
+      const result = await previewStudioDraft(this.publicationId, format);
+      this.previewFormat = format;
+      body.innerHTML = result.preview_html;
+    } catch (error) {
+      body.innerHTML = `<div class="alert alert-error">${this._escape(error?.data?.detail || error?.message || 'Erreur de prévisualisation')}</div>`;
     }
   }
 
-  _selectVariant(index) {
-    this.publication.selected_proposal = index;
-    this._refreshVariantsTab();
+  _closeModal(id) {
+    const modal = this.element.querySelector(`#${id}`);
+    if (modal) modal.hidden = true;
   }
 
-  async _applySelectedVariant() {
-    const pub = this.publication;
-    const idx = pub.selected_proposal;
-    if (idx === null || !pub.proposals || idx >= pub.proposals.length) return;
-
-    const prop = pub.proposals[idx];
-    const form = this.element.querySelector('[data-form="cm-draft-text"]');
-    if (!form) return;
-
-    form.elements.title.value = prop.title || '';
-    form.elements.content.value = prop.content || '';
-    form.elements.hashtags.value = prop.hashtags || '';
-
-    // Mettre à jour la publication locale
-    pub.title = prop.title;
-    pub.content = prop.content;
-    pub.hashtags = prop.hashtags;
-
-    // Sauvegarder automatiquement
-    await this._saveDraft(form);
+  _updatePreviewFormatButtons() {
+    this.element.querySelectorAll('[data-format]').forEach(btn => {
+      btn.classList.toggle('active', btn.dataset.format === this.previewFormat);
+    });
   }
 
   async _validateDraft() {
@@ -748,7 +577,7 @@ export class CommunityManagerStudioPage {
     if (btn) btn.disabled = true;
 
     const setStatus = (text, success) => {
-      const statusEl = this.element.querySelector('[data-role="draft-status"]');
+      const statusEl = this.element.querySelector('[data-role="status"]');
       if (statusEl) {
         statusEl.textContent = text;
         statusEl.classList.toggle('text-success', !!success);
@@ -760,10 +589,13 @@ export class CommunityManagerStudioPage {
       btn.textContent = 'Validation...';
       const result = await validateStudioDraft(this.publicationId, { confirm: true });
       this.publication = result;
-      setStatus('Publication validée.', true);
       this._refreshAfterValidation();
     } catch (error) {
-      setStatus(error?.data?.detail || error?.message || 'Validation impossible.', false);
+      const statusEl = this.element.querySelector('[data-role="status"]');
+      if (statusEl) {
+        statusEl.textContent = error?.data?.detail || error?.message || 'Validation impossible.';
+        statusEl.classList.add('text-error');
+      }
     } finally {
       if (btn) {
         btn.disabled = false;
@@ -787,7 +619,6 @@ export class CommunityManagerStudioPage {
     if (publishBtn) {
       publishBtn.disabled = false;
     }
-    this._refreshTabs();
   }
 
   async _publishDraft() {
@@ -796,7 +627,7 @@ export class CommunityManagerStudioPage {
     if (btn) btn.disabled = true;
 
     const setStatus = (text, success) => {
-      const statusEl = this.element.querySelector('[data-role="draft-status"]');
+      const statusEl = this.element.querySelector('[data-role="status"]');
       if (statusEl) {
         statusEl.textContent = text;
         statusEl.classList.toggle('text-success', !!success);
@@ -818,7 +649,11 @@ export class CommunityManagerStudioPage {
       setStatus('Publication réussie !', true);
       this._refreshAfterPublish();
     } catch (error) {
-      setStatus(error?.data?.detail || error?.message || 'Publication impossible.', false);
+      const statusEl = this.element.querySelector('[data-role="status"]');
+      if (statusEl) {
+        statusEl.textContent = error?.data?.detail || error?.message || 'Publication impossible.';
+        statusEl.classList.add('text-error');
+      }
     } finally {
       if (btn) {
         btn.disabled = false;
@@ -860,7 +695,6 @@ export class CommunityManagerStudioPage {
         publishBtn.disabled = false;
       }
     }
-    // Afficher l'ID Instagram et le permalink si disponibles
     if (this.publication.instagram_media_id || this.publication.instagram_permalink) {
       const metaInfo = document.createElement('div');
       metaInfo.className = 'cm-studio-meta-info';
@@ -876,142 +710,46 @@ export class CommunityManagerStudioPage {
         sidebar.appendChild(metaInfo);
       }
     }
-    this._refreshTabs();
   }
 
-  _showPreview() {
-    this._loadPreview(this.previewFormat);
+  _saveDraftFromActiveTab() {
+    const form = this.element.querySelector('[data-form="cm-draft-text"]');
+    if (form) {
+      const formData = new FormData(form);
+      const data = {
+        title: formData.get('title') || null,
+        content: formData.get('content') || null,
+        hashtags: formData.get('hashtags') || null,
+      };
+      updateStudioDraft(this.publicationId, data).then(() => {
+        this.success = 'Brouillon sauvegardé.';
+        this._refreshTabs();
+      }).catch(err => {
+        this.error = err?.data?.detail || err?.message || 'Erreur de sauvegarde.';
+        this._refreshTabs();
+      });
+    }
+  }
+
+  _updatePreview() {
+    // Mise à jour instantanée de l'aperçu si la modal est ouverte
     const modal = this.element.querySelector('#cm-preview-modal');
-    if (modal) modal.hidden = false;
-  }
-
-  async _loadPreview(format) {
-    const body = this.element.querySelector('#cm-preview-body');
-    if (!body) return;
-
-    body.innerHTML = '<div class="cm-preview-loading"><div class="spinner"></div><p>Génération de l\'aperçu...</p></div>';
-
-    try {
-      const result = await previewStudioDraft(this.publicationId, format);
-      this.previewFormat = format;
-      body.innerHTML = result.preview_html;
-    } catch (error) {
-      body.innerHTML = `<div class="alert alert-error">${this._escape(error?.data?.detail || error?.message || 'Erreur de prévisualisation')}</div>`;
+    if (modal && !modal.hidden) {
+      this._loadPreview(this.previewFormat);
     }
   }
 
-  _closeModal(id) {
-    const modal = this.element.querySelector(`#${id}`);
-    if (modal) modal.hidden = true;
-  }
-
-  _showScheduleModal() {
-    const modal = this.element.querySelector('#cm-schedule-modal');
-    if (!modal) return;
-    const input = modal.querySelector('[name="scheduled_at"]');
-    if (input) {
-      // Pré-remplir avec la date suggérée si disponible
-      if (this.publication.calendar_entry?.date) {
-        input.value = this.publication.calendar_entry.date + 'T10:00';
-      } else {
-        const tomorrow = new Date();
-        tomorrow.setDate(tomorrow.getDate() + 1);
-        tomorrow.setHours(10, 0, 0, 0);
-        input.value = tomorrow.toISOString().slice(0, 16);
-      }
-    }
-    modal.hidden = false;
-  }
-
-  async _scheduleDraft(form) {
-    const formData = new FormData(form);
-    const scheduledAt = new Date(formData.get('scheduled_at'));
-    const btn = form.querySelector('[type="submit"]');
-    if (btn) btn.disabled = true;
-
-    try {
-      const result = await scheduleStudioDraft(this.publicationId, scheduledAt);
-      this.publication = result;
-      this._closeModal('cm-schedule-modal');
-      this._refreshAfterValidation();
-    } catch (error) {
-      alert(error?.data?.detail || error?.message || 'Planification impossible');
-    } finally {
-      if (btn) btn.disabled = false;
-    }
-  }
-
-  _openPhotoSelector() {
-    // Ouvre le sélecteur de photos ForgeAI dans une modale
-    const url = `/photos?select=1&callback=cmStudioPhotoSelected`;
-    window.open(url, 'cmPhotoSelector', 'width=1000,height=700');
-  }
-
-  _removePhoto() {
-    this.publication.photo_id = null;
-    this.publication.visual_type = 'photo';
-    this._refreshVisualTab();
-    // Sauvegarder
-    this._saveDraftFromActiveTab();
-  }
-
-  _refreshVisualTab() {
-    if (this.activeTab === 'visual') {
-      const panel = this.element.querySelector('[data-tab-panel="visual"]');
-      if (panel) {
-        panel.innerHTML = this._renderVisualTab();
-        // Re-bind visual events
-        panel.querySelector('[data-action="select-photo"]')?.addEventListener('click', () => this._openPhotoSelector());
-        panel.querySelector('[data-action="remove-photo"]')?.addEventListener('click', () => this._removePhoto());
-        panel.querySelectorAll('[data-visual-tab]').forEach(tab => {
-          tab.addEventListener('click', () => this._switchVisualTab(tab.dataset.visualTab));
-        });
-      }
-    }
-  }
-
-  // Callback global pour la sélection de photo
-  static registerPhotoCallback() {
-    window.cmStudioPhotoSelected = (photoId) => {
-      const page = window.cmStudioPageInstance;
-      if (page) {
-        page.publication.photo_id = photoId;
-        page.publication.visual_type = 'photo';
-        page._refreshVisualTab();
-        page._saveDraftFromActiveTab();
-      }
-    };
-  }
-
-  // Utilitaires
-  _escape(text) {
-    if (text == null) return '';
-    return String(text)
-      .replaceAll('&', '&')
-      .replaceAll('<', '<')
-      .replaceAll('>', '>')
-      .replaceAll('"', '"')
-      .replaceAll("'", '&#039;');
-  }
-
-  _formatDate(dateStr) {
-    if (!dateStr) return '';
-    const d = new Date(dateStr + 'T00:00:00Z');
-    return d.toLocaleDateString('fr-FR', { weekday: 'short', day: '2-digit', month: 'short', timeZone: 'UTC' });
-  }
-
-  _formatDateTime(dateStr) {
-    if (!dateStr) return '';
-    const d = new Date(dateStr);
-    return d.toLocaleString('fr-FR', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
-  }
-
-  _formatDuration(seconds) {
-    if (!seconds) return '';
-    const h = Math.floor(seconds / 3600);
-    const m = Math.floor((seconds % 3600) / 60);
-    const s = seconds % 60;
-    return h > 0 ? `${h}h${m.toString().padStart(2, '0')}` : `${m}:${s.toString().padStart(2, '0')}`;
+  _refreshTabs() {
+    this.element.querySelectorAll('.cm-studio-tab').forEach(tab => {
+      const active = tab.dataset.tab === this.activeTab;
+      tab.classList.toggle('active', active);
+      tab.setAttribute('aria-selected', active);
+    });
+    this.element.querySelectorAll('.cm-studio-tab-panel').forEach(panel => {
+      const active = panel.dataset.tabPanel === this.activeTab;
+      panel.classList.toggle('active', active);
+      panel.hidden = !active;
+    });
   }
 
   _formatStatus(status) {
@@ -1053,9 +791,18 @@ export class CommunityManagerStudioPage {
     };
     return map[theme] || 'secondary';
   }
+
+  _escape(text) {
+    if (text == null) return '';
+    return String(text)
+      .replaceAll('&', '&')
+      .replaceAll('<', '<')
+      .replaceAll('>', '>')
+      .replaceAll('"', '"')
+      .replaceAll("'", '&#039;');
+  }
 }
 
-// Instance globale pour le callback photo
 window.cmStudioPageInstance = null;
 
 export function createCommunityManagerStudioPage(router, publicationId, entryData = null) {

@@ -122,7 +122,7 @@ void (function() {
     createDomotiquePage, createDomotiqueConfigPage, createSurveillancePage,
     createPhotosPage, createSouvenirsPage, createITAssetPage,
     createSportDashboardPage, createSportActivitiesPage, createSportGarminPage,
-    createSportHealthPage, createSportAnalysesPage, createSportGoalsPage,
+    createSportHealthPage, createSportGoalsPage,
     createBuildingsPage, createEquipmentPage, createEquipmentRefsPage,
     createDashboardPage, createMaintenanceRequestsPage, createMaintenanceWorkOrdersPage,
     createMaintenancePreventivePage, createMaintenanceProvidersPage, createMaintenanceContractsPage,
@@ -797,6 +797,8 @@ async function showSportHealthPage(route) {
     console.error('Erreur affichage Santé Sport:', error);
     appShell.showError(error);
   }
+}
+
 async function showSportGoalsPage(route) {
   if (!appShell) return;
   appShell.showLoading();

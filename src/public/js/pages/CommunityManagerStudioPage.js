@@ -11,8 +11,9 @@ import {
   validateStudioDraft,
   scheduleStudioDraft,
   previewStudioDraft,
-} from '../services/sportApi.js?v=10';
-import { publicationPhotoUrl } from '../services/sportApi.js?v=10';
+  publishStudioDraft,
+} from '../services/sportApi.js?v=11';
+import { publicationPhotoUrl } from '../services/sportApi.js?v=11';
 
 
 export class CommunityManagerStudioPage {
@@ -100,8 +101,11 @@ export class CommunityManagerStudioPage {
                 </svg>
                 Aperçu
               </button>
-              <button class="btn btn-primary" data-action="validate" ${pub.status === 'validated' || pub.status === 'scheduled' || pub.status === 'shared' ? 'disabled' : ''} ${!pub.content ? 'disabled' : ''}>
-                ${pub.status === 'validated' ? 'Validée' : pub.status === 'scheduled' ? 'Planifiée' : 'Valider'}
+              <button class="btn btn-primary" data-action="validate" ${pub.status === 'validated' || pub.status === 'scheduled' || pub.status === 'shared' || pub.status === 'publishing' ? 'disabled' : ''} ${!pub.content ? 'disabled' : ''}>
+                ${pub.status === 'validated' ? 'Validée' : pub.status === 'scheduled' ? 'Planifiée' : pub.status === 'shared' ? 'Publiée' : pub.status === 'publishing' ? 'Publication...' : 'Valider'}
+              </button>
+              <button class="btn btn-success" data-action="publish" ${pub.status !== 'validated' && pub.status !== 'scheduled' ? 'disabled' : ''} ${!pub.content || !pub.photo_id ? 'disabled' : ''}>
+                ${pub.status === 'shared' ? 'Publiée' : pub.status === 'publishing' ? 'Publication...' : 'Publier sur Instagram'}
               </button>
             </div>
           </div>
@@ -554,6 +558,11 @@ export class CommunityManagerStudioPage {
       this._validateDraft();
     });
 
+    // Publish
+    this.element.querySelector('[data-action="publish"]')?.addEventListener('click', () => {
+      this._publishDraft();
+    });
+
     // Schedule
     this.element.querySelector('[data-action="schedule"]')?.addEventListener('click', () => {
       this._showScheduleModal();
@@ -773,6 +782,99 @@ export class CommunityManagerStudioPage {
       validateBtn.disabled = true;
       validateBtn.textContent = 'Validée';
     }
+    const publishBtn = this.element.querySelector('[data-action="publish"]');
+    if (publishBtn) {
+      publishBtn.disabled = false;
+    }
+    this._refreshTabs();
+  }
+
+  async _publishDraft() {
+    const btn = this.element.querySelector('[data-action="publish"]');
+    if (btn?.disabled) return;
+    if (btn) btn.disabled = true;
+
+    const setStatus = (text, success) => {
+      const statusEl = this.element.querySelector('[data-role="draft-status"]');
+      if (statusEl) {
+        statusEl.textContent = text;
+        statusEl.classList.toggle('text-success', !!success);
+        statusEl.classList.toggle('text-error', !success);
+      }
+    };
+
+    if (!confirm('Confirmez-vous la publication sur Instagram ? Cette action est irréversible.')) {
+      if (btn) btn.disabled = false;
+      return;
+    }
+
+    try {
+      btn.textContent = 'Publication...';
+      setStatus('Publication sur Instagram en cours...', null);
+
+      const result = await publishStudioDraft(this.publicationId, { confirm: true });
+      this.publication = result;
+      setStatus('Publication réussie !', true);
+      this._refreshAfterPublish();
+    } catch (error) {
+      setStatus(error?.data?.detail || error?.message || 'Publication impossible.', false);
+    } finally {
+      if (btn) {
+        btn.disabled = false;
+        if (this.publication.status === 'shared') {
+          btn.textContent = 'Publiée';
+          btn.disabled = true;
+        } else if (this.publication.status === 'publishing') {
+          btn.textContent = 'Publication...';
+          btn.disabled = true;
+        } else if (this.publication.status === 'failed') {
+          btn.textContent = 'Publier sur Instagram';
+          btn.disabled = false;
+        } else {
+          btn.textContent = 'Publier sur Instagram';
+          btn.disabled = false;
+        }
+      }
+    }
+  }
+
+  _refreshAfterPublish() {
+    const statusBadge = this.element.querySelector('.cm-studio-header-right .status-badge');
+    if (statusBadge) {
+      statusBadge.textContent = this._formatStatus(this.publication.status);
+      statusBadge.className = `status-badge ${this._getStatusBadgeClass(this.publication.status)}`;
+    }
+    const validateBtn = this.element.querySelector('[data-action="validate"]');
+    if (validateBtn) {
+      validateBtn.disabled = true;
+      validateBtn.textContent = 'Validée';
+    }
+    const publishBtn = this.element.querySelector('[data-action="publish"]');
+    if (publishBtn) {
+      if (this.publication.status === 'shared') {
+        publishBtn.textContent = 'Publiée';
+        publishBtn.disabled = true;
+      } else if (this.publication.status === 'failed') {
+        publishBtn.textContent = 'Publier sur Instagram';
+        publishBtn.disabled = false;
+      }
+    }
+    // Afficher l'ID Instagram et le permalink si disponibles
+    if (this.publication.instagram_media_id || this.publication.instagram_permalink) {
+      const metaInfo = document.createElement('div');
+      metaInfo.className = 'cm-studio-meta-info';
+      metaInfo.innerHTML = `
+        <h4>Détails de la publication Instagram</h4>
+        <dl class="cm-studio-meta">
+          ${this.publication.instagram_media_id ? `<dt>ID Instagram</dt><dd><code>${this._escape(this.publication.instagram_media_id)}</code></dd>` : ''}
+          ${this.publication.instagram_permalink ? `<dt>Lien</dt><dd><a href="${this._escape(this.publication.instagram_permalink)}" target="_blank" rel="noopener">Voir sur Instagram</a></dd>` : ''}
+        </dl>
+      `;
+      const sidebar = this.element.querySelector('.cm-studio-sidebar');
+      if (sidebar) {
+        sidebar.appendChild(metaInfo);
+      }
+    }
     this._refreshTabs();
   }
 
@@ -919,6 +1021,7 @@ export class CommunityManagerStudioPage {
       shared: 'Partagée',
       failed: 'Échec',
       refused: 'Refusée',
+      publishing: 'Publication...',
     };
     return map[status] || status;
   }
@@ -931,6 +1034,7 @@ export class CommunityManagerStudioPage {
       shared: 'success',
       failed: 'danger',
       refused: 'inactive',
+      publishing: 'warning',
     };
     return map[status] || 'inactive';
   }

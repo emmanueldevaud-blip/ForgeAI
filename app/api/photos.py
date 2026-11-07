@@ -2,7 +2,7 @@
 
 import logging
 import urllib.parse
-from typing import List
+from typing import List, Optional
 
 from fastapi import (
     APIRouter,
@@ -80,6 +80,7 @@ from app.services.photo.service import (
     PhotoService,
     PhotoServiceError,
 )
+from app.services.sport_media_publish import MediaPublishService, MediaPublishError
 from app.services.photo.storage import PhotoStorageError, get_photo_storage
 
 logger = logging.getLogger(__name__)
@@ -914,8 +915,24 @@ async def get_photo_file(
     photo_id: int,
     size: str = Query("small", max_length=20),
     download: bool = Query(False),
+    meta_token: Optional[str] = Query(None, alias="meta_token"),
     service: PhotoService = Depends(_service),
+    db: AsyncSession = Depends(get_db),
 ):
+    # Si un token Meta est fourni, le valider sans exiger la permission photos.view
+    if meta_token:
+        media_service = MediaPublishService(db)
+        validation = await media_service.validate_media_token(meta_token)
+        if not validation:
+            raise HTTPException(status_code=403, detail="Token d'accès média invalide ou expiré")
+        if validation["photo_id"] != photo_id:
+            raise HTTPException(status_code=403, detail="Token invalide pour cette photo")
+        # Token valide, on continue sans vérifier la permission photos.view
+        # (le token a déjà vérifié l'accès au propriétaire)
+    else:
+        # Vérification standard des permissions
+        _ = Depends(_service)  # force l'évaluation de la dépendance pour la permission
+
     try:
         path, filename, media_type = await service.resolve_file(photo_id, size)
     except PhotoNotFound:

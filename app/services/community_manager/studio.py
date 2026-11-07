@@ -15,6 +15,7 @@ from app.models.sport import (
     SportActivity,
     SportAthlete,
     SportPublication,
+    SportInstagramConnection,
 )
 from app.models.user import User
 from app.schemas.sport import (
@@ -25,6 +26,8 @@ from app.schemas.sport import (
 )
 from app.services.ai_gateway import AIGatewayError, ai_gateway
 from app.services.sport_publications import SportPublicationService, SYSTEM_PROMPT
+from app.services.sport_instagram_publish import MetaPublishService, MetaPublishError
+from app.services.sport_media_publish import MediaPublishService
 
 logger = logging.getLogger(__name__)
 
@@ -417,3 +420,129 @@ class CommunityManagerStudioService:
             "preview_html": html,
             "format": format,
         }
+
+    async def publish_to_instagram(
+        self, publication_id: int, data: Any
+    ) -> SportPublication:
+        """Publie une publication validée sur Instagram via l'API Meta."""
+        from app.services.sport_instagram_publish import MetaPublishService, MetaPublishError
+        from app.services.sport_media_publish import MediaPublishService
+
+        pub = await self.pub_service.get_publication(publication_id)
+        if not pub:
+            raise ValueError("Publication introuvable")
+
+        if pub.status != "validated":
+            raise ValueError("Seules les publications validées peuvent être publiées")
+
+        if not (pub.content or "").strip():
+            raise ValueError("Le contenu de la publication est vide")
+
+        # Vérifier qu'il y a un visuel
+        if not pub.photo_id and not pub.visual_generation_prompt:
+            raise ValueError("Un visuel est requis pour la publication Instagram")
+
+        # Récupérer l'athlète et la connexion Instagram
+        athlete, strategy = await self._get_athlete_and_strategy()
+
+        # Récupérer la connexion Instagram
+        from app.models.sport import SportInstagramConnection
+        conn_result = await self.db.execute(
+            select(SportInstagramConnection).where(
+                SportInstagramConnection.user_id == self.current_user.id,
+                SportInstagramConnection.status == "active",
+            )
+        )
+        connection = conn_result.scalar_one_or_none()
+        if not connection:
+            raise ValueError("Aucun compte Instagram connecté. Connectez un compte dans les paramètres.")
+
+        if not connection.instagram_business_account_id:
+            raise ValueError("Compte Instagram Business non configuré")
+
+        # Marquer comme "en cours de publication"
+        pub.status = "publishing"
+        await self.db.commit()
+
+        try:
+            # Préparer l'URL du média
+            media_publish_service = MediaPublishService(self.db)
+            media_url = None
+            is_video = pub.visual_type in ("reel", "video")
+
+            if pub.photo_id:
+                # Préparer l'URL publique du média
+                media_service = MediaPublishService(self.db)
+                media_url = await media_service.prepare_media_for_publish(pub.photo_id, self.current_user.id)
+            elif pub.visual_generation_prompt:
+                # TODO: Génération d'image IA - pour l'instant erreur
+                raise ValueError("La génération d'images IA n'est pas encore disponible. Sélectionnez une photo.")
+
+            if not media_url:
+                raise ValueError("Impossible de préparer le média pour publication")
+
+            # Construire le caption complet
+            caption = pub.content or ""
+            if pub.hashtags:
+                caption += f"\n\n{pub.hashtags}"
+
+            # Publier via Meta
+            meta_service = MetaPublishService(self.db)
+            connection_result = await self.db.execute(
+                select(SportInstagramConnection).where(
+                    SportInstagramConnection.user_id == self.current_user.id,
+                    SportInstagramConnection.status == "active",
+                )
+            )
+            connection = connection_result.scalar_one_or_none()
+
+            meta_service = MetaPublishService(self.db)
+
+            try:
+                if pub.visual_type == "reel" or is_video:
+                    instagram_media_id = await meta_service.publish_video(connection, media_url, caption)
+                else:
+                    instagram_media_id = await meta_service.publish_photo(connection, media_url, caption)
+
+                # Récupérer le permalink
+                permalink = await meta_service.get_media_permalink(connection, instagram_media_id)
+
+                # Marquer comme publiée avec succès
+                pub.status = "shared"
+                pub.shared_at = datetime.now(timezone.utc)
+                pub.instagram_media_id = instagram_media_id
+                pub.instagram_permalink = permalink
+                pub.error_message = None
+
+                await self.db.commit()
+                await self.db.refresh(pub)
+
+                logger.info(f"Publication Instagram réussie: media_id={instagram_media_id}, publication_id={publication_id}")
+                return pub
+
+            except Exception as e:
+                # En cas d'erreur, marquer comme échouée
+                pub.status = "failed"
+                pub.failed_at = datetime.now(timezone.utc)
+                pub.error_message = str(e)
+                await self.db.commit()
+                await self.db.refresh(pub)
+
+                logger.error(f"Erreur publication Instagram: {e}")
+                raise ValueError(f"Échec de la publication Instagram: {str(e)}")
+
+        except MetaPublishError as e:
+            pub.status = "failed"
+            pub.failed_at = datetime.now(timezone.utc)
+            pub.error_message = f"Meta API: {str(e)}"
+            await self.db.commit()
+            await self.db.refresh(pub)
+            raise ValueError(f"Erreur Meta: {str(e)}")
+        except Exception as e:
+            pub.status = "failed"
+            pub.failed_at = datetime.now(timezone.utc)
+            pub.error_message = str(e)
+            await self.db.commit()
+            await self.db.refresh(pub)
+            logger.exception(f"Erreur publication Instagram: {e}")
+            raise ValueError(f"Erreur de publication: {str(e)}")

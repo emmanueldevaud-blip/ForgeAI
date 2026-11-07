@@ -314,6 +314,8 @@ class SportPublicationUpdate(BaseModel):
     visual_generation_prompt: Optional[str] = None
     visual_generation_provider: Optional[str] = None
     scheduled_at: Optional[datetime] = None
+    instagram_media_id: Optional[str] = None
+    instagram_permalink: Optional[str] = None
 
 
 class SportPublicationSettingsResponse(BaseModel):
@@ -411,6 +413,22 @@ class PublicationValidateRequest(BaseModel):
     """Validation humaine avant publication."""
     publication_id: int
     confirm: bool = True
+
+
+class PublicationPublishRequest(BaseModel):
+    """Publication effective sur Instagram."""
+    publication_id: int
+    confirm: bool = True
+
+
+class PublicationPublishResponse(BaseModel):
+    """Réponse après publication Instagram."""
+    publication_id: int
+    status: str
+    instagram_media_id: Optional[str] = None
+    instagram_permalink: Optional[str] = None
+    shared_at: Optional[datetime] = None
+    error_message: Optional[str] = None
 
 
 # --------------------------------------------------------------------------- #

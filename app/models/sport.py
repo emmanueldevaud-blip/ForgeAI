@@ -364,6 +364,8 @@ class SportPublication(Base):
     shared_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     failed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    instagram_media_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    instagram_permalink: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
 
@@ -476,3 +478,25 @@ CommunityManagerStrategy.calendar_entries = relationship(
     cascade="all, delete-orphan",
     order_by="EditorialCalendarEntry.date",
 )
+
+
+class MediaPublishToken(Base):
+    """Token signé pour l'accès temporaire aux médias lors de la publication Meta."""
+
+    __tablename__ = "media_publish_tokens"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    token_hash: Mapped[str] = mapped_column(String(64), nullable=False, unique=True, index=True)
+    photo_id: Mapped[int] = mapped_column(ForeignKey("photos.id", ondelete="CASCADE"), nullable=False, index=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, index=True)
+    consumed: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    photo: Mapped["Photo"] = relationship("Photo", lazy="selectin")
+    user: Mapped["User"] = relationship("User", lazy="selectin")
+
+    __table_args__ = (
+        Index("ix_media_publish_token_expires", "expires_at"),
+        Index("ix_media_publish_token_consumed", "consumed"),
+    )

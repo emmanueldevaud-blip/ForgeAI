@@ -1,6 +1,8 @@
 import { ApiClient } from './api.js?v=2';
 
 const sportApi = new ApiClient('/sport');
+// Routes Community Manager enregistrées sur /community-manager (sans préfixe /sport)
+const cmApi = new ApiClient('');
 
 export async function listSportAnalyses(limit = 30) {
   return sportApi.get(`/analyses?limit=${encodeURIComponent(limit)}`);
@@ -181,27 +183,27 @@ export async function getCommunityCalendar(athleteId) {
 
 // V1 : Routes directes Community Manager (nouvelles routes V1)
 export async function getCommunityManagerStrategy() {
-  return sportApi.get('/community-manager/strategy');
+  return cmApi.get('/community-manager/strategy');
 }
 
 export async function updateCommunityManagerStrategy(data) {
-  return sportApi.put('/community-manager/strategy', data);
+  return cmApi.put('/community-manager/strategy', data);
 }
 
 export async function generateCommunityManagerCalendar(count = 5) {
-  return sportApi.post('/community-manager/generate-calendar', { count });
+  return cmApi.post('/community-manager/generate-calendar', { count });
 }
 
 export async function getCommunityManagerCalendar() {
-  return sportApi.get('/community-manager/calendar');
+  return cmApi.get('/community-manager/calendar');
 }
 
 export async function updateCommunityManagerCalendarEntry(entryId, data) {
-  return sportApi.patch(`/community-manager/calendar/${encodeURIComponent(entryId)}`, data);
+  return cmApi.patch(`/community-manager/calendar/${encodeURIComponent(entryId)}`, data);
 }
 
 export async function deleteCommunityManagerCalendarEntry(entryId) {
-  return sportApi.delete(`/community-manager/calendar/${encodeURIComponent(entryId)}`);
+  return cmApi.delete(`/community-manager/calendar/${encodeURIComponent(entryId)}`);
 }
 
 // --------------------------------------------------------------------------- #
@@ -215,30 +217,30 @@ export async function createStudioDraftFromCalendar(data) {
 
 // V2 : Récupérer un brouillon
 export async function getStudioDraft(publicationId) {
-  return sportApi.get(`/community-manager/studio/draft/${encodeURIComponent(publicationId)}`);
+  return cmApi.get(`/community-manager/studio/draft/${encodeURIComponent(publicationId)}`);
 }
 
 // V2 : Mettre à jour un brouillon
 export async function updateStudioDraft(publicationId, data) {
-  return sportApi.patch(`/community-manager/studio/draft/${encodeURIComponent(publicationId)}`, data);
+  return cmApi.patch(`/community-manager/studio/draft/${encodeURIComponent(publicationId)}`, data);
 }
 
 // V2 : Générer des variantes de texte
 export async function generateStudioDraftVariants(publicationId, data) {
-  return sportApi.post(`/community-manager/studio/draft/${encodeURIComponent(publicationId)}/variants`, data);
+  return cmApi.post(`/community-manager/studio/draft/${encodeURIComponent(publicationId)}/variants`, data);
 }
 
 // V2 : Valider un brouillon pour publication
 export async function validateStudioDraft(publicationId, data) {
-  return sportApi.post(`/community-manager/studio/draft/${encodeURIComponent(publicationId)}/validate`, data);
+  return cmApi.post(`/community-manager/studio/draft/${encodeURIComponent(publicationId)}/validate`, data);
 }
 
 // V2 : Planifier une publication
 export async function scheduleStudioDraft(publicationId, scheduledAt) {
-  return sportApi.post(`/community-manager/studio/draft/${encodeURIComponent(publicationId)}/schedule`, { scheduled_at: scheduledAt });
+  return cmApi.post(`/community-manager/studio/draft/${encodeURIComponent(publicationId)}/schedule`, { scheduled_at: scheduledAt });
 }
 
 // V2 : Prévisualiser le rendu Instagram
 export async function previewStudioDraft(publicationId, format = 'feed') {
-  return sportApi.post(`/community-manager/studio/draft/${encodeURIComponent(publicationId)}/preview`, { format });
+  return cmApi.post(`/community-manager/studio/draft/${encodeURIComponent(publicationId)}/preview`, { format });
 }

@@ -12,7 +12,7 @@ import {
   updateCommunityManagerCalendarEntry,
   deleteCommunityManagerCalendarEntry,
   createStudioDraftFromCalendar,
-} from '../services/sportApi.js?v=11';
+} from '../services/sportApi.js?v=12';
 import { createSportGarminPage } from './SportGarminPage.js?v=5';
 import { createCommunityManagerStudioPage } from './CommunityManagerStudioPage.js?v=1';
 
@@ -561,8 +561,11 @@ export class UserSettingsPage {
   async _loadCMStrategy() {
     try {
       const result = await getCommunityManagerStrategy();
+      // GET /community-manager/strategy renvoie la stratégie (ou 404 si absente)
       if (result?.configured && result?.strategy) {
         this.cmStrategy = result.strategy;
+      } else if (result && (result.brand_identity || result.id)) {
+        this.cmStrategy = result;
       } else {
         this.cmStrategy = null;
       }
@@ -571,7 +574,9 @@ export class UserSettingsPage {
         await this._loadCMCalendar();
       }
     } catch (error) {
-      console.error('Erreur chargement stratégie CM:', error);
+      if (error?.status !== 404) {
+        console.error('Erreur chargement stratégie CM:', error);
+      }
       this.cmStrategy = null;
     }
   }
@@ -579,7 +584,8 @@ export class UserSettingsPage {
   async _loadCMCalendar() {
     try {
       const result = await getCommunityManagerCalendar();
-      this.cmCalendar = result?.calendar || [];
+      // GET /community-manager/calendar renvoie directement la liste
+      this.cmCalendar = Array.isArray(result) ? result : (result?.calendar || []);
     } catch (error) {
       console.error('Erreur chargement calendrier CM:', error);
       this.cmCalendar = [];

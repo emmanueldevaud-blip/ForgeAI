@@ -28,7 +28,7 @@ from app.schemas.sport import (
     PublicationPreviewRequest,
 )
 from app.services.ai_gateway import AIGatewayError, ai_gateway
-from app.services.sport_publications import SportPublicationService, SYSTEM_PROMPT
+from app.services.sport_publications import SportPublicationService, SYSTEM_PROMPT, STYLE_LABELS, STYLE_INSTRUCTIONS
 from app.services.sport_instagram_publish import MetaPublishService, MetaPublishError
 from app.services.sport_media_publish import MediaPublishService
 

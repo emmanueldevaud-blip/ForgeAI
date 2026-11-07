@@ -801,6 +801,18 @@ export class CommunityManagerStudioPage {
       .replaceAll('"', '"')
       .replaceAll("'", '&#039;');
   }
+
+  static registerPhotoCallback() {
+    window.cmStudioPhotoSelected = (photoId) => {
+      const page = window.cmStudioPageInstance;
+      if (page) {
+        page.publication.photo_id = photoId;
+        page.publication.visual_type = 'photo';
+        page._refreshVisualTab();
+        page._saveDraftFromActiveTab();
+      }
+    };
+  }
 }
 
 window.cmStudioPageInstance = null;

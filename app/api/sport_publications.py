@@ -69,6 +69,7 @@ async def meta_callback(
         return {
             "status": connection.status,
             "instagram_business_account_id": connection.instagram_business_account_id,
+            "auth_type": connection.auth_type,
         }
     return RedirectResponse(url="/settings?connected=1", status_code=status.HTTP_302_FOUND)
 
@@ -330,5 +331,6 @@ async def meta_status(
         "status": connection.status,
         "configured": True,
         "instagram_business_account_id": connection.instagram_business_account_id,
+        "auth_type": connection.auth_type,
         "scopes": connection.scopes,
     }

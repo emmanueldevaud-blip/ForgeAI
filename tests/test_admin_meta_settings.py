@@ -152,7 +152,7 @@ async def test_meta_settings_returns_config_id(client, admin_headers):
 
 
 async def test_meta_auth_builds_url_with_config_id(client, admin_headers, monkeypatch):
-    """Avec une Configuration ID (Unified Login), le dialogue Meta utilise config_id et non scope."""
+    """Instagram Login n'utilise pas config_id : les scopes sont toujours passes."""
     saved = await client.put(
         "/admin/settings/meta",
         json=payload(
@@ -174,9 +174,11 @@ async def test_meta_auth_builds_url_with_config_id(client, admin_headers, monkey
 
     assert response.status_code == 200
     body = response.json()
-    assert "config_id=cfg-123" in body["authorize_url"]
-    assert "override_default_response_type=true" in body["authorize_url"]
-    assert "scope=" not in body["authorize_url"]
+    assert "www.instagram.com/oauth/authorize" in body["authorize_url"]
+    assert "client_id=db-app-id" in body["authorize_url"]
+    assert "config_id=" not in body["authorize_url"]
+    assert "instagram_business_basic" in body["authorize_url"]
+    assert "instagram_business_content_publish" in body["authorize_url"]
 
 
 async def test_meta_auth_builds_url_legacy_scope_without_config_id(client, admin_headers, monkeypatch):

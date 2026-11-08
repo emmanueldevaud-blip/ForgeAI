@@ -154,6 +154,31 @@ class MetaSettingsUpdate(BaseModel):
     config_id: str = Field("", max_length=100)
 
 
+class InstagramSettingsResponse(BaseModel):
+    app_id: str = ""
+    app_secret_configured: bool = False
+    redirect_uri: str = ""
+    api_version: str = "v26.0"
+
+
+class InstagramSettingsUpdate(BaseModel):
+    app_id: str = Field("", max_length=100)
+    app_secret: Optional[str] = Field(None, max_length=500)
+    redirect_uri: str = Field("", max_length=500)
+    api_version: str = Field("v26.0", max_length=20)
+
+
+class InstagramTestResponse(BaseModel):
+    message: str
+    detail: str | None = None
+    configured: bool = False
+    connected: bool = False
+    status: str = ""
+    instagram_user_id: str | None = None
+    username: str | None = None
+    publish_permission: bool | None = None
+
+
 class AiProviderSettings(BaseModel):
     enabled: bool = True
     api_key_configured: bool = False

@@ -61,7 +61,12 @@ class MetaPublishService:
         return app_id, app_secret
 
     async def _refresh_long_lived_token(self, connection) -> Optional[str]:
-        """Rafraîchit le token long-lived s'il est proche de l'expiration."""
+        """Rafraîchit le token long-lived via l'API Instagram (ig_refresh_token).
+
+        Ne JAMAIS utiliser fb_exchange_long_lived (réservé au flux Facebook Login).
+        Le flux Instagram Login utilise grant_type=ig_refresh_token sur
+        https://graph.instagram.com/refresh_access_token.
+        """
         from app.services.sport_instagram import SportInstagramConnectService, _decrypt_token, _encrypt_token
 
         # Vérifier si le token expire bientôt (moins de 24h)
@@ -72,28 +77,41 @@ class MetaPublishService:
                 logger.info(f"Token expires soon, refreshing for user {connection.user_id}")
 
         service = SportInstagramConnectService(self.db)
-        app_id, app_secret = await service._app_credentials()
+        app_id, app_secret, _ = await service._app_credentials()
 
         long_token = self._get_long_lived_token(connection)
         if not long_token:
             return None
 
+        # Déterminer le type d'authentification pour choisir le bon endpoint de refresh
+        auth_type = getattr(connection, "auth_type", None) or "facebook_login"
+
         try:
             async with httpx.AsyncClient(timeout=20.0) as client:
-                response = await client.get(
-                    f"{self._base_url}/oauth/access_token",
-                    params={
-                        "grant_type": "fb_exchange_long_lived",
-                        "client_id": (await service._app_credentials())[0],
-                        "client_secret": (await service._app_credentials())[1],
-                        "fb_exchange_long_lived_token": long_token,
-                    },
-                )
+                if auth_type == "instagram_login":
+                    # Instagram Login : ig_refresh_token sur graph.instagram.com
+                    response = await client.get(
+                        f"https://graph.instagram.com/{get_settings().INSTAGRAM_API_VERSION}/refresh_access_token",
+                        params={
+                            "grant_type": "ig_refresh_token",
+                            "access_token": long_token,
+                        },
+                    )
+                else:
+                    # Facebook Login (rétrocompatibilité anciens tokens) : fb_exchange_long_lived
+                    response = await client.get(
+                        f"{self._base_url}/oauth/access_token",
+                        params={
+                            "grant_type": "fb_exchange_long_lived",
+                            "client_id": app_id,
+                            "client_secret": app_secret,
+                            "fb_exchange_long_lived_token": long_token,
+                        },
+                    )
                 response.raise_for_status()
                 new_token = response.json().get("access_token")
                 if new_token:
                     # Mettre à jour la connexion
-                    from app.services.sport_instagram import _encrypt_token
                     from app.models.sport import SportInstagramConnection
                     result = await self.db.execute(
                         select(SportInstagramConnection).where(

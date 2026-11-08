@@ -394,6 +394,7 @@ class SportInstagramConnection(Base):
     user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
     athlete_id: Mapped[int] = mapped_column(ForeignKey("sport_athletes.id", ondelete="CASCADE"), nullable=False, index=True)
     instagram_business_account_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    auth_type: Mapped[str] = mapped_column(String(30), nullable=False, default="facebook_login", index=True)
     encrypted_access_token: Mapped[str | None] = mapped_column(Text, nullable=True)
     encrypted_long_lived_token: Mapped[str | None] = mapped_column(Text, nullable=True)
     status: Mapped[str] = mapped_column(String(30), nullable=False, default="pending", index=True)

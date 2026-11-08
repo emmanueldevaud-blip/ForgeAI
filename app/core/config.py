@@ -143,6 +143,12 @@ class Settings(BaseSettings):
     META_VERIFY_TOKEN: str = ""
     META_API_VERSION: str = "v26.0"
 
+    # Instagram Login (nouveau flux OAuth natif Instagram, sans Page Facebook).
+    INSTAGRAM_APP_ID: str = ""
+    INSTAGRAM_APP_SECRET: str = ""
+    INSTAGRAM_REDIRECT_URI: str = ""
+    INSTAGRAM_API_VERSION: str = "v26.0"
+
     # Agent Développement (orchestration OpenCode pour le développement ForgeAI).
     DEVELOPMENT_AGENT_ENABLED: bool = False
     DEVELOPMENT_AGENT_MAX_STEPS: int = 10

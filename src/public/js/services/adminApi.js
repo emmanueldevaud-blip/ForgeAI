@@ -26,6 +26,18 @@ export async function testMetaSettings() {
   return adminApi.post('/settings/meta/test', {});
 }
 
+export async function getInstagramSettings() {
+  return adminApi.get('/settings/instagram');
+}
+
+export async function updateInstagramSettings(settings) {
+  return adminApi.put('/settings/instagram', settings);
+}
+
+export async function testInstagramSettings() {
+  return adminApi.post('/settings/instagram/test', {});
+}
+
 export async function getAiSettings() {
   return adminApi.get('/settings/ai');
 }

@@ -60,6 +60,9 @@ from app.schemas.admin import (
     SmtpTestRequest,
     MetaSettingsResponse,
     MetaSettingsUpdate,
+    InstagramSettingsResponse,
+    InstagramSettingsUpdate,
+    InstagramTestResponse,
 )
 from app.services.admin import AdminUserService
 from app.services.audit import get_audit_service
@@ -287,6 +290,177 @@ async def test_meta_settings(
         raise HTTPException(status_code=502, detail="Échec du test Meta : réponse inattendue de l'API")
 
     return {"message": f"Connexion Meta validée : l'App ID {values['app_id']} est accepté."}
+
+
+@settings_router.get("/instagram", response_model=InstagramSettingsResponse)
+async def get_instagram_settings(
+    current_user: User = Depends(require_permission("settings_view")),
+    db: AsyncSession = Depends(get_db),
+):
+    configs = await _get_administration_configs(db)
+    get_value = lambda key, default="": configs.get(key).value if configs.get(key) and configs.get(key).value is not None else default
+    return InstagramSettingsResponse(
+        app_id=get_value("instagram_app_id"),
+        app_secret_configured=bool(get_value("instagram_app_secret")),
+        redirect_uri=get_value("instagram_redirect_uri"),
+        api_version=get_value("instagram_api_version", "v26.0"),
+    )
+
+
+@settings_router.put("/instagram", response_model=InstagramSettingsResponse)
+async def update_instagram_settings(
+    data: InstagramSettingsUpdate,
+    current_user: User = Depends(require_permission("settings_update")),
+    db: AsyncSession = Depends(get_db),
+):
+    module_result = await db.execute(select(Module).where(Module.code == "administration"))
+    module = module_result.scalar_one_or_none()
+    if not module:
+        raise HTTPException(status_code=500, detail="Module Administration non trouvé")
+
+    values = {
+        "instagram_app_id": data.app_id or "",
+        "instagram_redirect_uri": data.redirect_uri or "",
+        "instagram_api_version": data.api_version or "v26.0",
+    }
+    if data.app_secret is not None and data.app_secret != "":
+        values["instagram_app_secret"] = data.app_secret
+
+    configs = await _get_administration_configs(db)
+    for key, value in values.items():
+        config = configs.get(key)
+        if config:
+            config.value = value
+        else:
+            db.add(ModuleConfig(
+                module_id=module.id,
+                key=key,
+                value=value,
+                value_type="string",
+                is_secret=key == "instagram_app_secret",
+            ))
+    await db.commit()
+    return await get_instagram_settings(current_user=current_user, db=db)
+
+
+@settings_router.post("/instagram/test", response_model=InstagramTestResponse)
+async def test_instagram_settings(
+    current_user: User = Depends(require_permission("settings_update")),
+    db: AsyncSession = Depends(get_db),
+):
+    """Teste la configuration Instagram et la connexion du compte utilisateur.
+
+    Ne publie jamais de contenu sur Instagram.
+    """
+    from app.services.sport_instagram import SportInstagramConnectService
+    from app.models.sport import SportInstagramConnection
+
+    service = SportInstagramConnectService(db)
+    values = await service.load_meta_values()
+
+    # 1. Présence des paramètres obligatoires
+    if not values["instagram_app_id"]:
+        raise HTTPException(status_code=400, detail="Instagram App ID non configuré")
+    if not values["instagram_app_secret"]:
+        raise HTTPException(status_code=400, detail="Instagram App Secret non configuré")
+
+    # 2. Connexion utilisateur existante
+    connection = await service.get_connection(current_user.id)
+    if connection is None:
+        return {
+            "message": "Instagram configuré mais aucun compte connecté.",
+            "detail": "Connectez un compte Instagram depuis les préférences.",
+            "configured": True,
+            "connected": False,
+            "status": "disconnected",
+        }
+
+    # 3. Validité du token auprès de l'API Instagram
+    import httpx
+    token = service._decrypt(connection.encrypted_long_lived_token or connection.encrypted_access_token)
+    if not token:
+        return {
+            "message": "Token d'accès illisible ou absent.",
+            "detail": "Le token stocké ne peut pas être déchiffré. Reconnexion requise.",
+            "configured": True,
+            "connected": False,
+            "status": "token_invalid",
+        }
+
+    version = values["instagram_api_version"] or "v26.0"
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            me_resp = await client.get(
+                f"https://graph.instagram.com/{version}/me",
+                params={"fields": "id,username", "access_token": token},
+            )
+    except httpx.HTTPError as exc:
+        raise HTTPException(status_code=502, detail=f"Impossible de joindre Instagram : {exc}") from exc
+
+    if me_resp.status_code == 400:
+        try:
+            error_msg = me_resp.json().get("error", {}).get("message") or me_resp.text
+        except ValueError:
+            error_msg = me_resp.text
+        if "expired" in error_msg.lower() or "session" in error_msg.lower():
+            return {
+                "message": "Token Instagram expiré.",
+                "detail": "Le token d'accès a expiré. Reconnexion requise.",
+                "configured": True,
+                "connected": False,
+                "status": "token_expired",
+                "instagram_user_id": connection.instagram_business_account_id,
+                "username": (connection.metadata_json or {}).get("username") if connection.metadata_json else None,
+            }
+        return {
+            "message": f"Token Instagram invalide : {error_msg}",
+            "detail": "Le token n'est plus valide. Reconnexion requise.",
+            "configured": True,
+            "connected": False,
+            "status": "token_invalid",
+            "instagram_user_id": connection.instagram_business_account_id,
+            "username": (connection.metadata_json or {}).get("username") if connection.metadata_json else None,
+        }
+
+    if me_resp.status_code != 200:
+        try:
+            meta_message = me_resp.json().get("error", {}).get("message") or me_resp.text
+        except ValueError:
+            meta_message = me_resp.text
+        raise HTTPException(status_code=502, detail=f"Échec du test Instagram : {meta_message}")
+
+    me_data = me_resp.json()
+    ig_user_id = str(me_data.get("id") or "")
+    ig_username = me_data.get("username")
+
+    # Vérifier que l'ID correspond à la connexion enregistrée
+    if connection.instagram_business_account_id and connection.instagram_business_account_id != ig_user_id:
+        return {
+            "message": "Identifiant Instagram incohérent.",
+            "detail": f"Le compte connecté ({ig_username}) ne correspond pas à l'enregistrement ({connection.instagram_business_account_id}).",
+            "configured": True,
+            "connected": True,
+            "status": "mismatch",
+            "instagram_user_id": ig_user_id,
+            "username": ig_username,
+        }
+
+    # Vérifier les permissions (scope content_publish)
+    has_publish = False
+    scopes = connection.scopes or ""
+    if "instagram_business_content_publish" in scopes:
+        has_publish = True
+
+    return {
+        "message": f"Connexion Instagram validée : @{ig_username} (ID : {ig_user_id}).",
+        "detail": "Le token est valide et le compte est accessible.",
+        "configured": True,
+        "connected": True,
+        "status": "operational",
+        "instagram_user_id": ig_user_id,
+        "username": ig_username,
+        "publish_permission": has_publish,
+    }
 
 
 def _effective_ai_values(overrides: dict[str, str]) -> dict:

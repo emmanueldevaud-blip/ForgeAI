@@ -1,6 +1,6 @@
-"""Tests d'integration Instagram OAuth (Instagram Login).
+"""Tests d'integration Instagram OAuth (Unified Login).
 
-Tous les appels Meta sont mockés (httpx.MockTransport). Aucun appel reel
+Tous les appels Meta sont mockes (httpx.MockTransport). Aucun appel reel
 n'est effectue. Aucune modification de production.
 """
 
@@ -14,10 +14,28 @@ from app.services.sport_instagram import (
     SportInstagramConnectService,
     _encrypt_token,
     _decrypt_token,
-    DEFAULT_INSTAGRAM_SCOPES,
 )
 from app.services.sport_instagram_publish import MetaPublishService, MetaPublishError
 from app.models.sport import SportInstagramConnection, SportInstagramOAuthState
+
+
+def _patch_unified_credentials(
+    monkeypatch,
+    app_id="meta-app-id",
+    app_secret="meta-app-secret",
+    redirect_uri="https://forgeai.example.com/callback",
+    config_id="cfg-123",
+):
+    """Remplace les identifiants unifies (App + Configuration ID)."""
+
+    async def fake_app_credentials(self):
+        return app_id, app_secret, redirect_uri
+
+    async def fake_config_id(self):
+        return config_id
+
+    monkeypatch.setattr(SportInstagramConnectService, "_app_credentials", fake_app_credentials)
+    monkeypatch.setattr(SportInstagramConnectService, "_config_id", fake_config_id)
 
 
 # ============================================================
@@ -50,37 +68,40 @@ class TestBuildAuthorizationUrl:
         return SportInstagramConnectService(db_session)
 
     @pytest.mark.asyncio
-    async def test_build_authorization_url_instagram_login(self, mock_service, monkeypatch):
-        """L'URL d'autorisation utilise Instagram Login (pas Facebook)."""
-        async def fake_app_credentials(self):
-            return "insta-app-id", "insta-app-secret", "https://forgeai.example.com/callback"
-        monkeypatch.setattr(
-            SportInstagramConnectService, "_app_credentials", fake_app_credentials
-        )
+    async def test_build_authorization_url_unified_login(self, mock_service, monkeypatch):
+        """L'URL d'autorisation utilise Unified Login (config_id sur facebook.com)."""
+        _patch_unified_credentials(monkeypatch)
 
         url, state = await mock_service.build_authorization_url(athlete_id=1, user_id=1)
 
-        assert "www.instagram.com/oauth/authorize" in url
-        assert "client_id=insta-app-id" in url
+        assert "www.facebook.com/dialog/oauth" in url
+        assert "client_id=meta-app-id" in url
+        assert "config_id=cfg-123" in url
         assert "response_type=code" in url
         assert f"state={state}" in url
-        assert "instagram_business_basic" in url
-        assert "instagram_business_content_publish" in url
-        assert "www.facebook.com" not in url
-        assert "dialog/oauth" not in url
+        assert "display=popup" in url
+        assert "prompt=login" in url
+        # Unified Login : les permissions viennent de la configuration, pas de scope
+        assert "scope=" not in url
+        assert "www.instagram.com" not in url
 
     @pytest.mark.asyncio
-    async def test_build_authorization_url_custom_scopes(self, mock_service, monkeypatch):
-        async def fake_app_credentials(self):
-            return "insta-app-id", "insta-app-secret", "https://forgeai.example.com/callback"
-        monkeypatch.setattr(
-            SportInstagramConnectService, "_app_credentials", fake_app_credentials
-        )
+    async def test_build_authorization_url_requires_config_id(self, mock_service, monkeypatch):
+        """Sans Configuration ID, la connexion Unified Login est impossible (503)."""
 
-        url, _ = await mock_service.build_authorization_url(
-            athlete_id=1, user_id=1, scopes="instagram_business_basic"
-        )
-        assert "instagram_business_basic" in url
+        async def fake_app_credentials(self):
+            return "meta-app-id", "meta-app-secret", "https://forgeai.example.com/callback"
+
+        async def fake_load(self):
+            return {"config_id": ""}
+
+        monkeypatch.setattr(SportInstagramConnectService, "_app_credentials", fake_app_credentials)
+        monkeypatch.setattr(SportInstagramConnectService, "load_meta_values", fake_load)
+
+        with pytest.raises(HTTPException) as exc_info:
+            await mock_service.build_authorization_url(athlete_id=1, user_id=1)
+        assert exc_info.value.status_code == 503
+        assert "Configuration ID" in exc_info.value.detail
 
 
 # ============================================================
@@ -109,8 +130,8 @@ class TestExchangeCode:
         return SportInstagramConnectService(db_session)
 
     @pytest.mark.asyncio
-    async def test_exchange_code_success_instagram_login(self, mock_service, db_session, monkeypatch):
-        """Flux complet Instagram Login : code -> token -> profil IG -> connexion."""
+    async def test_exchange_code_success_unified_login(self, mock_service, db_session, monkeypatch):
+        """Flux complet Unified Login : code -> token FB -> long-lived -> comptes IG."""
         from app.models.sport import SportInstagramOAuthState
         state_obj = SportInstagramOAuthState(
             state="valid-state-123",
@@ -122,23 +143,41 @@ class TestExchangeCode:
         db_session.add(state_obj)
         await db_session.commit()
 
-        async def fake_app_credentials(self):
-            return "insta-app-id", "insta-app-secret", "https://forgeai.example.com/callback"
-        monkeypatch.setattr(
-            SportInstagramConnectService, "_app_credentials", fake_app_credentials
-        )
+        _patch_unified_credentials(monkeypatch)
 
-        seen = {}
+        seen = []
 
         def handler(request: httpx.Request) -> httpx.Response:
             url = str(request.url)
-            seen["url"] = url
-            if "api.instagram.com/oauth/access_token" in url:
-                return httpx.Response(200, json={"access_token": "short-lived-token", "token_type": "bearer"}, request=request)
-            if "graph.instagram.com/v26.0/access_token" in url:
-                return httpx.Response(200, json={"access_token": "long-lived-token-123", "expires_in": 5184000}, request=request)
-            if "graph.instagram.com/v26.0/me" in url:
-                return httpx.Response(200, json={"id": "17841400000000000", "username": "testuser_ig"}, request=request)
+            seen.append(url)
+            if "graph.facebook.com" in url and "/oauth/access_token" in url:
+                grant = request.url.params.get("grant_type")
+                if grant == "authorization_code":
+                    return httpx.Response(
+                        200,
+                        json={
+                            "access_token": "short-lived-token",
+                            "token_type": "bearer",
+                            "scope": "instagram_basic,instagram_content_publish",
+                        },
+                        request=request,
+                    )
+                if grant == "fb_exchange_long_lived":
+                    return httpx.Response(
+                        200,
+                        json={
+                            "access_token": "long-lived-token-123",
+                            "expires_in": 5184000,
+                            "scope": "instagram_basic,instagram_content_publish",
+                        },
+                        request=request,
+                    )
+            if "/me/assigned_instagram_accounts" in url:
+                return httpx.Response(
+                    200,
+                    json={"data": [{"id": "17841400000000000", "username": "testuser_ig"}]},
+                    request=request,
+                )
             return httpx.Response(404, json={"error": "not found"}, request=request)
 
         _mock_httpx_client(monkeypatch, handler)
@@ -151,11 +190,17 @@ class TestExchangeCode:
 
         assert connection is not None
         assert connection.instagram_business_account_id == "17841400000000000"
-        assert connection.auth_type == "instagram_login"
+        assert connection.auth_type == "unified_login"
         assert connection.status == "active"
         assert _decrypt_token(connection.encrypted_long_lived_token) == "long-lived-token-123"
-        # Vérifier que Facebook n'est pas appele
-        assert "facebook.com" not in seen.get("url", "")
+        # Les permissions accordees sont conservees pour detecter content_publish
+        assert connection.scopes is not None
+        assert "instagram_content_publish" in connection.scopes
+        # Le compte IG est resolve via assigned_instagram_accounts, jamais via /me
+        assert any("/me/assigned_instagram_accounts" in url for url in seen)
+        # Aucun appel au flux Instagram Login natif
+        assert not any("api.instagram.com" in url for url in seen)
+        assert not any("graph.instagram.com" in url for url in seen)
 
     @pytest.mark.asyncio
     async def test_exchange_code_invalid_state(self, mock_service, db_session, monkeypatch):
@@ -223,6 +268,44 @@ class TestTokenRefresh:
         # Verifier que l'endpoint Instagram est appele (pas Facebook)
         assert "graph.instagram.com" in seen.get("url", "")
         assert "fb_exchange_long_lived" not in seen.get("url", "")
+
+    @pytest.mark.asyncio
+    async def test_refresh_uses_fb_exchange_for_unified_login(self, mock_connection, db_session, monkeypatch):
+        """Unified Login : le refresh utilise fb_exchange_long_lived sur graph.facebook.com."""
+        mock_connection.auth_type = "unified_login"
+        service = MetaPublishService(db_session)
+        service.db = db_session
+
+        monkeypatch.setattr(service, "_get_long_lived_token", lambda c: "unified-long-token")
+
+        async def fake_app_credentials(self):
+            return "meta-app-id", "meta-app-secret", "https://forgeai.example.com/callback"
+        monkeypatch.setattr(
+            SportInstagramConnectService, "_app_credentials", fake_app_credentials
+        )
+
+        seen = {}
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            url = str(request.url)
+            seen["url"] = url
+            if "graph.facebook.com/v26.0/oauth/access_token" in url:
+                return httpx.Response(200, json={"access_token": "refreshed-unified-token"}, request=request)
+            return httpx.Response(404, json={"error": "not found"}, request=request)
+
+        _mock_httpx_client(monkeypatch, handler)
+
+        class FakeResult:
+            def scalar_one_or_none(self):
+                return mock_connection
+        monkeypatch.setattr(db_session, "execute", AsyncMock(return_value=FakeResult()))
+        monkeypatch.setattr(db_session, "commit", AsyncMock())
+
+        new_token = await service._refresh_long_lived_token(mock_connection)
+        assert new_token == "refreshed-unified-token"
+        assert "graph.facebook.com" in seen.get("url", "")
+        assert "fb_exchange_long_lived" in seen.get("url", "")
+        assert "graph.instagram.com" not in seen.get("url", "")
 
     @pytest.mark.asyncio
     async def test_refresh_uses_fb_exchange_for_facebook_login(self, mock_connection, db_session, monkeypatch):

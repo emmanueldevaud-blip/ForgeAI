@@ -61,11 +61,11 @@ class MetaPublishService:
         return app_id, app_secret
 
     async def _refresh_long_lived_token(self, connection) -> Optional[str]:
-        """Rafraîchit le token long-lived via l'API Instagram (ig_refresh_token).
+        """Rafraîchit le token long-lived selon le type de connexion.
 
-        Ne JAMAIS utiliser fb_exchange_long_lived (réservé au flux Facebook Login).
-        Le flux Instagram Login utilise grant_type=ig_refresh_token sur
-        https://graph.instagram.com/refresh_access_token.
+        Unified Login (et anciens tokens Facebook Login) : fb_exchange_long_lived
+        sur graph.facebook.com. Anciennes connexions instagram_login : conservation
+        de ig_refresh_token sur graph.instagram.com (rétrocompatibilité).
         """
         from app.services.sport_instagram import SportInstagramConnectService, _decrypt_token, _encrypt_token
 

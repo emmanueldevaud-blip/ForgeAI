@@ -375,8 +375,10 @@ async def test_instagram_settings(
             "status": "disconnected",
         }
 
-    # 3. Validité du token auprès de l'API Instagram
+    # 3. Validité du token auprès de l'API
     import httpx
+    from app.core.config import get_settings
+
     token = service._decrypt(connection.encrypted_long_lived_token or connection.encrypted_access_token)
     if not token:
         return {
@@ -387,15 +389,30 @@ async def test_instagram_settings(
             "status": "token_invalid",
         }
 
-    version = values["instagram_api_version"] or "v26.0"
+    # Unified Login : token Facebook, compte Instagram explicite sur graph.facebook.com.
+    # Ancien flux Instagram Login : profil direct sur graph.instagram.com.
+    if (connection.auth_type or "") == "instagram_login":
+        version = values.get("instagram_api_version") or get_settings().INSTAGRAM_API_VERSION or "v26.0"
+        me_url = f"https://graph.instagram.com/{version}/me"
+    else:
+        if connection.instagram_business_account_id:
+            me_url = (
+                f"https://graph.facebook.com/{get_settings().META_API_VERSION}"
+                f"/{connection.instagram_business_account_id}"
+            )
+        else:
+            me_url = (
+                f"https://graph.facebook.com/{get_settings().META_API_VERSION}"
+                f"/me/assigned_instagram_accounts"
+            )
     try:
         async with httpx.AsyncClient(timeout=15.0) as client:
             me_resp = await client.get(
-                f"https://graph.instagram.com/{version}/me",
+                me_url,
                 params={"fields": "id,username", "access_token": token},
             )
     except httpx.HTTPError as exc:
-        raise HTTPException(status_code=502, detail=f"Impossible de joindre Instagram : {exc}") from exc
+        raise HTTPException(status_code=502, detail=f"Impossible de joindre l'API : {exc}") from exc
 
     if me_resp.status_code == 400:
         try:
@@ -430,6 +447,10 @@ async def test_instagram_settings(
         raise HTTPException(status_code=502, detail=f"Échec du test Instagram : {meta_message}")
 
     me_data = me_resp.json()
+    if isinstance(me_data.get("data"), list):
+        # Réponse /me/assigned_instagram_accounts : liste de comptes assignés
+        accounts = me_data.get("data") or []
+        me_data = accounts[0] if accounts else {}
     ig_user_id = str(me_data.get("id") or "")
     ig_username = me_data.get("username")
 
@@ -448,7 +469,7 @@ async def test_instagram_settings(
     # Vérifier les permissions (scope content_publish)
     has_publish = False
     scopes = connection.scopes or ""
-    if "instagram_business_content_publish" in scopes:
+    if "instagram_business_content_publish" in scopes or "instagram_content_publish" in scopes:
         has_publish = True
 
     return {

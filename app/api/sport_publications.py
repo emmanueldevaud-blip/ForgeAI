@@ -311,14 +311,14 @@ async def meta_status(
 ) -> dict:
     service = SportInstagramConnectService(db)
     values = await service.load_meta_values()
-    is_configured = bool(values["app_id"] and values["app_secret"])
+    is_configured = bool(values["app_id"] and values["app_secret"] and values.get("config_id"))
     connection = await service.get_connection(current_user.id)
     if not is_configured:
         return {
             "connected": False,
             "status": "not_configured",
             "configured": False,
-            "message": "Meta App ID / App Secret non configurés",
+            "message": "Meta App ID / App Secret / Configuration ID non configurés",
         }
     if connection is None:
         return {

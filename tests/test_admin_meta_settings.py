@@ -104,7 +104,7 @@ async def test_meta_status_uses_db_values_over_env(client, admin_headers, monkey
     """Les valeurs en DB priment sur l'environnement (overlay DB > env)."""
     saved = await client.put(
         "/admin/settings/meta",
-        json=payload(app_id="db-app-id", app_secret="db-secret", redirect_uri="https://example.com/cb"),
+        json=payload(app_id="db-app-id", app_secret="db-secret", redirect_uri="https://example.com/cb", config_id="cfg-db"),
         headers=admin_headers,
     )
     assert saved.status_code == 200
@@ -112,6 +112,7 @@ async def test_meta_status_uses_db_values_over_env(client, admin_headers, monkey
     settings = get_settings()
     monkeypatch.setattr(settings, "META_APP_ID", "", raising=False)
     monkeypatch.setattr(settings, "META_APP_SECRET", "", raising=False)
+    monkeypatch.setattr(settings, "META_CONFIG_ID", "", raising=False)
 
     response = await client.get("/sport/publications/meta/status", headers=admin_headers)
 
@@ -122,7 +123,7 @@ async def test_meta_status_uses_db_values_over_env(client, admin_headers, monkey
 async def test_meta_auth_builds_url_from_db_values(client, admin_headers, monkeypatch):
     saved = await client.put(
         "/admin/settings/meta",
-        json=payload(app_id="db-app-id", app_secret="db-secret", redirect_uri="https://example.com/cb"),
+        json=payload(app_id="db-app-id", app_secret="db-secret", redirect_uri="https://example.com/cb", config_id="cfg-db"),
         headers=admin_headers,
     )
     assert saved.status_code == 200
@@ -131,12 +132,15 @@ async def test_meta_auth_builds_url_from_db_values(client, admin_headers, monkey
     monkeypatch.setattr(settings, "META_APP_ID", "", raising=False)
     monkeypatch.setattr(settings, "META_APP_SECRET", "", raising=False)
     monkeypatch.setattr(settings, "META_REDIRECT_URI", "", raising=False)
+    monkeypatch.setattr(settings, "META_CONFIG_ID", "", raising=False)
 
     response = await client.get("/sport/publications/meta/auth?athlete_id=1", headers=admin_headers)
 
     assert response.status_code == 200
     body = response.json()
+    assert "www.facebook.com/dialog/oauth" in body["authorize_url"]
     assert "client_id=db-app-id" in body["authorize_url"]
+    assert "config_id=cfg-db" in body["authorize_url"]
     assert "redirect_uri=https%3A%2F%2Fexample.com%2Fcb" in body["authorize_url"]
 
 
@@ -152,7 +156,7 @@ async def test_meta_settings_returns_config_id(client, admin_headers):
 
 
 async def test_meta_auth_builds_url_with_config_id(client, admin_headers, monkeypatch):
-    """Instagram Login n'utilise pas config_id : les scopes sont toujours passes."""
+    """Unified Login : l'URL passe par facebook.com avec le Configuration ID."""
     saved = await client.put(
         "/admin/settings/meta",
         json=payload(
@@ -169,19 +173,23 @@ async def test_meta_auth_builds_url_with_config_id(client, admin_headers, monkey
     monkeypatch.setattr(settings, "META_APP_ID", "", raising=False)
     monkeypatch.setattr(settings, "META_APP_SECRET", "", raising=False)
     monkeypatch.setattr(settings, "META_REDIRECT_URI", "", raising=False)
+    monkeypatch.setattr(settings, "META_CONFIG_ID", "", raising=False)
 
     response = await client.get("/sport/publications/meta/auth?athlete_id=1", headers=admin_headers)
 
     assert response.status_code == 200
     body = response.json()
-    assert "www.instagram.com/oauth/authorize" in body["authorize_url"]
+    assert "www.facebook.com/dialog/oauth" in body["authorize_url"]
     assert "client_id=db-app-id" in body["authorize_url"]
-    assert "config_id=" not in body["authorize_url"]
-    assert "instagram_business_basic" in body["authorize_url"]
-    assert "instagram_business_content_publish" in body["authorize_url"]
+    assert "config_id=cfg-123" in body["authorize_url"]
+    assert "response_type=code" in body["authorize_url"]
+    # Les permissions sont definies par la configuration, pas par un parametre scope
+    assert "scope=" not in body["authorize_url"]
+    assert "www.instagram.com" not in body["authorize_url"]
 
 
-async def test_meta_auth_builds_url_legacy_scope_without_config_id(client, admin_headers, monkeypatch):
+async def test_meta_auth_requires_config_id(client, admin_headers, monkeypatch):
+    """Unified Login : sans Configuration ID, l'autorisation est refusee (503)."""
     saved = await client.put(
         "/admin/settings/meta",
         json=payload(app_id="db-app-id", app_secret="db-secret", redirect_uri="https://example.com/cb"),
@@ -193,19 +201,39 @@ async def test_meta_auth_builds_url_legacy_scope_without_config_id(client, admin
     monkeypatch.setattr(settings, "META_APP_ID", "", raising=False)
     monkeypatch.setattr(settings, "META_APP_SECRET", "", raising=False)
     monkeypatch.setattr(settings, "META_REDIRECT_URI", "", raising=False)
+    monkeypatch.setattr(settings, "META_CONFIG_ID", "", raising=False)
 
     response = await client.get("/sport/publications/meta/auth?athlete_id=1", headers=admin_headers)
 
+    assert response.status_code == 503
+    assert "Configuration ID" in response.json()["detail"]
+
+
+async def test_meta_status_requires_config_id(client, admin_headers, monkeypatch):
+    """Sans Configuration ID, la connexion est annoncee non configurée."""
+    saved = await client.put(
+        "/admin/settings/meta",
+        json=payload(app_id="db-app-id", app_secret="db-secret", redirect_uri="https://example.com/cb"),
+        headers=admin_headers,
+    )
+    assert saved.status_code == 200
+
+    settings = get_settings()
+    monkeypatch.setattr(settings, "META_CONFIG_ID", "", raising=False)
+
+    response = await client.get("/sport/publications/meta/status", headers=admin_headers)
+
     assert response.status_code == 200
     body = response.json()
-    assert "config_id=" not in body["authorize_url"]
-    assert "scope=instagram_business_basic" in body["authorize_url"]
+    assert body["configured"] is False
+    assert body["status"] == "not_configured"
 
 
 async def test_meta_status_falls_back_to_env_when_db_empty(client, admin_headers, monkeypatch):
     settings = get_settings()
     monkeypatch.setattr(settings, "META_APP_ID", "env-app-id", raising=False)
     monkeypatch.setattr(settings, "META_APP_SECRET", "env-secret", raising=False)
+    monkeypatch.setattr(settings, "META_CONFIG_ID", "env-cfg", raising=False)
 
     response = await client.get("/sport/publications/meta/status", headers=admin_headers)
 

@@ -1,4 +1,4 @@
-"""Service de connexion Instagram (Instagram Login) pour les statistiques Insights."""
+"""Service de connexion Instagram (Unified Login / Facebook Login for Business)."""
 
 import base64
 import hashlib
@@ -14,9 +14,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import get_settings
 from app.models.sport import SportAthlete, SportInstagramConnection, SportInstagramOAuthState
 from app.models.user import User
-
-DEFAULT_META_SCOPES = "instagram_business_basic"
-DEFAULT_INSTAGRAM_SCOPES = "instagram_business_basic,instagram_business_content_publish"
 
 logger = logging.getLogger(__name__)
 
@@ -75,29 +72,19 @@ class SportInstagramConnectService:
 
     @property
     def _base_url(self) -> str:
-        """URL de base Graph API (Meta) utilisée pour la publication."""
+        """URL de base Graph API (Meta) utilisée pour l'OAuth et la publication."""
         return f"https://graph.facebook.com/{get_settings().META_API_VERSION}"
 
     @property
-    def _instagram_base_url(self) -> str:
-        """URL de base Instagram Graph API (pour tokens et profil)."""
-        return f"https://graph.instagram.com/{get_settings().INSTAGRAM_API_VERSION}"
-
-    @property
     def _dialog_url(self) -> str:
-        """URL d'autorisation Instagram Login."""
-        return "https://www.instagram.com/oauth/authorize"
-
-    @property
-    def _token_url(self) -> str:
-        """URL d'échange code -> token (Instagram Login)."""
-        return "https://api.instagram.com/oauth/access_token"
+        """URL d'autorisation Unified Login (Facebook Login for Business)."""
+        return "https://www.facebook.com/dialog/oauth"
 
     async def load_meta_values(self) -> dict[str, str]:
         """Valeurs Meta : overlay DB (module administration) > environnement.
 
-        Privilégie les identifiants INSTAGRAM_* quand ils sont présents,
-        sinon retombe sur META_* pour compatibilité ascendante.
+        L'onglet Meta est la source unique de configuration : les clés meta_*
+        priment sur les clés instagram_* (héritées de l'ancien onglet).
         """
         from app.models.module import Module, ModuleConfig
 
@@ -107,12 +94,14 @@ class SportInstagramConnectService:
             .where(
                 Module.code == "administration",
                 ModuleConfig.key.in_((
-                    "instagram_app_id",
-                    "instagram_app_secret",
-                    "instagram_redirect_uri",
                     "meta_app_id",
                     "meta_app_secret",
                     "meta_redirect_uri",
+                    "meta_config_id",
+                    "instagram_app_id",
+                    "instagram_app_secret",
+                    "instagram_redirect_uri",
+                    "instagram_api_version",
                 )),
             )
         )
@@ -122,35 +111,74 @@ class SportInstagramConnectService:
             if config.value is not None
         }
         settings = get_settings()
+        app_id = (
+            configs.get("meta_app_id")
+            or configs.get("instagram_app_id")
+            or settings.META_APP_ID
+            or settings.INSTAGRAM_APP_ID
+        )
+        app_secret = (
+            configs.get("meta_app_secret")
+            or configs.get("instagram_app_secret")
+            or settings.META_APP_SECRET
+            or settings.INSTAGRAM_APP_SECRET
+        )
+        redirect_uri = (
+            configs.get("meta_redirect_uri")
+            or configs.get("instagram_redirect_uri")
+            or settings.META_REDIRECT_URI
+            or settings.INSTAGRAM_REDIRECT_URI
+        )
+        config_id = configs.get("meta_config_id") or settings.META_CONFIG_ID
+        api_version = configs.get("instagram_api_version") or settings.INSTAGRAM_API_VERSION
         return {
-            "instagram_app_id": configs.get("instagram_app_id") or configs.get("meta_app_id") or settings.INSTAGRAM_APP_ID or settings.META_APP_ID,
-            "instagram_app_secret": configs.get("instagram_app_secret") or configs.get("meta_app_secret") or settings.INSTAGRAM_APP_SECRET or settings.META_APP_SECRET,
-            "instagram_redirect_uri": configs.get("instagram_redirect_uri") or configs.get("meta_redirect_uri") or settings.INSTAGRAM_REDIRECT_URI or settings.META_REDIRECT_URI,
+            "app_id": app_id,
+            "app_secret": app_secret,
+            "redirect_uri": redirect_uri,
+            "config_id": config_id,
+            "api_version": api_version,
+            # Alias conservés pour les appelants existants
             "meta_app_id": configs.get("meta_app_id") or settings.META_APP_ID,
             "meta_app_secret": configs.get("meta_app_secret") or settings.META_APP_SECRET,
             "meta_redirect_uri": configs.get("meta_redirect_uri") or settings.META_REDIRECT_URI,
-            # Aliases de rétrocompatibilité pour les appelants existants
-            "app_id": configs.get("meta_app_id") or settings.META_APP_ID or settings.INSTAGRAM_APP_ID,
-            "app_secret": configs.get("meta_app_secret") or settings.META_APP_SECRET or settings.INSTAGRAM_APP_SECRET,
-            "redirect_uri": configs.get("meta_redirect_uri") or settings.META_REDIRECT_URI or settings.INSTAGRAM_REDIRECT_URI,
+            "instagram_app_id": app_id,
+            "instagram_app_secret": app_secret,
+            "instagram_redirect_uri": redirect_uri,
+            "instagram_api_version": api_version,
         }
 
     async def _app_credentials(self) -> tuple[str, str, str]:
-        """Identifiants Instagram Login : app_id, app_secret, redirect_uri."""
+        """Identifiants Meta : app_id, app_secret, redirect_uri."""
         values = await self.load_meta_values()
         if not values["instagram_app_id"] or not values["instagram_app_secret"]:
             raise HTTPException(
                 status_code=503,
-                detail="Instagram Login non configuré (App ID ou App Secret manquant)",
+                detail="Unified Login non configuré (App ID ou App Secret manquant)",
             )
         redirect_uri = values["instagram_redirect_uri"] or "http://localhost:8000/sport/publications/meta/callback"
         return values["instagram_app_id"], values["instagram_app_secret"], redirect_uri
 
+    async def _config_id(self) -> str:
+        """Configuration ID Facebook Login for Business (Unified Login)."""
+        values = await self.load_meta_values()
+        config_id = values.get("config_id")
+        if not config_id:
+            raise HTTPException(
+                status_code=503,
+                detail="Unified Login non configuré (Configuration ID manquant)",
+            )
+        return config_id
+
     async def build_authorization_url(
-        self, athlete_id: int, user_id: int, scopes: str | None = None
+        self, athlete_id: int, user_id: int
     ) -> tuple[str, str]:
-        """Construit l'URL d'autorisation Instagram Login."""
+        """Construit l'URL d'autorisation Unified Login.
+
+        Les permissions sont définies par la configuration (config_id) ;
+        aucun paramètre scope n'est envoyé.
+        """
         app_id, _, redirect_uri = await self._app_credentials()
+        config_id = await self._config_id()
         import secrets
 
         state = secrets.token_urlsafe(32)
@@ -174,21 +202,23 @@ class SportInstagramConnectService:
 
         params = {
             "client_id": app_id,
+            "config_id": config_id,
             "redirect_uri": redirect_uri,
             "response_type": "code",
             "state": state,
-            "scope": scopes or DEFAULT_INSTAGRAM_SCOPES,
+            "display": "popup",
+            "prompt": "login",
         }
         return f"{self._dialog_url}?{urlencode(params)}", state
 
     async def exchange_code(
         self, code: str, redirect_uri: str | None, state: str
     ) -> SportInstagramConnection:
-        """Exchange OAuth code for Instagram connection (Instagram Login flow).
+        """Exchange OAuth code for Instagram connection (Unified Login flow).
 
         Two-phase atomic flow:
         1. Transaction A: Validate and consume state atomically (UPDATE + commit)
-        2. External calls: Exchange code with Instagram, fetch Instagram profile
+        2. External calls: Exchange code with Meta, resolve Instagram accounts
         3. Transaction B: Create/update connection (commit or rollback)
         """
         # 1. Transaction A: Validate and consume state atomically
@@ -226,18 +256,20 @@ class SportInstagramConnectService:
         await self.db.flush()
         await self.db.commit()
 
-        # 2. External calls: Exchange code with Instagram (no DB lock held)
+        # 2. External calls: Exchange code with Meta (no DB lock held)
         app_id, app_secret, default_redirect = await self._app_credentials()
+        config_id = await self._config_id()
         redirect_to = redirect_uri or default_redirect
         if not redirect_to:
             raise HTTPException(status_code=503, detail="Instagram redirect_uri non configure")
 
+        granted_scopes = None
         async with httpx.AsyncClient(timeout=20.0) as client:
-            # 2a. Échange code -> token court terme (Instagram Login)
+            # 2a. Échange code -> token court (Facebook Login for Business)
             try:
-                token_response = await client.post(
-                    self._token_url,
-                    data={
+                token_response = await client.get(
+                    f"{self._base_url}/oauth/access_token",
+                    params={
                         "grant_type": "authorization_code",
                         "client_id": app_id,
                         "client_secret": app_secret,
@@ -248,35 +280,39 @@ class SportInstagramConnectService:
                 token_response.raise_for_status()
                 token_data = token_response.json()
                 short_token = token_data.get("access_token")
+                granted_scopes = token_data.get("scope")
             except HTTPStatusError as exc:
                 raise HTTPException(
                     status_code=exc.response.status_code,
-                    detail=f"Instagram token exchange failed: {exc.response.text}"
+                    detail=f"Meta token exchange failed: {exc.response.text}"
                 ) from exc
 
-            # 2b. Échange court terme -> token longue durée (Instagram Login)
+            # 2b. Échange court terme -> token longue durée (60 jours)
             long_token = None
             try:
                 long_response = await client.get(
-                    f"{self._instagram_base_url}/access_token",
+                    f"{self._base_url}/oauth/access_token",
                     params={
-                        "grant_type": "ig_refresh_token",
-                        "access_token": short_token,
+                        "grant_type": "fb_exchange_long_lived",
+                        "client_id": app_id,
+                        "client_secret": app_secret,
+                        "fb_exchange_long_lived_token": short_token,
                     },
                 )
                 long_response.raise_for_status()
                 long_token_data = long_response.json()
                 long_token = long_token_data.get("access_token")
-                # Instagram retourne aussi expires_in pour le token long-lived
+                # Facebook retourne aussi expires_in pour le token long-lived
                 long_expires_in = long_token_data.get("expires_in")
+                granted_scopes = long_token_data.get("scope") or granted_scopes
             except HTTPStatusError as exc:
                 logger.warning(
-                    "Instagram long-lived token exchange failed (HTTP %s)", exc.response.status_code
+                    "Meta long-lived token exchange failed (HTTP %s)", exc.response.status_code
                 )
                 long_token = None
                 long_expires_in = None
             except httpx.HTTPError as exc:
-                logger.warning("Instagram long-lived token exchange network error", error=str(exc))
+                logger.warning("Meta long-lived token exchange network error", error=str(exc))
                 long_token = None
                 long_expires_in = None
 
@@ -291,36 +327,48 @@ class SportInstagramConnectService:
 
             obtained_at = datetime.now(timezone.utc)
 
-            # 2c. Récupération du profil Instagram (direct, sans Page Facebook)
+            # 2c. Comptes Instagram assignés au token.
+            # Unified Login : /me retourne le system user, pas le compte Instagram.
             ig_account_id = None
             ig_username = None
-            try:
-                async with httpx.AsyncClient(timeout=10.0) as fetch_client:
-                    me_resp = await fetch_client.get(
-                        f"{self._instagram_base_url}/me",
-                        params={
-                            "fields": "id,username",
-                            "access_token": long_lived_token or short_token,
-                        },
-                    )
-                    if me_resp.status_code == 200:
-                        me_data = me_resp.json()
-                        ig_account_id = str(me_data.get("id") or "")
-                        ig_username = me_data.get("username")
-            except httpx.HTTPError as exc:
-                logger.warning("Instagram profile fetch failed", error=str(exc))
-            except Exception as exc:
-                logger.warning("Unexpected error fetching Instagram profile", error=str(exc))
+            access_for_lookup = long_lived_token or short_token
+            if access_for_lookup:
+                try:
+                    async with httpx.AsyncClient(timeout=10.0) as fetch_client:
+                        me_resp = await fetch_client.get(
+                            f"{self._base_url}/me/assigned_instagram_accounts",
+                            params={
+                                "fields": "id,username",
+                                "access_token": access_for_lookup,
+                            },
+                        )
+                        if me_resp.status_code == 200:
+                            accounts = me_resp.json().get("data") or []
+                            if accounts:
+                                ig_account_id = str(accounts[0].get("id") or "")
+                                ig_username = accounts[0].get("username")
+                                if len(accounts) > 1:
+                                    logger.info(
+                                        "Multiple Instagram accounts assigned, using first: %s",
+                                        ig_account_id,
+                                    )
+                except httpx.HTTPError as exc:
+                    logger.warning("Instagram accounts lookup failed", error=str(exc))
+                except Exception as exc:
+                    logger.warning("Unexpected error looking up Instagram accounts", error=str(exc))
 
         # 3. Transaction B: Create/update connection
         try:
             existing = await self.get_connection(user_id)
-            meta_dict = {"username": ig_username} if ig_username else {}
+            meta_dict = {}
+            if ig_username:
+                meta_dict["username"] = ig_username
+            meta_dict["config_id"] = config_id
             token_to_store = long_lived_token or short_token
 
             if existing is not None:
                 existing.instagram_business_account_id = ig_account_id or existing.instagram_business_account_id
-                existing.auth_type = "instagram_login"
+                existing.auth_type = "unified_login"
                 existing.encrypted_access_token = _encrypt_token(token_to_store)
                 existing.encrypted_long_lived_token = _encrypt_token(long_lived_token or short_token)
                 existing.status = "active"
@@ -328,6 +376,8 @@ class SportInstagramConnectService:
                 existing.expires_in = expires_in_value
                 existing.obtained_at = obtained_at
                 existing.metadata_json = meta_dict
+                if granted_scopes:
+                    existing.scopes = granted_scopes
                 existing.updated_at = datetime.now(timezone.utc)
                 connection = existing
             else:
@@ -335,7 +385,7 @@ class SportInstagramConnectService:
                     user_id=user_id,
                     athlete_id=athlete_id,
                     instagram_business_account_id=ig_account_id,
-                    auth_type="instagram_login",
+                    auth_type="unified_login",
                     status="active",
                     encrypted_access_token=_encrypt_token(token_to_store),
                     encrypted_long_lived_token=_encrypt_token(long_lived_token or short_token),
@@ -343,6 +393,7 @@ class SportInstagramConnectService:
                     expires_in=expires_in_value,
                     obtained_at=obtained_at,
                     metadata_json=meta_dict,
+                    scopes=granted_scopes,
                 )
                 self.db.add(connection)
 

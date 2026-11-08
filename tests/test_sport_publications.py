@@ -310,23 +310,37 @@ async def test_meta_auth_builds_url(client, admin_headers, monkeypatch):
     monkeypatch.setattr(get_settings(), "META_APP_ID", "test-meta-app-id", raising=False)
     monkeypatch.setattr(get_settings(), "META_APP_SECRET", "test-meta-app-secret", raising=False)
     monkeypatch.setattr(get_settings(), "META_REDIRECT_URI", "http://localhost:8080/api/sport/publications/meta/callback", raising=False)
+    monkeypatch.setattr(get_settings(), "META_CONFIG_ID", "test-cfg-id", raising=False)
 
     # avec athlete_id explicite
     r = await client.get("/sport/publications/meta/auth?athlete_id=1", headers=admin_headers)
     assert r.status_code == 200
     body = r.json()
     assert "authorize_url" in body
-    assert "www.instagram.com/oauth/authorize" in body["authorize_url"]
+    assert "www.facebook.com/dialog/oauth" in body["authorize_url"]
     assert "client_id=test-meta-app-id" in body["authorize_url"]
+    assert "config_id=test-cfg-id" in body["authorize_url"]
     assert len(body["state"]) >= 16
     assert "state=" in body["authorize_url"]
-    assert "instagram_business_basic" in body["authorize_url"]
-    assert "instagram_business_content_publish" in body["authorize_url"]
 
     # sans athlete_id (auto-résolution)
     r2 = await client.get("/sport/publications/meta/auth", headers=admin_headers)
     assert r2.status_code == 200
     assert "authorize_url" in r2.json()
+
+
+@pytest.mark.asyncio
+async def test_meta_auth_requires_config_id(client, admin_headers, monkeypatch):
+    """Unified Login : App ID/Secret presents mais Configuration ID absente -> 503."""
+    from app.core.config import get_settings
+
+    monkeypatch.setattr(get_settings(), "META_APP_ID", "test-meta-app-id", raising=False)
+    monkeypatch.setattr(get_settings(), "META_APP_SECRET", "test-meta-app-secret", raising=False)
+    monkeypatch.setattr(get_settings(), "META_REDIRECT_URI", "http://localhost:8080/api/sport/publications/meta/callback", raising=False)
+    monkeypatch.setattr(get_settings(), "META_CONFIG_ID", "", raising=False)
+
+    r = await client.get("/sport/publications/meta/auth?athlete_id=1", headers=admin_headers)
+    assert r.status_code == 503
 
 
 @pytest.mark.asyncio

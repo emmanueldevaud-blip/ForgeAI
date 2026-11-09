@@ -365,11 +365,13 @@ export class UserSettingsPage {
           console.log('[META TRACE] avant login', { login: typeof window.FB?.login, configId, redirectUri, state });
           try {
             window.FB.login(
-              async (response) => {
+              (response) => {
                 console.log('[META TRACE] callback FB.login', response);
                 if (response?.authResponse?.code) {
                   console.log('[META TRACE] code OAuth reçu');
-                  await this._loadMeta();
+                  this._loadMeta().catch((error) => {
+                    console.error('[META TRACE] erreur _loadMeta', error);
+                  });
                   return;
                 }
                 console.error('[META TRACE] connexion Meta annulée ou refusée', response);

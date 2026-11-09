@@ -1,8 +1,8 @@
 """Routes API V1 pour le Community Manager IA."""
 
 import logging
-from datetime import datetime
-from typing import Any
+from datetime import datetime, date, timedelta
+from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select
@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_db, require_module_enabled, require_permission
 from app.models.user import User
+from app.models.sport import EditorialCalendarEntry, SportAthlete, SportPublication
 from app.schemas.sport import (
     CalendarGenerateRequest,
     CalendarGenerateResponse,
@@ -35,6 +36,11 @@ from app.schemas.sport import (
 )
 from app.services.ai_gateway import AIGatewayError
 from app.services.community_manager import CommunityManagerService, CommunityManagerStudioService
+from app.services.community_manager.suggestions import EditorialSuggestionService
+from app.services.garmin import SportGarminConnectService
+from pydantic import BaseModel
+from datetime import date
+from typing import Optional
 
 logger = logging.getLogger(__name__)
 
@@ -538,3 +544,338 @@ async def create_studio_draft_from_sport(
     except Exception as exc:
         logger.exception("[SPORT-STUDIO] Erreur création brouillon")
         raise HTTPException(status_code=503, detail="Création impossible") from exc
+
+
+# ============================================================
+# NOUVELLES ROUTES : Calendrier mensuel/hebdomadaire + Suggestions
+# ============================================================
+
+class MonthCalendarResponse(BaseModel):
+    year: int
+    month: int
+    days: dict[str, list[dict]]
+
+
+class WeekCalendarResponse(BaseModel):
+    monday: str
+    sunday: str
+    days: dict[str, list[dict]]
+
+
+class SuggestionGenerateResponse(BaseModel):
+    week_monday: str
+    week_sunday: str
+    suggestions: list[dict]
+
+
+class SuggestionActionResponse(BaseModel):
+    id: int
+    date: str
+    topic: str
+    content_type: str
+    status: str
+
+
+class RegenerateResponse(BaseModel):
+    publication_id: int
+    status: str
+    error_message: Optional[str] = None
+
+
+async def get_suggestion_service(
+    current_user: User = Depends(require_permission("community_manager.calendar_generate")),
+    db: AsyncSession = Depends(get_db),
+) -> EditorialSuggestionService:
+    return EditorialSuggestionService(db, current_user)
+
+
+@router.get("/calendar/month", response_model=MonthCalendarResponse)
+async def get_month_calendar(
+    year: int = Query(..., description="Année"),
+    month: int = Query(..., ge=1, le=12, description="Mois"),
+    service: CommunityManagerService = Depends(get_cm_calendar_service),
+    suggestion_service: EditorialSuggestionService = Depends(get_suggestion_service),
+):
+    """Calendrier mensuel : toutes les entrées groupées par jour.
+
+    Déclenche automatiquement la génération idempotente des 3 suggestions
+    hebdomadaires (Europe/Paris) à l'ouverture du calendrier.
+    """
+    from calendar import monthrange
+
+    # Génération automatique des suggestions hebdomadaires (idempotente)
+    try:
+        await suggestion_service.generate_weekly_suggestions()
+    except Exception:
+        # Ne jamais bloquer l'affichage du calendrier si la génération échoue
+        pass
+
+    strategy = await service.get_strategy()
+    if not strategy:
+        return MonthCalendarResponse(year=year, month=month, days={})
+
+    _, last_day = monthrange(year, month)
+    first = date(year, month, 1)
+    last = date(year, month, last_day)
+
+    result = await service.db.execute(
+        select(EditorialCalendarEntry)
+        .where(
+            EditorialCalendarEntry.strategy_id == strategy.id,
+            EditorialCalendarEntry.date >= first,
+            EditorialCalendarEntry.date <= last,
+        )
+        .order_by(EditorialCalendarEntry.date.asc())
+    )
+    entries = result.scalars().all()
+
+    # Récupérer les publications liées
+    entry_ids = [e.id for e in entries]
+    pubs = {}
+    if entry_ids:
+        pubs_result = await service.db.execute(
+            select(
+                EditorialCalendarEntry.id.label("entry_id"),
+                EditorialCalendarEntry.status.label("entry_status"),
+                EditorialCalendarEntry.content_type.label("entry_content_type"),
+                EditorialCalendarEntry.source.label("entry_source"),
+                EditorialCalendarEntry.topic.label("entry_topic"),
+                EditorialCalendarEntry.date.label("entry_date"),
+                EditorialCalendarEntry.photo_id.label("entry_photo_id"),
+                SportPublication.id.label("pub_id"),
+                SportPublication.status.label("pub_status"),
+                SportPublication.title.label("pub_title"),
+                SportPublication.content.label("pub_content"),
+                SportPublication.hashtags.label("pub_hashtags"),
+                SportPublication.photo_id.label("pub_photo_id"),
+            )
+            .select_from(EditorialCalendarEntry)
+            .outerjoin(
+                SportPublication,
+                SportPublication.calendar_entry_id == EditorialCalendarEntry.id,
+            )
+            .where(EditorialCalendarEntry.id.in_(entry_ids))
+        )
+        for row in pubs_result.all():
+            pubs[row.entry_id] = {
+                "entry_status": row.entry_status,
+                "entry_content_type": row.entry_content_type,
+                "entry_source": row.entry_source,
+                "entry_topic": row.entry_topic,
+                "entry_date": row.entry_date.isoformat() if row.entry_date else None,
+                "entry_photo_id": row.entry_photo_id,
+                "pub_id": row.pub_id,
+                "pub_status": row.pub_status,
+                "pub_title": row.pub_title,
+                "pub_content": row.pub_content,
+                "pub_hashtags": row.pub_hashtags,
+                "pub_photo_id": row.pub_photo_id,
+            }
+
+    days: dict[str, list[dict]] = {}
+    for e in entries:
+        day_key = e.date.isoformat()
+        info = pubs.get(e.id, {})
+        days.setdefault(day_key, []).append({
+            "entry_id": e.id,
+            "topic": info.get("entry_topic", e.topic),
+            "content_type": info.get("entry_content_type", e.content_type),
+            "source": info.get("entry_source", e.source),
+            "status": info.get("entry_status", e.status),
+            "pub_id": info.get("pub_id"),
+            "pub_status": info.get("pub_status"),
+            "pub_title": info.get("pub_title"),
+            "pub_hashtags": info.get("pub_hashtags"),
+            "photo_id": info.get("pub_photo_id", info.get("entry_photo_id")),
+        })
+
+    return MonthCalendarResponse(year=year, month=month, days=days)
+
+
+@router.get("/calendar/week", response_model=WeekCalendarResponse)
+async def get_week_calendar(
+    monday: str = Query(..., description="Lundi de la semaine (YYYY-MM-DD)"),
+    service: CommunityManagerService = Depends(get_cm_calendar_service),
+    suggestion_service: EditorialSuggestionService = Depends(get_suggestion_service),
+):
+    """Calendrier hebdomadaire.
+
+    Déclenche automatiquement la génération idempotente des 3 suggestions
+    hebdomadaires (Europe/Paris) à l'ouverture du calendrier.
+    """
+    from datetime import datetime as _dt
+
+    # Génération automatique des suggestions hebdomadaires (idempotente)
+    try:
+        await suggestion_service.generate_weekly_suggestions()
+    except Exception:
+        # Ne jamais bloquer l'affichage du calendrier si la génération échoue
+        pass
+
+    try:
+        monday_date = _dt.strptime(monday, "%Y-%m-%d").date()
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Format de date invalide (YYYY-MM-DD)")
+
+    sunday_date = monday_date + timedelta(days=6)
+
+    strategy = await service.get_strategy()
+    if not strategy:
+        return WeekCalendarResponse(monday=monday, sunday=sunday_date.isoformat(), days={})
+
+    result = await service.db.execute(
+        select(EditorialCalendarEntry)
+        .where(
+            EditorialCalendarEntry.strategy_id == strategy.id,
+            EditorialCalendarEntry.date >= monday_date,
+            EditorialCalendarEntry.date <= sunday_date,
+        )
+        .order_by(EditorialCalendarEntry.date.asc())
+    )
+    entries = result.scalars().all()
+
+    entry_ids = [e.id for e in entries]
+    pubs = {}
+    if entry_ids:
+        pubs_result = await service.db.execute(
+            select(
+                EditorialCalendarEntry.id.label("entry_id"),
+                EditorialCalendarEntry.status.label("entry_status"),
+                EditorialCalendarEntry.content_type.label("entry_content_type"),
+                EditorialCalendarEntry.source.label("entry_source"),
+                EditorialCalendarEntry.topic.label("entry_topic"),
+                EditorialCalendarEntry.photo_id.label("entry_photo_id"),
+                SportPublication.id.label("pub_id"),
+                SportPublication.status.label("pub_status"),
+                SportPublication.title.label("pub_title"),
+                SportPublication.hashtags.label("pub_hashtags"),
+                SportPublication.photo_id.label("pub_photo_id"),
+            )
+            .select_from(EditorialCalendarEntry)
+            .outerjoin(
+                SportPublication,
+                SportPublication.calendar_entry_id == EditorialCalendarEntry.id,
+            )
+            .where(EditorialCalendarEntry.id.in_(entry_ids))
+        )
+        for row in pubs_result.all():
+            pubs[row.entry_id] = {
+                "entry_status": row.entry_status,
+                "entry_content_type": row.entry_content_type,
+                "entry_source": row.entry_source,
+                "entry_topic": row.entry_topic,
+                "pub_id": row.pub_id,
+                "pub_status": row.pub_status,
+                "pub_title": row.pub_title,
+                "pub_hashtags": row.pub_hashtags,
+                "photo_id": row.pub_photo_id or row.entry_photo_id,
+            }
+
+    days: dict[str, list[dict]] = {}
+    for e in entries:
+        day_key = e.date.isoformat()
+        info = pubs.get(e.id, {})
+        days.setdefault(day_key, []).append({
+            "entry_id": e.id,
+            "topic": info.get("entry_topic", e.topic),
+            "content_type": info.get("entry_content_type", e.content_type),
+            "source": info.get("entry_source", e.source),
+            "status": info.get("entry_status", e.status),
+            "pub_id": info.get("pub_id"),
+            "pub_status": info.get("pub_status"),
+            "pub_title": info.get("pub_title"),
+            "pub_hashtags": info.get("pub_hashtags"),
+            "photo_id": info.get("photo_id"),
+        })
+
+    return WeekCalendarResponse(
+        monday=monday_date.isoformat(),
+        sunday=sunday_date.isoformat(),
+        days=days,
+    )
+
+
+@router.post("/suggestions/generate", response_model=SuggestionGenerateResponse)
+async def generate_suggestions(
+    service: EditorialSuggestionService = Depends(get_suggestion_service),
+):
+    """Génère les 3 suggestions de la semaine (idempotent)."""
+    return await service.generate_weekly_suggestions()
+
+
+@router.post("/suggestions/{entry_id}/accept", response_model=SuggestionActionResponse)
+async def accept_suggestion(
+    entry_id: int,
+    service: EditorialSuggestionService = Depends(get_suggestion_service),
+):
+    """Accepte une suggestion (passe en 'accepted', modifiable dans le Studio)."""
+    entry = await service.accept_suggestion(entry_id)
+    if not entry:
+        raise HTTPException(status_code=404, detail="Suggestion introuvable")
+    return SuggestionActionResponse(
+        id=entry.id,
+        date=entry.date.isoformat(),
+        topic=entry.topic,
+        content_type=entry.content_type,
+        status=entry.status,
+    )
+
+
+@router.post("/suggestions/{entry_id}/refuse", response_model=SuggestionActionResponse)
+async def refuse_suggestion(
+    entry_id: int,
+    service: EditorialSuggestionService = Depends(get_suggestion_service),
+):
+    """Refuse une suggestion (passe en 'refused', conservée dans l'historique)."""
+    entry = await service.refuse_suggestion(entry_id)
+    if not entry:
+        raise HTTPException(status_code=404, detail="Suggestion introuvable")
+    return SuggestionActionResponse(
+        id=entry.id,
+        date=entry.date.isoformat(),
+        topic=entry.topic,
+        content_type=entry.content_type,
+        status=entry.status,
+    )
+
+
+@router.post("/suggestions/{entry_id}/reschedule", response_model=SuggestionActionResponse)
+async def reschedule_suggestion(
+    entry_id: int,
+    new_date: str = Query(..., description="Nouvelle date (YYYY-MM-DD)"),
+    service: EditorialSuggestionService = Depends(get_suggestion_service),
+):
+    """Reporte une suggestion à une nouvelle date."""
+    from datetime import datetime as _dt
+    try:
+        parsed = _dt.strptime(new_date, "%Y-%m-%d").date()
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Format de date invalide")
+    entry = await service.reschedule_suggestion(entry_id, parsed)
+    if not entry:
+        raise HTTPException(status_code=404, detail="Suggestion introuvable")
+    return SuggestionActionResponse(
+        id=entry.id,
+        date=entry.date.isoformat(),
+        topic=entry.topic,
+        content_type=entry.content_type,
+        status=entry.status,
+    )
+
+
+@router.post("/studio/draft/{publication_id}/regenerate", response_model=RegenerateResponse)
+async def regenerate_publication_content(
+    publication_id: int,
+    current_user: User = Depends(require_permission("community_manager.calendar_generate")),
+    db: AsyncSession = Depends(get_db),
+):
+    """Relance la génération de contenu pour une publication (reprise après échec IA)."""
+    garmin_service = SportGarminConnectService(db)
+    pub = await garmin_service.regenerate_publication_content(publication_id, current_user)
+    if not pub:
+        raise HTTPException(status_code=404, detail="Publication introuvable")
+    return RegenerateResponse(
+        publication_id=pub.id,
+        status=pub.status,
+        error_message=pub.error_message,
+    )

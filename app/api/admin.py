@@ -60,9 +60,10 @@ from app.schemas.admin import (
     SmtpTestRequest,
     MetaSettingsResponse,
     MetaSettingsUpdate,
+    MetaTestResponse,
+    MetaTestStep,
     InstagramSettingsResponse,
     InstagramSettingsUpdate,
-    InstagramTestResponse,
 )
 from app.services.admin import AdminUserService
 from app.services.audit import get_audit_service
@@ -208,6 +209,9 @@ async def get_meta_settings(
         app_secret_configured=bool(get_value("meta_app_secret")),
         redirect_uri=get_value("meta_redirect_uri"),
         config_id=get_value("meta_config_id"),
+        access_token_configured=bool(get_value("meta_access_token")),
+        client_business_id=get_value("meta_client_business_id"),
+        instagram_user_id=get_value("instagram_user_id"),
     )
 
 
@@ -226,9 +230,15 @@ async def update_meta_settings(
         "meta_app_id": data.app_id or "",
         "meta_redirect_uri": data.redirect_uri or "",
         "meta_config_id": data.config_id or "",
+        "meta_client_business_id": data.client_business_id or "",
+        "instagram_user_id": data.instagram_user_id or "",
     }
     if data.app_secret is not None and data.app_secret != "":
         values["meta_app_secret"] = data.app_secret
+    if data.access_token is not None and data.access_token.strip() != "":
+        from app.services.sport_instagram import _encrypt_token
+
+        values["meta_access_token"] = _encrypt_token(data.access_token.strip())
 
     configs = await _get_administration_configs(db)
     for key, value in values.items():
@@ -241,18 +251,24 @@ async def update_meta_settings(
                 key=key,
                 value=value,
                 value_type="string",
-                is_secret=key == "meta_app_secret",
+                is_secret=key in ("meta_app_secret", "meta_access_token"),
             ))
     await db.commit()
     return await get_meta_settings(current_user=current_user, db=db)
 
 
-@settings_router.post("/meta/test", response_model=MessageResponse)
+@settings_router.post("/meta/test", response_model=MetaTestResponse)
 async def test_meta_settings(
     current_user: User = Depends(require_permission("settings_update")),
     db: AsyncSession = Depends(get_db),
 ):
-    from app.services.sport_instagram import SportInstagramConnectService
+    """Diagnostic de la configuration Meta (jalon 1 : configuration centralisée).
+
+    Étapes : identifiants d'application → présence du token → validité du
+    token → Business Portfolio → accès au compte Instagram.
+    Ne publie jamais de contenu sur Instagram et ne renvoie jamais le token.
+    """
+    from app.services.sport_instagram import SportInstagramConnectService, _decrypt_token
 
     service = SportInstagramConnectService(db)
     values = await service.load_meta_values()
@@ -262,10 +278,14 @@ async def test_meta_settings(
     from app.core.config import get_settings
 
     version = get_settings().META_API_VERSION or "v21.0"
+    base_url = f"https://graph.facebook.com/{version}"
+    steps: list[MetaTestStep] = []
+
+    # 1. Identifiants de l'application (client_credentials)
     try:
         async with httpx.AsyncClient(timeout=15.0) as client:
             response = await client.get(
-                f"https://graph.facebook.com/{version}/oauth/access_token",
+                f"{base_url}/oauth/access_token",
                 params={
                     "grant_type": "client_credentials",
                     "client_id": values["app_id"],
@@ -289,7 +309,224 @@ async def test_meta_settings(
     if not has_token:
         raise HTTPException(status_code=502, detail="Échec du test Meta : réponse inattendue de l'API")
 
-    return {"message": f"Connexion Meta validée : l'App ID {values['app_id']} est accepté."}
+    steps.append(MetaTestStep(
+        key="app_credentials",
+        label="Identifiants de l'application",
+        status="ok",
+        detail=f"App ID {values['app_id']} accepté par Meta.",
+    ))
+
+    # Lecture du token centralisé (jamais en clair dans la réponse)
+    configs = await _get_administration_configs(db)
+    get_value = lambda key, default="": configs.get(key).value if configs.get(key) and configs.get(key).value is not None else default
+    raw_token = get_value("meta_access_token")
+    configured_business_id = get_value("meta_client_business_id")
+    configured_ig_id = get_value("instagram_user_id")
+
+    if not raw_token:
+        steps.append(MetaTestStep(
+            key="access_token",
+            label="Meta Access Token",
+            status="skipped",
+            detail="Aucun token enregistré dans la configuration Meta.",
+        ))
+        app_id_val = get_value("meta_app_id") or get_value("instagram_app_id") or ""
+        return MetaTestResponse(
+            message=f"Connexion Meta validée : l'App ID {app_id_val} est accepté." if app_id_val else "Connexion Meta validée. Aucun Meta Access Token enregistré.",
+            status="no_token",
+            configured=True,
+            access_token_configured=False,
+            steps=steps,
+        )
+
+    token = _decrypt_token(raw_token)
+    if not token:
+        steps.append(MetaTestStep(
+            key="access_token",
+            label="Meta Access Token",
+            status="error",
+            detail="Token enregistré mais illisible (déchiffrement impossible). Réenregistrez le jeton.",
+        ))
+        return MetaTestResponse(
+            message="Meta Access Token illisible : réenregistrez le jeton SUAT.",
+            status="token_unreadable",
+            configured=True,
+            access_token_configured=True,
+            steps=steps,
+        )
+
+    # 2. Validité du token + identité du Business Portfolio
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            me_resp = await client.get(
+                f"{base_url}/me",
+                params={"fields": "id,client_business_id", "access_token": token},
+            )
+    except httpx.HTTPError as exc:
+        steps.append(MetaTestStep(
+            key="access_token",
+            label="Meta Access Token",
+            status="error",
+            detail=f"Impossible de joindre l'API : {exc}",
+        ))
+        return MetaTestResponse(
+            message="Impossible de joindre l'API Meta pour valider le token.",
+            status="api_unreachable",
+            configured=True,
+            access_token_configured=True,
+            steps=steps,
+        )
+
+    if me_resp.status_code != 200:
+        try:
+            error_msg = me_resp.json().get("error", {}).get("message") or me_resp.text
+        except ValueError:
+            error_msg = me_resp.text
+        lowered = error_msg.lower()
+        is_expired = "expired" in lowered or "session" in lowered
+        steps.append(MetaTestStep(
+            key="access_token",
+            label="Meta Access Token",
+            status="error",
+            detail="Token expiré : réenregistrez le jeton SUAT." if is_expired else f"Token invalide : {error_msg}",
+        ))
+        return MetaTestResponse(
+            message="Meta Access Token expiré : réenregistrez le jeton SUAT." if is_expired else f"Meta Access Token invalide : {error_msg}",
+            status="token_expired" if is_expired else "token_invalid",
+            configured=True,
+            access_token_configured=True,
+            steps=steps,
+        )
+
+    me_data = me_resp.json()
+    suat_id = str(me_data.get("id") or "")
+    client_business_id = str(me_data.get("client_business_id") or "")
+
+    if configured_business_id and client_business_id and configured_business_id != client_business_id:
+        steps.append(MetaTestStep(
+            key="business_portfolio",
+            label="Business Portfolio",
+            status="warning",
+            detail=f"Token rattaché au portefeuille {client_business_id}, la configuration attend {configured_business_id}.",
+        ))
+    elif not client_business_id:
+        steps.append(MetaTestStep(
+            key="business_portfolio",
+            label="Business Portfolio",
+            status="warning",
+            detail="Le token ne renvoie pas de client_business_id (renseignez-le pour vérifier le portefeuille).",
+        ))
+    else:
+        steps.append(MetaTestStep(
+            key="business_portfolio",
+            label="Business Portfolio",
+            status="ok",
+            detail=f"Portefeuille {client_business_id} (system user {suat_id}).",
+        ))
+
+    # 3. Accès au compte Instagram (aucune publication)
+    ig_username = None
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            ig_resp = await client.get(
+                f"{base_url}/me/assigned_instagram_accounts",
+                params={"fields": "id,username", "access_token": token},
+            )
+    except httpx.HTTPError as exc:
+        steps.append(MetaTestStep(
+            key="instagram_account",
+            label="Compte Instagram",
+            status="warning",
+            detail=f"Impossible de joindre l'API : {exc}",
+        ))
+        return MetaTestResponse(
+            message="Configuration Meta partielle : compte Instagram non vérifiable.",
+            status="partial",
+            configured=True,
+            access_token_configured=True,
+            client_business_id=client_business_id or None,
+            steps=steps,
+        )
+
+    if ig_resp.status_code != 200:
+        try:
+            ig_error = ig_resp.json().get("error", {}).get("message") or ig_resp.text
+        except ValueError:
+            ig_error = ig_resp.text
+        steps.append(MetaTestStep(
+            key="instagram_account",
+            label="Compte Instagram",
+            status="error",
+            detail=f"Comptes assignés non consultables : {ig_error}",
+        ))
+        return MetaTestResponse(
+            message="Configuration Meta partielle : comptes Instagram non consultables.",
+            status="partial",
+            configured=True,
+            access_token_configured=True,
+            client_business_id=client_business_id or None,
+            steps=steps,
+        )
+
+    accounts = ig_resp.json().get("data") or []
+    if configured_ig_id:
+        match = next((a for a in accounts if str(a.get("id")) == configured_ig_id), None)
+        if match:
+            ig_username = match.get("username")
+            steps.append(MetaTestStep(
+                key="instagram_account",
+                label="Compte Instagram",
+                status="ok",
+                detail=f"Compte @{ig_username} (ID {configured_ig_id}) accessible via le token.",
+            ))
+        else:
+            available = ", ".join(f"@{a.get('username')} ({a.get('id')})" for a in accounts) or "aucun"
+            steps.append(MetaTestStep(
+                key="instagram_account",
+                label="Compte Instagram",
+                status="error",
+                detail=f"Le compte Instagram configuré ({configured_ig_id}) n'est pas partagé au Business Portfolio. Comptes accessibles : {available}.",
+            ))
+    elif accounts:
+        first = accounts[0]
+        ig_username = first.get("username")
+        available = ", ".join(f"@{a.get('username')} ({a.get('id')})" for a in accounts)
+        steps.append(MetaTestStep(
+            key="instagram_account",
+            label="Compte Instagram",
+            status="warning",
+            detail=f"Instagram User ID non renseigné — comptes accessibles : {available}.",
+        ))
+    else:
+        steps.append(MetaTestStep(
+            key="instagram_account",
+            label="Compte Instagram",
+            status="error",
+            detail="Aucun compte Instagram partagé au Business Portfolio pour cette application.",
+        ))
+
+    has_error = any(s.status == "error" for s in steps)
+    has_warning = any(s.status == "warning" for s in steps)
+    if has_error or has_warning:
+        problem = next((s.detail for s in steps if s.status in ("error", "warning")), None)
+        status_name = "partial"
+        message = f"Configuration Meta partielle : {problem}"
+    else:
+        status_name = "operational"
+        portfolio = client_business_id or "non renseigné"
+        account = f"compte Instagram @{ig_username}" if ig_username else "compte Instagram accessible"
+        message = f"Configuration Meta validée : token actif, Business Portfolio {portfolio}, {account}."
+
+    return MetaTestResponse(
+        message=message,
+        status=status_name,
+        configured=True,
+        access_token_configured=True,
+        client_business_id=client_business_id or None,
+        instagram_user_id=configured_ig_id or None,
+        instagram_username=ig_username,
+        steps=steps,
+    )
 
 
 @settings_router.get("/instagram", response_model=InstagramSettingsResponse)
@@ -341,147 +578,6 @@ async def update_instagram_settings(
             ))
     await db.commit()
     return await get_instagram_settings(current_user=current_user, db=db)
-
-
-@settings_router.post("/instagram/test", response_model=InstagramTestResponse)
-async def test_instagram_settings(
-    current_user: User = Depends(require_permission("settings_update")),
-    db: AsyncSession = Depends(get_db),
-):
-    """Teste la configuration Instagram et la connexion du compte utilisateur.
-
-    Ne publie jamais de contenu sur Instagram.
-    """
-    from app.services.sport_instagram import SportInstagramConnectService
-    from app.models.sport import SportInstagramConnection
-
-    service = SportInstagramConnectService(db)
-    values = await service.load_meta_values()
-
-    # 1. Présence des paramètres obligatoires
-    if not values["instagram_app_id"]:
-        raise HTTPException(status_code=400, detail="Instagram App ID non configuré")
-    if not values["instagram_app_secret"]:
-        raise HTTPException(status_code=400, detail="Instagram App Secret non configuré")
-
-    # 2. Connexion utilisateur existante
-    connection = await service.get_connection(current_user.id)
-    if connection is None:
-        return {
-            "message": "Instagram configuré mais aucun compte connecté.",
-            "detail": "Connectez un compte Instagram depuis les préférences.",
-            "configured": True,
-            "connected": False,
-            "status": "disconnected",
-        }
-
-    # 3. Validité du token auprès de l'API
-    import httpx
-    from app.core.config import get_settings
-
-    token = service._decrypt(connection.encrypted_long_lived_token or connection.encrypted_access_token)
-    if not token:
-        return {
-            "message": "Token d'accès illisible ou absent.",
-            "detail": "Le token stocké ne peut pas être déchiffré. Reconnexion requise.",
-            "configured": True,
-            "connected": False,
-            "status": "token_invalid",
-        }
-
-    # Unified Login : token Facebook, compte Instagram explicite sur graph.facebook.com.
-    # Ancien flux Instagram Login : profil direct sur graph.instagram.com.
-    if (connection.auth_type or "") == "instagram_login":
-        version = values.get("instagram_api_version") or get_settings().INSTAGRAM_API_VERSION or "v26.0"
-        me_url = f"https://graph.instagram.com/{version}/me"
-    else:
-        if connection.instagram_business_account_id:
-            me_url = (
-                f"https://graph.facebook.com/{get_settings().META_API_VERSION}"
-                f"/{connection.instagram_business_account_id}"
-            )
-        else:
-            me_url = (
-                f"https://graph.facebook.com/{get_settings().META_API_VERSION}"
-                f"/me/assigned_instagram_accounts"
-            )
-    try:
-        async with httpx.AsyncClient(timeout=15.0) as client:
-            me_resp = await client.get(
-                me_url,
-                params={"fields": "id,username", "access_token": token},
-            )
-    except httpx.HTTPError as exc:
-        raise HTTPException(status_code=502, detail=f"Impossible de joindre l'API : {exc}") from exc
-
-    if me_resp.status_code == 400:
-        try:
-            error_msg = me_resp.json().get("error", {}).get("message") or me_resp.text
-        except ValueError:
-            error_msg = me_resp.text
-        if "expired" in error_msg.lower() or "session" in error_msg.lower():
-            return {
-                "message": "Token Instagram expiré.",
-                "detail": "Le token d'accès a expiré. Reconnexion requise.",
-                "configured": True,
-                "connected": False,
-                "status": "token_expired",
-                "instagram_user_id": connection.instagram_business_account_id,
-                "username": (connection.metadata_json or {}).get("username") if connection.metadata_json else None,
-            }
-        return {
-            "message": f"Token Instagram invalide : {error_msg}",
-            "detail": "Le token n'est plus valide. Reconnexion requise.",
-            "configured": True,
-            "connected": False,
-            "status": "token_invalid",
-            "instagram_user_id": connection.instagram_business_account_id,
-            "username": (connection.metadata_json or {}).get("username") if connection.metadata_json else None,
-        }
-
-    if me_resp.status_code != 200:
-        try:
-            meta_message = me_resp.json().get("error", {}).get("message") or me_resp.text
-        except ValueError:
-            meta_message = me_resp.text
-        raise HTTPException(status_code=502, detail=f"Échec du test Instagram : {meta_message}")
-
-    me_data = me_resp.json()
-    if isinstance(me_data.get("data"), list):
-        # Réponse /me/assigned_instagram_accounts : liste de comptes assignés
-        accounts = me_data.get("data") or []
-        me_data = accounts[0] if accounts else {}
-    ig_user_id = str(me_data.get("id") or "")
-    ig_username = me_data.get("username")
-
-    # Vérifier que l'ID correspond à la connexion enregistrée
-    if connection.instagram_business_account_id and connection.instagram_business_account_id != ig_user_id:
-        return {
-            "message": "Identifiant Instagram incohérent.",
-            "detail": f"Le compte connecté ({ig_username}) ne correspond pas à l'enregistrement ({connection.instagram_business_account_id}).",
-            "configured": True,
-            "connected": True,
-            "status": "mismatch",
-            "instagram_user_id": ig_user_id,
-            "username": ig_username,
-        }
-
-    # Vérifier les permissions (scope content_publish)
-    has_publish = False
-    scopes = connection.scopes or ""
-    if "instagram_business_content_publish" in scopes or "instagram_content_publish" in scopes:
-        has_publish = True
-
-    return {
-        "message": f"Connexion Instagram validée : @{ig_username} (ID : {ig_user_id}).",
-        "detail": "Le token est valide et le compte est accessible.",
-        "configured": True,
-        "connected": True,
-        "status": "operational",
-        "instagram_user_id": ig_user_id,
-        "username": ig_username,
-        "publish_permission": has_publish,
-    }
 
 
 def _effective_ai_values(overrides: dict[str, str]) -> dict:

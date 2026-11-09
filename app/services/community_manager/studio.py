@@ -17,7 +17,6 @@ from app.models.sport import (
     SportActivity,
     SportAthlete,
     SportPublication,
-    SportInstagramConnection,
 )
 from app.models.user import User
 from app.schemas.sport import (
@@ -715,17 +714,14 @@ class CommunityManagerStudioService:
         # Récupérer l'athlète et la connexion Instagram
         athlete, strategy = await self._get_athlete_and_strategy()
 
-        # Récupérer la connexion Instagram
-        from app.models.sport import SportInstagramConnection
-        conn_result = await self.db.execute(
-            select(SportInstagramConnection).where(
-                SportInstagramConnection.user_id == self.current_user.id,
-                SportInstagramConnection.status == "active",
-            )
-        )
-        connection = conn_result.scalar_one_or_none()
+        # Source de publication : configuration Meta centralisée
+        meta_service = MetaPublishService(self.db)
+        connection = await meta_service.resolve_publish_context()
         if not connection:
-            raise ValueError("Aucun compte Instagram connecté. Connectez un compte dans les paramètres.")
+            raise ValueError(
+                "Aucune source de publication Instagram configurée. "
+                "Renseignez le Meta Access Token et l'Instagram User ID dans la configuration Meta."
+            )
 
         if not connection.instagram_business_account_id:
             raise ValueError("Compte Instagram Business non configuré")
@@ -756,18 +752,7 @@ class CommunityManagerStudioService:
             if pub.hashtags:
                 caption += f"\n\n{pub.hashtags}"
 
-            # Publier via Meta
-            meta_service = MetaPublishService(self.db)
-            connection_result = await self.db.execute(
-                select(SportInstagramConnection).where(
-                    SportInstagramConnection.user_id == self.current_user.id,
-                    SportInstagramConnection.status == "active",
-                )
-            )
-            connection = connection_result.scalar_one_or_none()
-
-            meta_service = MetaPublishService(self.db)
-
+            # Publier via Meta (contexte déjà résolu plus haut)
             try:
                 if pub.visual_type == "reel" or is_video:
                     instagram_media_id = await meta_service.publish_video(connection, media_url, caption)

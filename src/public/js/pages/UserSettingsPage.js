@@ -4,13 +4,7 @@ import {
   getMetaSettings,
   updateMetaSettings,
   testMetaSettings,
-  testInstagramSettings,
-} from '../services/adminApi.js?v=4';
-import {
-  getInstagramConnectionStatus,
-  connectInstagram,
-  disconnectInstagram,
-} from '../services/sportApi.js?v=12';
+} from '../services/adminApi.js?v=6';
 import { createSportGarminPage } from './SportGarminPage.js?v=5';
 
 export class UserSettingsPage {
@@ -19,12 +13,9 @@ export class UserSettingsPage {
     this.element = null;
     this.user = null;
     this.metaSettings = null;
-    this.instagramStatus = null;
-    this.connectedFlash = false;
     this.currentTab = 'preferences';
     this.garminPage = null;
     this.canSeeGarmin = false;
-    this.oauthError = null;
   }
 
   async initialize() {
@@ -35,9 +26,7 @@ export class UserSettingsPage {
     }
     this.user = authStore.currentUser;
     this.canConfigureMeta = !!authStore?.authenticated && authStore.hasPermission('settings_view');
-    this.canSeeInstagram = !!authStore?.authenticated && authStore.hasPermission('sport.publications.read');
-    this.canManageInstagram = !!authStore?.authenticated && authStore.hasPermission('sport.publications.write');
-    this.showMetaTab = this.canConfigureMeta || this.canSeeInstagram;
+    this.showMetaTab = this.canConfigureMeta;
 
     this.canSeeGarmin = !!authStore?.authenticated && authStore.hasPermission('sport.activities.write');
     if (this.canSeeGarmin) {
@@ -51,9 +40,6 @@ export class UserSettingsPage {
       } catch (error) {
         console.error('Erreur chargement paramètres Meta:', error);
       }
-    }
-    if (this.canSeeInstagram) {
-      await this._loadInstagramStatus();
     }
   }
 
@@ -77,7 +63,6 @@ export class UserSettingsPage {
     const canMeta = !!this.showMetaTab;
     if (!canMeta && !this.canSeeGarmin) this.currentTab = 'preferences';
     const metaConfigured = !!(this.metaSettings?.app_id && this.metaSettings?.app_secret_configured);
-    const igInfo = this._instagramInfo();
 
     this.element.innerHTML = `
       <div class="page-header">
@@ -170,7 +155,7 @@ export class UserSettingsPage {
             <div class="card-header">
               <div>
                 <span class="eyebrow">Meta — Instagram Business</span>
-                <p class="text-muted">Connexion OAuth utilisée pour les statistiques des publications.</p>
+                <p class="text-muted">Configuration Meta Business centralisée : identifiants d'application et jeton SUAT.</p>
               </div>
               <span class="status-badge ${metaConfigured ? 'active' : 'inactive'}" data-meta-badge>
                 ${metaConfigured ? 'Configurée' : 'Non configurée'}
@@ -193,8 +178,8 @@ export class UserSettingsPage {
               <div class="form-row">
                 <div class="form-group" style="grid-column: 1 / -1;">
                   <label><span>Adresse de callback</span>
-                    <input name="redirect_uri" type="url" maxlength="500" placeholder="https://…/sport/publications/meta/callback">
-                    <small class="form-help">Doit correspondre à l'URL de redirection déclarée dans l'application Meta.</small>
+                    <input name="redirect_uri" type="url" maxlength="500" placeholder="https://…">
+                    <small class="form-help">URL de redirection déclarée dans l'application Meta.</small>
                   </label>
                 </div>
               </div>
@@ -202,7 +187,29 @@ export class UserSettingsPage {
                 <div class="form-group" style="grid-column: 1 / -1;">
                   <label><span>Configuration ID (Unified Login)</span>
                     <input name="config_id" maxlength="100" placeholder="ID de configuration Facebook Login for Business">
-                    <small class="form-help">Obligatoire : Configuration Facebook Login for Business (API setup with Unified Login), utilisée pour connecter les comptes Instagram.</small>
+                    <small class="form-help">Configuration Facebook Login for Business (API setup with Unified Login) déclarée dans l'application Meta.</small>
+                  </label>
+                </div>
+              </div>
+              <div class="form-row">
+                <div class="form-group" style="grid-column: 1 / -1;">
+                  <label><span>Meta Access Token (SUAT)</span>
+                    <input name="access_token" type="password" autocomplete="new-password" maxlength="4000" placeholder="Aucun token enregistré">
+                    <small class="form-help" data-role="token-help">Laisser vide pour conserver le jeton enregistré. Le token n'est jamais réaffiché après enregistrement.</small>
+                  </label>
+                </div>
+              </div>
+              <div class="form-row">
+                <div class="form-group">
+                  <label><span>Business Portfolio ID</span>
+                    <input name="client_business_id" maxlength="100" placeholder="ID du Business Portfolio Meta">
+                    <small class="form-help">Optionnel : permet de vérifier que le token appartient au bon portefeuille.</small>
+                  </label>
+                </div>
+                <div class="form-group">
+                  <label><span>Instagram User ID</span>
+                    <input name="instagram_user_id" maxlength="100" placeholder="ID du compte Instagram Business">
+                    <small class="form-help">Optionnel : vérifie que le compte est bien partagé au portefeuille.</small>
                   </label>
                 </div>
               </div>
@@ -211,50 +218,12 @@ export class UserSettingsPage {
                 <button class="btn btn-primary" type="submit">Enregistrer</button>
                 <span data-role="meta-status" role="status"></span>
               </div>
+              <div data-role="meta-test-result" aria-live="polite"></div>
             </form>
           </div>` : ''}
 
-          ${this.oauthError ? `
-          <div class="card">
-            <div class="card-body">
-              <div class="alert alert-error">${this._escape(this.oauthError)}</div>
-            </div>
-          </div>` : ''}
-
-          ${this.connectedFlash ? `
-          <div class="card">
-            <div class="card-body">
-              <div class="alert alert-success">Compte Instagram connecté avec succès !</div>
-            </div>
-          </div>` : ''}
-
-          ${this.canSeeInstagram ? `
-          <div class="card">
-            <div class="card-header">
-              <div>
-                <span class="eyebrow">Connexion Instagram</span>
-                <p class="text-muted">Compte Instagram Business relié à vos publications.</p>
-              </div>
-              <span class="status-badge ${igInfo.badgeClass}" data-ig-badge>${igInfo.badgeText}</span>
-            </div>
-            <div class="card-body">
-              <p class="page-subtitle" data-ig-detail>${igInfo.detail}</p>
-              ${this.canManageInstagram || this.canConfigureMeta ? `
-              <div class="form-actions">
-                ${this.canManageInstagram ? `
-                <button class="btn btn-primary" type="button" data-ig-connect>
-                  ${this.instagramStatus?.connected ? 'Reconnecter' : 'Connecter Instagram'}
-                </button>
-                ${this.instagramStatus?.connected ? '<button class="btn btn-secondary" type="button" data-ig-disconnect>Se déconnecter</button>' : ''}` : ''}
-                ${this.canConfigureMeta ? '<button class="btn btn-secondary" type="button" data-ig-test>Tester la connexion</button>' : ''}
-                <span data-role="ig-status" role="status"></span>
-              </div>` : `
-              <div class="form-actions">
-                <span data-role="ig-status" role="status"></span>
-              </div>`}
-            </div>
-          </div>` : ''}
         </div>` : ''}
+
       </div>
     `;
 
@@ -295,20 +264,44 @@ export class UserSettingsPage {
     const metaForm = this.element.querySelector('[data-form="meta-settings"]');
     if (metaForm) {
       const message = this.element.querySelector('[data-role="meta-status"]');
+      const testResult = this.element.querySelector('[data-role="meta-test-result"]');
       const setValue = (name, value) => { metaForm.elements[name].value = value ?? ''; };
       setValue('app_id', this.metaSettings?.app_id);
       setValue('redirect_uri', this.metaSettings?.redirect_uri);
       setValue('config_id', this.metaSettings?.config_id);
+      setValue('client_business_id', this.metaSettings?.client_business_id);
+      setValue('instagram_user_id', this.metaSettings?.instagram_user_id);
       const secretInput = metaForm.elements.app_secret;
       if (secretInput) {
         secretInput.placeholder = this.metaSettings?.app_secret_configured
           ? 'Configurée — laisser vide pour conserver'
           : 'Non configurée';
       }
+      const tokenInput = metaForm.elements.access_token;
+      if (tokenInput) {
+        tokenInput.placeholder = this.metaSettings?.access_token_configured
+          ? 'Token enregistré — laisser vide pour conserver'
+          : 'Aucun token enregistré';
+      }
 
       const setStatus = (text, success) => {
         message.textContent = text;
         message.classList.toggle('text-success', !!success);
+      };
+
+      const renderTestResult = (result) => {
+        if (!testResult) return;
+        testResult.innerHTML = '';
+        (result?.steps || []).forEach((step) => {
+          const line = document.createElement('div');
+          const cls = step.status === 'ok' ? 'text-success'
+            : step.status === 'error' ? 'text-danger'
+            : step.status === 'warning' ? 'text-warning'
+            : 'text-muted';
+          line.className = `page-subtitle ${cls}`;
+          line.textContent = `${step.label} — ${step.detail || step.status}`;
+          testResult.appendChild(line);
+        });
       };
 
       metaForm.addEventListener('submit', async (event) => {
@@ -322,10 +315,19 @@ export class UserSettingsPage {
             app_secret: metaForm.elements.app_secret.value,
             redirect_uri: metaForm.elements.redirect_uri.value.trim(),
             config_id: metaForm.elements.config_id.value.trim(),
+            access_token: metaForm.elements.access_token.value,
+            client_business_id: metaForm.elements.client_business_id.value.trim(),
+            instagram_user_id: metaForm.elements.instagram_user_id.value.trim(),
           });
           metaForm.elements.app_secret.value = '';
+          metaForm.elements.access_token.value = '';
           if (secretInput && this.metaSettings?.app_secret_configured) {
             secretInput.placeholder = 'Configurée — laisser vide pour conserver';
+          }
+          if (tokenInput) {
+            tokenInput.placeholder = this.metaSettings?.access_token_configured
+              ? 'Token enregistré — laisser vide pour conserver'
+              : 'Aucun token enregistré';
           }
           this._updateMetaBadge();
           setStatus('Paramètres Meta enregistrés.', true);
@@ -341,9 +343,12 @@ export class UserSettingsPage {
         if (testBtn.disabled) return;
         testBtn.disabled = true;
         setStatus('Test en cours…', false);
+        if (testResult) testResult.innerHTML = '';
         try {
           const result = await testMetaSettings();
-          setStatus(result.message || 'Connexion Meta validée.', true);
+          const ok = result.status === 'operational';
+          setStatus(result.message || 'Connexion Meta validée.', ok);
+          renderTestResult(result);
         } catch (error) {
           setStatus(error.data?.detail || error.message || 'Échec du test Meta.', false);
         } finally {
@@ -352,143 +357,6 @@ export class UserSettingsPage {
       });
     }
 
-    this._bindInstagram();
-  }
-
-  async _bindInstagram() {
-    const setIgMessage = (text, success) => {
-      const el = this.element?.querySelector('[data-role="ig-status"]');
-      if (!el) return;
-      el.textContent = text;
-      el.classList.toggle('text-success', !!success);
-    };
-
-    this.element.querySelector('[data-ig-connect]')?.addEventListener('click', async (event) => {
-      const btn = event.currentTarget;
-      if (btn.disabled) return;
-      btn.disabled = true;
-      try {
-        const data = await connectInstagram(null);
-        const url = data && data.authorize_url;
-        if (url) {
-          window.location.href = url;
-          return;
-        }
-        setIgMessage('URL de connexion Meta non reçue', false);
-      } catch (error) {
-        setIgMessage(error?.data?.detail || error?.message || 'Connexion Instagram impossible', false);
-      } finally {
-        btn.disabled = false;
-      }
-    });
-
-    this.element.querySelector('[data-ig-disconnect]')?.addEventListener('click', async (event) => {
-      const btn = event.currentTarget;
-      if (btn.disabled) return;
-      btn.disabled = true;
-      setIgMessage('Déconnexion en cours…', false);
-      try {
-        await disconnectInstagram();
-        await this._loadInstagramStatus();
-        setIgMessage('Instagram déconnecté', true);
-      } catch (error) {
-        setIgMessage(error?.data?.detail || 'Erreur lors de la déconnexion', false);
-        btn.disabled = false;
-      }
-    });
-
-    this.element.querySelector('[data-ig-test]')?.addEventListener('click', async (event) => {
-      const btn = event.currentTarget;
-      if (btn.disabled) return;
-      btn.disabled = true;
-      setIgMessage('Test en cours…', false);
-      try {
-        const result = await testInstagramSettings();
-        const text = [result?.message, result?.detail].filter(Boolean).join(' ');
-        setIgMessage(text || 'Connexion Instagram validée.', result?.status === 'operational');
-      } catch (error) {
-        setIgMessage(error?.data?.detail || error?.message || 'Échec du test Instagram.', false);
-      } finally {
-        btn.disabled = false;
-      }
-    });
-
-    if (this.connectedFlash) {
-      this.connectedFlash = false;
-      await this._loadInstagramStatus();
-      setIgMessage('Compte Instagram connecté avec succès !', true);
-    }
-  }
-
-  _escape(text) {
-    if (text == null) return '';
-    return String(text)
-      .replaceAll('&', '&')
-      .replaceAll('<', '<')
-      .replaceAll('>', '>')
-      .replaceAll('"', '"')
-      .replaceAll("'", '&#039;');
-  }
-
-  async _loadInstagramStatus() {
-    try {
-      this.instagramStatus = (await getInstagramConnectionStatus()) || this.instagramStatus;
-    } catch (error) {
-      this.instagramStatus = { connected: false, status: 'not_configured' };
-    }
-    if (this.element) {
-      const badge = this.element.querySelector('[data-ig-badge]');
-      const detail = this.element.querySelector('[data-ig-detail]');
-      if (badge || detail) {
-        const info = this._instagramInfo();
-        if (badge) {
-          badge.textContent = info.badgeText;
-          badge.className = `status-badge ${info.badgeClass}`;
-        }
-        if (detail) detail.textContent = info.detail;
-        const cardBody = badge?.closest('.card')?.querySelector('.card-body');
-        if (cardBody && this.canManageInstagram) {
-          const actions = cardBody.querySelector('.form-actions');
-          if (actions) {
-            const keepMsg = actions.querySelector('[data-role="ig-status"]');
-            const msgHtml = keepMsg ? keepMsg.outerHTML : '<span data-role="ig-status" role="status"></span>';
-            actions.innerHTML = `
-              <button class="btn btn-primary" type="button" data-ig-connect>
-                ${this.instagramStatus?.connected ? 'Reconnecter' : 'Connecter Instagram'}
-              </button>
-              ${this.instagramStatus?.connected ? '<button class="btn btn-secondary" type="button" data-ig-disconnect>Se déconnecter</button>' : ''}
-              ${this.canConfigureMeta ? '<button class="btn btn-secondary" type="button" data-ig-test>Tester la connexion</button>' : ''}
-              ${msgHtml}
-            `;
-            this._bindInstagram();
-          }
-        }
-      }
-    }
-  }
-
-  _instagramInfo() {
-    const status = this.instagramStatus || {};
-    if (status.connected) {
-      const acct = status.instagram_business_account_id ? ` (ID : ${status.instagram_business_account_id})` : '';
-      return {
-        badgeClass: 'active',
-        badgeText: 'Connecté',
-        detail: `Compte Instagram connecté${acct}. Les publications peuvent être partagées.`,
-      };
-    }
-    if (status.configured === false) {
-      return {
-        badgeClass: 'badge-warning',
-        badgeText: 'Non configuré',
-        detail: "Unified Login non configuré : renseignez l'App ID, l'App Secret et le Configuration ID ci-dessus.",
-      };
-    }
-    return {
-      badgeClass: 'inactive',
-      badgeText: 'Non connecté',
-      detail: 'Aucun compte Instagram connecté pour le moment.',
-    };
   }
 
   _updateMetaBadge() {

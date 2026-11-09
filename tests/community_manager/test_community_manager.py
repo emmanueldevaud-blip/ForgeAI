@@ -127,11 +127,11 @@ def mock_db(mock_athlete, mock_strategy):
     
     async def mock_execute(query):
         call_count["count"] += 1
-        if call_count["count"] in (1, 3):  # _get_athlete calls
+        if call_count["count"] == 1:  # _get_athlete
             return athlete_result
-        elif call_count["count"] in (2, 4):  # get_strategy calls
+        elif call_count["count"] == 2:  # get_strategy
             return strategy_result
-        elif call_count["count"] == 5:  # _get_recent_activities
+        elif call_count["count"] == 3:  # _get_recent_activities
             return activities_result
         return AsyncMock()
     
@@ -440,7 +440,7 @@ class TestCommunityManagerService:
     async def test_get_strategy_no_athlete(self, service, mock_db):
         reset_mocks(mock_db)
         # Override _get_athlete to return None
-        execute_athlete_none = AsyncMock()
+        execute_athlete_none = MagicMock()
         execute_athlete_none.scalar_one_or_none.return_value = None
         
         async def mock_execute_none(q):
@@ -453,18 +453,18 @@ class TestCommunityManagerService:
     @pytest.mark.asyncio
     async def test_create_or_update_strategy_new(self, service, mock_db, mock_user):
         reset_mocks(mock_db, with_activities=False)
-        # Override pour pas de stratégie existante
-        execute_strategy_none = AsyncMock()
-        execute_strategy_none.scalar_one_or_none.return_value = None
+        # Override pour pas de stratégie existante, pas d'athlète existant
+        execute_athlete_none = MagicMock()
+        execute_athlete_none.scalar_one_or_none.return_value = None
         
-        execute_athlete = AsyncMock()
-        execute_athlete.scalar_one_or_none.return_value = MagicMock(id=10, user_id=1)
+        execute_strategy_none = MagicMock()
+        execute_strategy_none.scalar_one_or_none.return_value = None
         
         call_count = {"count": 0}
         async def mock_execute_create(q):
             call_count["count"] += 1
             if call_count["count"] == 1:
-                return execute_athlete
+                return execute_athlete_none
             return execute_strategy_none
         
         mock_db.execute = mock_execute_create
@@ -501,12 +501,52 @@ class TestCommunityManagerService:
         mock_db.commit.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_generate_calendar_success(self, service, mock_db, mock_strategy):
+    async def test_generate_calendar_success(self, service, mock_db, mock_strategy, mock_athlete):
         """Test génération calendrier avec réponse IA valide."""
         reset_mocks(mock_db)
         
+        # Mock _get_recent_activities pour retourner des activités connues
+        async def mock_get_recent_activities(limit=20):
+            return [{
+                "id": 1,
+                "sport_type": "running",
+                "activity_name": "Morning Run",
+                "started_at": "2026-01-15T08:00:00+00:00",
+                "duration_seconds": 3600,
+                "distance_m": 10000,
+                "elevation_gain_m": 100,
+                "avg_speed_m_s": 2.77,
+                "avg_pace_sec_km": 360,
+                "avg_heart_rate": 150,
+                "max_heart_rate": 170,
+                "avg_cadence": 170,
+                "calories": 500,
+            }]
+        service._get_recent_activities = mock_get_recent_activities
+        
+        # Mock _get_athlete et get_strategy
+        athlete_result = MagicMock()
+        athlete_result.scalar_one_or_none.return_value = mock_athlete
+        strategy_result = MagicMock()
+        strategy_result.scalar_one_or_none.return_value = mock_strategy
+        
+        results = [athlete_result, athlete_result, strategy_result]
+        async def mock_execute_gen(q):
+            return results.pop(0)
+        mock_db.execute = mock_execute_gen
+        
+        # Mock refresh pour peupler id/created_at/updated_at sur les entrées créées
+        async def mock_refresh(obj):
+            if obj.id is None:
+                obj.id = 1
+            if obj.created_at is None:
+                obj.created_at = datetime(2026, 1, 15, 8, 0, tzinfo=timezone.utc)
+            if obj.updated_at is None:
+                obj.updated_at = datetime(2026, 1, 15, 8, 0, tzinfo=timezone.utc)
+        mock_db.refresh = mock_refresh
+        
         with patch('app.services.community_manager.service.ai_gateway') as mock_ai:
-            mock_response = AsyncMock()
+            mock_response = MagicMock()
             mock_response.text = json.dumps({
                 "calendar": [
                     {
@@ -527,7 +567,7 @@ class TestCommunityManagerService:
                     }
                 ]
             })
-            mock_ai.generate.return_value = mock_response
+            mock_ai.generate = AsyncMock(return_value=mock_response)
             
             request = CalendarGenerateRequest(count=2)
             response = await service.generate_calendar(request)
@@ -540,9 +580,38 @@ class TestCommunityManagerService:
             mock_db.commit.assert_called()
 
     @pytest.mark.asyncio
-    async def test_generate_calendar_ai_error(self, service, mock_db, mock_strategy):
+    async def test_generate_calendar_ai_error(self, service, mock_db, mock_strategy, mock_athlete):
         """Test gestion erreur IA."""
         reset_mocks(mock_db)
+        
+        # Mock _get_recent_activities pour retourner des activités connues
+        async def mock_get_recent_activities(limit=20):
+            return [{
+                "id": 1,
+                "sport_type": "running",
+                "activity_name": "Morning Run",
+                "started_at": "2026-01-15T08:00:00+00:00",
+                "duration_seconds": 3600,
+                "distance_m": 10000,
+                "elevation_gain_m": 100,
+                "avg_speed_m_s": 2.77,
+                "avg_pace_sec_km": 360,
+                "avg_heart_rate": 150,
+                "max_heart_rate": 170,
+                "avg_cadence": 170,
+                "calories": 500,
+            }]
+        service._get_recent_activities = mock_get_recent_activities
+        
+        athlete_result = MagicMock()
+        athlete_result.scalar_one_or_none.return_value = mock_athlete
+        strategy_result = MagicMock()
+        strategy_result.scalar_one_or_none.return_value = mock_strategy
+        
+        results = [athlete_result, athlete_result, strategy_result]
+        async def mock_execute_gen(q):
+            return results.pop(0)
+        mock_db.execute = mock_execute_gen
         
         from app.services.ai_gateway import AIGatewayError
         with patch('app.services.community_manager.service.ai_gateway') as mock_ai:
@@ -554,14 +623,43 @@ class TestCommunityManagerService:
                 await service.generate_calendar(request)
 
     @pytest.mark.asyncio
-    async def test_generate_calendar_invalid_ai_response(self, service, mock_db, mock_strategy):
+    async def test_generate_calendar_invalid_ai_response(self, service, mock_db, mock_strategy, mock_athlete):
         """Test réponse IA invalide (JSON malformé)."""
         reset_mocks(mock_db)
         
+        # Mock _get_recent_activities pour retourner des activités connues
+        async def mock_get_recent_activities(limit=20):
+            return [{
+                "id": 1,
+                "sport_type": "running",
+                "activity_name": "Morning Run",
+                "started_at": "2026-01-15T08:00:00+00:00",
+                "duration_seconds": 3600,
+                "distance_m": 10000,
+                "elevation_gain_m": 100,
+                "avg_speed_m_s": 2.77,
+                "avg_pace_sec_km": 360,
+                "avg_heart_rate": 150,
+                "max_heart_rate": 170,
+                "avg_cadence": 170,
+                "calories": 500,
+            }]
+        service._get_recent_activities = mock_get_recent_activities
+        
+        athlete_result = MagicMock()
+        athlete_result.scalar_one_or_none.return_value = mock_athlete
+        strategy_result = MagicMock()
+        strategy_result.scalar_one_or_none.return_value = mock_strategy
+        
+        results = [athlete_result, athlete_result, strategy_result]
+        async def mock_execute_gen(q):
+            return results.pop(0)
+        mock_db.execute = mock_execute_gen
+        
         with patch('app.services.community_manager.service.ai_gateway') as mock_ai:
-            mock_response = AsyncMock()
+            mock_response = MagicMock()
             mock_response.text = "Pas un JSON valide"
-            mock_ai.generate.return_value = mock_response
+            mock_ai.generate = AsyncMock(return_value=mock_response)
             
             request = CalendarGenerateRequest(count=2)
             
@@ -573,7 +671,7 @@ class TestCommunityManagerService:
         """Test qu'on ne peut pas générer pour un autre athlète."""
         reset_mocks(mock_db)
         # Override _get_athlete to return None
-        execute_athlete_none = AsyncMock()
+        execute_athlete_none = MagicMock()
         execute_athlete_none.scalar_one_or_none.return_value = None
         
         async def mock_execute_none(q):
@@ -586,7 +684,7 @@ class TestCommunityManagerService:
             await service.generate_calendar(request)
 
     @pytest.mark.asyncio
-    async def test_get_calendar(self, service, mock_db, mock_strategy):
+    async def test_get_calendar(self, service, mock_db, mock_strategy, mock_athlete):
         """Test récupération calendrier."""
         reset_mocks(mock_db, with_activities=False)
         
@@ -594,6 +692,7 @@ class TestCommunityManagerService:
             def __init__(self, id, topic, theme, objective, status):
                 self.id = id
                 self.strategy_id = 100
+                self.calendar_entry_id = id
                 self.date = date(2026, 1, 20) if id == 1 else date(2026, 1, 22)
                 self.topic = topic
                 self.theme = theme
@@ -601,22 +700,29 @@ class TestCommunityManagerService:
                 self.notes = f"Notes {id}"
                 self.hashtags = f"#test{id}"
                 self.status = status
+                self.content_type = "manuel"
+                self.source = "manuel"
                 self.created_at = datetime.now(timezone.utc)
                 self.updated_at = datetime.now(timezone.utc)
         
         entry1 = MockEntry(1, "Test 1", "running", "engagement", "brouillon")
         entry2 = MockEntry(2, "Test 2", "nutrition", "visibility", "planifié")
         
-        execute_strategy = AsyncMock()
+        execute_strategy = MagicMock()
         execute_strategy.scalar_one_or_none.return_value = mock_strategy
-        
-        calendar_result = AsyncMock()
+
+        athlete_result = MagicMock()
+        athlete_result.scalar_one_or_none.return_value = mock_athlete
+
+        calendar_result = MagicMock()
         calendar_result.scalars.return_value.all.return_value = [entry1, entry2]
-        
+
         call_count = {"count": 0}
         async def mock_execute_cal(q):
             call_count["count"] += 1
             if call_count["count"] == 1:
+                return athlete_result
+            elif call_count["count"] == 2:
                 return execute_strategy
             return calendar_result
         
@@ -637,27 +743,35 @@ class TestCommunityManagerService:
             def __init__(self):
                 self.id = 1
                 self.strategy_id = 100
+                self.date = date(2026, 1, 15)
                 self.topic = "Original"
                 self.theme = "running"
                 self.objective = "engagement"
                 self.notes = "Notes"
                 self.hashtags = "#test"
                 self.status = "brouillon"
+                self.content_type = "manuel"
+                self.source = "manuel"
                 self.created_at = datetime.now(timezone.utc)
                 self.updated_at = datetime.now(timezone.utc)
         
         entry = MockEntry()
         
-        execute_strategy = AsyncMock()
+        athlete_result = MagicMock()
+        athlete_result.scalar_one_or_none.return_value = MagicMock(id=10, user_id=1)
+        
+        execute_strategy = MagicMock()
         execute_strategy.scalar_one_or_none.return_value = mock_strategy
         
-        execute_entry = AsyncMock()
+        execute_entry = MagicMock()
         execute_entry.scalar_one_or_none.return_value = entry
         
         call_count = {"count": 0}
         async def mock_execute_upd(q):
             call_count["count"] += 1
             if call_count["count"] == 1:
+                return athlete_result
+            elif call_count["count"] == 2:
                 return execute_strategy
             return execute_entry
         
@@ -685,6 +799,8 @@ class TestCommunityManagerService:
                 self.notes = "Notes"
                 self.hashtags = "#test"
                 self.status = "brouillon"
+                self.content_type = "manuel"
+                self.source = "manuel"
                 self.created_at = datetime.now(timezone.utc)
                 self.updated_at = datetime.now(timezone.utc)
         
@@ -724,21 +840,28 @@ class TestCommunityManagerService:
                 self.notes = "Notes"
                 self.hashtags = "#test"
                 self.status = "brouillon"
+                self.content_type = "manuel"
+                self.source = "manuel"
                 self.created_at = datetime.now(timezone.utc)
                 self.updated_at = datetime.now(timezone.utc)
         
         entry = MockEntry()
         
-        execute_strategy = AsyncMock()
+        athlete_result = MagicMock()
+        athlete_result.scalar_one_or_none.return_value = MagicMock(id=10, user_id=1)
+        
+        execute_strategy = MagicMock()
         execute_strategy.scalar_one_or_none.return_value = mock_strategy
         
-        execute_entry = AsyncMock()
+        execute_entry = MagicMock()
         execute_entry.scalar_one_or_none.return_value = entry
         
         call_count = {"count": 0}
         async def mock_execute_forb(q):
             call_count["count"] += 1
             if call_count["count"] == 1:
+                return athlete_result
+            elif call_count["count"] == 2:
                 return execute_strategy
             return execute_entry
         
@@ -758,27 +881,35 @@ class TestCommunityManagerService:
             def __init__(self):
                 self.id = 1
                 self.strategy_id = 100
+                self.date = date(2026, 1, 15)
                 self.topic = "Original"
                 self.theme = "running"
                 self.objective = "engagement"
                 self.notes = "Notes"
                 self.hashtags = "#test"
                 self.status = "brouillon"
+                self.content_type = "manuel"
+                self.source = "manuel"
                 self.created_at = datetime.now(timezone.utc)
                 self.updated_at = datetime.now(timezone.utc)
         
         entry = MockEntry()
         
-        execute_strategy = AsyncMock()
+        athlete_result = MagicMock()
+        athlete_result.scalar_one_or_none.return_value = MagicMock(id=10, user_id=1)
+        
+        execute_strategy = MagicMock()
         execute_strategy.scalar_one_or_none.return_value = mock_strategy
         
-        execute_entry = AsyncMock()
+        execute_entry = MagicMock()
         execute_entry.scalar_one_or_none.return_value = entry
         
         call_count = {"count": 0}
         async def mock_execute_strat(q):
             call_count["count"] += 1
             if call_count["count"] == 1:
+                return athlete_result
+            elif call_count["count"] == 2:
                 return execute_strategy
             return execute_entry
         
@@ -799,19 +930,26 @@ class TestCommunityManagerService:
             def __init__(self):
                 self.id = 1
                 self.strategy_id = 100
+                self.content_type = "manuel"
+                self.source = "manuel"
         
         entry = MockEntry()
         
-        execute_strategy = AsyncMock()
+        athlete_result = MagicMock()
+        athlete_result.scalar_one_or_none.return_value = MagicMock(id=10, user_id=1)
+        
+        execute_strategy = MagicMock()
         execute_strategy.scalar_one_or_none.return_value = mock_strategy
         
-        execute_entry = AsyncMock()
+        execute_entry = MagicMock()
         execute_entry.scalar_one_or_none.return_value = entry
         
         call_count = {"count": 0}
         async def mock_execute_del(q):
             call_count["count"] += 1
             if call_count["count"] == 1:
+                return athlete_result
+            elif call_count["count"] == 2:
                 return execute_strategy
             return execute_entry
         
@@ -828,16 +966,21 @@ class TestCommunityManagerService:
         """Test suppression entrée inexistante."""
         reset_mocks(mock_db, with_activities=False)
         
-        execute_strategy = AsyncMock()
+        athlete_result = MagicMock()
+        athlete_result.scalar_one_or_none.return_value = MagicMock(id=10, user_id=1)
+        
+        execute_strategy = MagicMock()
         execute_strategy.scalar_one_or_none.return_value = mock_strategy
         
-        execute_entry = AsyncMock()
+        execute_entry = MagicMock()
         execute_entry.scalar_one_or_none.return_value = None
         
         call_count = {"count": 0}
         async def mock_execute_nf(q):
             call_count["count"] += 1
             if call_count["count"] == 1:
+                return athlete_result
+            elif call_count["count"] == 2:
                 return execute_strategy
             return execute_entry
         
@@ -957,7 +1100,7 @@ class TestUserIsolation:
         service1 = CommunityManagerService(mock_db, user1)
         
         # Mock: user1 essaie d'accéder à l'athlète 20
-        execute_athlete_none = AsyncMock()
+        execute_athlete_none = MagicMock()
         execute_athlete_none.scalar_one_or_none.return_value = None
         
         async def mock_execute_none(q):
@@ -984,7 +1127,7 @@ class TestUserIsolation:
         service1 = CommunityManagerService(mock_db, user1)
         
         # Mock: user1 essaie de générer pour athlete_id=20
-        execute_athlete_none = AsyncMock()
+        execute_athlete_none = MagicMock()
         execute_athlete_none.scalar_one_or_none.return_value = None
         
         async def mock_execute_none(q):

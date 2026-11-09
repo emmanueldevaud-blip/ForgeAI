@@ -149,19 +149,6 @@ export function publicationPhotoUrl(id, size = 'medium') {
   return `/photos/${id}/file?size=${encodeURIComponent(size)}`;
 }
 
-export async function getInstagramConnectionStatus() {
-  return sportApi.get('/publications/meta/status');
-}
-
-export async function connectInstagram(athleteId = null) {
-  const query = athleteId ? `?athlete_id=${encodeURIComponent(athleteId)}` : '';
-  return sportApi.get(`/publications/meta/auth${query}`);
-}
-
-export async function disconnectInstagram() {
-  return sportApi.delete('/publications/meta');
-}
-
 // --------------------------------------------------------------------------- #
 // Community Manager IA (V1)
 // --------------------------------------------------------------------------- #
@@ -277,4 +264,36 @@ export async function generateStudioDraftText(publicationId, data) {
 // V3 : Photos suggérées liées aux activités Garmin et dates
 export async function getSuggestedPhotos(publicationId, limit = 15) {
   return cmApi.get(`/community-manager/studio/draft/${encodeURIComponent(publicationId)}/suggested-photos`, { params: { limit } });
+}
+
+// --------------------------------------------------------------------------- #
+// Community Manager V4 - Calendrier mensuel/hebdomadaire + Suggestions
+// --------------------------------------------------------------------------- #
+
+export async function getMonthCalendar(year, month) {
+  return cmApi.get(`/community-manager/calendar/month?year=${encodeURIComponent(year)}&month=${encodeURIComponent(month)}`);
+}
+
+export async function getWeekCalendar(monday) {
+  return cmApi.get(`/community-manager/calendar/week?monday=${encodeURIComponent(monday)}`);
+}
+
+export async function generateSuggestions() {
+  return cmApi.post('/community-manager/suggestions/generate', {});
+}
+
+export async function acceptSuggestion(entryId) {
+  return cmApi.post(`/community-manager/suggestions/${encodeURIComponent(entryId)}/accept`);
+}
+
+export async function refuseSuggestion(entryId) {
+  return cmApi.post(`/community-manager/suggestions/${encodeURIComponent(entryId)}/refuse`);
+}
+
+export async function rescheduleSuggestion(entryId, newDate) {
+  return cmApi.post(`/community-manager/suggestions/${encodeURIComponent(entryId)}/reschedule?new_date=${encodeURIComponent(newDate)}`);
+}
+
+export async function regeneratePublicationContent(publicationId) {
+  return cmApi.post(`/community-manager/studio/draft/${encodeURIComponent(publicationId)}/regenerate`);
 }

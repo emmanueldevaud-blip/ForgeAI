@@ -15,7 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.core.config import get_settings
-from app.models.sport import SportActivity, SportAthlete, SportGarminConnection, SportGarminSyncLog, SportHealthDaily, SportTrackPoint
+from app.models.sport import SportActivity, SportAthlete, SportGarminConnection, SportGarminSyncLog, SportHealthDaily, SportTrackPoint, SportPublication, EditorialCalendarEntry, CommunityManagerStrategy
 from app.services.sport_normalizer import SportNormalizer
 
 logger = logging.getLogger(__name__)
@@ -126,6 +126,160 @@ class SportGarminConnectService:
         await self.db.commit()
         return True
 
+    async def _create_publication_records_for_new_activities(
+        self, athlete: SportAthlete
+    ) -> list[tuple[SportActivity, EditorialCalendarEntry, SportPublication]]:
+        """Crée les enregistrements en base pour les activités Garmin sans publication.
+
+        Idempotent : vérifie à la fois l'absence de SportPublication ET
+        d'EditorialCalendarEntry liée à l'activité. Les deux enregistrements
+        sont créés dans une même transaction pour éviter une publication
+        orpheline. Retourne la liste (activité, entrée calendrier, publication)
+        créée, pour génération de contenu ultérieure.
+        """
+        from sqlalchemy import select
+
+        result = await self.db.execute(
+            select(SportActivity)
+            .where(
+                SportActivity.athlete_id == athlete.id,
+                SportActivity.source_type == "garmin",
+            )
+            .order_by(SportActivity.started_at.desc())
+        )
+        activities = result.scalars().all()
+
+        created: list[tuple[SportActivity, EditorialCalendarEntry, SportPublication]] = []
+
+        # Récupérer une stratégie existante pour lier les entrées (optionnel)
+        strategy_result = await self.db.execute(
+            select(CommunityManagerStrategy).where(
+                CommunityManagerStrategy.athlete_id == athlete.id
+            )
+        )
+        strategy = strategy_result.scalar_one_or_none()
+
+        for activity in activities:
+            # Idempotence : une publication existe déjà pour cette activité
+            existing_pub = await self.db.execute(
+                select(SportPublication).where(SportPublication.activity_id == activity.id)
+            )
+            if existing_pub.scalar_one_or_none() is not None:
+                continue
+
+            # Idempotence : une entrée calendrier existe déjà pour cette activité
+            existing_entry = await self.db.execute(
+                select(EditorialCalendarEntry).where(
+                    EditorialCalendarEntry.source_activity_id == activity.id,
+                    EditorialCalendarEntry.source == "garmin",
+                )
+            )
+            if existing_entry.scalar_one_or_none() is not None:
+                continue
+
+            title = activity.activity_name or activity.sport_type or "Sortie sportive"
+
+            # Entrée calendrier (créée d'abord pour lier la publication)
+            entry = EditorialCalendarEntry(
+                strategy_id=strategy.id if strategy else None,
+                date=activity.started_at.date(),
+                topic=title,
+                theme=None,
+                objective=None,
+                notes=f"Générée automatiquement depuis l'activité Garmin {activity.external_id}.",
+                hashtags=None,
+                status="brouillon",
+                content_type="publication_sportive",
+                source="garmin",
+                source_activity_id=activity.id,
+                photo_id=None,
+            )
+            self.db.add(entry)
+            await self.db.flush()
+
+            # Publication brouillon liée à l'entrée et à l'activité
+            pub = SportPublication(
+                athlete_id=athlete.id,
+                activity_id=activity.id,
+                calendar_entry_id=entry.id,
+                status="draft",
+                content_type="publication_sportive",
+                source="garmin",
+                title=title,
+                content=None,
+                hashtags=None,
+                photo_id=None,
+                visual_type="card",
+            )
+            self.db.add(pub)
+            await self.db.flush()
+
+            created.append((activity, entry, pub))
+
+        if created:
+            await self.db.commit()
+            for activity, entry, pub in created:
+                await self.db.refresh(activity)
+                await self.db.refresh(entry)
+                await self.db.refresh(pub)
+        return created
+
+    async def _generate_content_for_publication(
+        self, pub: SportPublication, activity: SportActivity, current_user
+    ) -> None:
+        """Génère le contenu IA d'une publication (titre, texte, hashtags, visuel).
+
+        Ne bloque jamais l'appelant : en cas d'échec, l'erreur est enregistrée
+        sur la publication qui reste en brouillon, relançable depuis le Studio.
+        """
+        from app.services.sport_publications import SportPublicationService
+        from app.schemas.sport import SportPublicationGenerateRequest
+
+        try:
+            pub_service = SportPublicationService(self.db, current_user)
+            await pub_service.generate(
+                activity.id,
+                SportPublicationGenerateRequest(styles=["stats"]),
+            )
+            # Marquer la génération comme réussie (erreur effacée si nouvelle tentative)
+            pub.error_message = None
+            pub.failed_at = None
+            await self.db.commit()
+        except Exception as exc:
+            logger.exception("[GARMIN] Génération IA échouée pour activité %s", activity.id)
+            pub.error_message = f"Génération IA échouée : {exc}"
+            pub.failed_at = datetime.now(timezone.utc)
+            await self.db.commit()
+
+    async def regenerate_publication_content(
+        self, publication_id: int, current_user
+    ) -> SportPublication | None:
+        """Relance la génération de contenu pour une publication existante.
+
+        Utilisé pour la reprise après un échec IA.
+        """
+        from sqlalchemy import select
+
+        result = await self.db.execute(
+            select(SportPublication).where(SportPublication.id == publication_id)
+        )
+        pub = result.scalar_one_or_none()
+        if pub is None:
+            return None
+
+        activity = await self.db.execute(
+            select(SportActivity).where(SportActivity.id == pub.activity_id)
+        )
+        activity = activity.scalar_one_or_none()
+        if activity is None:
+            return None
+
+        await self._generate_content_for_publication(pub, activity, current_user)
+        await self.db.refresh(pub)
+        return pub
+
+
+
     async def sync_for_athlete(self, athlete: SportAthlete, full_history: bool = False) -> dict:
         async with self._sync_lock:
             connection = await self.get_connection(athlete)
@@ -213,9 +367,35 @@ class SportGarminConnectService:
             log.updated_count = updated
             log.finished_at = datetime.now(timezone.utc)
             await self.db.commit()
+
+            # Créer les enregistrements de publication pour les nouvelles activités Garmin
             try:
-                # Les données de santé sont optionnelles : un échec ne remet jamais
-                # en cause la synchronisation des activités déjà enregistrées.
+                created = await self._create_publication_records_for_new_activities(athlete)
+                if created:
+                    logger.info(
+                        "[GARMIN] %s enregistrements de publication créés pour l'athlète %s",
+                        len(created), athlete.id,
+                    )
+                    # Génération du contenu IA (séparée, ne bloque pas la sync)
+                    from app.models.user import User
+
+                    user = await self.db.get(User, athlete.user_id)
+                    if user is not None:
+                        for activity, entry, pub in created:
+                            try:
+                                await self._generate_content_for_publication(
+                                    pub, activity, user
+                                )
+                            except Exception:
+                                # Une génération qui échoue ne bloque pas les autres
+                                logger.exception(
+                                    "[GARMIN] Génération IA échouée pour activité %s (reprise possible)",
+                                    activity.id,
+                                )
+            except Exception:
+                logger.exception("[GARMIN] Échec création enregistrements de publication (activités conservées)")
+
+            try:
                 await self._sync_health(client, athlete)
                 await self.db.commit()
             except Exception:

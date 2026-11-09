@@ -15,7 +15,6 @@ from app.models.sport import (
     SportActivity,
     SportAthlete,
     SportPublication,
-    SportInstagramConnection,
 )
 from app.models.user import User
 from app.schemas.sport import (
@@ -132,7 +131,7 @@ class TestMetaPublishService:
 
     @pytest.fixture
     def mock_connection(self):
-        conn = MagicMock(spec=SportInstagramConnection)
+        conn = MagicMock()
         conn.id = 1
         conn.user_id = 1
         conn.instagram_business_account_id = "17841400000000000"
@@ -610,6 +609,12 @@ class TestCommunityManagerStudioServicePublish:
             mock_meta_service = MagicMock()
             mock_meta_service.publish_photo = AsyncMock(return_value="media_123")
             mock_meta_service.get_media_permalink = AsyncMock(return_value="https://instagram.com/p/abc123")
+            # Jalon 2 : la résolution de la source passe par le service (config centralisée
+            # en priorité, connexion OAuth en repli) — voir resolve_publish_context.
+            resolved_conn = MagicMock()
+            resolved_conn.instagram_business_account_id = "17841400000000000"
+            resolved_conn.encrypted_long_lived_token = "encrypted_token"
+            mock_meta_service.resolve_publish_context = AsyncMock(return_value=resolved_conn)
             MockMetaService.return_value = mock_meta_service
             
             # Mock _decrypt_token
@@ -658,8 +663,8 @@ class TestCommunityManagerStudioServicePublish:
             await service.publish_to_instagram(1, MagicMock(confirm=True))
 
     @pytest.mark.asyncio
-    async def test_publish_to_instagram_no_connection(self, service, mock_db):
-        """Test publication refusée si pas de connexion Instagram."""
+    async def test_publish_to_instagram_no_config(self, service, mock_db):
+        """Test publication refusée si aucune source Meta n'est configurée."""
         pub = MagicMock()
         pub.id = 1
         pub.athlete_id = 10
@@ -676,8 +681,8 @@ class TestCommunityManagerStudioServicePublish:
         mock_athlete = MagicMock(id=10, user_id=1)
         mock_strategy = MagicMock(athlete_id=10)
 
-        # Mock the database to return None for Instagram connection queries
-        # but valid results for other queries
+        # Mock the database : aucune clé de configuration Meta trouvée,
+        # mais des résultats valides pour les autres requêtes
         async def mock_execute(query):
             query_str = str(query).lower()
             result = MagicMock()
@@ -693,8 +698,8 @@ class TestCommunityManagerStudioServicePublish:
                 )
             elif "photo" in query_str and "id" in query_str:
                 result.scalar_one_or_none.return_value = MagicMock(id=123, owner_id=1)
-            elif "sport_instagram_connection" in query_str or "instagram" in query_str:
-                # Return None for Instagram connection queries
+            elif "meta_access_token" in query_str or "instagram" in query_str:
+                # Aucune configuration Meta de publication enregistrée
                 result.scalar_one_or_none.return_value = None
             else:
                 result.scalar_one_or_none.return_value = MagicMock(id=123, owner_id=1)
@@ -707,7 +712,7 @@ class TestCommunityManagerStudioServicePublish:
             mock_media_service.prepare_media_for_publish = AsyncMock(return_value="https://example.com/photo.jpg?meta_token=abc")
             MockMediaService.return_value = mock_media_service
 
-            with pytest.raises(ValueError, match="Aucun compte Instagram connecté"):
+            with pytest.raises(ValueError, match="Aucune source de publication Instagram"):
                 await service.publish_to_instagram(1, MagicMock(confirm=True))
 
 

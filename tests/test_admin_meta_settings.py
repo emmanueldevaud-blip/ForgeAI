@@ -4,7 +4,6 @@ import httpx
 import pytest
 from sqlalchemy import select
 
-from app.core.config import get_settings
 from app.models.module import Module, ModuleConfig, ModuleStatus
 
 
@@ -30,7 +29,6 @@ async def administration_module(db_session):
         await db_session.commit()
     return module
 
-
 def payload(**overrides):
     body = {
         "app_id": "",
@@ -41,7 +39,6 @@ def payload(**overrides):
     body.update(overrides)
     return body
 
-
 async def test_get_meta_settings_returns_empty_by_default(client, admin_headers):
     response = await client.get("/admin/settings/meta", headers=admin_headers)
 
@@ -50,7 +47,9 @@ async def test_get_meta_settings_returns_empty_by_default(client, admin_headers)
     assert data["app_id"] == ""
     assert data["app_secret_configured"] is False
     assert data["redirect_uri"] == ""
-
+    assert data["access_token_configured"] is False
+    assert data["client_business_id"] == ""
+    assert data["instagram_user_id"] == ""
 
 async def test_put_meta_settings_persists_and_masks_secret(client, admin_headers, db_session):
     response = await client.put(
@@ -73,6 +72,58 @@ async def test_put_meta_settings_persists_and_masks_secret(client, admin_headers
     assert config.is_secret is True
     assert config.value == "super-secret"
 
+async def test_put_meta_settings_persists_business_and_instagram_ids(client, admin_headers):
+    response = await client.put(
+        "/admin/settings/meta",
+        json=payload(
+            app_id="123456",
+            app_secret="super-secret",
+            redirect_uri="https://example.com/cb",
+            config_id="cfg-123",
+            access_token="SUAT-PLAINTEXT-TOKEN",
+            client_business_id="bus-456",
+            instagram_user_id="ig-789",
+        ),
+        headers=admin_headers,
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["access_token_configured"] is True
+    assert data["client_business_id"] == "bus-456"
+    assert data["instagram_user_id"] == "ig-789"
+    assert "SUAT-PLAINTEXT-TOKEN" not in response.text
+
+async def test_put_meta_settings_encrypts_access_token(client, admin_headers, db_session):
+    """Le jeton SUAT est chiffré en base (Fernet) et jamais exposé en clair dans la réponse."""
+    response = await client.put(
+        "/admin/settings/meta",
+        json=payload(app_id="123456", app_secret="super-secret", redirect_uri="https://example.com/cb", config_id="cfg-123"),
+        headers=admin_headers,
+    )
+    assert response.status_code == 200
+
+    response = await client.put(
+        "/admin/settings/meta",
+        json=payload(
+            app_id="123456",
+            app_secret="super-secret",
+            redirect_uri="https://example.com/cb",
+            config_id="cfg-123",
+            access_token="SUAT-PLAINTEXT-TOKEN",
+        ),
+        headers=admin_headers,
+    )
+    assert response.status_code == 200
+    assert response.json()["access_token_configured"] is True
+    assert "SUAT-PLAINTEXT-TOKEN" not in response.text
+
+    result = await db_session.execute(select(ModuleConfig).where(ModuleConfig.key == "meta_access_token"))
+    config = result.scalar_one()
+    assert config.is_secret is True
+    from app.services.sport_instagram import _decrypt_token
+
+    assert _decrypt_token(config.value) == "SUAT-PLAINTEXT-TOKEN"
 
 async def test_put_with_empty_secret_preserves_existing(client, admin_headers):
     first = await client.put(
@@ -91,6 +142,25 @@ async def test_put_with_empty_secret_preserves_existing(client, admin_headers):
     assert second.status_code == 200
     assert second.json()["app_secret_configured"] is True
 
+async def test_put_with_empty_access_token_preserves_existing(client, admin_headers, db_session):
+    first = await client.put(
+        "/admin/settings/meta",
+        json=payload(app_id="123456", app_secret="first-secret", access_token="SUAT-FIRST"),
+        headers=admin_headers,
+    )
+    assert first.status_code == 200
+
+    second = await client.put(
+        "/admin/settings/meta",
+        json=payload(app_id="123456", app_secret="", access_token=""),
+        headers=admin_headers,
+    )
+
+    assert second.status_code == 200
+    assert second.json()["access_token_configured"] is True
+
+    result = await db_session.execute(select(ModuleConfig).where(ModuleConfig.key == "meta_access_token"))
+    assert result.scalar_one().value is not None
 
 async def test_meta_settings_requires_permission(client, auth_headers):
     response = await client.get("/admin/settings/meta", headers=auth_headers)
@@ -98,51 +168,6 @@ async def test_meta_settings_requires_permission(client, auth_headers):
 
     response = await client.put("/admin/settings/meta", json=payload(), headers=auth_headers)
     assert response.status_code == 403
-
-
-async def test_meta_status_uses_db_values_over_env(client, admin_headers, monkeypatch):
-    """Les valeurs en DB priment sur l'environnement (overlay DB > env)."""
-    saved = await client.put(
-        "/admin/settings/meta",
-        json=payload(app_id="db-app-id", app_secret="db-secret", redirect_uri="https://example.com/cb", config_id="cfg-db"),
-        headers=admin_headers,
-    )
-    assert saved.status_code == 200
-
-    settings = get_settings()
-    monkeypatch.setattr(settings, "META_APP_ID", "", raising=False)
-    monkeypatch.setattr(settings, "META_APP_SECRET", "", raising=False)
-    monkeypatch.setattr(settings, "META_CONFIG_ID", "", raising=False)
-
-    response = await client.get("/sport/publications/meta/status", headers=admin_headers)
-
-    assert response.status_code == 200
-    assert response.json()["configured"] is True
-
-
-async def test_meta_auth_builds_url_from_db_values(client, admin_headers, monkeypatch):
-    saved = await client.put(
-        "/admin/settings/meta",
-        json=payload(app_id="db-app-id", app_secret="db-secret", redirect_uri="https://example.com/cb", config_id="cfg-db"),
-        headers=admin_headers,
-    )
-    assert saved.status_code == 200
-
-    settings = get_settings()
-    monkeypatch.setattr(settings, "META_APP_ID", "", raising=False)
-    monkeypatch.setattr(settings, "META_APP_SECRET", "", raising=False)
-    monkeypatch.setattr(settings, "META_REDIRECT_URI", "", raising=False)
-    monkeypatch.setattr(settings, "META_CONFIG_ID", "", raising=False)
-
-    response = await client.get("/sport/publications/meta/auth?athlete_id=1", headers=admin_headers)
-
-    assert response.status_code == 200
-    body = response.json()
-    assert "www.facebook.com/dialog/oauth" in body["authorize_url"]
-    assert "client_id=db-app-id" in body["authorize_url"]
-    assert "config_id=cfg-db" in body["authorize_url"]
-    assert "redirect_uri=https%3A%2F%2Fexample.com%2Fcb" in body["authorize_url"]
-
 
 async def test_meta_settings_returns_config_id(client, admin_headers):
     response = await client.put(
@@ -154,98 +179,6 @@ async def test_meta_settings_returns_config_id(client, admin_headers):
     data = response.json()
     assert data["config_id"] == "cfg-456"
 
-
-async def test_meta_auth_builds_url_with_config_id(client, admin_headers, monkeypatch):
-    """Unified Login : l'URL passe par facebook.com avec le Configuration ID."""
-    saved = await client.put(
-        "/admin/settings/meta",
-        json=payload(
-            app_id="db-app-id",
-            app_secret="db-secret",
-            redirect_uri="https://example.com/cb",
-            config_id="cfg-123",
-        ),
-        headers=admin_headers,
-    )
-    assert saved.status_code == 200
-
-    settings = get_settings()
-    monkeypatch.setattr(settings, "META_APP_ID", "", raising=False)
-    monkeypatch.setattr(settings, "META_APP_SECRET", "", raising=False)
-    monkeypatch.setattr(settings, "META_REDIRECT_URI", "", raising=False)
-    monkeypatch.setattr(settings, "META_CONFIG_ID", "", raising=False)
-
-    response = await client.get("/sport/publications/meta/auth?athlete_id=1", headers=admin_headers)
-
-    assert response.status_code == 200
-    body = response.json()
-    assert "www.facebook.com/dialog/oauth" in body["authorize_url"]
-    assert "client_id=db-app-id" in body["authorize_url"]
-    assert "config_id=cfg-123" in body["authorize_url"]
-    assert "response_type=code" in body["authorize_url"]
-    # Les permissions sont definies par la configuration, pas par un parametre scope
-    assert "scope=" not in body["authorize_url"]
-    assert "www.instagram.com" not in body["authorize_url"]
-
-
-async def test_meta_auth_requires_config_id(client, admin_headers, monkeypatch):
-    """Unified Login : sans Configuration ID, l'autorisation est refusee (503)."""
-    saved = await client.put(
-        "/admin/settings/meta",
-        json=payload(app_id="db-app-id", app_secret="db-secret", redirect_uri="https://example.com/cb"),
-        headers=admin_headers,
-    )
-    assert saved.status_code == 200
-
-    settings = get_settings()
-    monkeypatch.setattr(settings, "META_APP_ID", "", raising=False)
-    monkeypatch.setattr(settings, "META_APP_SECRET", "", raising=False)
-    monkeypatch.setattr(settings, "META_REDIRECT_URI", "", raising=False)
-    monkeypatch.setattr(settings, "META_CONFIG_ID", "", raising=False)
-
-    response = await client.get("/sport/publications/meta/auth?athlete_id=1", headers=admin_headers)
-
-    assert response.status_code == 503
-    assert "Configuration ID" in response.json()["detail"]
-
-
-async def test_meta_status_requires_config_id(client, admin_headers, monkeypatch):
-    """Sans Configuration ID, la connexion est annoncee non configurée."""
-    saved = await client.put(
-        "/admin/settings/meta",
-        json=payload(app_id="db-app-id", app_secret="db-secret", redirect_uri="https://example.com/cb"),
-        headers=admin_headers,
-    )
-    assert saved.status_code == 200
-
-    settings = get_settings()
-    monkeypatch.setattr(settings, "META_CONFIG_ID", "", raising=False)
-
-    response = await client.get("/sport/publications/meta/status", headers=admin_headers)
-
-    assert response.status_code == 200
-    body = response.json()
-    assert body["configured"] is False
-    assert body["status"] == "not_configured"
-
-
-async def test_meta_status_falls_back_to_env_when_db_empty(client, admin_headers, monkeypatch):
-    settings = get_settings()
-    monkeypatch.setattr(settings, "META_APP_ID", "env-app-id", raising=False)
-    monkeypatch.setattr(settings, "META_APP_SECRET", "env-secret", raising=False)
-    monkeypatch.setattr(settings, "META_CONFIG_ID", "env-cfg", raising=False)
-
-    response = await client.get("/sport/publications/meta/status", headers=admin_headers)
-
-    assert response.status_code == 200
-    assert response.json()["configured"] is True
-
-
-# ============================================================
-# TEST DE CONNEXION (POST /admin/settings/meta/test)
-# ============================================================
-
-
 def _mock_meta_client(monkeypatch, handler):
     """Remplace httpx.AsyncClient par un client MockTransport (API Meta factice)."""
     real_async_client = httpx.AsyncClient
@@ -256,15 +189,14 @@ def _mock_meta_client(monkeypatch, handler):
 
     monkeypatch.setattr("app.api.admin.httpx.AsyncClient", factory)
 
-
 async def test_meta_test_requires_saved_config(client, admin_headers):
     response = await client.post("/admin/settings/meta/test", json={}, headers=admin_headers)
 
     assert response.status_code == 400
     assert "App ID" in response.json()["detail"]
 
-
-async def test_meta_test_success_validates_saved_credentials(client, admin_headers, monkeypatch):
+async def test_meta_test_no_token_returns_diagnostic(client, admin_headers, monkeypatch):
+    """Sans jeton enrolé : diagnostic complet des identifiants, puis étape token 'skip'."""
     saved = await client.put(
         "/admin/settings/meta",
         json=payload(app_id="test-app-id", app_secret="test-secret"),
@@ -272,12 +204,7 @@ async def test_meta_test_success_validates_saved_credentials(client, admin_heade
     )
     assert saved.status_code == 200
 
-    seen = {}
-
     def handler(request: httpx.Request) -> httpx.Response:
-        seen["url"] = str(request.url)
-        seen["client_id"] = request.url.params.get("client_id")
-        seen["client_secret"] = request.url.params.get("client_secret")
         return httpx.Response(
             200,
             json={"access_token": "app-token", "token_type": "bearer"},
@@ -289,15 +216,219 @@ async def test_meta_test_success_validates_saved_credentials(client, admin_heade
     response = await client.post("/admin/settings/meta/test", json={}, headers=admin_headers)
 
     assert response.status_code == 200
-    assert "validée" in response.json()["message"]
-    assert "test-app-id" in response.json()["message"]
-    # Les identifiants enregistrés en DB sont bien ceux envoyés à Meta.
-    assert seen["client_id"] == "test-app-id"
-    assert seen["client_secret"] == "test-secret"
-    assert "graph.facebook.com" in seen["url"]
-    # Le secret ne doit jamais figurer dans la réponse.
+    data = response.json()
+    assert data["status"] == "no_token"
+    assert data["access_token_configured"] is False
+    assert data["configured"] is True
+    assert len(data["steps"]) == 2
+    assert data["steps"][0]["key"] == "app_credentials"
+    assert data["steps"][0]["status"] == "ok"
+    assert data["steps"][1]["key"] == "access_token"
+    assert data["steps"][1]["status"] == "skipped"
+    assert "validée" in data["message"]
+    assert "test-app-id" in data["message"]
     assert "test-secret" not in response.text
 
+async def test_meta_test_valid_token_returns_operational(client, admin_headers, monkeypatch):
+    saved = await client.put(
+        "/admin/settings/meta",
+        json=payload(
+            app_id="test-app-id",
+            app_secret="test-secret",
+            config_id="cfg-123",
+            access_token="SUAT-PLAINTEXT-TOKEN",
+            client_business_id="bus-456",
+            instagram_user_id="ig-789",
+        ),
+        headers=admin_headers,
+    )
+    assert saved.status_code == 200
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        path = request.url.path
+        if path.endswith("/oauth/access_token"):
+            if request.url.params.get("grant_type") == "client_credentials":
+                return httpx.Response(200, json={"access_token": "app-token"}, request=request)
+            return httpx.Response(200, json={"access_token": "long-token"}, request=request)
+        if path.endswith("/me"):
+            return httpx.Response(200, json={"id": "suat-1", "client_business_id": "bus-456"}, request=request)
+        if path.endswith("/me/assigned_instagram_accounts"):
+            return httpx.Response(
+                200,
+                json={"data": [{"id": "ig-789", "username": "athlete789"}]},
+                request=request,
+            )
+        return httpx.Response(404, json={"error": {"message": "not_found"}}, request=request)
+
+    _mock_meta_client(monkeypatch, handler)
+
+    response = await client.post("/admin/settings/meta/test", json={}, headers=admin_headers)
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["status"] == "operational"
+    assert "validée" in data["message"]
+    assert data["access_token_configured"] is True
+    assert data["client_business_id"] == "bus-456"
+    assert data["instagram_user_id"] == "ig-789"
+    assert data["instagram_username"] == "athlete789"
+    assert len(data["steps"]) == 3
+    assert data["steps"][0]["status"] == "ok"
+    assert data["steps"][1]["status"] == "ok"
+    assert data["steps"][2]["status"] == "ok"
+    assert "test-secret" not in response.text
+    assert "SUAT-PLAINTEXT-TOKEN" not in response.text
+
+async def test_meta_test_expired_token_returns_token_expired(client, admin_headers, monkeypatch):
+    saved = await client.put(
+        "/admin/settings/meta",
+        json=payload(app_id="test-app-id", app_secret="test-secret", access_token="SUAT-EXPIRED"),
+        headers=admin_headers,
+    )
+    assert saved.status_code == 200
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        path = request.url.path
+        if path.endswith("/oauth/access_token"):
+            if request.url.params.get("grant_type") == "client_credentials":
+                return httpx.Response(200, json={"access_token": "app-token"}, request=request)
+            return httpx.Response(200, json={"access_token": "long-token"}, request=request)
+        if path.endswith("/me"):
+            return httpx.Response(
+                400,
+                json={"error": {"message": "Error validating access token: Session expired", "type": "OAuthException", "code": 190}},
+                request=request,
+            )
+        return httpx.Response(404, json={"error": {"message": "not_found"}}, request=request)
+
+    _mock_meta_client(monkeypatch, handler)
+
+    response = await client.post("/admin/settings/meta/test", json={}, headers=admin_headers)
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["status"] == "token_expired"
+    assert data["access_token_configured"] is True
+    assert data["steps"][1]["status"] == "error"
+    assert "expir" in data["steps"][1]["detail"]
+
+async def test_meta_test_invalid_token_returns_token_invalid(client, admin_headers, monkeypatch):
+    saved = await client.put(
+        "/admin/settings/meta",
+        json=payload(app_id="test-app-id", app_secret="test-secret", access_token="SUAT-BAD"),
+        headers=admin_headers,
+    )
+    assert saved.status_code == 200
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        path = request.url.path
+        if path.endswith("/oauth/access_token"):
+            if request.url.params.get("grant_type") == "client_credentials":
+                return httpx.Response(200, json={"access_token": "app-token"}, request=request)
+            return httpx.Response(200, json={"access_token": "long-token"}, request=request)
+        if path.endswith("/me"):
+            return httpx.Response(
+                400,
+                json={"error": {"message": "Error validating access token: invalid", "type": "OAuthException", "code": 190}},
+                request=request,
+            )
+        return httpx.Response(404, json={"error": {"message": "not_found"}}, request=request)
+
+    _mock_meta_client(monkeypatch, handler)
+
+    response = await client.post("/admin/settings/meta/test", json={}, headers=admin_headers)
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["status"] == "token_invalid"
+    assert data["steps"][1]["status"] == "error"
+
+async def test_meta_test_unreadable_token_returns_token_unreadable(client, admin_headers, db_session, monkeypatch):
+    saved = await client.put(
+        "/admin/settings/meta",
+        json=payload(app_id="test-app-id", app_secret="test-secret", access_token="SUAT-PLAINTEXT-TOKEN"),
+        headers=admin_headers,
+    )
+    assert saved.status_code == 200
+
+    # Corrompre le jeton en base pour forcer un echec de dechiffrement.
+    result = await db_session.execute(select(ModuleConfig).where(ModuleConfig.key == "meta_access_token"))
+    config = result.scalar_one()
+    config.value = "not-a-fernet-token"
+    await db_session.commit()
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"access_token": "app-token"}, request=request)
+
+    _mock_meta_client(monkeypatch, handler)
+
+    response = await client.post("/admin/settings/meta/test", json={}, headers=admin_headers)
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["status"] == "token_unreadable"
+    assert data["steps"][1]["status"] == "error"
+
+async def test_meta_test_business_mismatch_returns_partial(client, admin_headers, monkeypatch):
+    saved = await client.put(
+        "/admin/settings/meta",
+        json=payload(app_id="test-app-id", app_secret="test-secret", access_token="SUAT-PLAINTEXT-TOKEN", client_business_id="bus-999"),
+        headers=admin_headers,
+    )
+    assert saved.status_code == 200
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        path = request.url.path
+        if path.endswith("/oauth/access_token"):
+            if request.url.params.get("grant_type") == "client_credentials":
+                return httpx.Response(200, json={"access_token": "app-token"}, request=request)
+            return httpx.Response(200, json={"access_token": "long-token"}, request=request)
+        if path.endswith("/me"):
+            return httpx.Response(200, json={"id": "suat-1", "client_business_id": "bus-456"}, request=request)
+        return httpx.Response(404, json={"error": {"message": "not_found"}}, request=request)
+
+    _mock_meta_client(monkeypatch, handler)
+
+    response = await client.post("/admin/settings/meta/test", json={}, headers=admin_headers)
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["status"] == "partial"
+    assert data["client_business_id"] == "bus-456"
+    business_step = data["steps"][1]
+    assert business_step["status"] == "warning"
+    assert "bus-999" in (business_step["detail"] or "")
+
+async def test_meta_test_instagram_id_not_shared_returns_partial(client, admin_headers, monkeypatch):
+    saved = await client.put(
+        "/admin/settings/meta",
+        json=payload(app_id="test-app-id", app_secret="test-secret", access_token="SUAT-PLAINTEXT-TOKEN", instagram_user_id="ig-404"),
+        headers=admin_headers,
+    )
+    assert saved.status_code == 200
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        path = request.url.path
+        if path.endswith("/oauth/access_token"):
+            if request.url.params.get("grant_type") == "client_credentials":
+                return httpx.Response(200, json={"access_token": "app-token"}, request=request)
+            return httpx.Response(200, json={"access_token": "long-token"}, request=request)
+        if path.endswith("/me"):
+            return httpx.Response(200, json={"id": "suat-1", "client_business_id": "bus-456"}, request=request)
+        if path.endswith("/me/assigned_instagram_accounts"):
+            return httpx.Response(200, json={"data": [{"id": "ig-789", "username": "athlete789"}]}, request=request)
+        return httpx.Response(404, json={"error": {"message": "not_found"}}, request=request)
+
+    _mock_meta_client(monkeypatch, handler)
+
+    response = await client.post("/admin/settings/meta/test", json={}, headers=admin_headers)
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["status"] == "partial"
+    ig_step = data["steps"][2]
+    assert ig_step["status"] == "error"
+    assert "ig-404" in (ig_step["detail"] or "")
 
 async def test_meta_test_invalid_credentials_returns_502(client, admin_headers, monkeypatch):
     saved = await client.put(
@@ -320,7 +451,6 @@ async def test_meta_test_invalid_credentials_returns_502(client, admin_headers, 
 
     assert response.status_code == 502
     assert "Invalid client_id" in response.json()["detail"]
-
 
 async def test_meta_test_requires_permission(client, auth_headers):
     response = await client.post("/admin/settings/meta/test", json={}, headers=auth_headers)

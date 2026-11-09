@@ -180,7 +180,6 @@ __all__ = [
     "SportGarminConnection",
     "SportGarminSyncLog",
     "SportPublication",
-    "SportInstagramConnection",
     "CommunityManagerStrategy",
     "EditorialCalendarEntry",
     "WorkOrderPart",

@@ -2,18 +2,15 @@
 
 import asyncio
 import logging
-from datetime import datetime, timezone
 from typing import Optional
 
 import httpx
 from httpx import HTTPStatusError
-from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
-from app.models.sport import SportAthlete, SportInstagramConnection, SportPublication
-from app.models.user import User
+from app.models.sport import SportPublication
 
 logger = logging.getLogger(__name__)
 
@@ -27,6 +24,26 @@ class MetaPublishError(Exception):
         self.meta_error_subcode = meta_error_subcode
 
 
+class _MetaConfigContext:
+    """Contexte de publication tiré de la configuration Meta centralisée.
+
+    Contrat attendu par MetaPublishService : jeton chiffré Fernet +
+    compte Instagram. Pas d'expiration gérée (renouvellement manuel via
+    la configuration Meta, donc aucun refresh auto).
+    """
+
+    def __init__(self, encrypted_token: str, instagram_business_account_id: str) -> None:
+        self.encrypted_long_lived_token = encrypted_token
+        self.encrypted_access_token = encrypted_token
+        self.instagram_business_account_id = instagram_business_account_id
+        self.expires_in = None
+        self.obtained_at = None
+        self.auth_type = "meta_config"
+        self.status = "active"
+        self.scopes = ""
+        self.metadata_json = {"source": "meta_config"}
+
+
 class MetaPublishService:
     """Service pour publier du contenu sur Instagram via l'API Meta Graph."""
 
@@ -37,119 +54,58 @@ class MetaPublishService:
     def _base_url(self) -> str:
         return f"https://graph.facebook.com/{get_settings().META_API_VERSION}"
 
-    async def _get_active_connection(self, user_id: int) -> Optional[SportInstagramConnection]:
-        """Récupère la connexion Instagram active de l'utilisateur."""
-        from app.models.sport import SportInstagramConnection
+    async def resolve_publish_context(self):
+        """Source de la publication Instagram : configuration Meta centralisée.
+
+        Retourne le contexte tiré de meta_access_token + instagram_user_id,
+        ou None si la configuration est absente ou inexploitable.
+        """
+        return await self._config_publish_context()
+
+    async def _config_publish_context(self) -> Optional[_MetaConfigContext]:
+        """Construit le contexte depuis la config Meta si le jeton est exploitable."""
+        from app.models.module import Module, ModuleConfig
+
         result = await self.db.execute(
-            select(SportInstagramConnection).where(
-                SportInstagramConnection.user_id == user_id,
-                SportInstagramConnection.status == "active",
+            select(ModuleConfig)
+            .join(Module)
+            .where(
+                Module.code == "administration",
+                ModuleConfig.key.in_(("meta_access_token", "instagram_user_id")),
             )
         )
-        return result.scalar_one_or_none()
+        configs = {
+            config.key: config.value
+            for config in result.scalars().all()
+            if config.value is not None
+        }
+        raw_token = configs.get("meta_access_token")
+        ig_user_id = configs.get("instagram_user_id")
+        if not raw_token or not ig_user_id:
+            return None
+
+        from app.services.sport_instagram import _decrypt_token
+
+        if not _decrypt_token(raw_token):
+            logger.warning(
+                "meta_access_token illisible — publication impossible tant que le jeton "
+                "n'est pas régénéré dans la configuration Meta"
+            )
+            return None
+
+        return _MetaConfigContext(
+            encrypted_token=raw_token,
+            instagram_business_account_id=str(ig_user_id),
+        )
 
     def _get_long_lived_token(self, connection) -> Optional[str]:
-        """Déchiffre le token long-lived depuis la connexion."""
+        """Déchiffre le token de publication du contexte de publication."""
         from app.services.sport_instagram import _decrypt_token
         return _decrypt_token(connection.encrypted_long_lived_token or connection.encrypted_access_token)
 
-    async def _get_app_credentials(self) -> tuple[str, str]:
-        """Récupère les identifiants de l'application Meta."""
-        from app.services.sport_instagram import SportInstagramConnectService
-        service = SportInstagramConnectService(self.db)
-        app_id, app_secret, _, _ = await service._app_credentials()
-        return app_id, app_secret
-
-    async def _refresh_long_lived_token(self, connection) -> Optional[str]:
-        """Rafraîchit le token long-lived selon le type de connexion.
-
-        Unified Login (et anciens tokens Facebook Login) : fb_exchange_long_lived
-        sur graph.facebook.com. Anciennes connexions instagram_login : conservation
-        de ig_refresh_token sur graph.instagram.com (rétrocompatibilité).
-        """
-        from app.services.sport_instagram import SportInstagramConnectService, _decrypt_token, _encrypt_token
-
-        # Vérifier si le token expire bientôt (moins de 24h)
-        if connection.expires_in and connection.obtained_at:
-            from datetime import timedelta
-            expiry = connection.obtained_at + timedelta(seconds=connection.expires_in)
-            if (expiry - datetime.now(timezone.utc)).total_seconds() < 86400:  # 24h
-                logger.info(f"Token expires soon, refreshing for user {connection.user_id}")
-
-        service = SportInstagramConnectService(self.db)
-        app_id, app_secret, _ = await service._app_credentials()
-
-        long_token = self._get_long_lived_token(connection)
-        if not long_token:
-            return None
-
-        # Déterminer le type d'authentification pour choisir le bon endpoint de refresh
-        auth_type = getattr(connection, "auth_type", None) or "facebook_login"
-
-        try:
-            async with httpx.AsyncClient(timeout=20.0) as client:
-                if auth_type == "instagram_login":
-                    # Instagram Login : ig_refresh_token sur graph.instagram.com
-                    response = await client.get(
-                        f"https://graph.instagram.com/{get_settings().INSTAGRAM_API_VERSION}/refresh_access_token",
-                        params={
-                            "grant_type": "ig_refresh_token",
-                            "access_token": long_token,
-                        },
-                    )
-                else:
-                    # Facebook Login (rétrocompatibilité anciens tokens) : fb_exchange_long_lived
-                    response = await client.get(
-                        f"{self._base_url}/oauth/access_token",
-                        params={
-                            "grant_type": "fb_exchange_long_lived",
-                            "client_id": app_id,
-                            "client_secret": app_secret,
-                            "fb_exchange_long_lived_token": long_token,
-                        },
-                    )
-                response.raise_for_status()
-                new_token = response.json().get("access_token")
-                if new_token:
-                    # Mettre à jour la connexion
-                    from app.models.sport import SportInstagramConnection
-                    result = await self.db.execute(
-                        select(SportInstagramConnection).where(
-                            SportInstagramConnection.id == connection.id
-                        )
-                    )
-                    conn = result.scalar_one_or_none()
-                    if conn:
-                        conn.encrypted_long_lived_token = self._fernet_encrypt(new_token)
-                        conn.encrypted_access_token = self._fernet_encrypt(new_token)
-                        conn.obtained_at = datetime.now(timezone.utc)
-                        conn.expires_in = 5184000  # 60 jours
-                        await self.db.commit()
-                    logger.info("Long-lived token refreshed successfully")
-                    return new_token
-        except Exception as e:
-            logger.warning(f"Failed to refresh long-lived token: {e}")
-        return None
-
-    def _fernet_encrypt(self, token: str) -> str:
-        from app.services.sport_instagram import _fernet
-        return _fernet().encrypt(token.encode("utf-8")).decode("ascii")
-
     async def _get_valid_token(self, connection) -> Optional[str]:
-        """Récupère un token valide, le rafraîchit si nécessaire."""
-        token = self._get_long_lived_token(connection)
-        if not token:
-            return None
-
-        # Vérifier si le token est proche de l'expiration
-        if connection.expires_in and connection.obtained_at:
-            from datetime import timedelta
-            expiry = connection.obtained_at + timedelta(seconds=connection.expires_in)
-            if (expiry - datetime.now(timezone.utc)).total_seconds() < 86400:  # 24h
-                refreshed = await self._refresh_long_lived_token(connection)
-                if refreshed:
-                    return refreshed
-        return token
+        """Déchiffre le token de publication (renouvelé manuellement en configuration)."""
+        return self._get_long_lived_token(connection)
 
     async def create_media_container(
         self,

@@ -22,8 +22,8 @@ import { createMaintenanceCalendarPage } from './pages/MaintenanceCalendarPage.j
 import { createAIAssistantPage } from './pages/AIAssistantPage.js?v=31';
 import { createHousingPage } from './pages/HousingPage.js?v=1';
 import { createProfilePage } from './pages/ProfilePage.js?v=2';
-import { createSettingsPage } from './pages/UserSettingsPage.js?v=11';
-import { createCommunityManagerPage } from './pages/CommunityManagerPage.js?v=1';
+import { createSettingsPage } from './pages/UserSettingsPage.js?v=13';
+import { createCommunityManagerCalendarPage } from './pages/CommunityManagerCalendarPage.js?v=2';
 import { createCleaningVolunteersPage } from './pages/CleaningVolunteersPage.js?v=5';
 import { createAdministrativeProgramsPage } from './pages/AdministrativeProgramsPage.js';
 import { createSportDashboardPage } from './pages/SportDashboardPage.js?v=5';
@@ -130,7 +130,7 @@ void (function() {
     createAIAssistantPage, createIntendanceExpensesPage, createBuildingRefsPage,
     createAdministrationPage, createModulePlaceholderPage, createLoginPage, createRegisterPage,
     createProfilePage, createSettingsPage, createCleaningVolunteersPage,
-    createAdministrativeProgramsPage, createCommunityManagerPage,
+    createAdministrativeProgramsPage, createCommunityManagerCalendarPage,
     createPhotosPage, createSouvenirsPage, createITAssetPage,
   ];
   // Prevent dead code elimination
@@ -425,7 +425,7 @@ async function showCommunityManagerPage(route) {
   appShell.showLoading();
 
   try {
-    const page = createCommunityManagerPage(router);
+    const page = createCommunityManagerCalendarPage(router);
     await page.initialize();
     const element = page.render();
     appShell.showContent(element);

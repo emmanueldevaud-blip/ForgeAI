@@ -346,6 +346,8 @@ class SportPublication(Base):
     activity_id: Mapped[int | None] = mapped_column(ForeignKey("sport_activities.id", ondelete="CASCADE"), nullable=True)
     calendar_entry_id: Mapped[int | None] = mapped_column(ForeignKey("editorial_calendar_entries.id", ondelete="SET NULL"), nullable=True, index=True)
     status: Mapped[str] = mapped_column(String(30), nullable=False, default="draft", index=True)
+    content_type: Mapped[str] = mapped_column(String(50), nullable=False, default="publication_sportive", index=True)
+    source: Mapped[str] = mapped_column(String(50), nullable=False, default="manuel", index=True)
     styles: Mapped[list[Any]] = mapped_column(JSON, nullable=False, default=list)
     custom_instructions: Mapped[str | None] = mapped_column(Text, nullable=True)
     proposals: Mapped[list[Any]] = mapped_column(JSON, nullable=False, default=list)
@@ -383,42 +385,6 @@ class SportPublication(Base):
     athlete: Mapped["SportAthlete"] = relationship("SportAthlete", lazy="selectin")
     activity: Mapped["SportActivity | None"] = relationship("SportActivity", lazy="selectin")
     calendar_entry: Mapped["EditorialCalendarEntry | None"] = relationship("EditorialCalendarEntry", lazy="selectin")
-
-
-class SportInstagramConnection(Base):
-    """Connexion Meta (Instagram Business) pour la recuperation des statistiques Insights."""
-
-    __tablename__ = "sport_instagram_connections"
-
-    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
-    user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
-    athlete_id: Mapped[int] = mapped_column(ForeignKey("sport_athletes.id", ondelete="CASCADE"), nullable=False, index=True)
-    instagram_business_account_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    auth_type: Mapped[str] = mapped_column(String(30), nullable=False, default="facebook_login", index=True)
-    encrypted_access_token: Mapped[str | None] = mapped_column(Text, nullable=True)
-    encrypted_long_lived_token: Mapped[str | None] = mapped_column(Text, nullable=True)
-    status: Mapped[str] = mapped_column(String(30), nullable=False, default="pending", index=True)
-    scopes: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    token_type: Mapped[str | None] = mapped_column(String(50), nullable=True)
-    expires_in: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    obtained_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    metadata_json: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
-
-    user: Mapped["User | None"] = relationship("User")
-    athlete: Mapped["SportAthlete"] = relationship("SportAthlete")
-
-
-class SportInstagramOAuthState(Base):
-    __tablename__ = "sport_instagram_oauth_states"
-
-    state: Mapped[str] = mapped_column(String(128), primary_key=True)
-    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
-    athlete_id: Mapped[int] = mapped_column(ForeignKey("sport_athletes.id", ondelete="CASCADE"), nullable=False, index=True)
-    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
-    consumed: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
 
 class CommunityManagerStrategy(Base):
@@ -461,6 +427,10 @@ class EditorialCalendarEntry(Base):
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     hashtags: Mapped[str | None] = mapped_column(Text, nullable=True)
     status: Mapped[str] = mapped_column(String(30), nullable=False, default="brouillon", index=True)
+    content_type: Mapped[str] = mapped_column(String(50), nullable=False, default="manuel", index=True)
+    source: Mapped[str] = mapped_column(String(50), nullable=False, default="manuel", index=True)
+    source_activity_id: Mapped[int | None] = mapped_column(ForeignKey("sport_activities.id", ondelete="SET NULL"), nullable=True, index=True)
+    photo_id: Mapped[int | None] = mapped_column(ForeignKey("photos.id", ondelete="SET NULL"), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
 

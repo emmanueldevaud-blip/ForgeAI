@@ -1274,6 +1274,8 @@
 /* Utilitaires de texte (classes employées dans les pages Paramètres) */
 .text-muted { color: var(--color-text-muted); }
 .text-success { color: var(--color-success); }
+.text-warning { color: var(--color-warning); }
+.text-danger { color: var(--color-danger); }
 
 /* =========================================================
    TOGGLE

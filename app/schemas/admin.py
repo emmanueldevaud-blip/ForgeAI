@@ -145,6 +145,9 @@ class MetaSettingsResponse(BaseModel):
     app_secret_configured: bool = False
     redirect_uri: str = ""
     config_id: str = ""
+    access_token_configured: bool = False
+    client_business_id: str = ""
+    instagram_user_id: str = ""
 
 
 class MetaSettingsUpdate(BaseModel):
@@ -152,6 +155,27 @@ class MetaSettingsUpdate(BaseModel):
     app_secret: Optional[str] = Field(None, max_length=500)
     redirect_uri: str = Field("", max_length=500)
     config_id: str = Field("", max_length=100)
+    access_token: Optional[str] = Field(None, max_length=4000)
+    client_business_id: str = Field("", max_length=100)
+    instagram_user_id: str = Field("", max_length=100)
+
+
+class MetaTestStep(BaseModel):
+    key: str
+    label: str
+    status: str  # ok | warning | error | skipped
+    detail: Optional[str] = None
+
+
+class MetaTestResponse(BaseModel):
+    message: str
+    status: str  # operational | partial | no_token | token_unreadable | token_expired | token_invalid | api_unreachable
+    configured: bool = False
+    access_token_configured: bool = False
+    client_business_id: Optional[str] = None
+    instagram_user_id: Optional[str] = None
+    instagram_username: Optional[str] = None
+    steps: list[MetaTestStep] = []
 
 
 class InstagramSettingsResponse(BaseModel):
@@ -166,17 +190,6 @@ class InstagramSettingsUpdate(BaseModel):
     app_secret: Optional[str] = Field(None, max_length=500)
     redirect_uri: str = Field("", max_length=500)
     api_version: str = Field("v26.0", max_length=20)
-
-
-class InstagramTestResponse(BaseModel):
-    message: str
-    detail: str | None = None
-    configured: bool = False
-    connected: bool = False
-    status: str = ""
-    instagram_user_id: str | None = None
-    username: str | None = None
-    publish_permission: bool | None = None
 
 
 class AiProviderSettings(BaseModel):

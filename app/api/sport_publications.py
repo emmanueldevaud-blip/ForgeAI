@@ -1,10 +1,9 @@
 """Routes API pour les publications Instagram (module Sport)."""
 
 import logging
-from typing import Any, Optional
+from typing import Optional
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request, status
-from fastapi.responses import RedirectResponse
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -27,8 +26,6 @@ from app.services.sport_publications import (
     schedule_publication_notifications,
     style_labels,
 )
-from app.services.sport_instagram import SportInstagramConnectService
-
 logger = logging.getLogger(__name__)
 
 router = APIRouter(
@@ -36,44 +33,6 @@ router = APIRouter(
     tags=["sport"],
     dependencies=[Depends(require_module_enabled("sport"))],
 )
-
-public_router = APIRouter(prefix="/sport/publications")
-
-
-@public_router.get("/meta/callback")
-async def meta_callback(
-    request: Request,
-    code: str = Query(...),
-    state: str = Query(...),
-    redirect_uri: Optional[str] = Query(None),
-    db: AsyncSession = Depends(get_db),
-) -> Any:
-    service = SportInstagramConnectService(db)
-    try:
-        connection = await service.exchange_code(code=code, redirect_uri=redirect_uri, state=state)
-    except HTTPException as exc:
-        return RedirectResponse(url=f"/settings?error={exc.detail}", status_code=status.HTTP_302_FOUND)
-    # Only return JSON for explicit API requests, not browser navigation
-    accept = request.headers.get("accept", "")
-    # Parse Accept header properly: only return JSON if explicitly requested
-    wants_json = False
-    if accept:
-        # Parse media types
-        parts = [p.strip() for p in accept.split(",")]
-        for part in parts:
-            media_type = part.split(";")[0].strip().lower()
-            if media_type == "application/json":
-                wants_json = True
-                break
-    if wants_json:
-        return {
-            "status": connection.status,
-            "instagram_business_account_id": connection.instagram_business_account_id,
-            "auth_type": connection.auth_type,
-        }
-    return RedirectResponse(url="/settings?connected=1", status_code=status.HTTP_302_FOUND)
-
-
 
 
 async def get_pub_service(
@@ -88,20 +47,6 @@ async def get_pub_write_service(
     db: AsyncSession = Depends(get_db),
 ) -> SportPublicationService:
     return SportPublicationService(db, current_user)
-
-
-async def get_meta_service(
-    current_user: User = Depends(require_permission("sport.publications.read")),
-    db: AsyncSession = Depends(get_db),
-) -> SportInstagramConnectService:
-    return SportInstagramConnectService(db)
-
-
-async def get_meta_write_service(
-    current_user: User = Depends(require_permission("sport.publications.write")),
-    db: AsyncSession = Depends(get_db),
-) -> SportInstagramConnectService:
-    return SportInstagramConnectService(db)
 
 
 @router.get("/styles")
@@ -256,16 +201,6 @@ async def generate_card(
     return {"card_path": path}
 
 
-@router.delete("/meta")
-async def meta_disconnect(
-    current_user: User = Depends(require_permission("sport.publications.write")),
-    db: AsyncSession = Depends(get_db),
-) -> dict:
-    service = SportInstagramConnectService(db)
-    disconnected = await service.disconnect(current_user.id)
-    return {"disconnected": disconnected}
-
-
 @router.delete("/{publication_id}")
 async def delete_publication(
     publication_id: int,
@@ -284,53 +219,3 @@ async def run_publication_notifications(
 ):
     count = await service.notify_new_activities()
     return {"sent": count}
-
-
-@router.get("/meta/auth")
-async def meta_authorize_url(
-    athlete_id: Optional[int] = Query(None, description="ID de l'athlete lie a la connexion Meta"),
-    current_user: User = Depends(require_permission("sport.publications.write")),
-    db: AsyncSession = Depends(get_db),
-) -> dict:
-    service = SportInstagramConnectService(db)
-    if not athlete_id:
-        pub_service = SportPublicationService(db, current_user)
-        athlete = await pub_service.get_or_create_athlete()
-        athlete_id = athlete.id
-    authorize_url, state = await service.build_authorization_url(athlete_id=athlete_id, user_id=current_user.id)
-    return {"authorize_url": authorize_url, "state": state}
-
-
-
-
-
-@router.get("/meta/status")
-async def meta_status(
-    current_user: User = Depends(require_permission("sport.publications.read")),
-    db: AsyncSession = Depends(get_db),
-) -> dict:
-    service = SportInstagramConnectService(db)
-    values = await service.load_meta_values()
-    is_configured = bool(values["app_id"] and values["app_secret"] and values.get("config_id"))
-    connection = await service.get_connection(current_user.id)
-    if not is_configured:
-        return {
-            "connected": False,
-            "status": "not_configured",
-            "configured": False,
-            "message": "Meta App ID / App Secret / Configuration ID non configurés",
-        }
-    if connection is None:
-        return {
-            "connected": False,
-            "status": "disconnected",
-            "configured": True,
-        }
-    return {
-        "connected": True,
-        "status": connection.status,
-        "configured": True,
-        "instagram_business_account_id": connection.instagram_business_account_id,
-        "auth_type": connection.auth_type,
-        "scopes": connection.scopes,
-    }

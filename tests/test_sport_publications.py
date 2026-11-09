@@ -13,14 +13,12 @@ from app.services.sport import SportService
 from app.schemas.sport import SportPublicationSettingsUpdate
 from app.services.sport_publications import SportPublicationService
 
-
 class _FakeResponse:
     def __init__(self, text: str):
         self.text = text
         self.provider_used = "test-provider"
         self.model_used = "test-model"
         self.fallback_used = False
-
 
 async def _fake_generate(**kwargs):
     assert kwargs.get("prompt")
@@ -33,10 +31,8 @@ async def _fake_generate(**kwargs):
         ']}'
     )
 
-
 async def _failing_generate(**kwargs):
     raise AIGatewayError("Aucun fournisseur IA disponible")
-
 
 async def _make_activity(db_session, user):
     service = SportService(db_session, user)
@@ -56,7 +52,6 @@ async def _make_activity(db_session, user):
     # reload id
     res = await db_session.execute(select(SportActivity).where(SportActivity.activity_name == "Sortie test"))
     return res.scalars().first()
-
 
 # --------------------------------------------------------------------------- #
 # Detection + notifications
@@ -81,7 +76,6 @@ async def test_publication_notification_toggle(db_session, admin_user, monkeypat
     sent2 = await svc.notify_new_activities()
     assert sent2 == 0
 
-
 # --------------------------------------------------------------------------- #
 # Generation
 # --------------------------------------------------------------------------- #
@@ -98,7 +92,6 @@ async def test_generate_three_proposals(db_session, admin_user, monkeypatch):
     assert pub.proposals[0]["title"] == "T1"
     assert pub.status == "draft"
 
-
 @pytest.mark.asyncio
 async def test_no_duplicate_publication_per_activity(db_session, admin_user, monkeypatch):
     monkeypatch.setattr(ai_gateway, "generate", _fake_generate)
@@ -110,7 +103,6 @@ async def test_no_duplicate_publication_per_activity(db_session, admin_user, mon
     assert p1.id == p2.id
     rows = (await db_session.execute(select(SportPublication).where(SportPublication.activity_id == act.id))).scalars().all()
     assert len(rows) == 1
-
 
 @pytest.mark.asyncio
 async def test_each_style_and_mix(db_session, admin_user, monkeypatch):
@@ -126,7 +118,6 @@ async def test_each_style_and_mix(db_session, admin_user, monkeypatch):
     pub = await svc.generate(act.id, SportPublicationGenerateRequest(styles=["mix", "stats", "humor"]))
     assert "mix" in (pub.styles or [])
 
-
 @pytest.mark.asyncio
 async def test_custom_style(db_session, admin_user, monkeypatch):
     monkeypatch.setattr(ai_gateway, "generate", _fake_generate)
@@ -135,7 +126,6 @@ async def test_custom_style(db_session, admin_user, monkeypatch):
     from app.schemas.sport import SportPublicationGenerateRequest
     pub = await svc.generate(act.id, SportPublicationGenerateRequest(styles=["custom"], custom_instructions="Ton drole"))
     assert pub.custom_instructions == "Ton drole"
-
 
 @pytest.mark.asyncio
 async def test_change_tone_regenerate(db_session, admin_user, monkeypatch):
@@ -146,7 +136,6 @@ async def test_change_tone_regenerate(db_session, admin_user, monkeypatch):
     await svc.generate(act.id, SportPublicationGenerateRequest(styles=["stats"]))
     pub = await svc.generate(act.id, SportPublicationGenerateRequest(styles=["humor"], regenerate=True))
     assert "humor" in (pub.styles or [])
-
 
 @pytest.mark.asyncio
 async def test_missing_stats_handled(db_session, admin_user, monkeypatch):
@@ -169,7 +158,6 @@ async def test_missing_stats_handled(db_session, admin_user, monkeypatch):
     assert pub is not None
     assert len(pub.proposals) == 3
 
-
 @pytest.mark.asyncio
 async def test_ai_error_raises(db_session, admin_user, monkeypatch):
     monkeypatch.setattr(ai_gateway, "generate", _failing_generate)
@@ -178,7 +166,6 @@ async def test_ai_error_raises(db_session, admin_user, monkeypatch):
     from app.schemas.sport import SportPublicationGenerateRequest
     with pytest.raises(Exception):
         await svc.generate(act.id, SportPublicationGenerateRequest(styles=["stats"]))
-
 
 # --------------------------------------------------------------------------- #
 # Edit / draft / validation
@@ -196,7 +183,6 @@ async def test_edit_text_and_photo(db_session, admin_user, monkeypatch):
     assert updated.content == "Texte modifie"
     assert updated.hashtags == "#x"
 
-
 @pytest.mark.asyncio
 async def test_validation_required(db_session, admin_user, monkeypatch):
     monkeypatch.setattr(ai_gateway, "generate", _fake_generate)
@@ -209,7 +195,6 @@ async def test_validation_required(db_session, admin_user, monkeypatch):
     await svc.update(pub.id, SportPublicationUpdate(content=""))
     with pytest.raises(ValueError):
         await svc.validate(pub.id)
-
 
 @pytest.mark.asyncio
 async def test_draft_then_validate_then_share(db_session, admin_user, monkeypatch):
@@ -224,7 +209,6 @@ async def test_draft_then_validate_then_share(db_session, admin_user, monkeypatc
     assert s.status == "shared"
     assert s.shared_at is not None
 
-
 # --------------------------------------------------------------------------- #
 # RBAC
 # --------------------------------------------------------------------------- #
@@ -236,13 +220,11 @@ async def test_rbac_publications(client, auth_headers):
     r2 = await client.get("/sport/publications/styles", headers=auth_headers)
     assert r2.status_code == 403
 
-
 @pytest.mark.asyncio
 async def test_rbac_publications_admin(client, admin_headers):
     r = await client.get("/sport/publications/styles", headers=admin_headers)
     assert r.status_code == 200
     assert "styles" in r.json()
-
 
 # --------------------------------------------------------------------------- #
 # API flow
@@ -275,89 +257,3 @@ async def test_api_generate_flow(client, admin_headers, db_session, monkeypatch)
     st = await client.get("/sport/publications/settings", headers=admin_headers)
     assert st.status_code == 200
     assert st.json()["last_styles"] == ["stats"]
-
-# --------------------------------------------------------------------------- #
-# Meta Instagram connection (Phase 1)
-# --------------------------------------------------------------------------- #
-
-@pytest.mark.asyncio
-async def test_meta_status_not_configured(client, admin_headers, monkeypatch):
-    from app.core.config import get_settings
-
-    monkeypatch.setattr(get_settings(), "META_APP_ID", "", raising=False)
-    monkeypatch.setattr(get_settings(), "META_APP_SECRET", "", raising=False)
-    r = await client.get("/sport/publications/meta/status", headers=admin_headers)
-    assert r.status_code == 200
-    body = r.json()
-    assert body["connected"] is False
-    assert body["status"] == "not_configured"
-
-
-@pytest.mark.asyncio
-async def test_meta_auth_requires_config(client, admin_headers, monkeypatch):
-    from app.core.config import get_settings
-
-    monkeypatch.setattr(get_settings(), "META_APP_ID", "", raising=False)
-    monkeypatch.setattr(get_settings(), "META_APP_SECRET", "", raising=False)
-    r = await client.get("/sport/publications/meta/auth?athlete_id=1", headers=admin_headers)
-    assert r.status_code == 503
-
-
-@pytest.mark.asyncio
-async def test_meta_auth_builds_url(client, admin_headers, monkeypatch):
-    from app.core.config import get_settings
-
-    monkeypatch.setattr(get_settings(), "META_APP_ID", "test-meta-app-id", raising=False)
-    monkeypatch.setattr(get_settings(), "META_APP_SECRET", "test-meta-app-secret", raising=False)
-    monkeypatch.setattr(get_settings(), "META_REDIRECT_URI", "http://localhost:8080/api/sport/publications/meta/callback", raising=False)
-    monkeypatch.setattr(get_settings(), "META_CONFIG_ID", "test-cfg-id", raising=False)
-
-    # avec athlete_id explicite
-    r = await client.get("/sport/publications/meta/auth?athlete_id=1", headers=admin_headers)
-    assert r.status_code == 200
-    body = r.json()
-    assert "authorize_url" in body
-    assert "www.facebook.com/dialog/oauth" in body["authorize_url"]
-    assert "client_id=test-meta-app-id" in body["authorize_url"]
-    assert "config_id=test-cfg-id" in body["authorize_url"]
-    assert len(body["state"]) >= 16
-    assert "state=" in body["authorize_url"]
-
-    # sans athlete_id (auto-résolution)
-    r2 = await client.get("/sport/publications/meta/auth", headers=admin_headers)
-    assert r2.status_code == 200
-    assert "authorize_url" in r2.json()
-
-
-@pytest.mark.asyncio
-async def test_meta_auth_requires_config_id(client, admin_headers, monkeypatch):
-    """Unified Login : App ID/Secret presents mais Configuration ID absente -> 503."""
-    from app.core.config import get_settings
-
-    monkeypatch.setattr(get_settings(), "META_APP_ID", "test-meta-app-id", raising=False)
-    monkeypatch.setattr(get_settings(), "META_APP_SECRET", "test-meta-app-secret", raising=False)
-    monkeypatch.setattr(get_settings(), "META_REDIRECT_URI", "http://localhost:8080/api/sport/publications/meta/callback", raising=False)
-    monkeypatch.setattr(get_settings(), "META_CONFIG_ID", "", raising=False)
-
-    r = await client.get("/sport/publications/meta/auth?athlete_id=1", headers=admin_headers)
-    assert r.status_code == 503
-
-
-@pytest.mark.asyncio
-async def test_meta_disconnect_unknown(client, admin_headers):
-    r = await client.delete("/sport/publications/meta", headers=admin_headers)
-    assert r.status_code == 200
-    assert r.json()["disconnected"] is False
-
-
-@pytest.mark.asyncio
-async def test_meta_rbac_forbidden(client, auth_headers):
-    r = await client.get("/sport/publications/meta/status", headers=auth_headers)
-    assert r.status_code == 403
-
-@pytest.mark.asyncio
-async def test_meta_logger_no_typeerror(client, admin_headers):
-    """Test: logger fix prevents TypeError 500 on OAuth exchange."""
-    r = await client.get("/sport/publications/meta/auth?athlete_id=1")
-    # With the logger fix, should not get 500 from TypeError
-    assert r.status_code != 500, "Logger fix should prevent 500 from TypeError"

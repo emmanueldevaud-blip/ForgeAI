@@ -462,7 +462,10 @@ COMMUNITY_MANAGER_NETWORKS = [
     "instagram", "facebook", "linkedin", "twitter", "threads",
 ]
 
-CALENDAR_ENTRY_STATUSES = ["brouillon", "planifié", "publié", "refusé"]
+CALENDAR_ENTRY_STATUSES = [
+    "brouillon", "planifié", "publié", "refusé",
+    "pending", "accepted", "refused", "published",
+]
 
 
 class CommunityManagerStrategyBase(BaseModel):
@@ -509,7 +512,7 @@ class EditorialCalendarEntryBase(BaseModel):
     objective: Optional[str] = Field(None, max_length=100, pattern="^(engagement|visibility|brand_awareness|community_building|lead_generation)$")
     notes: Optional[str] = Field(None, max_length=2000)
     hashtags: Optional[str] = Field(None, max_length=500)
-    status: str = Field("brouillon", max_length=30, pattern="^(brouillon|planifié|publié|refusé)$")
+    status: str = Field("brouillon", max_length=30, pattern="^(brouillon|planifié|publié|refusé|pending|accepted|refused|published)$")
 
 
 class EditorialCalendarEntryCreate(EditorialCalendarEntryBase):
@@ -523,7 +526,7 @@ class EditorialCalendarEntryUpdate(BaseModel):
     objective: Optional[str] = Field(None, max_length=100, pattern="^(engagement|visibility|brand_awareness|community_building|lead_generation)$")
     notes: Optional[str] = Field(None, max_length=2000)
     hashtags: Optional[str] = Field(None, max_length=500)
-    status: Optional[str] = Field(None, max_length=30, pattern="^(brouillon|planifié|publié|refusé)$")
+    status: Optional[str] = Field(None, max_length=30, pattern="^(brouillon|planifié|publié|refusé|pending|accepted|refused|published)$")
 
 
 class EditorialCalendarEntryResponse(EditorialCalendarEntryBase):

@@ -1,5 +1,7 @@
 """Tests du parcours Facebook Login for Business (Meta centralise)."""
 
+import pathlib
+
 import httpx
 import pytest
 from sqlalchemy import select
@@ -227,3 +229,10 @@ class TestMetaBusinessExchange:
         assert context is not None
         assert context.instagram_business_account_id == "17841463605067187"
         assert _decrypt_token(context.encrypted_long_lived_token) == "BI-TOKEN-123"
+
+
+class TestMetaFrontendInit:
+    def test_fb_init_includes_meta_graph_version(self):
+        source = pathlib.Path("src/public/js/pages/UserSettingsPage.js").read_text(encoding="utf-8")
+        assert "FB.init" in source
+        assert "version: 'v27.0'" in source

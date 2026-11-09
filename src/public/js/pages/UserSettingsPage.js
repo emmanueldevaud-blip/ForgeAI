@@ -357,7 +357,7 @@ export class UserSettingsPage {
             return;
           }
           if (window.FB && !window.FB.__forgeai_initialized) {
-            window.FB.init({ appId: appId || this.metaSettings?.app_id });
+            window.FB.init({ appId: appId || this.metaSettings?.app_id, version: 'v27.0' });
             window.FB.__forgeai_initialized = true;
           }
           window.FB?.login?.({

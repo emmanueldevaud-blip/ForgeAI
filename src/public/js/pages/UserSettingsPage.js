@@ -348,6 +348,7 @@ export class UserSettingsPage {
         if (testResult) testResult.innerHTML = '';
         try {
           const info = await initMetaLogin();
+          console.log('[META TRACE] info', info);
           const state = info?.state;
           const configId = info?.config_id;
           const appId = info?.app_id;
@@ -357,21 +358,33 @@ export class UserSettingsPage {
             return;
           }
           if (window.FB && !window.FB.__forgeai_initialized) {
+            console.log('[META TRACE] FB.init', { appId, version: 'v27.0', init: typeof window.FB?.init });
             window.FB.init({ appId: appId || this.metaSettings?.app_id, version: 'v27.0' });
             window.FB.__forgeai_initialized = true;
           }
-          window.FB?.login?.({
-            config_id: configId,
-            response_type: 'code',
-            override_default_response_type: true,
-            redirect_uri: redirectUri,
-            state: state,
-            success: async () => {
-              setStatus('Meta connecte.', true);
-              try { await this._loadMeta(); } catch (error) { console.error('Erreur recharge parametres Meta:', error); }
-            },
-            fail: async () => { setStatus('Echec de la connexion Meta.', false); },
-          });
+          console.log('[META TRACE] avant login', { login: typeof window.FB?.login, configId, redirectUri, state });
+          try {
+            window.FB?.login?.({
+              config_id: configId,
+              response_type: 'code',
+              override_default_response_type: true,
+              redirect_uri: redirectUri,
+              state: state,
+              success: async () => {
+                console.log('[META TRACE] FB.login success');
+                setStatus('Meta connecte.', true);
+                try { await this._loadMeta(); } catch (error) { console.error('Erreur recharge parametres Meta:', error); }
+              },
+              fail: async () => {
+                console.log('[META TRACE] FB.login fail');
+                setStatus('Echec de la connexion Meta.', false);
+              },
+            });
+            console.log('[META TRACE] FB.login executed');
+          } catch (e) {
+            console.error('[META TRACE] exception FB.login', e, e?.stack);
+            throw e;
+          }
         } catch (error) {
           setStatus(error?.data?.detail || error?.message || 'Echec du lancement Meta.', false);
         } finally {

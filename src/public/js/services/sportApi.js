@@ -57,6 +57,10 @@ export async function getSportGoalsAnalysis() {
   return sportApi.get('/analysis/goals');
 }
 
+export async function initMetaLogin() {
+  return sportApi.post('/meta/login', {});
+}
+
 export async function getGarminConnection() {
   return sportApi.get('/garmin');
 }

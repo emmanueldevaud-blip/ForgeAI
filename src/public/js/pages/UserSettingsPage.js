@@ -6,6 +6,7 @@ import {
   testMetaSettings,
 } from '../services/adminApi.js?v=6';
 import { createSportGarminPage } from './SportGarminPage.js?v=5';
+import { initMetaLogin } from '../services/sportApi.js?v=2';
 
 export class UserSettingsPage {
   constructor(router) {
@@ -214,6 +215,7 @@ export class UserSettingsPage {
                 </div>
               </div>
               <div class="form-actions">
+                <button class="btn btn-primary" type="button" data-meta-connect>Connecter mon compte Meta</button>
                 <button class="btn btn-secondary" type="button" data-meta-test>Tester la connexion</button>
                 <button class="btn btn-primary" type="submit">Enregistrer</button>
                 <span data-role="meta-status" role="status"></span>
@@ -338,6 +340,45 @@ export class UserSettingsPage {
         }
       });
 
+      const connectBtn = metaForm.querySelector('[data-meta-connect]');
+      connectBtn?.addEventListener('click', async () => {
+        if (connectBtn.disabled) return;
+        connectBtn.disabled = true;
+        setStatus('Demarrage du parcours Meta…', false);
+        if (testResult) testResult.innerHTML = '';
+        try {
+          const info = await initMetaLogin();
+          const state = info?.state;
+          const configId = info?.config_id;
+          const appId = info?.app_id;
+          const redirectUri = info?.redirect_uri;
+          if (!state || !configId) {
+            setStatus("Parametres Meta incomplets : renseignez l'App ID et la Configuration ID.", false);
+            return;
+          }
+          if (window.FB && !window.FB.__forgeai_initialized) {
+            window.FB.init({ appId: appId || this.metaSettings?.app_id });
+            window.FB.__forgeai_initialized = true;
+          }
+          window.FB?.login?.({
+            config_id: configId,
+            response_type: 'code',
+            override_default_response_type: true,
+            redirect_uri: redirectUri,
+            state: state,
+            success: async () => {
+              setStatus('Meta connecte.', true);
+              try { await this._loadMeta(); } catch (error) { console.error('Erreur recharge parametres Meta:', error); }
+            },
+            fail: async () => { setStatus('Echec de la connexion Meta.', false); },
+          });
+        } catch (error) {
+          setStatus(error?.data?.detail || error?.message || 'Echec du lancement Meta.', false);
+        } finally {
+          connectBtn.disabled = false;
+        }
+      });
+
       const testBtn = metaForm.querySelector('[data-meta-test]');
       testBtn?.addEventListener('click', async () => {
         if (testBtn.disabled) return;
@@ -362,7 +403,10 @@ export class UserSettingsPage {
   _updateMetaBadge() {
     const badge = this.element?.querySelector('[data-meta-badge]');
     if (!badge) return;
-    const configured = !!(this.metaSettings?.app_id && this.metaSettings?.app_secret_configured);
+    const configured = !!(
+      this.metaSettings?.app_id &&
+      (this.metaSettings?.app_secret_configured || this.metaSettings?.access_token_configured)
+    );
     badge.textContent = configured ? 'Configurée' : 'Non configurée';
     badge.classList.toggle('active', configured);
     badge.classList.toggle('inactive', !configured);

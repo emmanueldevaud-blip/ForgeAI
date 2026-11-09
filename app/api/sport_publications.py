@@ -26,6 +26,7 @@ from app.services.sport_publications import (
     schedule_publication_notifications,
     style_labels,
 )
+from app.services.sport_instagram import SportInstagramConnectService
 logger = logging.getLogger(__name__)
 
 router = APIRouter(
@@ -219,3 +220,43 @@ async def run_publication_notifications(
 ):
     count = await service.notify_new_activities()
     return {"sent": count}
+
+
+
+@router.post("/meta/login")
+async def meta_login_init(
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Demarrage du parcours Facebook Login for Business (state OAuth)."""
+    service = SportInstagramConnectService(db)
+    return await service.initiate_meta_login()
+
+
+@router.get("/meta/callback")
+async def meta_oauth_callback(
+    code: str = Query(..., description="Code OAuth de Facebook Login for Business"),
+    state: str = Query(..., description="State OAuth"),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Callback Facebook Login for Business : echange le code contre le jeton du
+    Business Integration System User, recupere le contexte, enregistre le tout."""
+    service = SportInstagramConnectService(db)
+    if not await service.validate_meta_state(state):
+        raise HTTPException(status_code=400, detail="State OAuth invalide")
+    result = await service.exchange_business_code(code)
+    accounts = result.get("instagram_accounts") or []
+    instagram_user_id = ""
+    for account in accounts:
+        if account.get("id"):
+            instagram_user_id = str(account.get("id"))
+            break
+    await service.save_meta_credentials(
+        token=result.get("access_token") or "",
+        client_business_id=result.get("client_business_id") or "",
+        instagram_user_id=instagram_user_id,
+    )
+    return {
+        "status": "ok",
+        "client_business_id": result.get("client_business_id"),
+        "instagram_accounts": accounts,
+    }

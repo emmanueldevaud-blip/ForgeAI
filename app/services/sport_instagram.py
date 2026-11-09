@@ -120,10 +120,10 @@ class SportInstagramConnectService:
         values = await self.load_meta_values()
         base_url = f"https://graph.facebook.com/{values['api_version']}"
         async with httpx.AsyncClient(timeout=30.0) as client:
-            response = await client.post(
+            response = await client.get(
                 f"{base_url}/oauth/access_token",
                 params={
-                    "grant_type": "fb_exchange_token",
+                    "grant_type": "authorization_code",
                     "client_id": values["app_id"],
                     "client_secret": values["app_secret"],
                     "code": code,

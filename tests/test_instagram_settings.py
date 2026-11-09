@@ -54,7 +54,7 @@ async def test_get_instagram_settings_returns_empty_by_default(client, admin_hea
     assert data["app_id"] == ""
     assert data["app_secret_configured"] is False
     assert data["redirect_uri"] == ""
-    assert data["api_version"] == "v26.0"
+    assert data["api_version"] == "v27.0"
 
 async def test_put_instagram_settings_persists_and_masks_secret(client, admin_headers, db_session):
     response = await client.put(

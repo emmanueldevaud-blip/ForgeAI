@@ -181,6 +181,11 @@ class TestMetaBusinessExchange:
         assert result["client_business_id"] == ""
 
     @pytest.mark.asyncio
+    async def test_meta_publish_base_url_uses_v27(self, db_session):
+        service = MetaPublishService(db_session)
+        assert service._base_url == "https://graph.facebook.com/v27.0"
+
+    @pytest.mark.asyncio
     async def test_exchange_business_code_retrieves_business_and_instagram_accounts(self, db_session, monkeypatch):
         _mock_httpx_client(monkeypatch, _handler_ok())
         service = SportInstagramConnectService(db_session)

@@ -277,7 +277,7 @@ async def test_meta_settings(
 
     from app.core.config import get_settings
 
-    version = get_settings().META_API_VERSION or "v21.0"
+    version = get_settings().META_API_VERSION or "v27.0"
     base_url = f"https://graph.facebook.com/{version}"
     steps: list[MetaTestStep] = []
 
@@ -540,7 +540,7 @@ async def get_instagram_settings(
         app_id=get_value("instagram_app_id"),
         app_secret_configured=bool(get_value("instagram_app_secret")),
         redirect_uri=get_value("instagram_redirect_uri"),
-        api_version=get_value("instagram_api_version", "v26.0"),
+        api_version=get_value("instagram_api_version", "v27.0"),
     )
 
 
@@ -558,7 +558,7 @@ async def update_instagram_settings(
     values = {
         "instagram_app_id": data.app_id or "",
         "instagram_redirect_uri": data.redirect_uri or "",
-        "instagram_api_version": data.api_version or "v26.0",
+        "instagram_api_version": data.api_version or "v27.0",
     }
     if data.app_secret is not None and data.app_secret != "":
         values["instagram_app_secret"] = data.app_secret

@@ -236,3 +236,14 @@ class TestMetaFrontendInit:
         source = pathlib.Path("src/public/js/pages/UserSettingsPage.js").read_text(encoding="utf-8")
         assert "FB.init" in source
         assert "version: 'v27.0'" in source
+
+    def test_fb_login_uses_callback_first_argument(self):
+        source = pathlib.Path("src/public/js/pages/UserSettingsPage.js").read_text(encoding="utf-8")
+        assert "window.FB.login(" in source
+        assert "async (response) =>" in source
+        assert "config_id: configId" in source
+        assert "response_type: 'code'" in source
+        assert "override_default_response_type: true" in source
+        assert "redirect_uri: redirectUri" in source
+        assert "state: state" in source
+        assert "window.FB?.login?.({" not in source

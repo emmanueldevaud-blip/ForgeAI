@@ -364,22 +364,25 @@ export class UserSettingsPage {
           }
           console.log('[META TRACE] avant login', { login: typeof window.FB?.login, configId, redirectUri, state });
           try {
-            window.FB?.login?.({
-              config_id: configId,
-              response_type: 'code',
-              override_default_response_type: true,
-              redirect_uri: redirectUri,
-              state: state,
-              success: async () => {
-                console.log('[META TRACE] FB.login success');
-                setStatus('Meta connecte.', true);
-                try { await this._loadMeta(); } catch (error) { console.error('Erreur recharge parametres Meta:', error); }
+            window.FB.login(
+              async (response) => {
+                console.log('[META TRACE] callback FB.login', response);
+                if (response?.authResponse?.code) {
+                  console.log('[META TRACE] code OAuth reçu');
+                  await this._loadMeta();
+                  return;
+                }
+                console.error('[META TRACE] connexion Meta annulée ou refusée', response);
+                setStatus('Connexion Meta annulée ou refusée.', false);
               },
-              fail: async () => {
-                console.log('[META TRACE] FB.login fail');
-                setStatus('Echec de la connexion Meta.', false);
-              },
-            });
+              {
+                config_id: configId,
+                response_type: 'code',
+                override_default_response_type: true,
+                redirect_uri: redirectUri,
+                state: state
+              }
+            );
             console.log('[META TRACE] FB.login executed');
           } catch (e) {
             console.error('[META TRACE] exception FB.login', e, e?.stack);

@@ -291,6 +291,54 @@ class TestMetaCallbackHttp:
         assert response.status_code == 200
         assert response.json()["status"] == "ok"
 
+    @pytest.mark.asyncio
+    async def test_post_meta_callback_exchange_failure_returns_502(self, client, db_session, auth_headers, monkeypatch):
+        _mock_httpx_client(monkeypatch, _handler_error())
+        await _save_config(
+            db_session,
+            meta_app_id="12345",
+            meta_app_secret="TOPSECRET-APP",
+            meta_redirect_uri="https://forgeai.design-ede.fr/sport/publications/meta/callback",
+            instagram_api_version="v27.0",
+        )
+        service = SportInstagramConnectService(db_session)
+        info = await service.initiate_meta_login()
+
+        response = await client.post(
+            "/sport/publications/meta/callback",
+            json={"code": "SECRET-CODE-XYZ", "state": info["state"]},
+            headers=auth_headers,
+        )
+
+        assert response.status_code == 502
+        detail = response.json()["detail"]
+        assert "Code has expired or is invalid" in detail
+        assert "TOPSECRET-APP" not in detail
+        assert "SECRET-CODE-XYZ" not in detail
+        assert "client_secret" not in detail
+
+    @pytest.mark.asyncio
+    async def test_exchange_error_message_excludes_secrets(self, db_session, monkeypatch):
+        _mock_httpx_client(monkeypatch, _handler_error())
+        await _save_config(
+            db_session,
+            meta_app_id="12345",
+            meta_app_secret="TOPSECRET-APP",
+            meta_redirect_uri="https://forgeai.design-ede.fr/sport/publications/meta/callback",
+            instagram_api_version="v27.0",
+        )
+        service = SportInstagramConnectService(db_session)
+
+        with pytest.raises(httpx.HTTPStatusError) as exc_info:
+            await service.exchange_business_code("SECRET-CODE-XYZ")
+
+        message = str(exc_info.value)
+        assert "Code has expired or is invalid" in message
+        assert "TOPSECRET-APP" not in message
+        assert "SECRET-CODE-XYZ" not in message
+        assert "client_secret" not in message
+        assert "access_token" not in message
+
 
 class TestMetaFrontendInit:
     def test_fb_init_includes_meta_graph_version(self):
@@ -317,3 +365,26 @@ class TestMetaFrontendInit:
         assert "getMetaSettings()" in source
         assert "_updateMetaBadge()" in source
         assert "[META TRACE]" not in source
+
+    def test_fb_login_callback_never_logs_oauth_code(self):
+        source = pathlib.Path("src/public/js/pages/UserSettingsPage.js").read_text(encoding="utf-8")
+        for line in source.splitlines():
+            stripped = line.strip()
+            if stripped.startswith("//"):
+                continue
+            if "console." in stripped:
+                assert "authResponse" not in stripped, f"reponse FB loggee: {stripped}"
+                assert not stripped.endswith("response);"), f"response FB loggee: {stripped}"
+                assert "code" not in stripped.replace("erreur", "").replace("Erreur", ""), (
+                    f"code OAuth potentiellement logge: {stripped}"
+                )
+
+    def test_cache_bust_versions_are_bumped(self):
+        app_erp = pathlib.Path("src/public/js/app-erp.js").read_text(encoding="utf-8")
+        index = pathlib.Path("src/public/index.html").read_text(encoding="utf-8")
+        import re
+
+        page_version = int(re.search(r"UserSettingsPage\.js\?v=(\d+)", app_erp).group(1))
+        bundle_version = int(re.search(r"app-erp\.js\?v=(\d+)", index).group(1))
+        assert page_version >= 17, "cache-bust UserSettingsPage.js doit etre augmente apres correction"
+        assert bundle_version >= 131, "cache-bust app-erp.js doit etre augmente apres correction"

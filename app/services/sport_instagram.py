@@ -19,6 +19,20 @@ from app.core.config import get_settings
 logger = logging.getLogger(__name__)
 
 
+def _raise_meta_http_error(response: httpx.Response, contexte: str) -> None:
+    """Leve HTTPStatusError sans URL ni secrets dans le message (logs propres)."""
+    if 200 <= response.status_code < 300:
+        return
+    try:
+        detail = (response.json().get("error") or {}).get("message") or ""
+    except ValueError:
+        detail = ""
+    message = f"{contexte} : HTTP {response.status_code}"
+    if detail:
+        message = f"{message} - {detail}"
+    raise httpx.HTTPStatusError(message, request=response.request, response=response)
+
+
 def _fernet():
     from cryptography.fernet import Fernet
 
@@ -130,20 +144,20 @@ class SportInstagramConnectService:
                     "redirect_uri": values["redirect_uri"],
                 },
             )
-            response.raise_for_status()
+            _raise_meta_http_error(response, "Echange du code OAuth Meta")
             token = response.json().get("access_token")
             me = await client.get(
                 f"{base_url}/me",
                 params={"fields": "id,client_business_id", "access_token": token},
             )
-            me.raise_for_status()
+            _raise_meta_http_error(me, "Lecture /me Meta")
             me_data = me.json()
             client_business_id = str(me_data.get("client_business_id") or "")
             ig_resp = await client.get(
                 f"{base_url}/me/assigned_instagram_accounts",
                 params={"fields": "id,username", "access_token": token},
             )
-            ig_resp.raise_for_status()
+            _raise_meta_http_error(ig_resp, "Lecture des comptes Instagram assigns")
             accounts = ig_resp.json().get("data") or []
         return {
             "access_token": token,

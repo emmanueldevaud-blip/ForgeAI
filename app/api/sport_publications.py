@@ -3,6 +3,7 @@
 import logging
 from typing import Optional
 
+import httpx
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -238,7 +239,10 @@ async def _complete_meta_oauth(code: str, state: str, db: AsyncSession) -> dict:
     service = SportInstagramConnectService(db)
     if not await service.validate_meta_state(state):
         raise HTTPException(status_code=400, detail="State OAuth invalide")
-    result = await service.exchange_business_code(code)
+    try:
+        result = await service.exchange_business_code(code)
+    except httpx.HTTPError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from None
     accounts = result.get("instagram_accounts") or []
     instagram_user_id = ""
     for account in accounts:

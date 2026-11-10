@@ -348,7 +348,6 @@ export class UserSettingsPage {
         if (testResult) testResult.innerHTML = '';
         try {
           const info = await initMetaLogin();
-          console.log('[META TRACE] info', info);
           const state = info?.state;
           const configId = info?.config_id;
           const appId = info?.app_id;
@@ -358,38 +357,44 @@ export class UserSettingsPage {
             return;
           }
           if (window.FB && !window.FB.__forgeai_initialized) {
-            console.log('[META TRACE] FB.init', { appId, version: 'v27.0', init: typeof window.FB?.init });
             window.FB.init({ appId: appId || this.metaSettings?.app_id, version: 'v27.0' });
             window.FB.__forgeai_initialized = true;
           }
-          console.log('[META TRACE] avant login', { login: typeof window.FB?.login, configId, redirectUri, state });
-          try {
-            window.FB.login(
-              (response) => {
-                console.log('[META TRACE] callback FB.login', response);
-                if (response?.authResponse?.code) {
-                  console.log('[META TRACE] code OAuth reçu');
-                  this._loadMeta().catch((error) => {
-                    console.error('[META TRACE] erreur _loadMeta', error);
-                  });
-                  return;
-                }
-                console.error('[META TRACE] connexion Meta annulée ou refusée', response);
-                setStatus('Connexion Meta annulée ou refusée.', false);
-              },
-              {
-                config_id: configId,
-                response_type: 'code',
-                override_default_response_type: true,
-                redirect_uri: redirectUri,
-                state: state
+          window.FB.login(
+            (response) => {
+              if (response?.authResponse?.code) {
+                const callbackPath = new URL(redirectUri, window.location.origin).pathname;
+                (async () => {
+                  try {
+                    const callbackResp = await fetch(callbackPath, {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ code: response.authResponse.code, state }),
+                    });
+                    const data = await callbackResp.json().catch(() => ({}));
+                    if (!callbackResp.ok) {
+                      throw new Error(data?.detail || 'Echec de la connexion Meta.');
+                    }
+                    const settings = await getMetaSettings();
+                    this.metaSettings = settings;
+                    this._updateMetaBadge();
+                    setStatus('Meta connecte.', true);
+                  } catch (error) {
+                    setStatus(error?.message || 'Echec de la connexion Meta.', false);
+                  }
+                })();
+                return;
               }
-            );
-            console.log('[META TRACE] FB.login executed');
-          } catch (e) {
-            console.error('[META TRACE] exception FB.login', e, e?.stack);
-            throw e;
-          }
+              setStatus('Connexion Meta annulée ou refusée.', false);
+            },
+            {
+              config_id: configId,
+              response_type: 'code',
+              override_default_response_type: true,
+              redirect_uri: redirectUri,
+              state: state,
+            },
+          );
         } catch (error) {
           setStatus(error?.data?.detail || error?.message || 'Echec du lancement Meta.', false);
         } finally {

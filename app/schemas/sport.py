@@ -546,3 +546,8 @@ class CalendarGenerateRequest(BaseModel):
 
 class CalendarGenerateResponse(BaseModel):
     calendar: list[EditorialCalendarEntryResponse]
+
+
+class MetaOAuthCallbackRequest(BaseModel):
+    code: str
+    state: str

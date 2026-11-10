@@ -12,6 +12,7 @@ from app.models.sport import SportActivity
 from app.api.deps import get_db, require_module_enabled, require_permission
 from app.models.user import User
 from app.schemas.sport import (
+    MetaOAuthCallbackRequest,
     SportActivityResponse,
     SportPublicationGenerateRequest,
     SportPublicationListResponse,
@@ -232,14 +233,8 @@ async def meta_login_init(
     return await service.initiate_meta_login()
 
 
-@router.get("/meta/callback")
-async def meta_oauth_callback(
-    code: str = Query(..., description="Code OAuth de Facebook Login for Business"),
-    state: str = Query(..., description="State OAuth"),
-    db: AsyncSession = Depends(get_db),
-) -> dict:
-    """Callback Facebook Login for Business : echange le code contre le jeton du
-    Business Integration System User, recupere le contexte, enregistre le tout."""
+async def _complete_meta_oauth(code: str, state: str, db: AsyncSession) -> dict:
+    """Echange le code OAuth et enregistre le contexte Meta (partage GET/POST)."""
     service = SportInstagramConnectService(db)
     if not await service.validate_meta_state(state):
         raise HTTPException(status_code=400, detail="State OAuth invalide")
@@ -260,3 +255,24 @@ async def meta_oauth_callback(
         "client_business_id": result.get("client_business_id"),
         "instagram_accounts": accounts,
     }
+
+
+@router.get("/meta/callback")
+async def meta_oauth_callback(
+    code: str = Query(..., description="Code OAuth de Facebook Login for Business"),
+    state: str = Query(..., description="State OAuth"),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Callback Facebook Login for Business (redirection navigateur) : echange le
+    code contre le jeton du Business Integration System User, enregistre le contexte."""
+    return await _complete_meta_oauth(code, state, db)
+
+
+@router.post("/meta/callback")
+async def meta_oauth_callback_post(
+    payload: MetaOAuthCallbackRequest,
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Callback Facebook Login for Business (code transmis par le SDK JS en JSON) :
+    meme traitement que le GET, le code reste hors des journaux d'acces."""
+    return await _complete_meta_oauth(payload.code, payload.state, db)

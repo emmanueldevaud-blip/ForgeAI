@@ -455,3 +455,59 @@ async def test_meta_test_invalid_credentials_returns_502(client, admin_headers, 
 async def test_meta_test_requires_permission(client, auth_headers):
     response = await client.post("/admin/settings/meta/test", json={}, headers=auth_headers)
     assert response.status_code == 403
+
+
+async def test_meta_debug_token_requires_saved_config(client, admin_headers):
+    response = await client.post("/admin/settings/meta/debug-token", json={}, headers=admin_headers)
+
+    assert response.status_code == 400
+    assert "App ID" in response.json()["detail"]
+
+
+async def test_meta_debug_token_returns_safe_fields(client, admin_headers, monkeypatch):
+    saved = await client.put(
+        "/admin/settings/meta",
+        json=payload(app_id="test-app-id", app_secret="test-secret", access_token="SUAT-PLAINTEXT-TOKEN"),
+        headers=admin_headers,
+    )
+    assert saved.status_code == 200
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        path = request.url.path
+        if path.endswith("/oauth/access_token"):
+            if request.url.params.get("grant_type") == "client_credentials":
+                return httpx.Response(200, json={"access_token": "app-token"}, request=request)
+            return httpx.Response(200, json={"access_token": "long-token"}, request=request)
+        if path.endswith("/debug_token"):
+            return httpx.Response(
+                200,
+                json={
+                    "data": {
+                        "is_valid": True,
+                        "type": "BUSINESS_INTEGRATION_SYSTEM_USER",
+                        "app_id": "test-app-id",
+                        "user_id": "suat-1",
+                        "expires_at": 123,
+                        "scopes": ["instagram_basic"],
+                        "granular_scopes": ["instagram_basic"],
+                    }
+                },
+                request=request,
+            )
+        return httpx.Response(404, json={"error": {"message": "not_found"}}, request=request)
+
+    _mock_meta_client(monkeypatch, handler)
+
+    response = await client.post("/admin/settings/meta/debug-token", headers=admin_headers)
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["is_valid"] is True
+    assert data["type"] == "BUSINESS_INTEGRATION_SYSTEM_USER"
+    assert data["app_id"] == "test-app-id"
+    assert data["user_id"] == "suat-1"
+    assert data["expires_at"] == 123
+    assert data["scopes"] == ["instagram_basic"]
+    assert data["granular_scopes"] == ["instagram_basic"]
+    assert "access_token" not in data
+    assert "SUAT-PLAINTEXT-TOKEN" not in response.text

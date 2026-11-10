@@ -62,6 +62,7 @@ from app.schemas.admin import (
     MetaSettingsUpdate,
     MetaTestResponse,
     MetaTestStep,
+    MetaDebugTokenResponse,
     InstagramSettingsResponse,
     InstagramSettingsUpdate,
 )
@@ -526,6 +527,82 @@ async def test_meta_settings(
         instagram_user_id=configured_ig_id or None,
         instagram_username=ig_username,
         steps=steps,
+    )
+
+
+@settings_router.post("/meta/debug-token", response_model=MetaDebugTokenResponse)
+async def debug_meta_token(
+    current_user: User = Depends(require_permission("settings_update")),
+    db: AsyncSession = Depends(get_db),
+) -> MetaDebugTokenResponse:
+    """Diagnostic securise du jeton Meta Login for Business via /debug_token (admin).
+
+    Retourne uniquement les champs de diagnostic. Les jetons ne sont jamais exposes
+    ni journals. Le token utilise est celui enregistre apres l'echange OAuth (meta_access_token).
+    """
+    from app.services.sport_instagram import SportInstagramConnectService, _decrypt_token
+
+    service = SportInstagramConnectService(db)
+    values = await service.load_meta_values()
+    if not values["app_id"] or not values["app_secret"]:
+        raise HTTPException(status_code=400, detail="Enregistrez d'abord l'App ID et l'App Secret Meta")
+
+    from app.core.config import get_settings
+
+    version = get_settings().META_API_VERSION or "v27.0"
+    base_url = f"https://graph.facebook.com/{version}"
+
+    async with httpx.AsyncClient(timeout=15.0) as client:
+        app_resp = await client.get(
+            f"{base_url}/oauth/access_token",
+            params={"grant_type": "client_credentials", "client_id": values["app_id"], "client_secret": values["app_secret"]},
+        )
+        if app_resp.status_code != 200:
+            try:
+                meta_message = app_resp.json().get("error", {}).get("message") or app_resp.text
+            except ValueError:
+                meta_message = app_resp.text
+            raise HTTPException(status_code=502, detail=f"Echec du test Meta : {meta_message}")
+        app_access_token = app_resp.json().get("access_token")
+        if not app_access_token:
+            raise HTTPException(status_code=502, detail="Echec du test Meta : jeton applicatif introuvable")
+
+        configs = await _get_administration_configs(db)
+        get_value = lambda key, default="": configs.get(key).value if configs.get(key) and configs.get(key).value is not None else default
+        raw_token = get_value("meta_access_token")
+        token = _decrypt_token(raw_token) if raw_token else None
+        if not token:
+            return MetaDebugTokenResponse(
+                is_valid=None,
+                type=None,
+                app_id=None,
+                user_id=None,
+                expires_at=None,
+                scopes=None,
+                granular_scopes=None,
+            )
+
+        debug_resp = await client.get(
+            f"{base_url}/debug_token",
+            params={"input_token": token, "access_token": app_access_token},
+        )
+        if debug_resp.status_code != 200:
+            try:
+                debug_error = debug_resp.json().get("error", {}).get("message") or debug_resp.text
+            except ValueError:
+                debug_error = debug_resp.text
+            raise HTTPException(status_code=502, detail=f"Echec debug_token Meta : {debug_error}")
+
+        debug_data = debug_resp.json().get("data") or {}
+
+    return MetaDebugTokenResponse(
+        is_valid=debug_data.get("is_valid"),
+        type=debug_data.get("type"),
+        app_id=debug_data.get("app_id"),
+        user_id=debug_data.get("user_id"),
+        expires_at=debug_data.get("expires_at"),
+        scopes=debug_data.get("scopes"),
+        granular_scopes=debug_data.get("granular_scopes"),
     )
 
 

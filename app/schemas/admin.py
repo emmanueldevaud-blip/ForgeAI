@@ -178,6 +178,16 @@ class MetaTestResponse(BaseModel):
     steps: list[MetaTestStep] = []
 
 
+class MetaDebugTokenResponse(BaseModel):
+    is_valid: Optional[bool] = None
+    type: Optional[str] = None
+    app_id: Optional[str] = None
+    user_id: Optional[str] = None
+    expires_at: Optional[int] = None
+    scopes: Optional[list] = None
+    granular_scopes: Optional[list] = None
+
+
 class InstagramSettingsResponse(BaseModel):
     app_id: str = ""
     app_secret_configured: bool = False

@@ -231,6 +231,67 @@ class TestMetaBusinessExchange:
         assert _decrypt_token(context.encrypted_long_lived_token) == "BI-TOKEN-123"
 
 
+class TestMetaCallbackHttp:
+    @pytest.mark.asyncio
+    async def test_post_meta_callback_exchanges_and_stores(self, client, db_session, auth_headers, monkeypatch):
+        _mock_httpx_client(monkeypatch, _handler_ok())
+        await _save_config(
+            db_session,
+            meta_app_id="12345",
+            meta_app_secret="app-secret",
+            meta_redirect_uri="https://forgeai.design-ede.fr/sport/publications/meta/callback",
+            instagram_api_version="v27.0",
+        )
+        service = SportInstagramConnectService(db_session)
+        info = await service.initiate_meta_login()
+
+        response = await client.post(
+            "/sport/publications/meta/callback",
+            json={"code": "CODE-XYZ", "state": info["state"]},
+            headers=auth_headers,
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["status"] == "ok"
+        assert data["client_business_id"] == "17841463605067187"
+        stored = await db_session.execute(select(ModuleConfig).where(ModuleConfig.key == "meta_access_token"))
+        config = stored.scalar_one_or_none()
+        assert config is not None
+        assert _decrypt_token(config.value) == "BI-TOKEN-123"
+
+    @pytest.mark.asyncio
+    async def test_post_meta_callback_rejects_invalid_state(self, client, auth_headers):
+        response = await client.post(
+            "/sport/publications/meta/callback",
+            json={"code": "CODE-XYZ", "state": "invalide"},
+            headers=auth_headers,
+        )
+        assert response.status_code == 400
+
+    @pytest.mark.asyncio
+    async def test_get_meta_callback_still_exchanges(self, client, db_session, auth_headers, monkeypatch):
+        _mock_httpx_client(monkeypatch, _handler_ok())
+        await _save_config(
+            db_session,
+            meta_app_id="12345",
+            meta_app_secret="app-secret",
+            meta_redirect_uri="https://forgeai.design-ede.fr/sport/publications/meta/callback",
+            instagram_api_version="v27.0",
+        )
+        service = SportInstagramConnectService(db_session)
+        info = await service.initiate_meta_login()
+
+        response = await client.get(
+            "/sport/publications/meta/callback",
+            params={"code": "CODE-XYZ", "state": info["state"]},
+            headers=auth_headers,
+        )
+
+        assert response.status_code == 200
+        assert response.json()["status"] == "ok"
+
+
 class TestMetaFrontendInit:
     def test_fb_init_includes_meta_graph_version(self):
         source = pathlib.Path("src/public/js/pages/UserSettingsPage.js").read_text(encoding="utf-8")
@@ -248,3 +309,11 @@ class TestMetaFrontendInit:
         assert "redirect_uri: redirectUri" in source
         assert "state: state" in source
         assert "window.FB?.login?.({" not in source
+
+    def test_fb_login_callback_posts_code_and_reloads_settings(self):
+        source = pathlib.Path("src/public/js/pages/UserSettingsPage.js").read_text(encoding="utf-8")
+        assert "this._loadMeta" not in source
+        assert "method: 'POST'" in source
+        assert "getMetaSettings()" in source
+        assert "_updateMetaBadge()" in source
+        assert "[META TRACE]" not in source

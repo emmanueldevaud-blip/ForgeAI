@@ -63,8 +63,6 @@ from app.schemas.admin import (
     MetaTestResponse,
     MetaTestStep,
     MetaDebugTokenResponse,
-    InstagramSettingsResponse,
-    InstagramSettingsUpdate,
 )
 from app.services.admin import AdminUserService
 from app.services.audit import get_audit_service
@@ -331,7 +329,7 @@ async def test_meta_settings(
             status="skipped",
             detail="Aucun token enregistré dans la configuration Meta.",
         ))
-        app_id_val = get_value("meta_app_id") or get_value("instagram_app_id") or ""
+        app_id_val = get_value("meta_app_id")
         return MetaTestResponse(
             message=f"Connexion Meta validée : l'App ID {app_id_val} est accepté." if app_id_val else "Connexion Meta validée. Aucun Meta Access Token enregistré.",
             status="no_token",
@@ -604,57 +602,6 @@ async def debug_meta_token(
         scopes=debug_data.get("scopes"),
         granular_scopes=debug_data.get("granular_scopes"),
     )
-
-
-@settings_router.get("/instagram", response_model=InstagramSettingsResponse)
-async def get_instagram_settings(
-    current_user: User = Depends(require_permission("settings_view")),
-    db: AsyncSession = Depends(get_db),
-):
-    configs = await _get_administration_configs(db)
-    get_value = lambda key, default="": configs.get(key).value if configs.get(key) and configs.get(key).value is not None else default
-    return InstagramSettingsResponse(
-        app_id=get_value("instagram_app_id"),
-        app_secret_configured=bool(get_value("instagram_app_secret")),
-        redirect_uri=get_value("instagram_redirect_uri"),
-        api_version=get_value("instagram_api_version", "v27.0"),
-    )
-
-
-@settings_router.put("/instagram", response_model=InstagramSettingsResponse)
-async def update_instagram_settings(
-    data: InstagramSettingsUpdate,
-    current_user: User = Depends(require_permission("settings_update")),
-    db: AsyncSession = Depends(get_db),
-):
-    module_result = await db.execute(select(Module).where(Module.code == "administration"))
-    module = module_result.scalar_one_or_none()
-    if not module:
-        raise HTTPException(status_code=500, detail="Module Administration non trouvé")
-
-    values = {
-        "instagram_app_id": data.app_id or "",
-        "instagram_redirect_uri": data.redirect_uri or "",
-        "instagram_api_version": data.api_version or "v27.0",
-    }
-    if data.app_secret is not None and data.app_secret != "":
-        values["instagram_app_secret"] = data.app_secret
-
-    configs = await _get_administration_configs(db)
-    for key, value in values.items():
-        config = configs.get(key)
-        if config:
-            config.value = value
-        else:
-            db.add(ModuleConfig(
-                module_id=module.id,
-                key=key,
-                value=value,
-                value_type="string",
-                is_secret=key == "instagram_app_secret",
-            ))
-    await db.commit()
-    return await get_instagram_settings(current_user=current_user, db=db)
 
 
 def _effective_ai_values(overrides: dict[str, str]) -> dict:

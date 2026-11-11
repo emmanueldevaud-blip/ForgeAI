@@ -609,8 +609,8 @@ class TestCommunityManagerStudioServicePublish:
             mock_meta_service = MagicMock()
             mock_meta_service.publish_photo = AsyncMock(return_value="media_123")
             mock_meta_service.get_media_permalink = AsyncMock(return_value="https://instagram.com/p/abc123")
-            # Jalon 2 : la résolution de la source passe par le service (config centralisée
-            # en priorité, connexion OAuth en repli) — voir resolve_publish_context.
+            # La résolution de la source passe par le service : configuration
+            # Meta centralisée (jeton SUAT) — voir resolve_publish_context.
             resolved_conn = MagicMock()
             resolved_conn.instagram_business_account_id = "17841400000000000"
             resolved_conn.encrypted_long_lived_token = "encrypted_token"

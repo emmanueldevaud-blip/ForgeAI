@@ -4,9 +4,7 @@ import {
   getMetaSettings,
   updateMetaSettings,
   testMetaSettings,
-  getInstagramSettings,
-  updateInstagramSettings,
-} from '../services/adminApi.js?v=6';
+} from '../services/adminApi.js?v=7';
 import { createSportGarminPage } from './SportGarminPage.js?v=5';
 import {
   getInstagramAuthUrl,
@@ -20,7 +18,6 @@ export class UserSettingsPage {
     this.element = null;
     this.user = null;
     this.metaSettings = null;
-    this.instagramSettings = null;
     this.instagramStatus = null;
     this.currentTab = 'preferences';
     this.garminPage = null;
@@ -50,16 +47,11 @@ export class UserSettingsPage {
         console.error('Erreur chargement paramètres Meta:', error);
       }
       try {
-        this.instagramSettings = await getInstagramSettings();
-      } catch (error) {
-        console.error('Erreur chargement paramètres Instagram:', error);
-      }
-      try {
         this.instagramStatus = await getInstagramConnectionStatus();
       } catch (error) {
-        console.error('Erreur chargement connexion Instagram:', error);
+        console.error('Erreur chargement connexion Meta:', error);
       }
-      // Retour du callback OAuth Instagram : ouvrir l'onglet Meta.
+      // Retour du callback OAuth Meta : ouvrir l'onglet Meta.
       const igParams = new URLSearchParams(window.location.search);
       if ((igParams.has('connected') || igParams.has('error')) && this.showMetaTab) {
         this.currentTab = 'meta';
@@ -86,7 +78,11 @@ export class UserSettingsPage {
     const needsWorkstation = !!this.user.default_needs_workstation;
     const canMeta = !!this.showMetaTab;
     if (!canMeta && !this.canSeeGarmin) this.currentTab = 'preferences';
-    const metaConfigured = !!(this.metaSettings?.app_id && this.metaSettings?.app_secret_configured);
+    const metaConfigured = !!(
+      this.metaSettings?.app_id &&
+      this.metaSettings?.app_secret_configured &&
+      this.metaSettings?.config_id
+    );
     const igConnected = !!this.instagramStatus?.connected;
 
     this.element.innerHTML = `
@@ -179,8 +175,8 @@ export class UserSettingsPage {
           <div class="card">
             <div class="card-header">
               <div>
-                <span class="eyebrow">Meta — Instagram Business</span>
-                <p class="text-muted">Configuration Meta Business centralisée : identifiants d'application et jeton SUAT.</p>
+                <span class="eyebrow">Meta — Instagram Unified Login</span>
+                <p class="text-muted">Connexion Meta centralisée : identifiants de l'application, configuration (Config ID) et jeton SUAT.</p>
               </div>
               <span class="status-badge ${metaConfigured ? 'active' : 'inactive'}" data-meta-badge>
                 ${metaConfigured ? 'Configurée' : 'Non configurée'}
@@ -201,10 +197,16 @@ export class UserSettingsPage {
                 </div>
               </div>
               <div class="form-row">
-                <div class="form-group" style="grid-column: 1 / -1;">
+                <div class="form-group">
+                  <label><span>Config ID</span>
+                    <input name="config_id" autocomplete="off" maxlength="100" placeholder="ID de configuration Unified Login">
+                    <small class="form-help">Configuration « API setup with Unified login » de l'application Meta.</small>
+                  </label>
+                </div>
+                <div class="form-group">
                   <label><span>Adresse de callback</span>
                     <input name="redirect_uri" type="url" maxlength="500" placeholder="https://…">
-                    <small class="form-help">URL de redirection déclarée dans l'application Meta.</small>
+                    <small class="form-help">URL de redirection déclarée dans la configuration Meta.</small>
                   </label>
                 </div>
               </div>
@@ -230,54 +232,15 @@ export class UserSettingsPage {
                   </label>
                 </div>
               </div>
+              <div class="page-subtitle" data-role="meta-connection"></div>
               <div class="form-actions">
+                <button class="btn btn-primary" type="button" data-meta-connect>Se connecter à Meta</button>
+                <button class="btn btn-secondary" type="button" data-meta-disconnect ${igConnected ? '' : 'hidden'}>Déconnecter</button>
                 <button class="btn btn-secondary" type="button" data-meta-test>Tester la connexion</button>
                 <button class="btn btn-primary" type="submit">Enregistrer</button>
                 <span data-role="meta-status" role="status"></span>
               </div>
               <div data-role="meta-test-result" aria-live="polite"></div>
-            </form>
-          </div>
-
-          <div class="card">
-            <div class="card-header">
-              <div>
-                <span class="eyebrow">Instagram Login — Connexion individuelle</span>
-                <p class="text-muted">Connexion OAuth par utilisateur : chaque utilisateur connecte son propre compte Instagram.</p>
-              </div>
-              <span class="status-badge ${igConnected ? 'active' : 'inactive'}" data-ig-badge>
-                ${igConnected ? 'Connecté' : 'Non connecté'}
-              </span>
-            </div>
-            <form data-form="instagram-settings" class="card-body">
-              <div class="form-row">
-                <div class="form-group">
-                  <label><span>Instagram App ID *</span>
-                    <input name="app_id" autocomplete="off" maxlength="100" required placeholder="Identifiant de l'application Instagram">
-                  </label>
-                </div>
-                <div class="form-group">
-                  <label><span>Instagram App Secret</span>
-                    <input name="app_secret" type="password" autocomplete="new-password" maxlength="500" placeholder="Non configurée">
-                    <small class="form-help">Laisser vide pour conserver la valeur enregistrée.</small>
-                  </label>
-                </div>
-              </div>
-              <div class="form-row">
-                <div class="form-group" style="grid-column: 1 / -1;">
-                  <label><span>Adresse de callback</span>
-                    <input name="redirect_uri" type="url" maxlength="500" placeholder="https://…">
-                    <small class="form-help">URL de redirection déclarée dans Instagram Login (Valid OAuth Redirect URIs).</small>
-                  </label>
-                </div>
-              </div>
-              <div class="page-subtitle" data-role="ig-connection"></div>
-              <div class="form-actions">
-                <button class="btn btn-primary" type="button" data-ig-connect>Connecter mon compte Instagram</button>
-                <button class="btn btn-secondary" type="button" data-ig-disconnect ${igConnected ? '' : 'hidden'}>Déconnecter</button>
-                <button class="btn btn-primary" type="submit">Enregistrer</button>
-                <span data-role="ig-status" role="status"></span>
-              </div>
             </form>
           </div>` : ''}
 
@@ -326,6 +289,7 @@ export class UserSettingsPage {
       const testResult = this.element.querySelector('[data-role="meta-test-result"]');
       const setValue = (name, value) => { metaForm.elements[name].value = value ?? ''; };
       setValue('app_id', this.metaSettings?.app_id);
+      setValue('config_id', this.metaSettings?.config_id);
       setValue('redirect_uri', this.metaSettings?.redirect_uri);
       setValue('client_business_id', this.metaSettings?.client_business_id);
       setValue('instagram_user_id', this.metaSettings?.instagram_user_id);
@@ -371,6 +335,7 @@ export class UserSettingsPage {
           this.metaSettings = await updateMetaSettings({
             app_id: metaForm.elements.app_id.value.trim(),
             app_secret: metaForm.elements.app_secret.value,
+            config_id: metaForm.elements.config_id.value.trim(),
             redirect_uri: metaForm.elements.redirect_uri.value.trim(),
             access_token: metaForm.elements.access_token.value,
             client_business_id: metaForm.elements.client_business_id.value.trim(),
@@ -387,6 +352,7 @@ export class UserSettingsPage {
               : 'Aucun token enregistré';
           }
           this._updateMetaBadge();
+          await this._refreshMetaConnection();
           setStatus('Paramètres Meta enregistrés.', true);
         } catch (error) {
           setStatus(error.message || "Erreur lors de l'enregistrement.", false);
@@ -412,24 +378,25 @@ export class UserSettingsPage {
           testBtn.disabled = false;
         }
       });
+
+      this._bindMetaConnection(metaForm);
     }
-
-    this._bindInstagramEvents();
-
   }
 
-  _bindInstagramEvents() {
-    const igForm = this.element?.querySelector('[data-form="instagram-settings"]');
-    const igMessage = this.element?.querySelector('[data-role="ig-status"]');
+  _bindMetaConnection(metaForm) {
+    const message = this.element?.querySelector('[data-role="meta-status"]');
+    const setMetaMessage = (text, success) => {
+      if (!message) return;
+      message.textContent = text;
+      message.classList.toggle('text-success', !!success);
+    };
 
-    // Retour du callback OAuth Instagram (?connected=1 ou ?error=…).
+    // Retour du callback OAuth Meta (?connected=1 ou ?error=…).
     const params = new URLSearchParams(window.location.search);
-    if (igMessage && params.has('connected')) {
-      igMessage.textContent = 'Compte Instagram connecté.';
-      igMessage.classList.add('text-success');
-    } else if (igMessage && params.get('error')) {
-      igMessage.textContent = params.get('error');
-      igMessage.classList.remove('text-success');
+    if (params.has('connected')) {
+      setMetaMessage('Compte Meta connecté.', true);
+    } else if (params.get('error')) {
+      setMetaMessage(params.get('error'), false);
     }
     if (params.has('connected') || params.has('error')) {
       const cleanUrl = new URL(window.location.href);
@@ -438,115 +405,73 @@ export class UserSettingsPage {
       window.history.replaceState({}, '', cleanUrl);
     }
 
-    if (!igForm) return;
-
-    const setIgStatus = (text, success) => {
-      if (!igMessage) return;
-      igMessage.textContent = text;
-      igMessage.classList.toggle('text-success', !!success);
-    };
-
-    const setValue = (name, value) => { igForm.elements[name].value = value ?? ''; };
-    setValue('app_id', this.instagramSettings?.app_id);
-    setValue('redirect_uri', this.instagramSettings?.redirect_uri);
-    const secretInput = igForm.elements.app_secret;
-    if (secretInput) {
-      secretInput.placeholder = this.instagramSettings?.app_secret_configured
-        ? 'Configurée — laisser vide pour conserver'
-        : 'Non configurée';
-    }
-
-    const refreshStatus = async () => {
-      try {
-        this.instagramStatus = await getInstagramConnectionStatus();
-      } catch (error) {
-        console.error('Erreur chargement connexion Instagram:', error);
-      }
-      this._renderInstagramStatus();
-    };
-
-    igForm.addEventListener('submit', async (event) => {
-      event.preventDefault();
-      const submitBtn = igForm.querySelector('[type="submit"]');
-      if (submitBtn?.disabled) return;
-      if (submitBtn) submitBtn.disabled = true;
-      try {
-        this.instagramSettings = await updateInstagramSettings({
-          app_id: igForm.elements.app_id.value.trim(),
-          app_secret: igForm.elements.app_secret.value,
-          redirect_uri: igForm.elements.redirect_uri.value.trim(),
-        });
-        igForm.elements.app_secret.value = '';
-        if (secretInput && this.instagramSettings?.app_secret_configured) {
-          secretInput.placeholder = 'Configurée — laisser vide pour conserver';
-        }
-        await refreshStatus();
-        setIgStatus('Paramètres Instagram enregistrés.', true);
-      } catch (error) {
-        setIgStatus(error.message || "Erreur lors de l'enregistrement.", false);
-      } finally {
-        if (submitBtn) submitBtn.disabled = false;
-      }
-    });
-
-    const connectBtn = igForm.querySelector('[data-ig-connect]');
+    const connectBtn = metaForm.querySelector('[data-meta-connect]');
     connectBtn?.addEventListener('click', async () => {
       if (connectBtn.disabled) return;
       connectBtn.disabled = true;
-      setIgStatus('Demarrage de la connexion Instagram…', false);
+      setMetaMessage('Demarrage de la connexion Meta…', false);
       try {
         const info = await getInstagramAuthUrl();
         if (!info?.authorize_url) {
-          setIgStatus("Instagram Login non configuré : renseignez l'App ID, l'App Secret et le callback.", false);
+          setMetaMessage(
+            "Connexion Meta non configurée : renseignez l'App ID, l'App Secret, le Config ID et le callback.",
+            false,
+          );
           return;
         }
-        // Redirection navigateur vers l'autorisation Instagram (voie B).
+        // Redirection navigateur vers l'autorisation Unified Login (dialog Meta).
         window.location.assign(info.authorize_url);
       } catch (error) {
-        setIgStatus(error?.data?.detail || error?.message || 'Echec du lancement de la connexion Instagram.', false);
+        setMetaMessage(
+          error?.data?.detail || error?.message || 'Echec du lancement de la connexion Meta.',
+          false,
+        );
         connectBtn.disabled = false;
       }
     });
 
-    const disconnectBtn = igForm.querySelector('[data-ig-disconnect]');
+    const disconnectBtn = metaForm.querySelector('[data-meta-disconnect]');
     disconnectBtn?.addEventListener('click', async () => {
       if (disconnectBtn.disabled) return;
       disconnectBtn.disabled = true;
       try {
         await disconnectInstagram();
-        await refreshStatus();
-        setIgStatus('Compte Instagram déconnecté.', true);
+        await this._refreshMetaConnection();
+        setMetaMessage('Connexion Meta déconnectée.', true);
       } catch (error) {
-        setIgStatus(error?.message || 'Déconnexion impossible.', false);
+        setMetaMessage(error?.message || 'Déconnexion impossible.', false);
       } finally {
         disconnectBtn.disabled = false;
       }
     });
 
-    this._renderInstagramStatus();
+    this._renderMetaConnection();
   }
 
-  _renderInstagramStatus() {
-    const badge = this.element?.querySelector('[data-ig-badge]');
-    const disconnectBtn = this.element?.querySelector('[data-ig-disconnect]');
-    const info = this.element?.querySelector('[data-role="ig-connection"]');
+  async _refreshMetaConnection() {
+    try {
+      this.instagramStatus = await getInstagramConnectionStatus();
+    } catch (error) {
+      console.error('Erreur chargement connexion Meta:', error);
+    }
+    this._renderMetaConnection();
+  }
+
+  _renderMetaConnection() {
+    const disconnectBtn = this.element?.querySelector('[data-meta-disconnect]');
+    const info = this.element?.querySelector('[data-role="meta-connection"]');
     const status = this.instagramStatus;
     const connected = !!status?.connected;
 
-    if (badge) {
-      badge.textContent = connected ? 'Connecté' : 'Non connecté';
-      badge.classList.toggle('active', connected);
-      badge.classList.toggle('inactive', !connected);
-    }
     if (disconnectBtn) disconnectBtn.hidden = !connected;
     if (info) {
       if (connected) {
         const username = status.username ? `@${status.username} — ` : '';
-        info.textContent = `Compte Instagram connecté : ${username}ID ${status.instagram_business_account_id}`;
+        info.textContent = `Compte connecté : ${username}ID ${status.instagram_user_id}`;
       } else if (status && !status.configured) {
-        info.textContent = 'Instagram Login non configuré (App ID, App Secret ou callback manquant).';
+        info.textContent = 'Connexion Meta non configurée (App ID, App Secret, Config ID ou callback manquant).';
       } else {
-        info.textContent = 'Aucun compte Instagram connecté pour votre utilisateur.';
+        info.textContent = 'Aucun compte Meta connecté.';
       }
     }
   }
@@ -556,7 +481,8 @@ export class UserSettingsPage {
     if (!badge) return;
     const configured = !!(
       this.metaSettings?.app_id &&
-      (this.metaSettings?.app_secret_configured || this.metaSettings?.access_token_configured)
+      (this.metaSettings?.app_secret_configured || this.metaSettings?.access_token_configured) &&
+      this.metaSettings?.config_id
     );
     badge.textContent = configured ? 'Configurée' : 'Non configurée';
     badge.classList.toggle('active', configured);

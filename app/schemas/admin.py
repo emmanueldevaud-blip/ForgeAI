@@ -188,20 +188,6 @@ class MetaDebugTokenResponse(BaseModel):
     granular_scopes: Optional[list] = None
 
 
-class InstagramSettingsResponse(BaseModel):
-    app_id: str = ""
-    app_secret_configured: bool = False
-    redirect_uri: str = ""
-    api_version: str = "v27.0"
-
-
-class InstagramSettingsUpdate(BaseModel):
-    app_id: str = Field("", max_length=100)
-    app_secret: Optional[str] = Field(None, max_length=500)
-    redirect_uri: str = Field("", max_length=500)
-    api_version: str = Field("v27.0", max_length=20)
-
-
 class AiProviderSettings(BaseModel):
     enabled: bool = True
     api_key_configured: bool = False

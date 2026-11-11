@@ -37,7 +37,7 @@ router = APIRouter(
     dependencies=[Depends(require_module_enabled("sport"))],
 )
 
-# Callback OAuth public (redirection depuis Instagram, sans session) :
+# Callback OAuth public (redirection depuis Meta, sans session) :
 # la protection CSRF repose sur le state, pas sur l'authentification.
 public_router = APIRouter(
     prefix="/sport/publications",
@@ -212,7 +212,7 @@ async def generate_card(
 
 
 # --------------------------------------------------------------------------- #
-# Instagram Login (voie B) — connexions par utilisateur
+# Instagram Unified Login — connexion Meta centralisee (SUAT partage)
 # --------------------------------------------------------------------------- #
 
 
@@ -221,7 +221,7 @@ async def instagram_login_authorize(
     current_user: User = Depends(require_permission("settings_update")),
     db: AsyncSession = Depends(get_db),
 ):
-    """URL d'autorisation Instagram Login pour l'utilisateur courant."""
+    """URL d'autorisation Instagram Unified Login (config_id)."""
     service = SportInstagramConnectService(db)
     authorize_url, _state = await service.build_authorization_url(current_user.id)
     return {"authorize_url": authorize_url}
@@ -232,27 +232,9 @@ async def instagram_connection_status(
     current_user: User = Depends(require_permission("settings_view")),
     db: AsyncSession = Depends(get_db),
 ):
-    """Statut de la connexion Instagram de l'utilisateur courant."""
+    """Statut de la connexion Meta (configuration + jeton SUAT centralise)."""
     service = SportInstagramConnectService(db)
-    values = await service.load_instagram_login_values()
-    configured = bool(values["app_id"] and values["app_secret"] and values["redirect_uri"])
-    connection = await service.get_connection(current_user.id)
-    connected = bool(
-        connection
-        and connection.status == "active"
-        and connection.instagram_business_account_id
-    )
-    metadata = (connection.metadata_json or {}) if connection is not None else {}
-    return {
-        "configured": configured,
-        "connected": connected,
-        "status": connection.status if connection is not None else None,
-        "instagram_business_account_id": (
-            connection.instagram_business_account_id if connection is not None else None
-        ),
-        "username": metadata.get("username"),
-        "scopes": connection.scopes if connection is not None else None,
-    }
+    return await service.connection_status()
 
 
 @router.delete("/meta")
@@ -260,9 +242,9 @@ async def disconnect_instagram_connection(
     current_user: User = Depends(require_permission("settings_update")),
     db: AsyncSession = Depends(get_db),
 ):
-    """Desactive la connexion Instagram de l'utilisateur courant (isole)."""
+    """Retire le jeton SUAT et le contexte de connexion Meta (configuration conservee)."""
     service = SportInstagramConnectService(db)
-    disconnected = await service.disconnect(current_user.id)
+    disconnected = await service.clear_meta_credentials()
     return {"disconnected": disconnected}
 
 
@@ -287,24 +269,24 @@ async def run_publication_notifications(
 
 
 # --------------------------------------------------------------------------- #
-# Callback OAuth Instagram (public — redirection depuis www.instagram.com)
+# Callback OAuth (public — redirection depuis www.facebook.com)
 # --------------------------------------------------------------------------- #
 
 
 @public_router.get("/meta/callback")
 async def instagram_oauth_callback(
     request: Request,
-    code: str | None = Query(None, description="Code OAuth Instagram"),
+    code: str | None = Query(None, description="Code OAuth Meta"),
     state: str | None = Query(None, description="State OAuth (CSRF)"),
-    error: str | None = Query(None, description="Erreur renvoyée par Instagram"),
-    error_reason: str | None = Query(None, description="Raison du refus Instagram"),
+    error: str | None = Query(None, description="Erreur renvoyee par Meta"),
+    error_reason: str | None = Query(None, description="Raison du refus Meta"),
     db: AsyncSession = Depends(get_db),
 ):
-    """Callback Instagram Login : consomme le state, echange le code, enregistre
-    la connexion de l'utilisateur, puis redirige vers /settings.
+    """Callback Instagram Unified Login : consomme le state, echange le code
+    contre le SUAT, enregistre le contexte Meta, puis redirige vers /settings.
 
     Sans authentification (le state CSRF protege la route) : la livraison du
-    code se fait par redirection navigateur depuis Instagram.
+    code se fait par redirection navigateur depuis Meta.
     """
     service = SportInstagramConnectService(db)
     wants_json = "application/json" in request.headers.get("accept", "")
@@ -324,7 +306,7 @@ async def instagram_oauth_callback(
 
     if error:
         return _response(
-            {"status": "error", "detail": f"Instagram a refusé la connexion ({error_reason or error})"},
+            {"status": "error", "detail": f"Meta a refusé la connexion ({error_reason or error})"},
             code_http=400,
         )
     if not code or not state:
@@ -341,30 +323,37 @@ async def instagram_oauth_callback(
         )
 
     try:
-        result = await service.exchange_instagram_code(code)
+        result = await service.exchange_business_code(code)
     except HTTPException as exc:
         return _response(
             {"status": "error", "detail": str(exc.detail)},
             code_http=exc.status_code if exc.status_code >= 400 else 502,
         )
     except Exception:
-        logger.exception("Echange OAuth Instagram impossible")
+        logger.exception("Echange OAuth Meta impossible")
         return _response(
-            {"status": "error", "detail": "Echange du code OAuth Instagram impossible"},
+            {"status": "error", "detail": "Echange du code OAuth Meta impossible"},
             code_http=502,
         )
 
-    if not result.get("instagram_business_account_id"):
+    accounts = result.get("instagram_accounts") or []
+    instagram_user_id = next(
+        (str(account.get("id")) for account in accounts if account.get("id")), None
+    )
+    if not instagram_user_id:
         return _response(
-            {"status": "error", "detail": "Compte Instagram Business introuvable pour ce jeton"},
+            {"status": "error", "detail": "Aucun compte Instagram assigné au jeton Meta"},
             code_http=502,
         )
+    username = next(
+        (account.get("username") for account in accounts if str(account.get("id")) == instagram_user_id),
+        None,
+    )
 
-    await service.save_connection(
-        user_id,
-        access_token=result["access_token"],
-        expires_in=result.get("expires_in"),
-        instagram_business_account_id=result.get("instagram_business_account_id"),
-        username=result.get("username"),
+    await service.save_meta_credentials(
+        token=result["access_token"],
+        client_business_id=result.get("client_business_id") or "",
+        instagram_user_id=instagram_user_id,
+        username=username,
     )
     return _response({"status": "connected"})

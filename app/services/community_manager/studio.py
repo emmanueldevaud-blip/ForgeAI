@@ -714,13 +714,14 @@ class CommunityManagerStudioService:
         # Récupérer l'athlète et la connexion Instagram
         athlete, strategy = await self._get_athlete_and_strategy()
 
-        # Source de publication : configuration Meta centralisée
+        # Source de publication : connexion utilisateur (Instagram Login),
+        # sinon configuration Meta centralisée
         meta_service = MetaPublishService(self.db)
-        connection = await meta_service.resolve_publish_context()
+        connection = await meta_service.resolve_publish_context(self.current_user.id)
         if not connection:
             raise ValueError(
                 "Aucune source de publication Instagram configurée. "
-                "Renseignez le Meta Access Token et l'Instagram User ID dans la configuration Meta."
+                "Connectez votre compte Instagram ou renseignez la configuration Meta."
             )
 
         if not connection.instagram_business_account_id:

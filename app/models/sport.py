@@ -476,3 +476,48 @@ class MediaPublishToken(Base):
         Index("ix_media_publish_token_expires", "expires_at"),
         Index("ix_media_publish_token_consumed", "consumed"),
     )
+
+
+class SportInstagramConnection(Base):
+    """Connexion Instagram OAuth individuelle (Instagram Login, voie B)."""
+
+    __tablename__ = "sport_instagram_connections"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=False, unique=True, index=True
+    )
+    instagram_business_account_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    auth_type: Mapped[str] = mapped_column(String(30), nullable=False, default="instagram_login")
+    encrypted_access_token: Mapped[str | None] = mapped_column(Text, nullable=True)
+    encrypted_long_lived_token: Mapped[str | None] = mapped_column(Text, nullable=True)
+    status: Mapped[str] = mapped_column(String(30), nullable=False, default="active", index=True)
+    scopes: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    token_type: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    expires_in: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    obtained_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    metadata_json: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+    user: Mapped["User"] = relationship("User", lazy="selectin")
+
+
+class SportInstagramOAuthState(Base):
+    """State OAuth CSRF éphémère du parcours Instagram Login (10 minutes)."""
+
+    __tablename__ = "sport_instagram_oauth_states"
+
+    state: Mapped[str] = mapped_column(String(128), primary_key=True)
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, index=True)
+    consumed: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )

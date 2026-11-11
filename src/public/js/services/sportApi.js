@@ -57,8 +57,16 @@ export async function getSportGoalsAnalysis() {
   return sportApi.get('/analysis/goals');
 }
 
-export async function initMetaLogin() {
-  return sportApi.post('/publications/meta/login', {});
+export async function getInstagramAuthUrl() {
+  return sportApi.get('/publications/meta/auth');
+}
+
+export async function getInstagramConnectionStatus() {
+  return sportApi.get('/publications/meta/status');
+}
+
+export async function disconnectInstagram() {
+  return sportApi.delete('/publications/meta');
 }
 
 export async function getGarminConnection() {

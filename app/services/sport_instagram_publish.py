@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 import httpx
@@ -54,12 +55,25 @@ class MetaPublishService:
     def _base_url(self) -> str:
         return f"https://graph.facebook.com/{get_settings().META_API_VERSION}"
 
-    async def resolve_publish_context(self):
-        """Source de la publication Instagram : configuration Meta centralisée.
+    async def resolve_publish_context(self, user_id: Optional[int] = None):
+        """Source de la publication Instagram.
 
-        Retourne le contexte tiré de meta_access_token + instagram_user_id,
-        ou None si la configuration est absente ou inexploitable.
+        Priorité : connexion Instagram active de l'utilisateur (Instagram
+        Login individuel), sinon repli sur la configuration Meta centralisée
+        (meta_access_token + instagram_user_id).
         """
+        if user_id is not None:
+            from app.models.sport import SportInstagramConnection
+
+            result = await self.db.execute(
+                select(SportInstagramConnection).where(
+                    SportInstagramConnection.user_id == user_id,
+                    SportInstagramConnection.status == "active",
+                )
+            )
+            connection = result.scalar_one_or_none()
+            if connection is not None:
+                return connection
         return await self._config_publish_context()
 
     async def _config_publish_context(self) -> Optional[_MetaConfigContext]:
@@ -104,8 +118,27 @@ class MetaPublishService:
         return _decrypt_token(connection.encrypted_long_lived_token or connection.encrypted_access_token)
 
     async def _get_valid_token(self, connection) -> Optional[str]:
-        """Déchiffre le token de publication (renouvelé manuellement en configuration)."""
-        return self._get_long_lived_token(connection)
+        """Jeton de publication, renouvelé automatiquement si la connexion
+        Instagram Login approche de l'expiration (< 24 h)."""
+        token = self._get_long_lived_token(connection)
+        if not token:
+            return None
+        if getattr(connection, "auth_type", None) != "instagram_login":
+            return token
+        expires_in = getattr(connection, "expires_in", None)
+        obtained_at = getattr(connection, "obtained_at", None)
+        if not expires_in or not obtained_at:
+            return token
+        if obtained_at.tzinfo is None:
+            obtained_at = obtained_at.replace(tzinfo=timezone.utc)
+        remaining = (obtained_at + timedelta(seconds=expires_in)) - datetime.now(timezone.utc)
+        if remaining.total_seconds() < 86400:
+            from app.services.sport_instagram import SportInstagramConnectService
+
+            refreshed = await SportInstagramConnectService(self.db).refresh_connection_token(connection)
+            if refreshed:
+                return refreshed
+        return token
 
     async def create_media_container(
         self,

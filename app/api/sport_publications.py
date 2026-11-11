@@ -2,9 +2,10 @@
 
 import logging
 from typing import Optional
+from urllib.parse import urlencode
 
-import httpx
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request
+from fastapi.responses import JSONResponse, RedirectResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -13,7 +14,6 @@ from app.models.sport import SportActivity
 from app.api.deps import get_db, require_module_enabled, require_permission
 from app.models.user import User
 from app.schemas.sport import (
-    MetaOAuthCallbackRequest,
     SportActivityResponse,
     SportPublicationGenerateRequest,
     SportPublicationListResponse,
@@ -35,6 +35,13 @@ router = APIRouter(
     prefix="/sport/publications",
     tags=["sport"],
     dependencies=[Depends(require_module_enabled("sport"))],
+)
+
+# Callback OAuth public (redirection depuis Instagram, sans session) :
+# la protection CSRF repose sur le state, pas sur l'authentification.
+public_router = APIRouter(
+    prefix="/sport/publications",
+    tags=["sport"],
 )
 
 
@@ -204,6 +211,61 @@ async def generate_card(
     return {"card_path": path}
 
 
+# --------------------------------------------------------------------------- #
+# Instagram Login (voie B) — connexions par utilisateur
+# --------------------------------------------------------------------------- #
+
+
+@router.get("/meta/auth")
+async def instagram_login_authorize(
+    current_user: User = Depends(require_permission("settings_update")),
+    db: AsyncSession = Depends(get_db),
+):
+    """URL d'autorisation Instagram Login pour l'utilisateur courant."""
+    service = SportInstagramConnectService(db)
+    authorize_url, _state = await service.build_authorization_url(current_user.id)
+    return {"authorize_url": authorize_url}
+
+
+@router.get("/meta/status")
+async def instagram_connection_status(
+    current_user: User = Depends(require_permission("settings_view")),
+    db: AsyncSession = Depends(get_db),
+):
+    """Statut de la connexion Instagram de l'utilisateur courant."""
+    service = SportInstagramConnectService(db)
+    values = await service.load_instagram_login_values()
+    configured = bool(values["app_id"] and values["app_secret"] and values["redirect_uri"])
+    connection = await service.get_connection(current_user.id)
+    connected = bool(
+        connection
+        and connection.status == "active"
+        and connection.instagram_business_account_id
+    )
+    metadata = (connection.metadata_json or {}) if connection is not None else {}
+    return {
+        "configured": configured,
+        "connected": connected,
+        "status": connection.status if connection is not None else None,
+        "instagram_business_account_id": (
+            connection.instagram_business_account_id if connection is not None else None
+        ),
+        "username": metadata.get("username"),
+        "scopes": connection.scopes if connection is not None else None,
+    }
+
+
+@router.delete("/meta")
+async def disconnect_instagram_connection(
+    current_user: User = Depends(require_permission("settings_update")),
+    db: AsyncSession = Depends(get_db),
+):
+    """Desactive la connexion Instagram de l'utilisateur courant (isole)."""
+    service = SportInstagramConnectService(db)
+    disconnected = await service.disconnect(current_user.id)
+    return {"disconnected": disconnected}
+
+
 @router.delete("/{publication_id}")
 async def delete_publication(
     publication_id: int,
@@ -224,59 +286,85 @@ async def run_publication_notifications(
     return {"sent": count}
 
 
+# --------------------------------------------------------------------------- #
+# Callback OAuth Instagram (public — redirection depuis www.instagram.com)
+# --------------------------------------------------------------------------- #
 
-@router.post("/meta/login")
-async def meta_login_init(
+
+@public_router.get("/meta/callback")
+async def instagram_oauth_callback(
+    request: Request,
+    code: str | None = Query(None, description="Code OAuth Instagram"),
+    state: str | None = Query(None, description="State OAuth (CSRF)"),
+    error: str | None = Query(None, description="Erreur renvoyée par Instagram"),
+    error_reason: str | None = Query(None, description="Raison du refus Instagram"),
     db: AsyncSession = Depends(get_db),
-) -> dict:
-    """Demarrage du parcours Facebook Login for Business (state OAuth)."""
-    service = SportInstagramConnectService(db)
-    return await service.initiate_meta_login()
+):
+    """Callback Instagram Login : consomme le state, echange le code, enregistre
+    la connexion de l'utilisateur, puis redirige vers /settings.
 
-
-async def _complete_meta_oauth(code: str, state: str, db: AsyncSession) -> dict:
-    """Echange le code OAuth et enregistre le contexte Meta (partage GET/POST)."""
+    Sans authentification (le state CSRF protege la route) : la livraison du
+    code se fait par redirection navigateur depuis Instagram.
+    """
     service = SportInstagramConnectService(db)
-    if not await service.validate_meta_state(state):
-        raise HTTPException(status_code=400, detail="State OAuth invalide")
+    wants_json = "application/json" in request.headers.get("accept", "")
+
+    def _response(payload: dict, code_http: int = 200):
+        if wants_json:
+            return JSONResponse(
+                status_code=code_http, content=payload, headers={"Cache-Control": "no-store"}
+            )
+        if payload.get("status") == "connected":
+            url = "/settings?connected=1"
+        else:
+            url = "/settings?" + urlencode({"error": payload.get("detail") or "erreur"})
+        return RedirectResponse(
+            url=url, status_code=302, headers={"Cache-Control": "no-store"}
+        )
+
+    if error:
+        return _response(
+            {"status": "error", "detail": f"Instagram a refusé la connexion ({error_reason or error})"},
+            code_http=400,
+        )
+    if not code or not state:
+        return _response(
+            {"status": "error", "detail": "Paramètres OAuth manquants (code ou state)"},
+            code_http=400,
+        )
+
+    user_id = await service.consume_state(state)
+    if user_id is None:
+        return _response(
+            {"status": "error", "detail": "State OAuth invalide ou expiré"},
+            code_http=400,
+        )
+
     try:
-        result = await service.exchange_business_code(code)
-    except httpx.HTTPError as exc:
-        raise HTTPException(status_code=502, detail=str(exc)) from None
-    accounts = result.get("instagram_accounts") or []
-    instagram_user_id = ""
-    for account in accounts:
-        if account.get("id"):
-            instagram_user_id = str(account.get("id"))
-            break
-    await service.save_meta_credentials(
-        token=result.get("access_token") or "",
-        client_business_id=result.get("client_business_id") or "",
-        instagram_user_id=instagram_user_id,
+        result = await service.exchange_instagram_code(code)
+    except HTTPException as exc:
+        return _response(
+            {"status": "error", "detail": str(exc.detail)},
+            code_http=exc.status_code if exc.status_code >= 400 else 502,
+        )
+    except Exception:
+        logger.exception("Echange OAuth Instagram impossible")
+        return _response(
+            {"status": "error", "detail": "Echange du code OAuth Instagram impossible"},
+            code_http=502,
+        )
+
+    if not result.get("instagram_business_account_id"):
+        return _response(
+            {"status": "error", "detail": "Compte Instagram Business introuvable pour ce jeton"},
+            code_http=502,
+        )
+
+    await service.save_connection(
+        user_id,
+        access_token=result["access_token"],
+        expires_in=result.get("expires_in"),
+        instagram_business_account_id=result.get("instagram_business_account_id"),
+        username=result.get("username"),
     )
-    return {
-        "status": "ok",
-        "client_business_id": result.get("client_business_id"),
-        "instagram_accounts": accounts,
-    }
-
-
-@router.get("/meta/callback")
-async def meta_oauth_callback(
-    code: str = Query(..., description="Code OAuth de Facebook Login for Business"),
-    state: str = Query(..., description="State OAuth"),
-    db: AsyncSession = Depends(get_db),
-) -> dict:
-    """Callback Facebook Login for Business (redirection navigateur) : echange le
-    code contre le jeton du Business Integration System User, enregistre le contexte."""
-    return await _complete_meta_oauth(code, state, db)
-
-
-@router.post("/meta/callback")
-async def meta_oauth_callback_post(
-    payload: MetaOAuthCallbackRequest,
-    db: AsyncSession = Depends(get_db),
-) -> dict:
-    """Callback Facebook Login for Business (code transmis par le SDK JS en JSON) :
-    meme traitement que le GET, le code reste hors des journaux d'acces."""
-    return await _complete_meta_oauth(payload.code, payload.state, db)
+    return _response({"status": "connected"})

@@ -18,11 +18,15 @@ branch_labels = None
 depends_on = None
 
 
-def upgrade() -> None:
+def _has_design_column() -> bool:
     insp = sa.inspect(op.get_bind())
-    if insp.has_table("sport_publications") and not insp.has_column(
-        "sport_publications", "design"
-    ):
+    if not insp.has_table("sport_publications"):
+        return False
+    return any(c["name"] == "design" for c in insp.get_columns("sport_publications"))
+
+
+def upgrade() -> None:
+    if not _has_design_column():
         op.add_column(
             "sport_publications",
             sa.Column("design", sa.JSON(), nullable=True),
@@ -31,7 +35,5 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     insp = sa.inspect(op.get_bind())
-    if insp.has_table("sport_publications") and insp.has_column(
-        "sport_publications", "design"
-    ):
+    if insp.has_table("sport_publications") and _has_design_column():
         op.drop_column("sport_publications", "design")

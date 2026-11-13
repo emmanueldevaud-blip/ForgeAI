@@ -244,6 +244,7 @@ class SportPublicationResponse(BaseModel):
     photo_id: Optional[int] = None
     visual_type: str = "photo"
     card_path: Optional[str] = None
+    design: Optional[dict] = None
     provider: Optional[str] = None
     model: Optional[str] = None
     generated_at: Optional[datetime] = None
@@ -345,6 +346,7 @@ class PublicationDraftUpdate(BaseModel):
     proposals: Optional[list[dict[str, Any]]] = None
     styles: Optional[list[str]] = None
     custom_instructions: Optional[str] = None
+    design: Optional[dict] = None
     title_locked: Optional[bool] = None
     content_locked: Optional[bool] = None
     photo_locked: Optional[bool] = None

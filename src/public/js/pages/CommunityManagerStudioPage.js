@@ -13,6 +13,8 @@ import {
   refuseSuggestion,
 } from '../services/sportApi.js?v=14';
 import { publicationPhotoUrl } from '../services/sportApi.js?v=14';
+import { uploadPhotos, listPhotos, photoFileUrl } from '../services/photosApi.js?v=8';
+import { createStudioEditorView } from '../editor/StudioEditorView.js?v=1';
 
 export class CommunityManagerStudioPage {
   constructor(router, publicationId, entryData = null, onBack = null) {
@@ -30,6 +32,9 @@ export class CommunityManagerStudioPage {
     this.photoPickerOpen = false;
     this.suggestedPhotos = null;
     this.loadingPhotos = false;
+    this.editorOpen = false;
+    this.editorMounted = false;
+    this.editorView = null;
   }
 
   async initialize() {
@@ -48,6 +53,11 @@ export class CommunityManagerStudioPage {
     if (!this.element) {
       this.element = document.createElement('div');
       this.element.className = 'cm-studio-container';
+    }
+
+    // L'éditeur graphique gère son propre rendu : ne pas réécrire le DOM.
+    if (this.editorOpen && this.editorMounted) {
+      return this.element;
     }
 
     const pub = this.publication;
@@ -92,6 +102,10 @@ export class CommunityManagerStudioPage {
           ${pub?.error_message ? `<div class="cm-studio-warning">⚠ ${pub.error_message}</div>` : ''}
           ${pub?.photo_locked ? '<div class="cm-studio-warning">Photo verrouillée.</div>' : ''}
           <div class="cm-studio-photo-actions">
+            <button class="btn btn-primary btn-small" data-action="open-editor"
+                    ${pub?.status === 'shared' ? 'disabled' : ''}>
+              ✎ Éditeur graphique
+            </button>
             <button class="btn btn-secondary btn-small" data-action="toggle-photo-picker"
                     ${pub?.status === 'shared' || pub?.photo_locked ? 'disabled' : ''}>
               ${this.photoPickerOpen ? 'Fermer' : (photoUrl ? 'Changer la photo' : 'Choisir une photo')}
@@ -144,6 +158,9 @@ export class CommunityManagerStudioPage {
     `;
 
     this._bindEvents();
+    if (this.editorOpen && !this.editorMounted) {
+      this._mountEditor();
+    }
     return this.element;
   }
 
@@ -228,6 +245,53 @@ export class CommunityManagerStudioPage {
     }
   }
 
+  /** Monte l'éditeur graphique plein écran dans la page studio. */
+  _mountEditor() {
+    const host = document.createElement('div');
+    host.className = 'cm-studio-editor-host';
+    this.element.innerHTML = '';
+    this.element.appendChild(host);
+
+    this.editorView = createStudioEditorView({
+      publication: this.publication,
+      deps: {
+        updateDraft: (id, data) => updateStudioDraft(id, data),
+        uploadPhotos,
+        getSuggestedPhotos,
+        listPhotos,
+        photoFileUrl,
+        publicationPhotoUrl,
+      },
+      callbacks: {
+        onClose: () => this._closeEditor(),
+        onApplied: async () => {
+          try {
+            this.publication = await getStudioDraft(this.publicationId);
+          } catch (_err) {
+            /* le design appliqué reste affiché */
+          }
+        },
+      },
+    });
+    this.editorView.mount(host);
+    this.editorMounted = true;
+  }
+
+  async _closeEditor() {
+    if (this.editorView) {
+      this.editorView.destroy();
+      this.editorView = null;
+    }
+    this.editorMounted = false;
+    this.editorOpen = false;
+    try {
+      this.publication = await getStudioDraft(this.publicationId);
+    } catch (_err) {
+      /* on garde la publication en mémoire */
+    }
+    this.render();
+  }
+
   async _saveForm() {
     if (this.saving) return;
     this.saving = true;
@@ -279,6 +343,14 @@ export class CommunityManagerStudioPage {
     this.element.querySelectorAll('[data-action="back"]').forEach(backBtn => {
       backBtn.addEventListener('click', () => { if (this.onBack) this.onBack(); });
     });
+
+    const openEditorBtn = this.element.querySelector('[data-action="open-editor"]');
+    if (openEditorBtn) {
+      openEditorBtn.addEventListener('click', () => {
+        this.editorOpen = true;
+        this.render();
+      });
+    }
 
     const togglePhotoBtn = this.element.querySelector('[data-action="toggle-photo-picker"]');
     if (togglePhotoBtn) togglePhotoBtn.addEventListener('click', () => this._togglePhotoPicker());

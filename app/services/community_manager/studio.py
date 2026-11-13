@@ -203,6 +203,8 @@ class CommunityManagerStudioService:
             pub.styles = cleaned or pub.styles
         if data.custom_instructions is not None:
             pub.custom_instructions = data.custom_instructions.strip() or None
+        if data.design is not None:
+            pub.design = data.design
         # Lock fields
         if data.title_locked is not None:
             pub.title_locked = data.title_locked

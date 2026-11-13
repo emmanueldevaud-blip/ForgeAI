@@ -358,6 +358,7 @@ class SportPublication(Base):
     photo_id: Mapped[int | None] = mapped_column(ForeignKey("photos.id", ondelete="SET NULL"), nullable=True)
     visual_type: Mapped[str] = mapped_column(String(30), nullable=False, default="photo")
     card_path: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    design: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     provider: Mapped[str | None] = mapped_column(String(50), nullable=True)
     model: Mapped[str | None] = mapped_column(String(100), nullable=True)
     generated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

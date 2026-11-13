@@ -205,16 +205,18 @@ export class CommunityManagerCalendarPage {
       this.selectedEntry = null;
       this.render();
     });
-    this.studioPage.initialize().catch(() => {});
+    this.studioPage.initialize().then(() => this.render()).catch(() => {});
     this.render();
   }
 
   render() {
-    this.element = document.createElement('div');
-    this.element.className = 'page-content';
+    if (!this.element) {
+      this.element = document.createElement('div');
+      this.element.className = 'page-content';
+    }
 
     if (this.showStudio && this.studioPage) {
-      this.element.appendChild(this.studioPage.render());
+      this.element.replaceChildren(this.studioPage.render());
       return this.element;
     }
 
@@ -392,13 +394,12 @@ export class CommunityManagerCalendarPage {
       entryEl.addEventListener('click', (e) => {
         // Ignorer si clic sur un bouton d'action rapide
         if (e.target.closest('.cal-entry-btn')) return;
-        const entryId = parseInt(entryEl.dataset.entryId, 10);
         const pubId = entryEl.dataset.entryPubId ? parseInt(entryEl.dataset.entryPubId, 10) : null;
         if (pubId) {
           this._openStudio(pubId);
         } else {
-          this.selectedEntry = entryId;
-          this._openStudio(entryId);
+          this.error = 'Aucune publication liée à cet événement.';
+          this.render();
         }
       });
 

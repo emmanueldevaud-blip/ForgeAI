@@ -78,6 +78,17 @@ export class CommunityManagerCalendarPage {
     return new Date(now.getFullYear(), now.getMonth(), now.getDate());
   }
 
+  _dateKey(d) {
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${d.getFullYear()}-${m}-${day}`;
+  }
+
+  _parseDate(str) {
+    const [y, m, d] = str.split('-').map(Number);
+    return new Date(y, m - 1, d);
+  }
+
   async _loadMonth() {
     const d = this.currentDate;
     this.loading = true;
@@ -101,7 +112,7 @@ export class CommunityManagerCalendarPage {
     this.loading = true;
     this.error = null;
     try {
-      this.weekData = await getWeekCalendar(monday.toISOString().split('T')[0]);
+      this.weekData = await getWeekCalendar(this._dateKey(monday));
     } catch (error) {
       this.error = error?.data?.detail || error?.message || 'Erreur chargement semaine';
       this.weekData = {};
@@ -218,24 +229,20 @@ export class CommunityManagerCalendarPage {
 
     this.element.innerHTML = `
       <div class="page-header">
-        <div>
+        <div class="page-header-left">
           <h1>Calendrier éditorial</h1>
           <p class="page-subtitle">Publications sportives et suggestions de stories</p>
         </div>
-        <div class="page-header-actions">
+        <div class="page-header-right">
           ${this.canGenerate ? `<button class="btn btn-secondary" data-action="generate-suggestions">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
             Générer suggestions
           </button>` : ''}
-          ${viewBtn('Mois', 'month', this.view === 'month')}
-          ${viewBtn('Semaine', 'week', this.view === 'week')}
-          <button class="btn btn-secondary" data-action="today">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/>
-            </svg>
-            Aujourd'hui
-          </button>
+          <div class="view-toggle">
+            ${viewBtn('Mois', 'month', this.view === 'month')}
+            ${viewBtn('Semaine', 'week', this.view === 'week')}
+          </div>
         </div>
       </div>
 
@@ -289,14 +296,15 @@ export class CommunityManagerCalendarPage {
       for (const day of week) {
         const isToday = day.toDateString() === this._today().toDateString();
         const isOtherMonth = day.getMonth() !== month;
-        const dayKey = day.toISOString().split('T')[0];
-        const entries = this.calendarData.days?.[dayKey] || [];
+        const dayKey = this._dateKey(day);
+        const entries = (this.calendarData.days?.[dayKey] || []).slice(0, 3);
+        const totalEntries = (this.calendarData.days?.[dayKey] || []).length;
         const entriesHtml = entries.map(e => this._renderMonthEntry(e)).join('');
         html += `
           <td class="cal-day ${isToday ? 'cal-day--today' : ''} ${isOtherMonth ? 'cal-day--other' : ''}" data-day="${dayKey}">
             <div class="cal-day-number">${day.getDate()}</div>
             <div class="cal-day-entries">${entriesHtml}</div>
-            ${entries.length > 3 ? `<div class="cal-day-more">+${entries.length - 3}</div>` : ''}
+            ${totalEntries > 3 ? `<div class="cal-day-more">+${totalEntries - 3}</div>` : ''}
           </td>
         `;
       }
@@ -310,25 +318,30 @@ export class CommunityManagerCalendarPage {
     const color = CONTENT_TYPE_COLORS[entry.content_type] || '#6b7280';
     const statusColor = STATUS_COLORS[entry.status] || '#6b7280';
     const isSuggestion = entry.source === 'suggestion';
-    const hasPub = !!entry.pub_id;
+    const topic = this._escape(entry.topic || '');
     return `
-      <div class="cal-entry" data-entry-id="${entry.id}" data-entry-pub-id="${entry.pub_id || ''}"
+      <div class="cal-entry" data-entry-id="${entry.entry_id}" data-entry-pub-id="${entry.pub_id || ''}"
+           title="${topic}"
            style="--color: ${color}; --status-color: ${statusColor};">
-        <div class="cal-entry-dot" style="background: var(--color)"></div>
-        <div class="cal-entry-title">${this._escape(entry.topic || '')}</div>
-        ${isSuggestion ? `
-          <div class="cal-entry-actions">
-            <button class="cal-entry-btn cal-entry-btn--accept" data-action="accept-suggestion" data-entry-id="${entry.id}" title="Accepter">✓</button>
-            <button class="cal-entry-btn cal-entry-btn--refuse" data-action="refuse-suggestion" data-entry-id="${entry.id}" title="Refuser">✗</button>
-          </div>` : ''}
-        <div class="cal-entry-status" style="color: var(--status-color);">${entry.status}</div>
+        <div class="cal-entry-head">
+          <span class="cal-entry-dot"></span>
+          <div class="cal-entry-title">${topic}</div>
+        </div>
+        <div class="cal-entry-foot">
+          <span class="cal-entry-status">${entry.status}</span>
+          ${isSuggestion ? `
+            <div class="cal-entry-actions">
+              <button class="cal-entry-btn cal-entry-btn--accept" data-action="accept-suggestion" data-entry-id="${entry.entry_id}" title="Accepter">✓</button>
+              <button class="cal-entry-btn cal-entry-btn--refuse" data-action="refuse-suggestion" data-entry-id="${entry.entry_id}" title="Refuser">✗</button>
+            </div>` : ''}
+        </div>
       </div>
     `;
   }
 
   _renderWeekGrid() {
     const days = [];
-    const monday = this.weekData.monday ? new Date(this.weekData.monday) : this.currentDate;
+    const monday = this.weekData.monday ? this._parseDate(this.weekData.monday) : this.currentDate;
     for (let i = 0; i < 7; i++) {
       days.push(new Date(monday.getFullYear(), monday.getMonth(), monday.getDate() + i));
     }
@@ -336,31 +349,17 @@ export class CommunityManagerCalendarPage {
     let html = '<table class="cal-week"><thead><tr>';
     for (const day of days) {
       const isToday = day.toDateString() === this._today().toDateString();
-      const dayKey = day.toISOString().split('T')[0];
-      html += `<th class="${isToday ? 'cal-week-day--today' : ''}">${WEEK_DAYS[day.getDay()]}<br>${day.getDate()}</th>`;
+      html += `<th class="${isToday ? 'cal-week-day--today' : ''}">${WEEK_DAYS[(day.getDay() + 6) % 7]}<br>${day.getDate()}</th>`;
     }
     html += '</tr></thead><tbody><tr>';
     for (const day of days) {
-      const dayKey = day.toISOString().split('T')[0];
+      const dayKey = this._dateKey(day);
       const entries = this.weekData.days?.[dayKey] || [];
-      const entriesHtml = entries.map(e => this._renderWeekEntry(e)).join('');
+      const entriesHtml = entries.map(e => this._renderMonthEntry(e)).join('');
       html += `<td class="cal-week-day">${entriesHtml}</td>`;
     }
     html += '</tr></tbody></table>';
     return html;
-  }
-
-  _renderWeekEntry(entry) {
-    const color = CONTENT_TYPE_COLORS[entry.content_type] || '#6b7280';
-    const statusColor = STATUS_COLORS[entry.status] || '#6b7280';
-    return `
-      <div class="cal-entry" data-entry-id="${entry.id}" data-entry-pub-id="${entry.pub_id || ''}"
-           style="--color: ${color}; --status-color: ${statusColor};">
-        <div class="cal-entry-dot" style="background: var(--color)"></div>
-        <div class="cal-entry-title">${this._escape(entry.topic || '')}</div>
-        <div class="cal-entry-status" style="color: var(--status-color);">${entry.status}</div>
-      </div>
-    `;
   }
 
   _escape(text) {

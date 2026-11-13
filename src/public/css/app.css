@@ -9886,10 +9886,15 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
+  flex-wrap: wrap;
   gap: var(--spacing-1);
 }
 
 .cal-entry-status {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   color: var(--status-color, var(--color-text-tertiary));
   font-size: 11px;
   font-weight: var(--font-weight-semibold);
@@ -10020,8 +10025,8 @@
   }
 
   .cal-entry-btn {
-    width: 30px;
-    height: 30px;
+    width: 26px;
+    height: 26px;
     font-size: var(--font-size-sm);
   }
 }

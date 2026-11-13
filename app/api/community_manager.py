@@ -392,20 +392,6 @@ async def generate_text(
         raise HTTPException(status_code=503, detail="Génération impossible") from exc
 
 
-@router.post("/studio/draft/{publication_id}/preview", response_model=PublicationPreviewResponse)
-async def preview_draft(
-    publication_id: int,
-    data: PublicationPreviewRequest,
-    service: CommunityManagerStudioService = Depends(get_cm_studio_service),
-):
-    """Prévisualiser le rendu Instagram d'une publication."""
-    try:
-        preview = await service.get_preview(publication_id, data.format)
-        return PublicationPreviewResponse(**preview)
-    except ValueError as exc:
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
-
-
 @router.post("/studio/draft/{publication_id}/publish", response_model=PublicationPublishResponse)
 async def publish_draft(
     publication_id: int,

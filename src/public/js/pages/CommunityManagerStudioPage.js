@@ -3,7 +3,6 @@
  * Vérifier, modifier et publier les contenus préparés.
  * Seul le strict nécessaire : photo, titre, texte, hashtags.
  */
-import { api } from '../services/api.js?v=6';
 import {
   getStudioDraft,
   updateStudioDraft,
@@ -11,6 +10,7 @@ import {
   publishStudioDraft,
   regeneratePublicationContent,
   getSuggestedPhotos,
+  refuseSuggestion,
 } from '../services/sportApi.js?v=14';
 import { publicationPhotoUrl } from '../services/sportApi.js?v=14';
 
@@ -51,7 +51,10 @@ export class CommunityManagerStudioPage {
     }
 
     const pub = this.publication;
-    const isSuggestion = pub?.source === 'suggestion' || pub?.content_type === 'story_souvenir' || pub?.content_type === 'story_edito';
+    const calendarEntry = pub?.calendar_entry;
+    const isSuggestion = calendarEntry?.source === 'suggestion'
+      || calendarEntry?.content_type === 'story_souvenir'
+      || calendarEntry?.content_type === 'story_edito';
     const canPublish = pub && pub.status === 'validated' && !isSuggestion;
 
     if (this.loading) {
@@ -123,7 +126,9 @@ export class CommunityManagerStudioPage {
             ${this.saving ? 'Enregistrement…' : 'Enregistrer'}
           </button>
           ${isSuggestion ? `
-            <button class="btn btn-secondary btn-small" data-action="refuse">Refuser</button>
+            <button class="btn btn-secondary btn-small" data-action="refuse" ${pub?.status === 'shared' ? 'disabled' : ''}>
+              ${this.publishing ? 'Refus…' : 'Refuser'}
+            </button>
             <button class="btn btn-primary" data-action="validate" ${pub?.status === 'shared' || pub?.status === 'refused' ? 'disabled' : ''}>
               ${this.publishing ? 'Validation…' : 'Valider la story'}
             </button>
@@ -223,9 +228,57 @@ export class CommunityManagerStudioPage {
     }
   }
 
+  async _saveForm() {
+    if (this.saving) return;
+    this.saving = true;
+    try {
+      const form = this.element.querySelector('[data-form="studio-edit"]');
+      const data = {
+        title: form.elements.title.value,
+        content: form.elements.content.value,
+        hashtags: form.elements.hashtags.value,
+      };
+      await updateStudioDraft(this.publicationId, data);
+      const updated = await getStudioDraft(this.publicationId);
+      this.publication = updated;
+      this.success = 'Modifications enregistrées.';
+      setTimeout(() => { this.success = null; this.render(); }, 1500);
+    } catch (error) {
+      this.error = error?.data?.detail || error?.message || 'Erreur enregistrement';
+    } finally {
+      this.saving = false;
+      this.render();
+    }
+  }
+
+  async _refuseSuggestion() {
+    if (this.publishing) return;
+    const entryId = this.publication?.calendar_entry_id;
+    if (!entryId) {
+      this.error = 'Impossible de refuser : entrée de calendrier introuvable.';
+      this.render();
+      return;
+    }
+    this.publishing = true;
+    this.error = null;
+    try {
+      await refuseSuggestion(entryId);
+      const updated = await getStudioDraft(this.publicationId);
+      this.publication = updated;
+      this.success = 'Suggestion refusée.';
+      setTimeout(() => { this.success = null; if (this.onBack) this.onBack(); else this.render(); }, 1500);
+    } catch (error) {
+      this.error = error?.data?.detail || error?.message || 'Erreur refus';
+    } finally {
+      this.publishing = false;
+      this.render();
+    }
+  }
+
   _bindEvents() {
-    const backBtn = this.element.querySelector('[data-action="back"]');
-    if (backBtn) backBtn.addEventListener('click', () => { if (this.onBack) this.onBack(); });
+    this.element.querySelectorAll('[data-action="back"]').forEach(backBtn => {
+      backBtn.addEventListener('click', () => { if (this.onBack) this.onBack(); });
+    });
 
     const togglePhotoBtn = this.element.querySelector('[data-action="toggle-photo-picker"]');
     if (togglePhotoBtn) togglePhotoBtn.addEventListener('click', () => this._togglePhotoPicker());
@@ -239,28 +292,7 @@ export class CommunityManagerStudioPage {
 
     const saveBtn = this.element.querySelector('[data-action="save"]');
     if (saveBtn) {
-      saveBtn.addEventListener('click', async () => {
-        if (this.saving) return;
-        this.saving = true;
-        try {
-          const form = this.element.querySelector('[data-form="studio-edit"]');
-          const data = {
-            title: form.elements.title?.value || undefined,
-            content: form.elements.content?.value || undefined,
-            hashtags: form.elements.hashtags?.value || undefined,
-          };
-          await updateStudioDraft(this.publicationId, data);
-          const updated = await getStudioDraft(this.publicationId);
-          this.publication = updated;
-          this.success = 'Modifications enregistrées.';
-          setTimeout(() => { this.success = null; this.render(); }, 1500);
-        } catch (error) {
-          this.error = error?.data?.detail || error?.message || 'Erreur enregistrement';
-        } finally {
-          this.saving = false;
-          this.render();
-        }
-      });
+      saveBtn.addEventListener('click', () => this._saveForm());
     }
 
     const regenerateBtn = this.element.querySelector('[data-action="regenerate"]');
@@ -317,20 +349,7 @@ export class CommunityManagerStudioPage {
 
     const refuseBtn = this.element.querySelector('[data-action="refuse"]');
     if (refuseBtn) {
-      refuseBtn.addEventListener('click', async () => {
-        try {
-          // Refuser une suggestion = supprimer l'entrée calendrier (statut refused côté backend)
-          // Ici on appelle le endpoint refuse sur l'entrée si on a son ID, sinon on marque la publication
-          if (this.entryData?.id) {
-            // L'entrée a un ID séparé
-          }
-          this.success = 'Suggestion refusée.';
-          if (this.onBack) this.onBack();
-        } catch (error) {
-          this.error = error?.data?.detail || error?.message || 'Erreur refus';
-          this.render();
-        }
-      });
+      refuseBtn.addEventListener('click', () => this._refuseSuggestion());
     }
   }
 }

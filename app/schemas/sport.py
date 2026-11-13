@@ -538,6 +538,9 @@ class EditorialCalendarEntryResponse(EditorialCalendarEntryBase):
     updated_at: datetime
     publication_id: Optional[int] = None
     publication_status: Optional[str] = None
+    # Avant flush (objets en mémoire), ces champs peuvent être None
+    source: Optional[str] = "manuel"
+    content_type: Optional[str] = "manuel"
 
 
 class CalendarGenerateRequest(BaseModel):

@@ -14,7 +14,7 @@ import {
   deleteCommunityManagerCalendarEntry,
   createStudioDraftFromCalendar,
 } from '../services/sportApi.js?v=12';
-import { createCommunityManagerStudioPage } from './CommunityManagerStudioPage.js?v=1';
+import { createCommunityManagerStudioPage } from './CommunityManagerStudioPage.js?v=3';
 
 export class CommunityManagerPage {
   constructor(router) {

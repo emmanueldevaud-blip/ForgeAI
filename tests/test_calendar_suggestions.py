@@ -17,6 +17,8 @@ from app.models.sport import (
     SportPublication,
 )
 from app.models.user import User
+from app.schemas.sport import PublicationDraftUpdate
+from app.services.community_manager.studio import CommunityManagerStudioService
 from app.services.community_manager.suggestions import EditorialSuggestionService
 from app.services.garmin import SportGarminConnectService
 from app.services.ai_gateway import AIGatewayError, ai_gateway
@@ -405,3 +407,40 @@ class TestRegenerateCalendarPublication:
         # ...ni les paramètres
         assert result.styles == ["story"]
         assert result.custom_instructions == "Ton décontracté"
+
+
+# ============================================================
+# Studio : sélection et retrait de photo
+# ============================================================
+
+class TestStudioPhotoSelection:
+    @pytest.mark.asyncio
+    async def test_update_draft_photo_set_and_clear(self, db_session, auth_user):
+        pub = await TestRegenerateCalendarPublication._make_calendar_pub(db_session, auth_user)
+        photo = Photo(
+            owner_id=auth_user.id,
+            original_filename="paysage.jpg",
+            storage_path="2026/11/paysage.jpg",
+            mime_type="image/jpeg",
+            taken_at=datetime.now(timezone.utc),
+            content_hash="b" * 64,
+        )
+        db_session.add(photo)
+        await db_session.commit()
+
+        service = CommunityManagerStudioService(db_session, auth_user)
+
+        # Sans photo_id explicite : inchangé
+        await service.update_draft(pub.id, PublicationDraftUpdate(title="Titre"))
+        await db_session.refresh(pub)
+        assert pub.photo_id is None
+
+        # Sélection
+        await service.update_draft(pub.id, PublicationDraftUpdate(photo_id=photo.id))
+        await db_session.refresh(pub)
+        assert pub.photo_id == photo.id
+
+        # Retrait explicite (photo_id null)
+        await service.update_draft(pub.id, PublicationDraftUpdate(photo_id=None))
+        await db_session.refresh(pub)
+        assert pub.photo_id is None

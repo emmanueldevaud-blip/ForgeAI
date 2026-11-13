@@ -164,7 +164,7 @@ class CommunityManagerStudioService:
         if data.hashtags is not None:
             if not pub.content_locked:
                 pub.hashtags = data.hashtags
-        if data.photo_id is not None:
+        if "photo_id" in data.model_fields_set:
             if not pub.photo_locked:
                 pub.photo_id = data.photo_id
         if data.visual_type is not None:

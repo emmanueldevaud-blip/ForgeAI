@@ -10,6 +10,7 @@ import {
   validateStudioDraft,
   publishStudioDraft,
   regeneratePublicationContent,
+  getSuggestedPhotos,
 } from '../services/sportApi.js?v=14';
 import { publicationPhotoUrl } from '../services/sportApi.js?v=14';
 
@@ -26,6 +27,9 @@ export class CommunityManagerStudioPage {
     this.publishing = false;
     this.error = null;
     this.success = null;
+    this.photoPickerOpen = false;
+    this.suggestedPhotos = null;
+    this.loadingPhotos = false;
   }
 
   async initialize() {
@@ -83,9 +87,19 @@ export class CommunityManagerStudioPage {
         <div class="cm-studio-photo">
           ${photoUrl ? `<img src="${photoUrl}" alt="Visuel" class="cm-studio-photo-img"/>` : '<div class="cm-studio-photo-empty">Aucune photo</div>'}
           ${pub?.error_message ? `<div class="cm-studio-warning">⚠ ${pub.error_message}</div>` : ''}
-          <button class="btn btn-secondary btn-small" data-action="regenerate" ${pub?.status === 'shared' ? 'disabled' : ''}>
-            ${pub?.error_message ? 'Régénérer le contenu' : 'Régénérer le visuel'}
-          </button>
+          ${pub?.photo_locked ? '<div class="cm-studio-warning">Photo verrouillée.</div>' : ''}
+          <div class="cm-studio-photo-actions">
+            <button class="btn btn-secondary btn-small" data-action="toggle-photo-picker"
+                    ${pub?.status === 'shared' || pub?.photo_locked ? 'disabled' : ''}>
+              ${this.photoPickerOpen ? 'Fermer' : (photoUrl ? 'Changer la photo' : 'Choisir une photo')}
+            </button>
+            ${photoUrl && !pub?.photo_locked && pub?.status !== 'shared' ? `
+              <button class="btn btn-secondary btn-small" data-action="remove-photo">Retirer la photo</button>` : ''}
+            <button class="btn btn-secondary btn-small" data-action="regenerate" ${pub?.status === 'shared' ? 'disabled' : ''}>
+              ${pub?.error_message ? 'Régénérer le contenu' : 'Régénérer le visuel'}
+            </button>
+          </div>
+          ${this.photoPickerOpen ? this._renderPhotoPicker() : ''}
         </div>
 
         <form data-form="studio-edit" class="cm-studio-form">
@@ -132,9 +146,96 @@ export class CommunityManagerStudioPage {
     return String(text ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   }
 
+  _renderPhotoPicker() {
+    if (this.loadingPhotos) {
+      return '<div class="cm-studio-photo-picker"><div class="loading">Chargement des photos…</div></div>';
+    }
+    const photos = this.suggestedPhotos || [];
+    if (!photos.length) {
+      return '<div class="cm-studio-photo-picker"><div class="cm-studio-photo-empty">Aucune photo disponible dans votre bibliothèque.</div></div>';
+    }
+    const thumbs = photos.map(p => {
+      const date = p.taken_at ? new Date(p.taken_at).toLocaleDateString('fr-FR') : '';
+      return `
+        <button type="button" class="cm-studio-photo-thumb ${p.is_current ? 'cm-studio-photo-thumb--current' : ''}"
+                data-photo-id="${p.id}" title="${this._escape(p.title || '')}">
+          <img src="${p.thumbnail_url}" alt="${this._escape(p.title || 'Photo')}" loading="lazy">
+          <span class="cm-photo-badge cm-photo-badge--${this._escape(p.badge_class || 'info')}">${this._escape(p.match_reason || '')}</span>
+          <span class="cm-studio-photo-meta">${date}</span>
+        </button>`;
+    }).join('');
+    return `
+      <div class="cm-studio-photo-picker">
+        <div class="cm-studio-photo-picker-title">Photos suggérées : même jour qu'une activité, jour de la publication, favorites</div>
+        <div class="cm-studio-photo-grid">${thumbs}</div>
+      </div>`;
+  }
+
+  async _togglePhotoPicker() {
+    this.photoPickerOpen = !this.photoPickerOpen;
+    if (this.photoPickerOpen && this.suggestedPhotos === null) {
+      this.loadingPhotos = true;
+      this.render();
+      try {
+        this.suggestedPhotos = await getSuggestedPhotos(this.publicationId);
+      } catch (error) {
+        this.error = error?.data?.detail || error?.message || 'Erreur chargement des photos';
+        this.photoPickerOpen = false;
+      } finally {
+        this.loadingPhotos = false;
+      }
+    }
+    this.render();
+  }
+
+  async _selectPhoto(photoId) {
+    if (this.saving) return;
+    this.saving = true;
+    try {
+      await updateStudioDraft(this.publicationId, { photo_id: photoId });
+      const updated = await getStudioDraft(this.publicationId);
+      this.publication = updated;
+      this.photoPickerOpen = false;
+      this.success = 'Photo sélectionnée.';
+      setTimeout(() => { this.success = null; this.render(); }, 1500);
+    } catch (error) {
+      this.error = error?.data?.detail || error?.message || 'Erreur sélection photo';
+    } finally {
+      this.saving = false;
+      this.render();
+    }
+  }
+
+  async _removePhoto() {
+    if (this.saving) return;
+    this.saving = true;
+    try {
+      await updateStudioDraft(this.publicationId, { photo_id: null });
+      const updated = await getStudioDraft(this.publicationId);
+      this.publication = updated;
+      this.success = 'Photo retirée.';
+      setTimeout(() => { this.success = null; this.render(); }, 1500);
+    } catch (error) {
+      this.error = error?.data?.detail || error?.message || 'Erreur retrait photo';
+    } finally {
+      this.saving = false;
+      this.render();
+    }
+  }
+
   _bindEvents() {
     const backBtn = this.element.querySelector('[data-action="back"]');
     if (backBtn) backBtn.addEventListener('click', () => { if (this.onBack) this.onBack(); });
+
+    const togglePhotoBtn = this.element.querySelector('[data-action="toggle-photo-picker"]');
+    if (togglePhotoBtn) togglePhotoBtn.addEventListener('click', () => this._togglePhotoPicker());
+
+    const removePhotoBtn = this.element.querySelector('[data-action="remove-photo"]');
+    if (removePhotoBtn) removePhotoBtn.addEventListener('click', () => this._removePhoto());
+
+    this.element.querySelectorAll('[data-photo-id]').forEach(thumb => {
+      thumb.addEventListener('click', () => this._selectPhoto(parseInt(thumb.dataset.photoId, 10)));
+    });
 
     const saveBtn = this.element.querySelector('[data-action="save"]');
     if (saveBtn) {

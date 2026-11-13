@@ -830,10 +830,6 @@ class SportPublicationService:
             pub.tone_used = tone
             pub.visual_type = visual_type
             pub.photo_id = photo_id
-            pub.proposals = []
-            pub.provider = None
-            pub.model = None
-            pub.generated_at = datetime.now(timezone.utc)
             await self.db.commit()
             await self.db.refresh(pub)
             raise

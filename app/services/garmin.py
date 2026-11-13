@@ -251,6 +251,37 @@ class SportGarminConnectService:
             pub.failed_at = datetime.now(timezone.utc)
             await self.db.commit()
 
+    async def _generate_calendar_content_for_publication(
+        self, pub: SportPublication, current_user
+    ) -> None:
+        """Régénère le contenu IA d'une publication V2 (depuis le calendrier).
+
+        Ne bloque jamais l'appelant : en cas d'échec, l'erreur est enregistrée
+        sur la publication qui reste en brouillon, relançable depuis le Studio.
+        """
+        from app.services.sport_publications import SportPublicationService
+
+        try:
+            pub_service = SportPublicationService(self.db, current_user)
+            gen_request = type("GenRequest", (), {
+                "styles": pub.styles or None,
+                "custom_instructions": pub.custom_instructions,
+                "tone": pub.tone_used,
+                "visual_type": pub.visual_type or "photo",
+                "photo_id": pub.photo_id,
+            })()
+            await pub_service.generate_from_calendar_entry(
+                pub.calendar_entry_id, gen_request
+            )
+            pub.error_message = None
+            pub.failed_at = None
+            await self.db.commit()
+        except Exception as exc:
+            logger.exception("[GARMIN] Régénération IA échouée pour publication %s", pub.id)
+            pub.error_message = f"Génération IA échouée : {exc}"
+            pub.failed_at = datetime.now(timezone.utc)
+            await self.db.commit()
+
     async def regenerate_publication_content(
         self, publication_id: int, current_user
     ) -> SportPublication | None:
@@ -266,6 +297,13 @@ class SportGarminConnectService:
         pub = result.scalar_one_or_none()
         if pub is None:
             return None
+
+        # Publication V2 (créée depuis le calendrier éditorial) : sans activité
+        # liée, la régénération passe par l'entrée éditoriale.
+        if pub.activity_id is None and pub.calendar_entry_id is not None:
+            await self._generate_calendar_content_for_publication(pub, current_user)
+            await self.db.refresh(pub)
+            return pub
 
         activity = await self.db.execute(
             select(SportActivity).where(SportActivity.id == pub.activity_id)

@@ -11,6 +11,8 @@ import {
   acceptSuggestion,
   refuseSuggestion,
   rescheduleSuggestion,
+  updateCommunityManagerCalendarEntry,
+  createStudioDraftFromCalendar,
   getStudioDraft,
   publishStudioDraft,
   validateStudioDraft,
@@ -160,19 +162,6 @@ export class CommunityManagerCalendarPage {
     }
   }
 
-  async _acceptSuggestion(entryId) {
-    try {
-      const res = await acceptSuggestion(entryId);
-      this.selectedEntry = null;
-      if (this.view === 'month') this._loadMonth();
-      else this._loadWeek();
-      this._openStudio(res.pub_id || entryId);
-    } catch (error) {
-      this.error = error?.data?.detail || error?.message || 'Erreur acceptation';
-      this.render();
-    }
-  }
-
   async _refuseSuggestion(entryId) {
     try {
       await refuseSuggestion(entryId);
@@ -207,6 +196,62 @@ export class CommunityManagerCalendarPage {
     });
     this.studioPage.initialize().then(() => this.render()).catch(() => {});
     this.render();
+  }
+
+  _notifyError(message) {
+    this.error = message;
+    this.render();
+    const alert = this.element?.querySelector?.('.alert');
+    if (alert && typeof alert.scrollIntoView === 'function') {
+      alert.scrollIntoView({ block: 'nearest' });
+    }
+  }
+
+  // Ouvre l'événement dans le Studio : publication existante, sinon création du brouillon.
+  async _openEntry(entryEl) {
+    if (this.loading) return;
+    const entryId = parseInt(entryEl.dataset.entryId, 10);
+    const pubId = entryEl.dataset.entryPubId ? parseInt(entryEl.dataset.entryPubId, 10) : null;
+    const status = entryEl.dataset.entryStatus || '';
+    const source = entryEl.dataset.entrySource || '';
+
+    if (pubId) {
+      this._openStudio(pubId);
+      return;
+    }
+    if (source === 'suggestion' && status === 'refused') {
+      this._notifyError('Cette suggestion a été refusée.');
+      return;
+    }
+
+    this.loading = true;
+    this.error = null;
+    this.render();
+    try {
+      let effectiveStatus = status;
+      if (source === 'suggestion' && status === 'pending') {
+        await acceptSuggestion(entryId);
+        effectiveStatus = 'accepted';
+      }
+      if (effectiveStatus !== 'planifié' && effectiveStatus !== 'accepted') {
+        await updateCommunityManagerCalendarEntry(entryId, { status: 'planifié' });
+        effectiveStatus = 'planifié';
+      }
+      const res = await createStudioDraftFromCalendar({
+        calendar_entry_id: entryId,
+        styles: ['stats'],
+        visual_type: 'photo',
+      });
+      this.loading = false;
+      if (!res?.publication_id) {
+        throw new Error(res?.detail || 'Création du brouillon impossible.');
+      }
+      this._openStudio(res.publication_id);
+      this._loadMonth();
+    } catch (error) {
+      this.loading = false;
+      this._notifyError(error?.data?.detail || error?.message || "Impossible d'ouvrir l'événement.");
+    }
   }
 
   render() {
@@ -323,6 +368,7 @@ export class CommunityManagerCalendarPage {
     const topic = this._escape(entry.topic || '');
     return `
       <div class="cal-entry" data-entry-id="${entry.entry_id}" data-entry-pub-id="${entry.pub_id || ''}"
+           data-entry-status="${this._escape(entry.status || '')}" data-entry-source="${this._escape(entry.source || 'manuel')}"
            title="${topic}"
            style="--color: ${color}; --status-color: ${statusColor};">
         <div class="cal-entry-head">
@@ -394,13 +440,7 @@ export class CommunityManagerCalendarPage {
       entryEl.addEventListener('click', (e) => {
         // Ignorer si clic sur un bouton d'action rapide
         if (e.target.closest('.cal-entry-btn')) return;
-        const pubId = entryEl.dataset.entryPubId ? parseInt(entryEl.dataset.entryPubId, 10) : null;
-        if (pubId) {
-          this._openStudio(pubId);
-        } else {
-          this.error = 'Aucune publication liée à cet événement.';
-          this.render();
-        }
+        this._openEntry(entryEl);
       });
 
       // Boutons accept/refuse rapides
@@ -408,7 +448,7 @@ export class CommunityManagerCalendarPage {
       if (acceptBtn) {
         acceptBtn.addEventListener('click', (e) => {
           e.stopPropagation();
-          this._acceptSuggestion(parseInt(acceptBtn.dataset.entryId, 10));
+          this._openEntry(entryEl);
         });
       }
       const refuseBtn = entryEl.querySelector('[data-action="refuse-suggestion"]');

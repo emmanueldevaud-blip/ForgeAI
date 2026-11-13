@@ -112,8 +112,8 @@ class CommunityManagerStudioService:
         if not entry:
             raise ValueError("Entrée de calendrier introuvable")
 
-        if entry.status != "planifié":
-            raise ValueError("L'entrée doit être validée (statut 'planifié') pour créer une publication")
+        if entry.status not in ("planifié", "accepted"):
+            raise ValueError("L'entrée doit être validée (statut 'planifié' ou 'accepted') pour créer une publication")
 
         # Utiliser le service existant pour générer
         gen_request = type("GenRequest", (), {

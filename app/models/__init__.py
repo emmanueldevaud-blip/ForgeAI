@@ -30,6 +30,16 @@ from app.models.intendance_expense import (
     IntendanceSite,
 )
 from app.models.module import Module, ModuleConfig, ModuleStatus
+from app.models.meta_analytics import (
+    MetaAnalyticsAccount,
+    MetaAnalyticsAccountMetrics,
+    MetaAnalyticsAIAnalysis,
+    MetaAnalyticsAudience,
+    MetaAnalyticsMedia,
+    MetaAnalyticsRecommendation,
+    MetaAnalyticsSnapshot,
+    MetaAnalyticsSyncRun,
+)
 from app.models.maintenance import (
     AIConversation,
     AIMessage,
@@ -154,6 +164,14 @@ __all__ = [
     "PhotoTagLink",
     "PhotoThumbnail",
     "MediaPublishToken",
+    "MetaAnalyticsAccount",
+    "MetaAnalyticsAccountMetrics",
+    "MetaAnalyticsAIAnalysis",
+    "MetaAnalyticsAudience",
+    "MetaAnalyticsMedia",
+    "MetaAnalyticsRecommendation",
+    "MetaAnalyticsSnapshot",
+    "MetaAnalyticsSyncRun",
     "Role",
     "RolePermission",
     "Room",

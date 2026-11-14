@@ -81,6 +81,9 @@ def _decrypt_token(token: str | None) -> str | None:
 
         return _fernet().decrypt(token.encode("ascii")).decode("utf-8")
     except Exception:
+        # Fallback de robustesse si le jeton est stocké en clair (non chiffré Fernet)
+        if isinstance(token, str) and (token.startswith("EAA") or token.startswith("IG") or token.startswith("EAAG")):
+            return token
         return None
 
 

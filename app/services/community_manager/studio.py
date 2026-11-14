@@ -713,8 +713,8 @@ class CommunityManagerStudioService:
         if not pub.photo_id and not pub.visual_generation_prompt:
             raise ValueError("Un visuel est requis pour la publication Instagram")
 
-        # Récupérer l'athlète et la connexion Instagram
-        athlete, strategy = await self._get_athlete_and_strategy()
+        # Récupérer l'athlète associé à l'utilisateur
+        athlete = await self.pub_service.get_or_create_athlete()
 
         # Source de publication : configuration Meta centralisée (jeton SUAT)
         meta_service = MetaPublishService(self.db)

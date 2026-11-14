@@ -11084,3 +11084,20 @@
 .ed-audio-field input[type='number'] {
   width: 52px;
 }
+
+/* =====================================================================
+   Analytics & Intelligence (Community Manager IA)
+   ===================================================================== */
+.am-page { display:flex; flex-direction:column; }
+.am-grid { display:grid; gap:16px; }
+.am-grid--kpis { grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); }
+.am-grid--charts { grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); }
+.am-kpi { border:1px solid #e8e8e8; border-radius:10px; background:#fff; }
+.am-bar { height:8px; background:#eee; border-radius:4px; overflow:hidden; }
+.am-bar-fill { height:100%; border-radius:4px; transition:width .6s ease; }
+.am-tabs { display:flex; gap:2px; border-bottom:1px solid #ddd; margin:0 16px 12px; padding-bottom:8px; overflow-x:auto; }
+.am-tab { padding:8px 14px; border:none; background:transparent; border-bottom:2px solid transparent; color:#666; cursor:pointer; font-size:14px; font-weight:500; }
+.am-tab:hover { color:#1877f2; }
+.am-tab--active { color:#1877f2; border-bottom-color:#1877f2; background:rgba(24,119,242,.06); }
+.am-tab-panels { padding:0 16px 24px; }
+.am-empty { border:1px dashed #ddd; border-radius:8px; background:#fafafa; }

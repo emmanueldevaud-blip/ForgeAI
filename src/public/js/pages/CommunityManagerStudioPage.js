@@ -11,6 +11,7 @@ import {
   regeneratePublicationContent,
   getSuggestedPhotos,
   refuseSuggestion,
+  getInstagramConnectionStatus,
 } from '../services/sportApi.js?v=14';
 import { publicationPhotoUrl } from '../services/sportApi.js?v=14';
 import {

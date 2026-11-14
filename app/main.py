@@ -9,7 +9,7 @@ from fastapi.staticfiles import StaticFiles
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 
-from app.api import auth, audit, buildings, dashboard, development, domotique, equipment, housing, it_asset, maintenance, modules, admin, volunteer, sport, administrative, agenda, notifications, photos, ai, intendance, sport_publications, community_manager
+from app.api import auth, audit, buildings, dashboard, development, domotique, equipment, housing, it_asset, maintenance, modules, admin, volunteer, sport, administrative, agenda, notifications, photos, ai, intendance, sport_publications, community_manager, meta_analytics
 from app.core.config import get_settings
 from app.core.limiter import limiter
 from app.db.session import close_db, init_db
@@ -29,6 +29,7 @@ ad_sync_task = None
 sport_analysis_task = None
 domotique_task = None
 photo_job_task = None
+meta_sync_task = None
 
 # Register modules immediately at import time to ensure they are available
 # regardless of lifespan/startup handler execution
@@ -56,6 +57,7 @@ async def lifespan(app: FastAPI):
     garmin_sync_task = asyncio.create_task(_garmin_sync_loop())
     ad_sync_task = asyncio.create_task(_ad_sync_loop())
     sport_analysis_task = asyncio.create_task(_sport_analysis_loop())
+    meta_sync_task = asyncio.create_task(_meta_sync_loop())
     domotique_task = asyncio.create_task(domotique_loop())
     surveillance_motion_task = asyncio.create_task(_surveillance_motion_loop())
     if settings.PHOTO_ENABLED:
@@ -78,6 +80,12 @@ async def lifespan(app: FastAPI):
         sport_analysis_task.cancel()
         try:
             await sport_analysis_task
+        except asyncio.CancelledError:
+            pass
+    if meta_sync_task:
+        meta_sync_task.cancel()
+        try:
+            await meta_sync_task
         except asyncio.CancelledError:
             pass
     if ad_sync_task:
@@ -181,6 +189,20 @@ async def _sport_analysis_loop() -> None:
             # Une analyse en echec ne doit jamais tuer l'application.
             print(f"[SPORT-ANALYSIS] Cycle en echec: {exc}")
         await asyncio.sleep(60)
+
+
+async def _meta_sync_loop() -> None:
+    """Synchro automatique Meta Analytics (toutes les 4h, besteffort)."""
+    from app.services.meta_analytics.scheduler import meta_sync_loop
+
+    while True:
+        try:
+            await meta_sync_loop()
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            print(f"[META-SYNC] Boucle en echec: {exc}")
+        await asyncio.sleep(4 * 60 * 60)
 
 
 async def _photo_job_loop() -> None:
@@ -394,6 +416,7 @@ app.include_router(ai.router)
 app.include_router(intendance.router)
 app.include_router(community_manager.router)
 app.include_router(community_manager.sport_router)
+app.include_router(meta_analytics.router)
 
 frontend_path = os.path.join(os.path.dirname(__file__), "..", "src", "public")
 SPA_INDEX = None

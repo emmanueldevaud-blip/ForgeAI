@@ -543,6 +543,12 @@ async def seed_default_rbac(db: AsyncSession) -> None:
         ("development.push", "Pousser des branches", "development"),
         ("development.deploy", "Déployer en production", "development"),
         ("development.admin", "Administrer l'Agent Développement", "development"),
+        # Meta Analytics & Intelligence (Community Manager IA)
+        ("meta_analytics.view", "Voir les analytics Meta", "meta_analytics"),
+        ("meta_analytics.sync", "Synchroniser les donnees Meta", "meta_analytics"),
+        ("meta_analytics.analyze", "Analyser les donnees Meta (IA)", "meta_analytics"),
+        ("meta_analytics.reports", "Generer les rapports Meta", "meta_analytics"),
+        ("meta_analytics.configure", "Configurer Meta Analytics", "meta_analytics"),
     ]
     
     for code, name, module in default_permissions:

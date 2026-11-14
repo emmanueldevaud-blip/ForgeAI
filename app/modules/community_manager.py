@@ -22,15 +22,24 @@ class CommunityManagerModule(BaseModule):
 
     def get_navigation_items(self, user_permissions=None):
         permissions = user_permissions or []
-        if "*" not in permissions and "community_manager.strategy_view" not in permissions:
-            return []
-        return [{
-            "code": self.info.code,
-            "name": self.info.name,
-            "icon": self.info.icon,
-            "route": self.info.route_path,
-            "order": self.info.order,
-        }]
+        items = []
+        if "*" in permissions or "community_manager.strategy_view" in permissions:
+            items.append({
+                "code": self.info.code,
+                "name": self.info.name,
+                "icon": self.info.icon,
+                "route": self.info.route_path,
+                "order": self.info.order,
+            })
+        if "*" in permissions or "meta_analytics.view" in permissions:
+            items.append({
+                "code": f"{self.info.code}_analytics",
+                "name": "Analytics & Intelligence",
+                "icon": "bar-chart",
+                "route": f"{self.info.route_path}/analytics",
+                "order": self.info.order + 1,
+            })
+        return items
 
     async def install(self, db):
         return True

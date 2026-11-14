@@ -24,6 +24,7 @@ import { createHousingPage } from './pages/HousingPage.js?v=1';
 import { createProfilePage } from './pages/ProfilePage.js?v=2';
 import { createSettingsPage } from './pages/UserSettingsPage.js?v=19';
 import { createCommunityManagerCalendarPage } from './pages/CommunityManagerCalendarPage.js?v=6';
+import { createAnalyticsIntelligencePage } from './pages/AnalyticsIntelligencePage.js?v=1';
 import { createCleaningVolunteersPage } from './pages/CleaningVolunteersPage.js?v=5';
 import { createAdministrativeProgramsPage } from './pages/AdministrativeProgramsPage.js';
 import { createSportDashboardPage } from './pages/SportDashboardPage.js?v=5';
@@ -356,10 +357,13 @@ async function initializeApp() {
     .addRoute('/community-manager', async (route) => {
       await showCommunityManagerPage(route);
     }, { requiresAuth: true, permissions: ['community_manager.strategy_view'], module: 'community_manager' })
+    .addRoute('/community-manager/analytics', async (route) => {
+      await showAnalyticsIntelligencePage(route);
+    }, { requiresAuth: true, permissions: ['meta_analytics.view'], module: 'community_manager' })
 
   // Modules with explicit routes (registered above) - skip in module loop
   const explicitModuleRoutes = ['dashboard', 'administration', 'administratif',
-    'buildings', 'equipment', 'sport', 'housing', 'maintenance', 'it_assets', 'photos', 'community_manager'];
+    'buildings', 'equipment', 'sport', 'housing', 'maintenance', 'it_assets', 'photos', 'community_manager', 'analytics'];
 
   moduleRoutes.forEach(module => {
     if (module === 'dashboard' || module === 'administration' || module === 'administratif'
@@ -434,6 +438,29 @@ async function showCommunityManagerPage(route) {
     appShell.showError(error);
   }
 }
+
+let analyticsIntelligencePage = null;
+
+async function ensureAnalyticsIntelligencePage() {
+  if (!analyticsIntelligencePage) {
+    analyticsIntelligencePage = createAnalyticsIntelligencePage(router);
+    await analyticsIntelligencePage.initialize();
+  }
+  return analyticsIntelligencePage;
+}
+
+async function showAnalyticsIntelligencePage(route) {
+  if (!appShell) return;
+  appShell.showLoading();
+  try {
+    const page = await ensureAnalyticsIntelligencePage();
+    appShell.showContent(page.render());
+  } catch (error) {
+    console.error('Erreur affichage Analytics & Intelligence:', error);
+    appShell.showError(error);
+  }
+}
+
 async function ensureDashboardPage() {
   if (!dashboardPage) {
     dashboardPage = createDashboardPage(router);

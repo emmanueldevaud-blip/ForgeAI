@@ -313,3 +313,75 @@ export async function rescheduleSuggestion(entryId, newDate) {
 export async function regeneratePublicationContent(publicationId) {
   return cmApi.post(`/community-manager/studio/draft/${encodeURIComponent(publicationId)}/regenerate`);
 }
+
+// --------------------------------------------------------------------------- #
+// Meta Analytics & Intelligence (Community Manager IA)
+// --------------------------------------------------------------------------- #
+
+export async function getMetaOverview(period = '30') {
+  return sportApi.get(`/analytics/meta/overview?period=${encodeURIComponent(period)}`);
+}
+
+export async function getMetaInstagramAccount() {
+  return sportApi.get('/analytics/meta/instagram/account');
+}
+
+export async function getMetaInstagramMedia(limit = 50) {
+  return sportApi.get(`/analytics/meta/instagram/media?limit=${encodeURIComponent(limit)}`);
+}
+
+export async function getMetaInstagramMediaDetail(mediaId) {
+  return sportApi.get(`/analytics/meta/instagram/media/${encodeURIComponent(mediaId)}`);
+}
+
+export async function getMetaFacebookPage() {
+  return sportApi.get('/analytics/meta/facebook/page');
+}
+
+export async function getMetaFacebookPosts(limit = 50) {
+  return sportApi.get(`/analytics/meta/facebook/posts?limit=${encodeURIComponent(limit)}`);
+}
+
+export async function getMetaPerformance() {
+  return sportApi.get('/analytics/meta/performance');
+}
+
+export async function getMetaAudience() {
+  return sportApi.get('/analytics/meta/audience');
+}
+
+export async function getMetaHistory(metric = 'follower_count', days = 30) {
+  return sportApi.get(`/analytics/meta/history?metric=${encodeURIComponent(metric)}&days=${encodeURIComponent(days)}`);
+}
+
+export async function postMetaSync() {
+  return sportApi.post('/analytics/meta/sync', {});
+}
+
+export async function getMetaSyncStatus(limit = 20) {
+  return sportApi.get(`/analytics/meta/sync/status?limit=${encodeURIComponent(limit)}`);
+}
+
+export async function postMetaAiAnalyze(periodStart, periodEnd) {
+  return sportApi.post('/analytics/meta/ai/analyze', {}, {
+    params: { period_start: periodStart, period_end: periodEnd },
+  });
+}
+
+export async function getMetaAiRecommendations() {
+  return sportApi.get('/analytics/meta/ai/recommendations');
+}
+
+export async function getMetaReport(format = 'pdf', periodStart = null, periodEnd = null) {
+  const qs = new URLSearchParams({ format });
+  if (periodStart) qs.append('period_start', periodStart);
+  if (periodEnd) qs.append('period_end', periodEnd);
+  return sportApi.get(`/analytics/meta/reports/generate?${qs.toString()}`, {
+    headers: { Accept: format === 'pdf' ? 'application/pdf' : 'text/csv' },
+    responseType: format,
+  });
+}
+
+export async function postMetaRecommendationToCalendar(recommendationId) {
+  return sportApi.post(`/analytics/meta/recommendations/${encodeURIComponent(recommendationId)}/to-calendar`, {});
+}

@@ -57,9 +57,13 @@ class ApiClient {
       );
     }
 
+    const responseType = options.responseType;
     let data;
     const contentType = response.headers.get('content-type');
-    if (contentType && contentType.includes('application/json')) {
+
+    if (responseType === 'arraybuffer') {
+      data = await response.arrayBuffer();
+    } else if (contentType && contentType.includes('application/json')) {
       try {
         data = await response.json();
       } catch {

@@ -160,6 +160,25 @@ export async function listJobs() {
   return photosApi.get('/jobs');
 }
 
+// --------------------------------- Studio V2 — rendu MP4
+
+export async function createStudioRender(publicationId) {
+  return photosApi.post('/jobs/studio-render', { publication_id: publicationId });
+}
+
+export async function getStudioRenderJob(jobId) {
+  return photosApi.get(`/jobs/${jobId}`);
+}
+
+export async function cancelStudioRender(jobId) {
+  return photosApi.post(`/jobs/${jobId}/cancel`);
+}
+
+export function studioRenderFileUrl(jobId, download = true) {
+  const qs = download ? '?download=true' : '';
+  return `/photos/jobs/${jobId}/file${qs}`;
+}
+
 export async function addPhotoTag(photoId, name) {
   return photosApi.post(`/${photoId}/tags`, { name });
 }

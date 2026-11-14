@@ -13,7 +13,15 @@ import {
   refuseSuggestion,
 } from '../services/sportApi.js?v=14';
 import { publicationPhotoUrl } from '../services/sportApi.js?v=14';
-import { uploadPhotos, listPhotos, photoFileUrl } from '../services/photosApi.js?v=8';
+import {
+  uploadPhotos,
+  listPhotos,
+  photoFileUrl,
+  createStudioRender,
+  getStudioRenderJob,
+  cancelStudioRender,
+  studioRenderFileUrl,
+} from '../services/photosApi.js?v=8';
 import { createStudioEditorView } from '../editor/StudioEditorView.js?v=1';
 
 export class CommunityManagerStudioPage {
@@ -75,7 +83,7 @@ export class CommunityManagerStudioPage {
     if (this.error) {
       this.element.innerHTML = `
         <div class="cm-studio-error">
-          <p>${this.error}</p>
+          <p>${this._escape(this.error)}</p>
           <button class="btn btn-secondary" data-action="back">Retour</button>
         </div>`;
       return this.element;
@@ -93,13 +101,13 @@ export class CommunityManagerStudioPage {
           Retour
         </button>
         <h2>${isSuggestion ? 'Story suggérée' : 'Publication sportive'}</h2>
-        <span class="cm-studio-badge ${pub?.status}">${pub?.status}</span>
+        <span class="cm-studio-badge ${this._escape(pub?.status || '')}">${this._escape(pub?.status || '')}</span>
       </div>
 
       <div class="cm-studio-body">
         <div class="cm-studio-photo">
           ${photoUrl ? `<img src="${photoUrl}" alt="Visuel" class="cm-studio-photo-img"/>` : '<div class="cm-studio-photo-empty">Aucune photo</div>'}
-          ${pub?.error_message ? `<div class="cm-studio-warning">⚠ ${pub.error_message}</div>` : ''}
+          ${pub?.error_message ? `<div class="cm-studio-warning">⚠ ${this._escape(pub.error_message)}</div>` : ''}
           ${pub?.photo_locked ? '<div class="cm-studio-warning">Photo verrouillée.</div>' : ''}
           <div class="cm-studio-photo-actions">
             <button class="btn btn-primary btn-small" data-action="open-editor"
@@ -154,7 +162,7 @@ export class CommunityManagerStudioPage {
         </div>
       </div>
 
-      ${this.success ? `<div class="cm-studio-success">${this.success}</div>` : ''}
+      ${this.success ? `<div class="cm-studio-success">${this._escape(this.success)}</div>` : ''}
     `;
 
     this._bindEvents();
@@ -245,6 +253,16 @@ export class CommunityManagerStudioPage {
     }
   }
 
+  /** Libère les ressources de l'éditeur (timeline, canvas, mix, timers). */
+  destroy() {
+    this.editorOpen = false;
+    this.editorMounted = false;
+    if (this.editorView) {
+      this.editorView.destroy();
+      this.editorView = null;
+    }
+  }
+
   /** Monte l'éditeur graphique plein écran dans la page studio. */
   _mountEditor() {
     const host = document.createElement('div');
@@ -261,6 +279,11 @@ export class CommunityManagerStudioPage {
         listPhotos,
         photoFileUrl,
         publicationPhotoUrl,
+        publicationId: this.publicationId,
+        createRender: (publicationId) => createStudioRender(publicationId),
+        getRenderJob: (jobId) => getStudioRenderJob(jobId),
+        cancelRender: (jobId) => cancelStudioRender(jobId),
+        renderFileUrl: (jobId) => studioRenderFileUrl(jobId, true),
       },
       callbacks: {
         onClose: () => this._closeEditor(),
@@ -278,12 +301,7 @@ export class CommunityManagerStudioPage {
   }
 
   async _closeEditor() {
-    if (this.editorView) {
-      this.editorView.destroy();
-      this.editorView = null;
-    }
-    this.editorMounted = false;
-    this.editorOpen = false;
+    this.destroy();
     try {
       this.publication = await getStudioDraft(this.publicationId);
     } catch (_err) {

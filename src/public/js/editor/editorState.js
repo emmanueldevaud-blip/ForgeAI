@@ -59,7 +59,7 @@ function nextId(prefix = 'el') {
 export function defaultDesign(formatKey = 'ig_feed_45') {
   const fmt = FORMATS.find((f) => f.key === formatKey) || FORMATS[1];
   return {
-    version: 1,
+    version: 2,
     format: {
       platform: fmt.platform,
       type: fmt.type,
@@ -70,6 +70,7 @@ export function defaultDesign(formatKey = 'ig_feed_45') {
     elements: [],
     carousel: [],
     cover: null,
+    timeline: { fps: 30, tracks: [] },
   };
 }
 
@@ -79,7 +80,7 @@ export function normalizeDesign(raw) {
   const fmt = FORMATS.find((f) => f.type === raw.format.type);
   const base = defaultDesign(fmt ? fmt.key : 'ig_feed_45');
   return {
-    version: 1,
+    version: 2,
     format: {
       platform: raw.format.platform || base.format.platform,
       type: raw.format.type || base.format.type,
@@ -92,7 +93,35 @@ export function normalizeDesign(raw) {
       : [],
     carousel: Array.isArray(raw.carousel) ? raw.carousel.slice() : [],
     cover: raw.cover ?? null,
+    timeline: Number(raw.version) >= 2 && raw.timeline && Array.isArray(raw.timeline.tracks)
+      ? { fps: Number(raw.timeline.fps) || 30, tracks: raw.timeline.tracks }
+      : convertV1ToV2Design(Array.isArray(raw.elements) ? raw.elements : []),
   };
+}
+
+/** Conversion design V1 (sans timeline) → design V2 (timeline reconstruit). */
+function convertV1ToV2Design(elements) {
+  const tracks = [];
+  const byType = new Map();
+  for (const el of elements) {
+    if (!el || !el.id || !el.type) continue;
+    const t = el.type;
+    if (!byType.has(t)) {
+      const track = { id: `tr-${t}-${tracks.length + 1}`, type: t, hidden: false, locked: false, clips: [] };
+      byType.set(t, track);
+      tracks.push(track);
+    }
+    const track = byType.get(t);
+    track.clips.push({
+      id: `clip-${el.id}`,
+      type: el.type,
+      start: Number(el.x) || 0,
+      duration: Number(el.w) || Number(el.height) || 100,
+      trackId: track.id,
+      elementId: el.id,
+    });
+  }
+  return { fps: 30, tracks };
 }
 
 export class EditorState {
@@ -138,6 +167,7 @@ export class EditorState {
 
   undo() {
     if (!this.undoStack.length) return false;
+    this._pending = null;
     this.redoStack.push(this._snapshot());
     this.design = JSON.parse(this.undoStack.pop());
     if (this.selectedId && !this.getElementById(this.selectedId)) {
@@ -149,6 +179,7 @@ export class EditorState {
 
   redo() {
     if (!this.redoStack.length) return false;
+    this._pending = null;
     this.undoStack.push(this._snapshot());
     this.design = JSON.parse(this.redoStack.pop());
     if (this.selectedId && !this.getElementById(this.selectedId)) {
@@ -187,6 +218,21 @@ export class EditorState {
       const el = this.getElementById(id);
       if (el) Object.assign(el, patch);
     });
+  }
+
+  /** Mise à jour patchée d'un clip pendant un geste continu : sans transaction (le geste committera). */
+  updateClipLive(trackId, clipId, patch) {
+    const tr = (this.getTimeline().tracks || []).find((t) => t.id === trackId);
+    const clip = (tr?.clips || []).find((c) => c.id === clipId);
+    if (!clip) return;
+    Object.assign(clip, patch);
+  }
+
+  /** Volume de piste pendant un geste continu : sans transaction (le geste committera). */
+  setTrackVolumeLive(id, volume) {
+    const tr = this.getTrackById(id);
+    if (!tr) return;
+    tr.volume = Math.min(1, Math.max(0, Number(volume) || 0));
   }
 
   /** Mise à jour pendant un geste continu : pas de transaction unitaire. */
@@ -260,6 +306,277 @@ export class EditorState {
   setCover(photoId) {
     this._auto(() => {
       this.design.cover = photoId;
+    });
+  }
+
+  getTimeline() {
+    if (!this.design.timeline) {
+      this.design.timeline = { fps: 30, tracks: [] };
+    }
+    return this.design.timeline;
+  }
+
+  setTimeline(patch) {
+    this._auto(() => {
+      this.design.timeline = { ...this.getTimeline(), ...(patch || {}) };
+      if (!Array.isArray(this.design.timeline.tracks)) this.design.timeline.tracks = [];
+    });
+  }
+
+  addTrack(track) {
+    this._auto(() => {
+      this.getTimeline().tracks.push(track);
+    });
+    return track;
+  }
+
+  updateTrack(id, patch) {
+    this._auto(() => {
+      const tracks = this.getTimeline().tracks || [];
+      const tr = tracks.find((t) => t.id === id);
+      if (tr) Object.assign(tr, patch);
+    });
+  }
+
+  removeTrack(id) {
+    this._auto(() => {
+      if (this.design.timeline) {
+        this.design.timeline.tracks = (this.design.timeline.tracks || []).filter((t) => t.id !== id);
+      }
+    });
+  }
+
+  addClip(trackId, clip) {
+    this._auto(() => {
+      const tr = (this.getTimeline().tracks || []).find((t) => t.id === trackId);
+      if (tr) tr.clips.push(clip);
+    });
+    return clip;
+  }
+
+  updateClip(trackId, clipId, patch) {
+    this._auto(() => {
+      const tr = (this.getTimeline().tracks || []).find((t) => t.id === trackId);
+      const clip = (tr?.clips || []).find((c) => c.id === clipId);
+      if (clip) Object.assign(clip, patch);
+    });
+  }
+
+  removeClip(trackId, clipId) {
+    this._auto(() => {
+      const tr = (this.getTimeline().tracks || []).find((t) => t.id === trackId);
+      if (!tr) return;
+      tr.clips = (tr.clips || []).filter((c) => c.id !== clipId);
+    });
+  }
+
+  moveClip(trackId, clipId, start) {
+    this._auto(() => {
+      const tr = (this.getTimeline().tracks || []).find((t) => t.id === trackId);
+      const clip = (tr?.clips || []).find((c) => c.id === clipId);
+      if (!clip) return;
+      const target = Number(start) || 0;
+      const delta = target - (Number(clip.start) || 0);
+      const el = clip.elementId ? this.getElementById(clip.elementId) : null;
+      if (el) el.x = (Number(el.x) || 0) + delta;
+      clip.start = target;
+    });
+  }
+
+  /** Déplacement pendant un geste continu : sans transaction (le geste committera). */
+  moveClipLive(trackId, clipId, start) {
+    const tr = (this.getTimeline().tracks || []).find((t) => t.id === trackId);
+    const clip = (tr?.clips || []).find((c) => c.id === clipId);
+    if (!clip) return;
+    const target = Number(start) || 0;
+    const delta = target - (Number(clip.start) || 0);
+    const el = clip.elementId ? this.getElementById(clip.elementId) : null;
+    if (el) el.x = (Number(el.x) || 0) + delta;
+    clip.start = target;
+  }
+
+  resizeClip(trackId, clipId, duration) {
+    this._auto(() => {
+      const tr = (this.getTimeline().tracks || []).find((t) => t.id === trackId);
+      const clip = (tr?.clips || []).find((c) => c.id === clipId);
+      if (!clip) return;
+      const dur = Math.max(0, Number(duration) || 0);
+      clip.duration = dur;
+      const el = clip.elementId ? this.getElementById(clip.elementId) : null;
+      if (el) {
+        el.w = dur;
+        if (el.type === 'text') el.h = dur;
+      }
+    });
+  }
+
+  /** Redimensionnement pendant un geste continu : sans transaction (le geste committera). */
+  resizeClipLive(trackId, clipId, duration) {
+    const tr = (this.getTimeline().tracks || []).find((t) => t.id === trackId);
+    const clip = (tr?.clips || []).find((c) => c.id === clipId);
+    if (!clip) return;
+    const dur = Math.max(0, Number(duration) || 0);
+    clip.duration = dur;
+    const el = clip.elementId ? this.getElementById(clip.elementId) : null;
+    if (el) {
+      el.w = dur;
+      if (el.type === 'text') el.h = dur;
+    }
+  }
+
+  cutClip(trackId, clipId, at) {
+    this._auto(() => {
+      const tr = (this.getTimeline().tracks || []).find((t) => t.id === trackId);
+      const clip = (tr?.clips || []).find((c) => c.id === clipId);
+      if (!clip) return;
+      const start = Number(clip.start) || 0;
+      const duration = Number(clip.duration) || 0;
+      const cutAt = Number(at) || 0;
+      if (!(cutAt > start && cutAt < start + duration)) return;
+      const tailDuration = start + duration - cutAt;
+      const srcEl = clip.elementId ? this.getElementById(clip.elementId) : null;
+      if (srcEl) {
+        const tailEl = JSON.parse(JSON.stringify(srcEl));
+        tailEl.id = nextId('el');
+        tailEl.x = cutAt;
+        tailEl.w = tailDuration;
+        if (tailEl.type === 'text') tailEl.h = tailDuration;
+        this.design.elements.push(tailEl);
+        clip.duration = cutAt - start;
+        clip.elementId = tailEl.id;
+      } else {
+        clip.duration = cutAt - start;
+      }
+    });
+  }
+
+  addVideoClip(trackId, clip) {
+    this._auto(() => {
+      const tr = (this.getTimeline().tracks || []).find((t) => t.id === trackId);
+      if (!tr) return;
+      tr.clips.push(clip);
+    });
+    return clip;
+  }
+
+  duplicateClip(trackId, clipId) {
+    let result = null;
+    this._auto(() => {
+      const tr = (this.getTimeline().tracks || []).find((t) => t.id === trackId);
+      const clip = (tr?.clips || []).find((c) => c.id === clipId);
+      if (!tr || !clip) return;
+      const copy = JSON.parse(JSON.stringify(clip));
+      copy.id = nextId('clip');
+      copy.trackId = trackId;
+      copy.start = (Number(clip.start) || 0) + (Number(clip.duration) || 0);
+      copy.duration = Number(clip.duration) || 0;
+      tr.clips.push(copy);
+      result = copy;
+    });
+    return result;
+  }
+
+  splitClip(trackId, clipId, at) {
+    this._auto(() => {
+      const tr = (this.getTimeline().tracks || []).find((t) => t.id === trackId);
+      const clip = (tr?.clips || []).find((c) => c.id === clipId);
+      if (!tr || !clip) return null;
+      const start = Number(clip.start) || 0;
+      const duration = Number(clip.duration) || 0;
+      const splitAt = Number(at) || 0;
+      if (!(splitAt > start && splitAt < start + duration)) return null;
+      const tailDuration = start + duration - splitAt;
+      const tail = JSON.parse(JSON.stringify(clip));
+      tail.id = nextId('clip');
+      tail.start = splitAt;
+      tail.duration = tailDuration;
+      tail.elementId = null;
+      tr.clips.push(tail);
+      clip.duration = splitAt - start;
+      return tail;
+    });
+  }
+
+  selectTrack(id) {
+    this._auto(() => {
+      this.selectedId = id;
+    });
+  }
+
+  setTrackHidden(id, hidden) {
+    this._auto(() => {
+      const tr = (this.getTimeline().tracks || []).find((t) => t.id === id);
+      if (tr) tr.hidden = !!hidden;
+    });
+  }
+
+  setTrackLocked(id, locked) {
+    this._auto(() => {
+      const tr = (this.getTimeline().tracks || []).find((t) => t.id === id);
+      if (tr) tr.locked = !!locked;
+    });
+  }
+
+  setFps(fps) {
+    this._auto(() => {
+      const f = Number(fps) || 30;
+      if (f > 0) this.design.timeline.fps = f;
+    });
+  }
+
+  getClipById(clipId) {
+    const timeline = this.getTimeline();
+    for (const tr of timeline.tracks || []) {
+      const clip = (tr.clips || []).find((c) => c.id === clipId);
+      if (clip) return { trackId: tr.id, ...clip };
+    }
+    return null;
+  }
+
+  selectClip(trackId, clipId) {
+    this._auto(() => {
+      this.selectedId = clipId;
+      this._selectedTrackId = trackId || null;
+    });
+  }
+
+  getSelectedClip() {
+    const sel = this.selectedId ? this.getClipById(this.selectedId) : null;
+    if (sel) return sel;
+    const el = this.getElementById(this.selectedId);
+    if (el) return { trackId: null, elementId: el.id, type: el.type, start: Number(el.x) || 0, duration: Number(el.w) || 0, ...el };
+    return null;
+  }
+
+  getTrackById(id) {
+    const tracks = this.getTimeline().tracks || [];
+    return tracks.find((t) => t.id === id) || null;
+  }
+
+  setTrackVolume(id, volume) {
+    this._auto(() => {
+      const tr = this.getTrackById(id);
+      if (!tr) return;
+      tr.volume = Math.min(1, Math.max(0, Number(volume) || 0));
+    });
+  }
+
+  setTrackSolo(id, solo) {
+    this._auto(() => {
+      const tr = this.getTrackById(id);
+      if (!tr) return;
+      tr.solo = !!solo;
+    });
+  }
+
+  setTrackDucking(id, ducking) {
+    this._auto(() => {
+      const tr = this.getTrackById(id);
+      if (!tr) return;
+      tr.ducking = {
+        enabled: !!(ducking && ducking.enabled),
+        level: Math.min(1, Math.max(0, Number((ducking && ducking.level) ?? 0))),
+      };
     });
   }
 

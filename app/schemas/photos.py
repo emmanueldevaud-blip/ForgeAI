@@ -336,6 +336,13 @@ class PhotoJobResponse(BaseModel):
     created_at: datetime
     started_at: Optional[datetime] = None
     finished_at: Optional[datetime] = None
+    # Exposé depuis payload_json.progress (property PhotoJob) — studio_render
+    # : {stage: video|audio|finalize|done|cancelled, percent: 0-100}.
+    progress: Optional[dict] = None
+
+
+class StudioRenderCreateRequest(BaseModel):
+    publication_id: int
 
 
 class PhotoAnalysisResponse(BaseModel):

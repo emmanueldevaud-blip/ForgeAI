@@ -22,6 +22,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
 from app.models.photo import Photo, PhotoFace, PhotoJob, PhotoPlace
+from app.models.user import User
 from app.services.photo.storage import PhotoStorageError, get_photo_storage
 
 logger = logging.getLogger(__name__)
@@ -511,6 +512,31 @@ async def _place_geocode(db: AsyncSession, photo: Photo | None, payload: dict) -
         )
 
 
+async def _studio_render(db: AsyncSession, photo: Photo | None, payload: dict) -> None:
+    from app.services.studio_render import StudioRenderService
+
+    design = payload.get("design")
+    if not design:
+        raise PhotoJobError("Design introuvable")
+
+    user_id = payload.get("user_id") or (photo.owner_id if photo else None)
+    user = await db.get(User, user_id) if user_id else None
+    if user is None:
+        raise PhotoJobError("Utilisateur introuvable")
+
+    job_id = payload.get("job_id")
+    job = await db.get(PhotoJob, job_id) if job_id else None
+    if job is not None and job.status == "cancelled":
+        return
+
+    service = StudioRenderService(db, user)
+    await service.render(
+        design=design,
+        job_id=job_id,
+        publication_id=payload.get("publication_id"),
+    )
+
+
 HANDLERS: dict[str, JobHandler] = {
     "ingest": _ingest,
     "analyze": _analyze,
@@ -519,6 +545,7 @@ HANDLERS: dict[str, JobHandler] = {
     "face_embedding": _face_embedding,
     "scan_import": _scan_import,
     "place_geocode": _place_geocode,
+    "studio_render": _studio_render,
 }
 
 
@@ -605,9 +632,10 @@ async def process_photo_jobs(
             if handler is None:
                 raise PhotoJobError(f"Type de job inconnu: {job_type}")
             await handler(db, photo, payload)
-            job.status = "done"
-            job.finished_at = _utcnow()
-            job.error = None
+            if job.status != "cancelled":
+                job.status = "done"
+                job.finished_at = _utcnow()
+                job.error = None
         except Exception as exc:  # noqa: BLE001 - un job en échec ne tue pas la boucle
             # La session peut être en échec (flush/commit annulé) : on repart
             # d'un état propre pour que l'état du job soit bien persisté.

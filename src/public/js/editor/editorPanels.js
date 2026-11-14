@@ -261,6 +261,10 @@ export class EditorPanels {
           Importer
           <input type="file" accept="image/*" multiple data-ed-upload hidden>
         </label>
+        <label class="btn btn-secondary btn-small ed-upload-label">
+          Importer vidéo
+          <input type="file" accept="video/*,.mov,.mp4" multiple data-ed-upload-video hidden>
+        </label>
       </div>
       <div class="ed-media-section">Photos suggérées</div>
       <div class="ed-media-grid" data-ed-suggested><div class="loading">Chargement…</div></div>
@@ -273,6 +277,23 @@ export class EditorPanels {
       if (!files || !files.length) return;
       try {
         await this.deps.uploadPhotos(files);
+        this._mediaLoaded = false;
+        await this.loadMedia();
+        this.onAction('uploaded');
+      } catch (err) {
+        this.onAction('error', err);
+      }
+    });
+
+    body.querySelector('[data-ed-upload-video]').addEventListener('change', async (e) => {
+      const files = e.target.files;
+      if (!files || !files.length) return;
+      try {
+        const res = await this.deps.uploadPhotos(files);
+        const created = Array.isArray(res?.items) ? res.items : res;
+        for (const item of created || []) {
+          this.onAction('add-video', { photoId: item?.id, duration: item?.duration });
+        }
         this._mediaLoaded = false;
         await this.loadMedia();
         this.onAction('uploaded');
@@ -294,6 +315,7 @@ export class EditorPanels {
           <div class="ed-media-item-actions">
             <button type="button" data-media-action="bg" title="Mettre en fond">Fond</button>
             <button type="button" data-media-action="carousel" title="Ajouter au carrousel">＋</button>
+            <button type="button" data-media-action="add-video" title="Importer en clip vidéo">🎬</button>
           </div>
         </div>`
         )
@@ -304,7 +326,8 @@ export class EditorPanels {
           btn.addEventListener('click', (ev) => {
             ev.stopPropagation();
             if (btn.dataset.mediaAction === 'bg') this.onAction('set-bg', { photoId: id });
-            else this.onAction('add-carousel', { photoId: id });
+            else if (btn.dataset.mediaAction === 'carousel') this.onAction('add-carousel', { photoId: id });
+            else if (btn.dataset.mediaAction === 'add-video') this.onAction('add-video', { photoId: id });
           });
         });
       });

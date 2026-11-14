@@ -432,7 +432,7 @@ class PhotoJob(Base):
     # ingest | analyze | embedding | face_detect | face_embedding | edit | purge
     # | scan_import (V3 : import idempotent d'un répertoire de stockage)
     type: Mapped[str] = mapped_column(String(30), nullable=False)
-    # pending | running | done | failed
+    # pending | running | done | failed | cancelled
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="pending")
     payload_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
@@ -448,6 +448,15 @@ class PhotoJob(Base):
     finished_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
     photo: Mapped["Photo | None"] = relationship("Photo", back_populates="jobs")
+
+    @property
+    def progress(self) -> dict | None:
+        """Progression du job (studio_render : stage/percent dans payload)."""
+        payload = self.payload_json
+        if not isinstance(payload, dict):
+            return None
+        value = payload.get("progress")
+        return value if isinstance(value, dict) else None
 
     __table_args__ = (
         Index("ix_photo_jobs_status_available", "status", "available_at"),

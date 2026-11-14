@@ -61,6 +61,7 @@ from app.schemas.photos import (
     PhotoTimelineResponse,
     PhotoUpdate,
     PhotoUploadResponse,
+    StudioRenderCreateRequest,
 )
 from app.services.audit import get_audit_service
 from app.services.photo.edits import (
@@ -812,6 +813,86 @@ async def photo_places_geocode(
 @router.get("/jobs", response_model=List[PhotoJobResponse])
 async def list_jobs(service: PhotoService = Depends(_service)):
     return await service.list_jobs()
+
+
+@router.post("/jobs/studio-render", response_model=PhotoJobResponse)
+async def create_studio_render_job(
+    body: StudioRenderCreateRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_permission("photos.edit")),
+    background_tasks: BackgroundTasks = BackgroundTasks(),
+) -> PhotoJobResponse:
+    from app.services.studio_render import StudioRenderError, StudioRenderService
+
+    service = StudioRenderService(db, current_user)
+    try:
+        job = await service.create_render_job(body.publication_id)
+    except StudioRenderError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from None
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from None
+    if get_settings().PHOTO_BACKGROUND_JOBS:
+        background_tasks.add_task(run_pending_jobs_now)
+    return PhotoJobResponse.model_validate(job)
+
+
+@router.post("/jobs/{job_id}/cancel", response_model=PhotoJobResponse)
+async def cancel_studio_render_job(
+    job_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_permission("photos.edit")),
+) -> PhotoJobResponse:
+    from app.services.studio_render import StudioRenderError, StudioRenderService
+
+    service = StudioRenderService(db, current_user)
+    try:
+        job = await service.cancel_render_job(job_id)
+    except StudioRenderError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from None
+    return PhotoJobResponse.model_validate(job)
+
+
+@router.get("/jobs/{job_id}", response_model=PhotoJobResponse)
+async def get_job(
+    job_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_permission("photos.view")),
+) -> PhotoJobResponse:
+    from app.services.studio_render import StudioRenderService
+
+    service = StudioRenderService(db, current_user)
+    try:
+        return await service.get_render_job(job_id)
+    except Exception as exc:  # noqa: BLE001 - traduction API minimale
+        from app.services.studio_render import StudioRenderError
+
+        if isinstance(exc, StudioRenderError):
+            raise HTTPException(status_code=404, detail=str(exc)) from None
+        raise
+
+
+@router.get("/jobs/{job_id}/file")
+async def get_job_render_file(
+    job_id: str,
+    download: bool = Query(False),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_permission("photos.view")),
+):
+    from app.services.studio_render import StudioRenderError, StudioRenderService
+
+    service = StudioRenderService(db, current_user)
+    try:
+        path = await service.get_final_render(job_id)
+    except StudioRenderError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from None
+    if path is None or not path.is_file():
+        raise HTTPException(status_code=404, detail="Rendu final indisponible")
+    filename = f"studio-render-{job_id}.mp4"
+    headers = {
+        "Cache-Control": "private, max-age=3600",
+        "Content-Disposition": _content_disposition(filename, download=download),
+    }
+    return FileResponse(path, media_type="video/mp4", headers=headers)
 
 
 # ================================ Sous-ressources photo ================================

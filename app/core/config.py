@@ -187,6 +187,13 @@ class Settings(BaseSettings):
     PHOTO_JOB_POLL_SECONDS: float = 2.0
     PHOTO_JOB_BATCH: int = 8
     PHOTO_JOB_MAX_ATTEMPTS: int = 3
+    # Studio V2 — rendus vidéo finaux (MP4) sous PHOTO_STORAGE_PATH/studio_renders.
+    # Jours de rétention des fichiers de rendu (0 = conservation indéfinie).
+    STUDIO_RENDER_RETENTION_DAYS: int = 30
+    # Âge minimal (secondes) d'un répertoire temporaire forgeai-studio-* pour
+    # qu'un nettoyage d'orphelins puisse le supprimer (jamais un média ni un
+    # rendu valide sous PHOTO_STORAGE_PATH).
+    STUDIO_RENDER_TEMP_MAX_AGE_SECONDS: int = 7200
     # Surveillance : capture explicitement démarrée par l'utilisateur.
     SURVEILLANCE_STORAGE_PATH: str = "data/surveillance"
     SURVEILLANCE_FFMPEG_BIN: str = "ffmpeg"

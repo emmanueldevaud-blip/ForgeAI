@@ -145,7 +145,7 @@ class MetaGraphClient:
         return await self.get(f"{object_id}/insights", params)
 
 
-def _load_meta_connection(db) -> dict[str, str]:
+async def _load_meta_connection(db) -> dict[str, str]:
     """Charge la configuration Meta et le jeton deconnecte depuis la base.
 
     Retourne un dictionnaire avec : app_id, app_secret, api_version,
@@ -156,7 +156,7 @@ def _load_meta_connection(db) -> dict[str, str]:
     from app.services.sport_instagram import SportInstagramConnectService
 
     service = SportInstagramConnectService(db)
-    configs = service._load_administration_values(
+    configs = await service._load_administration_values(
         ("meta_app_id", "meta_app_secret", "meta_config_id", "meta_access_token", "meta_client_business_id", "instagram_user_id", "instagram_username")
     )
     settings = get_settings()
@@ -172,12 +172,12 @@ def _load_meta_connection(db) -> dict[str, str]:
     }
 
 
-def build_client(db) -> tuple[MetaGraphClient, dict[str, str]]:
+async def build_client(db) -> tuple[MetaGraphClient, dict[str, str]]:
     """Construit un client Meta Graph pret a l'emploi a partir de la config centrale.
 
     Leve MetaGraphError si la configuration ou le jeton est absent/illisible.
     """
-    connection = _load_meta_connection(db)
+    connection = await _load_meta_connection(db)
     encrypted_token = connection["access_token_encrypted"]
     if not encrypted_token:
         raise MetaGraphError("Aucun jeton Meta configure. Connectez le compte Instagram dans Parametres > Meta.", status=403)

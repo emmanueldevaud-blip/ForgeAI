@@ -34,6 +34,7 @@ from app.services.meta_analytics import (
     build_editorial_score_summary,
     run_meta_sync_once,
 )
+from app.services.meta_analytics.meta_client import MetaGraphError
 
 logger = logging.getLogger(__name__)
 
@@ -377,6 +378,9 @@ async def performance(
             if s.metric_status == "available" and s.metric_value is not None:
                 metrics[s.metric_name] = s.metric_value
         if metrics:
+            reach = metrics.get("reach") or 0
+            interactions = sum(metrics.get(k, 0) or 0 for k in ("likes", "comments", "shares", "saves"))
+            engagement_rate = (interactions / reach * 100.0) if reach else 0.0
             media_list.append({
                 "media_id": media.media_id,
                 "media_type": media.media_type,
@@ -388,7 +392,8 @@ async def performance(
                 "saves": metrics.get("saves"),
                 "video_views": metrics.get("video_views"),
                 "followers_gained": metrics.get("followers_gained"),
-                "engagement_rate": None,
+                "engagement_rate": round(engagement_rate, 2),
+                "is_video": media.media_type in ("VIDEO", "REELS"),
             })
 
     scorer = MetaAnalyticsScoringService()
@@ -559,7 +564,7 @@ async def ai_analyze(
     from app.services.meta_analytics.meta_client import build_client, MetaGraphError
 
     try:
-        client, connection = build_client(db)
+        client, connection = await build_client(db)
     except MetaGraphError as exc:
         return _status_payload("unavailable", {"erreur": str(exc)})
 
@@ -621,14 +626,72 @@ async def ai_recommendations(
     current_user: User = Depends(get_current_user_meta_analyze),
     db: AsyncSession = Depends(get_db),
 ):
+    from app.services.meta_analytics.ai_service import MetaAnalyticsAIService
+
+    ai_service = MetaAnalyticsAIService(db)
+
+    # Recuperer les medias recents pour calculer des recommandations
+    result = await db.execute(
+        sa_select(MetaAnalyticsAccount).where(MetaAnalyticsAccount.platform == "instagram")
+    )
+    account = result.scalar_one_or_none()
+    recommendations = []
+
+    if account:
+        media_result = await db.execute(
+            sa_select(MetaAnalyticsMedia)
+            .where(MetaAnalyticsMedia.account_id == account.id)
+            .order_by(desc(MetaAnalyticsMedia.collected_at))
+            .limit(30)
+        )
+        media_list = []
+        for media in media_result.scalars().all():
+            snap_result = await db.execute(
+                sa_select(MetaAnalyticsSnapshot).where(MetaAnalyticsSnapshot.media_id == media.id)
+            )
+            metrics = {}
+            for s in snap_result.scalars().all():
+                if s.metric_status == "available" and s.metric_value is not None:
+                    metrics[s.metric_name] = s.metric_value
+            if metrics:
+                media_list.append({
+                    "media_id": media.media_id,
+                    "media_type": media.media_type,
+                    "permalink": media.permalink,
+                    "reach": metrics.get("reach"),
+                    "likes": metrics.get("likes"),
+                    "comments": metrics.get("comments"),
+                    "shares": metrics.get("shares"),
+                    "saves": metrics.get("saves"),
+                    "video_views": metrics.get("video_views"),
+                    "followers_gained": metrics.get("followers_gained"),
+                    "is_video": media.media_type in ("VIDEO", "REELS"),
+                })
+
+        # Calculer le taux d'engagement pour chaque media
+        from app.services.meta_analytics.scoring_service import compute_account_benchmarks
+        benchmarks = compute_account_benchmarks(media_list)
+        for m in media_list:
+            reach = m.get("reach") or 0
+            interactions = sum(m.get(k, 0) or 0 for k in ("likes", "comments", "shares", "saves"))
+            m["engagement_rate"] = (interactions / reach * 100.0) if reach else 0.0
+
+        # Generer des recommandations IA
+        from datetime import date, timedelta
+        today = date.today()
+        period_start = today - timedelta(days=30)
+        analysis = await ai_service.analyze_performance(period_start, today, {}, {}, media_list)
+        recommendations = await ai_service.generate_recommendations(period_start, today, analysis)
+
+    # Recuperer aussi les recommandations stockees en DB
     result = await db.execute(
         sa_select(MetaAnalyticsRecommendation)
         .order_by(desc(MetaAnalyticsRecommendation.created_at))
         .limit(50)
     )
-    recs = []
+    stored = []
     for rec in result.scalars().all():
-        recs.append({
+        stored.append({
             "id": rec.id,
             "type": rec.recommendation_type,
             "titre": rec.title,
@@ -643,7 +706,8 @@ async def ai_recommendations(
             "cree_le": rec.created_at.isoformat() if rec.created_at else None,
             "decide_le": rec.decided_at.isoformat() if rec.decided_at else None,
         })
-    return _status_payload("available", {"recommandations": recs})
+
+    return _status_payload("available", {"recommandations": recommendations or stored})
 
 
 @router.post("/recommendations/{recommendation_id}/to-calendar")

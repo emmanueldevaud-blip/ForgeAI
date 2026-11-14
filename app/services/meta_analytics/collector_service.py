@@ -35,8 +35,22 @@ class MetaCollectorService:
             "errors": [],
         }
 
+        # Protection multi-worker : verifier qu'aucune synchro n'est deja en cours
+        from sqlalchemy import select as sa_select
+        in_progress = await self.db.execute(
+            sa_select(MetaAnalyticsSyncRun)
+            .where(MetaAnalyticsSyncRun.status == "started")
+            .where(MetaAnalyticsSyncRun.finished_at.is_(None))
+            .limit(1)
+        )
+        if in_progress.scalar_one_or_none():
+            report["overall_status"] = "skipped"
+            report["errors"].append("Une synchronisation est deja en cours (protection multi-worker)")
+            report["finished_at"] = datetime.now(timezone.utc).isoformat()
+            return report
+
         try:
-            client, connection = build_client(self.db)
+            client, connection = await build_client(self.db)
         except MetaGraphError as exc:
             logger.warning("Configuration Meta indisponible: %s", exc)
             report["overall_status"] = "failed"

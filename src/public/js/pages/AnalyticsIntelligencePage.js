@@ -161,12 +161,12 @@ export class AnalyticsIntelligencePage {
 
     return `
       <div class="am-grid am-grid--kpis">
-        ${this._kpi('Abonn\u00e9s Instagram', igMetrics.followers_count, igMetrics.followers_count !== undefined ? 'available' : 'unavailable')}
-        ${this._kpi('Port\u00e9e', igMetrics.reach || fbMetrics.page_impressions, 'available')}
-        ${this._kpi('Impressions', igMetrics.impressions || fbMetrics.page_impressions, 'available')}
-        ${this._kpi('Interactions', (igMetrics.likes||0)+(igMetrics.comments||0)+(igMetrics.shares||0), 'available')}
-        ${this._kpi('Comptes engag\u00e9s', fbMetrics.page_engaged_users, 'available')}
-        ${this._kpi('Taux engagement', igMetrics.engagement_rate !== undefined ? igMetrics.engagement_rate : '-', 'available')}
+        ${this._kpi('Abonn\u00e9s Instagram', this._metricVal(igMetrics.followers_count), this._metricStat(igMetrics.followers_count))}
+        ${this._kpi('Port\u00e9e', this._metricVal(igMetrics.reach || fbMetrics.page_impressions), this._metricStat(igMetrics.reach || fbMetrics.page_impressions))}
+        ${this._kpi('Impressions', this._metricVal(igMetrics.impressions || fbMetrics.page_impressions), this._metricStat(igMetrics.impressions || fbMetrics.page_impressions))}
+        ${this._kpi('Interactions', this._fmt((igMetrics.likes?.valeur||0)+(igMetrics.comments?.valeur||0)+(igMetrics.shares?.valeur||0)), 'available')}
+        ${this._kpi('Comptes engag\u00e9s', this._metricVal(fbMetrics.page_engaged_users), this._metricStat(fbMetrics.page_engaged_users))}
+        ${this._kpi('Taux engagement', this._metricVal(igMetrics.engagement_rate), this._metricStat(igMetrics.engagement_rate))}
       </div>
 
       <div class="am-grid am-grid--charts" style="margin-top:16px;">
@@ -282,13 +282,13 @@ export class AnalyticsIntelligencePage {
                 <tr>
                   <td><a href="${m.permalink || '#'}" target="_blank" rel="noopener" style="color:#1877f2;">${m.media_id}</a></td>
                   <td><span class="badge badge-secondary">${m.media_type || '-'}</span></td>
-                  <td>${this._fmt(m.metrics.reach)}</td>
-                  <td>${this._fmt(m.metrics.video_views)}</td>
-                  <td>${this._fmt(m.metrics.likes)}</td>
-                  <td>${this._fmt(m.metrics.comments)}</td>
-                  <td>${this._fmt(m.metrics.shares)}</td>
-                  <td>${this._fmt(m.metrics.saves)}</td>
-                  <td>${this._pct(m.metrics.engagement_rate)}</td>
+                  <td>${this._metricVal(m.metrics.reach)}</td>
+                  <td>${this._metricVal(m.metrics.video_views)}</td>
+                  <td>${this._metricVal(m.metrics.likes)}</td>
+                  <td>${this._metricVal(m.metrics.comments)}</td>
+                  <td>${this._metricVal(m.metrics.shares)}</td>
+                  <td>${this._metricVal(m.metrics.saves)}</td>
+                  <td>${this._pct(m.metrics.engagement_rate?.valeur)}</td>
                 </tr>
               `).join('') || '<tr><td colspan="9" style="text-align:center;color:#999;padding:24px;">Aucun m\u00e9dia collect\u00e9.</td></tr>'}
             </tbody>
@@ -328,9 +328,9 @@ export class AnalyticsIntelligencePage {
                   <td>${this._escape(p.caption || '') || p.media_id}</td>
                   <td><span class="badge badge-secondary">${p.type || '-'}</span></td>
                   <td>${p.created_at || '-'}</td>
-                  <td>${this._fmt(p.metrics.likes)}</td>
-                  <td>${this._fmt(p.metrics.comments)}</td>
-                  <td>${this._fmt(p.metrics.shares)}</td>
+                  <td>${this._metricVal(p.metrics.likes)}</td>
+                  <td>${this._metricVal(p.metrics.comments)}</td>
+                  <td>${this._metricVal(p.metrics.shares)}</td>
                   <td><a href="${p.permalink || '#'}" target="_blank" rel="noopener" style="color:#1877f2;font-size:12px;">Voir</a></td>
                 </tr>
               `).join('') || '<tr><td colspan="7" style="text-align:center;color:#999;padding:24px;">Aucune publication collect\u00e9e.</td></tr>'}
@@ -506,6 +506,8 @@ export class AnalyticsIntelligencePage {
   }
 
   _fmt(v) { return v === undefined || v === null ? '-' : Number(v).toLocaleString(); }
+  _metricVal(m) { if (!m || typeof m !== 'object') return this._fmt(m); return this._fmt(m.valeur); }
+  _metricStat(m) { return m && m.statut ? m.statut : 'unavailable'; }
   _pct(v) { return v === undefined || v === null ? '-' : Number(v).toFixed(2) + '%'; }
   _escape(t) { if (t == null) return ''; return String(t).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 
@@ -675,15 +677,15 @@ export class AnalyticsIntelligencePage {
         const res = await postMetaRecommendationToCalendar(recId);
         this.error = null;
         await this._loadRecommendations();
-        this.router.navigate('/community-manager');
+        this.router.navigate(`/community-manager?recId=${recId}&source=meta_analytics`);
       } catch (e) {
         this.error = e?.data?.detail || e?.message || 'Ajout au calendrier echoue';
         this._refreshContent();
       }
     } else if (action === 'studio') {
-      this.router.navigate('/community-manager');
+      this.router.navigate(`/community-manager?recId=${recId}&source=meta_analytics`);
     } else if (action === 'idea') {
-      this.router.navigate('/community-manager');
+      this.router.navigate(`/community-manager?recId=${recId}&source=meta_analytics`);
     }
   }
 
@@ -695,7 +697,9 @@ export class AnalyticsIntelligencePage {
     start.setDate(today.getDate() - Number(days));
     const fmt = (d) => d.toISOString().slice(0, 10);
     try {
-      const blob = await getMetaReport(format, fmt(start), fmt(today));
+      const arrayBuffer = await getMetaReport(format, fmt(start), fmt(today));
+      const mimeType = format === 'pdf' ? 'application/pdf' : 'text/csv;charset=utf-8';
+      const blob = new Blob([arrayBuffer], { type: mimeType });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;

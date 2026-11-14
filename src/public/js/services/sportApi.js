@@ -378,7 +378,7 @@ export async function getMetaReport(format = 'pdf', periodStart = null, periodEn
   if (periodEnd) qs.append('period_end', periodEnd);
   return sportApi.get(`/analytics/meta/reports/generate?${qs.toString()}`, {
     headers: { Accept: format === 'pdf' ? 'application/pdf' : 'text/csv' },
-    responseType: format,
+    responseType: 'arraybuffer',
   });
 }
 

@@ -686,7 +686,6 @@ export class AnalyticsIntelligencePage {
       this.router.navigate('/community-manager');
     }
   }
-  }
 
   async _doExport(format) {
     const reportPeriodEl = this.element.querySelector('#am-report-period');

@@ -7,7 +7,7 @@ import shutil
 import subprocess
 import tempfile
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -165,6 +165,14 @@ class FinalClip:
 
 
 @dataclass(frozen=True)
+class FinalSubtitle:
+    id: str
+    start: float
+    end: float
+    text: str
+
+
+@dataclass(frozen=True)
 class FinalRenderPlan:
     version: int
     platform: str
@@ -175,6 +183,8 @@ class FinalRenderPlan:
     final_duration: float
     video_clips: list[FinalClip]
     audio_clips: list[FinalClip]
+    # Sous-titres à brûler dans la vidéo finale (J7).
+    subtitles: list[FinalSubtitle] = field(default_factory=list)
     # Couleur de fond des gaps (design.background.color) — pads vidéo.
     background_color: str = "#111111"
 
@@ -286,6 +296,10 @@ class StudioRenderService:
 
             final_video_path = await self._encode_final_video(plan)
             encode_temp_dirs.append(final_video_path.parent)
+            ffmpeg = shutil.which("ffmpeg")
+            if ffmpeg is None:
+                raise StudioRenderError("ffmpeg introuvable")
+            final_video_path = await self._burn_subtitles(final_video_path, plan.subtitles, ffmpeg, plan.width, plan.height, plan.fps)
             if job_id:
                 await self._update_job(
                     job_id,
@@ -436,6 +450,17 @@ class StudioRenderService:
         background = design.get("background") or {}
         background_color = str(background.get("color") or "#111111")
 
+        subtitles: list[FinalSubtitle] = []
+        for raw in design.get("subtitles") or []:
+            if not raw or not raw.get("id") or not str(raw.get("text") or "").strip():
+                continue
+            sub_start = float(raw.get("start") or 0)
+            sub_end = float(raw.get("end") or sub_start)
+            text = str(raw.get("text") or "").strip()
+            if sub_end <= sub_start:
+                continue
+            subtitles.append(FinalSubtitle(id=str(raw.get("id")), start=sub_start, end=sub_end, text=text))
+
         return FinalRenderPlan(
             version=2,
             platform=str(format_data.get("platform") or "instagram"),
@@ -446,6 +471,7 @@ class StudioRenderService:
             final_duration=final_duration or final_visual_duration,
             video_clips=final_video_clips,
             audio_clips=final_audio_clips,
+            subtitles=subtitles,
             background_color=background_color,
         )
 
@@ -614,6 +640,56 @@ class StudioRenderService:
         ]
         await asyncio.to_thread(self._run_ffmpeg, command)
         return final_video_path
+
+    async def _burn_subtitles(
+        self,
+        final_video_path: Path,
+        subtitles: list[FinalSubtitle],
+        ffmpeg: str,
+        width: int,
+        height: int,
+        fps: int,
+    ) -> Path:
+        """Brule les sous-titres (SRT) dans la vidéo finale."""
+        if not subtitles:
+            return final_video_path
+        lines: list[str] = []
+        for index, sub in enumerate(subtitles, start=1):
+            start_s = float(sub.start or 0)
+            end_s = float(sub.end or start_s)
+
+            def ts(value: float) -> str:
+                hours = int(value // 3600)
+                minutes = int((value % 3600) // 60)
+                seconds = int((value % 60) * 1000)
+                return f"{hours:02d}:{minutes:02d}:{seconds:03d}"
+
+            lines.append(str(index))
+            lines.append(f"{ts(start_s)} --> {ts(end_s)}")
+            lines.append(str(sub.text or "").strip())
+            lines.append("")
+        srt_path = final_video_path.parent / "subtitles.srt"
+        srt_path.write_text("\n".join(lines), encoding="utf-8")
+        out_path = final_video_path.with_name("final-video-subbed.mp4")
+        command = [
+            ffmpeg,
+            "-y",
+            "-i",
+            str(final_video_path),
+            "-vf",
+            f"subtitles={srt_path}",
+            "-c:v",
+            "libx264",
+            "-preset",
+            "medium",
+            "-crf",
+            "18",
+            "-pix_fmt",
+            "yuv420p",
+            str(out_path),
+        ]
+        await asyncio.to_thread(self._run_ffmpeg, command)
+        return out_path
 
     async def _encode_final_audio(self, plan: FinalRenderPlan) -> Path | None:
         if not plan.audio_clips:

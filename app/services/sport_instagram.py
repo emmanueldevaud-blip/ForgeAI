@@ -156,10 +156,28 @@ class SportInstagramConnectService:
     async def build_authorization_url(self, user_id: int) -> tuple[str, str]:
         """Construit l'URL d'autorisation Unified Login et enregistre le state CSRF."""
         values = await self.load_meta_values()
-        if not values["app_id"] or not values["app_secret"] or not values["config_id"] or not values["redirect_uri"]:
+        missing = []
+        if not values["app_id"]:
+            missing.append("App ID")
+        if not values["app_secret"]:
+            missing.append("App Secret")
+        if not values["config_id"]:
+            missing.append("Config ID")
+        if not values["redirect_uri"]:
+            missing.append("Redirect URI (callback)")
+        if missing:
             raise HTTPException(
                 status_code=503,
-                detail="Connexion Meta non configurée (App ID, App Secret, Config ID ou callback manquant)",
+                detail=f"Connexion Meta non configurée : {', '.join(missing)} manquant(s)",
+            )
+
+        # Validation basique du redirect_uri (doit être HTTPS en production).
+        redirect_uri = values["redirect_uri"]
+        if not redirect_uri.startswith("https://") and not redirect_uri.startswith("http://localhost"):
+            logger.warning(
+                "META OAuth : redirect_uri n'utilise pas HTTPS (%s). "
+                "Meta exige HTTPS pour les URI de redirection en production.",
+                redirect_uri.split("?")[0],
             )
 
         from app.models.sport import SportInstagramOAuthState
@@ -184,12 +202,20 @@ class SportInstagramConnectService:
         params = {
             "client_id": values["app_id"],
             "config_id": values["config_id"],
-            "redirect_uri": values["redirect_uri"],
+            "redirect_uri": redirect_uri,
             "response_type": "code",
             "state": state,
+            "override_default_response_type": "true",
             "prompt": "login",
         }
-        return f"{self._dialog_url}?{urlencode(params)}", state
+        authorize_url = f"{self._dialog_url}?{urlencode(params)}"
+        logger.info(
+            "META OAuth : URL d'autorisation générée (app_id=%s, config_id=%s, redirect_uri=%s)",
+            values["app_id"],
+            values["config_id"],
+            redirect_uri.split("?")[0],
+        )
+        return authorize_url, state
 
     async def consume_state(self, state: str) -> int | None:
         """Consomme atomiquement un state OAuth (CSRF) et retourne le user_id.
@@ -241,6 +267,13 @@ class SportInstagramConnectService:
         base_url = f"https://graph.facebook.com/{values['api_version']}"
         redact = (values["app_secret"], code)
 
+        logger.info(
+            "META OAuth : échange du code (app_id=%s, redirect_uri=%s, api_version=%s)",
+            values["app_id"],
+            values["redirect_uri"].split("?")[0],
+            values["api_version"],
+        )
+
         async with httpx.AsyncClient(timeout=30.0) as client:
             response = await client.get(
                 f"{base_url}/oauth/access_token",
@@ -252,6 +285,20 @@ class SportInstagramConnectService:
                     "redirect_uri": values["redirect_uri"],
                 },
             )
+            if response.status_code != 200:
+                # Log l'erreur Meta sans secrets
+                try:
+                    meta_error = response.json().get("error", {})
+                    error_msg = meta_error.get("message", "")
+                    error_code = meta_error.get("code", "")
+                    error_subcode = meta_error.get("error_subcode", "")
+                    logger.error(
+                        "META OAuth : échec échange code (HTTP %s, code=%s, subcode=%s, message=%s)",
+                        response.status_code, error_code, error_subcode,
+                        error_msg[:200] if error_msg else "",
+                    )
+                except ValueError:
+                    logger.error("META OAuth : échec échange code (HTTP %s)", response.status_code)
             _raise_oauth_http_error(response, "Echange du code OAuth Meta", redact=redact)
             token = response.json().get("access_token")
             if not token:
@@ -274,6 +321,12 @@ class SportInstagramConnectService:
             )
             _raise_oauth_http_error(ig_response, "Lecture des comptes Instagram assignes", redact=(token,))
             accounts = ig_response.json().get("data") or []
+
+            logger.info(
+                "META OAuth : échange réussi (business_id=%s, comptes_instagram=%d)",
+                client_business_id or "N/A",
+                len(accounts),
+            )
 
         return {
             "access_token": token,

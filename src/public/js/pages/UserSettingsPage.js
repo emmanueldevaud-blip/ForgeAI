@@ -9,6 +9,7 @@ import { createSportGarminPage } from './SportGarminPage.js?v=5';
 import {
   getInstagramAuthUrl,
   getInstagramConnectionStatus,
+  getInstagramPreflight,
   disconnectInstagram,
 } from '../services/sportApi.js?v=3';
 
@@ -409,8 +410,31 @@ export class UserSettingsPage {
     connectBtn?.addEventListener('click', async () => {
       if (connectBtn.disabled) return;
       connectBtn.disabled = true;
-      setMetaMessage('Demarrage de la connexion Meta…', false);
+      setMetaMessage('Vérification de la configuration Meta…', false);
       try {
+        // Pré-vérification avant de lancer le dialogue OAuth.
+        let preflight;
+        try {
+          preflight = await getInstagramPreflight();
+        } catch (preflightError) {
+          // Si le preflight échoue (réseau, 503…), on tente quand même la connexion.
+          console.warn('Preflight Meta indisponible:', preflightError);
+        }
+        if (preflight && !preflight.ready) {
+          // Affiche les erreurs de configuration détectées.
+          const details = (preflight.checks || [])
+            .filter(c => c.status === 'error')
+            .map(c => c.detail)
+            .join(' ');
+          setMetaMessage(
+            details || preflight.message || 'Configuration Meta incomplète.',
+            false,
+          );
+          connectBtn.disabled = false;
+          return;
+        }
+
+        setMetaMessage('Démarrage de la connexion Meta…', false);
         const info = await getInstagramAuthUrl();
         if (!info?.authorize_url) {
           setMetaMessage(

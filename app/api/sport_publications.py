@@ -4,6 +4,7 @@ import logging
 from typing import Optional
 from urllib.parse import urlencode
 
+import httpx
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request
 from fastapi.responses import JSONResponse, RedirectResponse
 from sqlalchemy import select
@@ -227,6 +228,107 @@ async def instagram_login_authorize(
     return {"authorize_url": authorize_url}
 
 
+@router.get("/meta/preflight")
+async def instagram_login_preflight(
+    current_user: User = Depends(require_permission("settings_update")),
+    db: AsyncSession = Depends(get_db),
+):
+    """Pré-vérification de la configuration Meta avant connexion OAuth.
+
+    Vérifie sans déclencher l'OAuth : présence des paramètres requis,
+    validité de l'App ID (client_credentials), et cohérence du redirect_uri.
+    Retourne des messages d'erreur exploitables si la configuration est
+    incomplète ou invalide.
+    """
+    service = SportInstagramConnectService(db)
+    values = await service.load_meta_values()
+    checks = []
+
+    # 1. Vérification de la configuration locale
+    missing = []
+    if not values["app_id"]:
+        missing.append("App ID")
+    if not values["app_secret"]:
+        missing.append("App Secret")
+    if not values["config_id"]:
+        missing.append("Config ID")
+    if not values["redirect_uri"]:
+        missing.append("Redirect URI")
+    if missing:
+        checks.append({
+            "key": "configuration",
+            "status": "error",
+            "detail": f"Paramètre(s) manquant(s) : {', '.join(missing)}",
+        })
+        return {
+            "ready": False,
+            "checks": checks,
+            "message": f"Configuration incomplète : {', '.join(missing)}",
+        }
+    checks.append({"key": "configuration", "status": "ok", "detail": "Tous les paramètres sont renseignés."})
+
+    # 2. Vérification HTTPS du redirect_uri
+    redirect_uri = values["redirect_uri"]
+    if not redirect_uri.startswith("https://") and not redirect_uri.startswith("http://localhost"):
+        checks.append({
+            "key": "redirect_uri_https",
+            "status": "warning",
+            "detail": "Le redirect_uri n'utilise pas HTTPS. Meta exige HTTPS en production.",
+        })
+    else:
+        checks.append({"key": "redirect_uri_https", "status": "ok", "detail": "Le redirect_uri utilise HTTPS."})
+
+    # 3. Vérification de l'App ID via client_credentials (sans exposer de secrets)
+    base_url = f"https://graph.facebook.com/{values['api_version']}"
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as http_client:
+            resp = await http_client.get(
+                f"{base_url}/oauth/access_token",
+                params={
+                    "grant_type": "client_credentials",
+                    "client_id": values["app_id"],
+                    "client_secret": values["app_secret"],
+                },
+            )
+        if resp.status_code == 200 and resp.json().get("access_token"):
+            checks.append({
+                "key": "app_credentials",
+                "status": "ok",
+                "detail": f"App ID {values['app_id']} accepté par Meta.",
+            })
+        else:
+            try:
+                meta_msg = resp.json().get("error", {}).get("message", resp.text)
+            except ValueError:
+                meta_msg = resp.text
+            checks.append({
+                "key": "app_credentials",
+                "status": "error",
+                "detail": f"App ID ou App Secret rejeté par Meta : {meta_msg}",
+            })
+    except httpx.HTTPError as exc:
+        checks.append({
+            "key": "app_credentials",
+            "status": "warning",
+            "detail": f"Impossible de joindre Meta pour vérifier les identifiants : {exc}",
+        })
+
+    has_error = any(c["status"] == "error" for c in checks)
+    has_warning = any(c["status"] == "warning" for c in checks)
+    if has_error:
+        message = "Configuration Meta invalide. Corrigez les erreurs avant de tenter la connexion."
+    elif has_warning:
+        message = "Configuration Meta prête avec avertissements."
+    else:
+        message = "Configuration Meta prête pour la connexion."
+
+    return {
+        "ready": not has_error,
+        "checks": checks,
+        "message": message,
+    }
+
+
 @router.get("/meta/status")
 async def instagram_connection_status(
     current_user: User = Depends(require_permission("settings_view")),
@@ -305,8 +407,20 @@ async def instagram_oauth_callback(
         )
 
     if error:
+        # Diagnostic détaillé des refus Meta connus.
+        reason = error_reason or error
+        detail = f"Meta a refusé la connexion ({reason})"
+        if error == "access_denied":
+            detail = (
+                "Meta a refusé l'accès. L'utilisateur a annulé la connexion "
+                "ou n'a pas les droits nécessaires sur l'application Meta."
+            )
+        logger.warning(
+            "META OAuth callback : refus Meta (error=%s, error_reason=%s)",
+            error, error_reason,
+        )
         return _response(
-            {"status": "error", "detail": f"Meta a refusé la connexion ({error_reason or error})"},
+            {"status": "error", "detail": detail},
             code_http=400,
         )
     if not code or not state:

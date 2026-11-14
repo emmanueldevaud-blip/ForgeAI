@@ -71,6 +71,7 @@ export function defaultDesign(formatKey = 'ig_feed_45') {
     carousel: [],
     cover: null,
     timeline: { fps: 30, tracks: [] },
+    subtitles: [],
   };
 }
 
@@ -96,6 +97,7 @@ export function normalizeDesign(raw) {
     timeline: Number(raw.version) >= 2 && raw.timeline && Array.isArray(raw.timeline.tracks)
       ? { fps: Number(raw.timeline.fps) || 30, tracks: raw.timeline.tracks }
       : convertV1ToV2Design(Array.isArray(raw.elements) ? raw.elements : []),
+    subtitles: Array.isArray(raw.subtitles) ? raw.subtitles.map((sub) => ({ ...sub })) : [],
   };
 }
 
@@ -521,6 +523,33 @@ export class EditorState {
     this._auto(() => {
       const f = Number(fps) || 30;
       if (f > 0) this.design.timeline.fps = f;
+    });
+  }
+
+  addSubtitle(sub) {
+    let added = null;
+    this._auto(() => {
+      this.design.subtitles = this.design.subtitles || [];
+      added = { id: sub?.id || nextId('sub'), start: Number(sub?.start) || 0, end: Number(sub?.end) || 0, text: String(sub?.text || '') };
+      this.design.subtitles.push(added);
+    });
+    return added;
+  }
+
+  updateSubtitle(id, patch) {
+    this._auto(() => {
+      const subs = this.design.subtitles || [];
+      const sub = subs.find((s) => s.id === id);
+      if (sub) {
+        Object.assign(sub, patch);
+        sub.end = Math.max(Number(sub.start) || 0, Number(patch.end ?? sub.end) || 0);
+      }
+    });
+  }
+
+  removeSubtitle(id) {
+    this._auto(() => {
+      this.design.subtitles = (this.design.subtitles || []).filter((s) => s.id !== id);
     });
   }
 

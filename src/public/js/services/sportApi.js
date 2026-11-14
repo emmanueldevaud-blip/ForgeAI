@@ -61,6 +61,10 @@ export async function getInstagramAuthUrl() {
   return sportApi.get('/publications/meta/auth');
 }
 
+export async function getInstagramPreflight() {
+  return sportApi.get('/publications/meta/preflight');
+}
+
 export async function getInstagramConnectionStatus() {
   return sportApi.get('/publications/meta/status');
 }

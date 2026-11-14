@@ -74,7 +74,7 @@ export class CommunityManagerStudioPage {
     const isSuggestion = calendarEntry?.source === 'suggestion'
       || calendarEntry?.content_type === 'story_souvenir'
       || calendarEntry?.content_type === 'story_edito';
-    const canPublish = pub && pub.status === 'validated' && !isSuggestion;
+    const canPublish = pub && !isSuggestion && pub.status !== 'shared' && pub.status !== 'refused' && pub.status !== 'failed' && pub.status !== 'publishing';
 
     if (this.loading) {
       this.element.innerHTML = `<div class="cm-studio-loading">Chargement du contenu…</div>`;

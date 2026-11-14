@@ -703,7 +703,13 @@ class CommunityManagerStudioService:
         if not pub:
             raise ValueError("Publication introuvable")
 
-        if pub.status != "validated":
+        # Auto-validation si la publication est encore en brouillon
+        if pub.status == "brouillon":
+            pub.status = "validated"
+            pub.validated_at = datetime.now(timezone.utc)
+            await self.db.commit()
+
+        if pub.status not in ("validated", "brouillon"):
             raise ValueError("Seules les publications validées peuvent être publiées")
 
         if not (pub.content or "").strip():

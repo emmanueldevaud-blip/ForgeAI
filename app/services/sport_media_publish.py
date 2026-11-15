@@ -184,6 +184,7 @@ class MediaPublishService:
         """Valide un token : vérifie signature, expiration, et existence en base non consommé."""
         payload = self._verify_signed_token(token)
         if not payload:
+            logger.warning("Meta token rejected: JWT verification failed")
             return None
 
         token_hash = hashlib.sha256(token.encode()).hexdigest()
@@ -196,7 +197,16 @@ class MediaPublishService:
         )
         token_record = result.scalar_one_or_none()
         if not token_record:
+            logger.warning(
+                "Meta token rejected: no matching DB record (hash=%s)", token_hash[:16]
+            )
             return None
+
+        logger.info(
+            "Meta token validated: photo_id=%s, user_id=%s",
+            payload["photo_id"],
+            payload["user_id"],
+        )
 
         return {
             "photo_id": payload["photo_id"],

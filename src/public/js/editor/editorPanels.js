@@ -61,6 +61,8 @@ export class EditorPanels {
 
         <main class="ed-stage">
           <div class="ed-canvas-host" data-ed-canvas-host></div>
+          <button type="button" class="ed-panel-toggle ed-panel-toggle--left" data-ed-panel-toggle="left" aria-expanded="true" title="Afficher ou masquer le panneau">Médias</button>
+          <button type="button" class="ed-panel-toggle ed-panel-toggle--right" data-ed-panel-toggle="right" aria-expanded="true" title="Afficher ou masquer le panneau">Propriétés</button>
           <div class="ed-mobile-bar">
             <button type="button" class="btn btn-secondary btn-small" data-ed-drawer="left">Médias</button>
             <button type="button" class="btn btn-secondary btn-small" data-ed-drawer="right">Outils</button>
@@ -82,10 +84,26 @@ export class EditorPanels {
     this._bindTabs();
     this._bindTools();
     this._bindDrawers();
+    this._bindPanelToggles();
     this.refreshProps();
     this.refreshLayers();
     this.refreshCarousel();
     this.loadMedia();
+  }
+
+  /** Repli / affichage des panneaux latéraux (bureau). */
+  _bindPanelToggles() {
+    const layout = this.root.querySelector('.ed-layout');
+    if (!layout) return;
+    this.root.querySelectorAll('[data-ed-panel-toggle]').forEach((btn) => {
+      const side = btn.dataset.edPanelToggle;
+      const cls = side === 'left' ? 'ed-left-collapsed' : 'ed-right-collapsed';
+      btn.addEventListener('click', () => {
+        const collapsed = layout.classList.toggle(cls);
+        btn.classList.toggle('is-collapsed', collapsed);
+        btn.setAttribute('aria-expanded', String(!collapsed));
+      });
+    });
   }
 
   _bindTabs() {

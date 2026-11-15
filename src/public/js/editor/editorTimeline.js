@@ -179,7 +179,7 @@ export class EditorTimeline {
     const clipId = clipEl.getAttribute('data-clip-id');
     const info = this._findClip(clipId);
     if (!info) return;
-    const clip = info.clip;
+    const clip = info;
     if (clip.locked) return;
     this._selectedClipId = clipId;
     if (this.onSelectClip) this.onSelectClip(clipId);
@@ -188,22 +188,25 @@ export class EditorTimeline {
     const origStart = Number(clip.start) || 0;
     const move = (ev) => {
       const dx = ev.clientX - startX;
-      const newStart = origStart + dx / this._zoom;
+      // Borne temporelle : start ≥ 0 (EditorState reste inchangé).
+      const newStart = Math.max(0, origStart + dx / this._zoom);
       this.state.moveClipLive(info.trackId, clipId, newStart);
     };
     const up = () => {
+      // Fin du drag AVANT le commit : commitTransaction notifie → requestRender,
+      // lequel est neutralisé tant que _dragging est positionné.
+      this._dragging = null;
       this.state.commitTransaction();
       window.removeEventListener('pointermove', move);
       window.removeEventListener('pointerup', up);
       window.removeEventListener('pointercancel', cancel);
-      this._dragging = null;
     };
     const cancel = () => {
+      this._dragging = null;
       this.state.commitTransaction();
       window.removeEventListener('pointermove', move);
       window.removeEventListener('pointerup', up);
       window.removeEventListener('pointercancel', cancel);
-      this._dragging = null;
     };
     window.addEventListener('pointermove', move);
     window.addEventListener('pointerup', up);
@@ -217,7 +220,7 @@ export class EditorTimeline {
   _startResize(e, clipId) {
     const info = this._findClip(clipId);
     if (!info) return;
-    const clip = info.clip;
+    const clip = info;
     if (clip.locked) return;
     this.state.beginTransaction();
     const startX = e.clientX;
@@ -228,18 +231,20 @@ export class EditorTimeline {
       this.state.resizeClipLive(info.trackId, clipId, newDur);
     };
     const up = () => {
+      // Fin du drag AVANT le commit : commitTransaction notifie → requestRender,
+      // lequel est neutralisé tant que _dragging est positionné.
+      this._dragging = null;
       this.state.commitTransaction();
       window.removeEventListener('pointermove', resize);
       window.removeEventListener('pointerup', up);
       window.removeEventListener('pointercancel', cancel);
-      this._dragging = null;
     };
     const cancel = () => {
+      this._dragging = null;
       this.state.commitTransaction();
       window.removeEventListener('pointermove', resize);
       window.removeEventListener('pointerup', up);
       window.removeEventListener('pointercancel', cancel);
-      this._dragging = null;
     };
     window.addEventListener('pointermove', resize);
     window.addEventListener('pointerup', up);
@@ -254,7 +259,11 @@ export class EditorTimeline {
     const move = (ev) => {
       const sc = this._el.querySelector('[data-ed-tl-scroll]');
       const rect = sc ? sc.getBoundingClientRect() : { left: 0 };
-      const x = ev.clientX - rect.left - (sc ? sc.scrollLeft : 0);
+      // Origine temporelle = début de la zone des clips (après la gouttière) :
+      // sans ce retrait, le curseur est décalé de gouttière/zoom secondes.
+      const gutter = this._el.querySelector('.ed-timeline-row-gutter');
+      const gw = gutter ? gutter.offsetWidth : 150;
+      const x = ev.clientX - rect.left - (sc ? sc.scrollLeft : 0) - gw;
       this._cursor = Math.max(0, x / this._zoom);
       const cursor = this._el.querySelector('[data-ed-tl-cursor]');
       if (cursor) cursor.style.left = `${(this._cursor * this._zoom).toFixed(2)}px`;

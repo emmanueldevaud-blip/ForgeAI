@@ -6,9 +6,9 @@
 import { EditorState, FORMATS, normalizeDesign } from './editorState.js?v=1';
 import { EditorCanvas } from './editorCanvas.js?v=1';
 import { EditorInteraction } from './editorInteraction.js?v=1';
-import { EditorPanels } from './editorPanels.js?v=1';
+import { EditorPanels } from './editorPanels.js?v=2';
 import { coverCrop } from './editorGeometry.js?v=1';
-import { EditorTimeline } from './editorTimeline.js?v=1';
+import { EditorTimeline } from './editorTimeline.js?v=2';
 
 const esc = (t) =>
   String(t ?? '').replace(
@@ -83,6 +83,11 @@ export class StudioEditorView {
         </div>
       </div>
       <div class="ed-body" data-ed-body></div>
+      <div class="ed-bottom" data-ed-bottom>
+        <div class="ed-resize-handle" data-ed-resize title="Glisser pour redimensionner la timeline"></div>
+        <div class="ed-transport" data-ed-transport></div>
+        <div class="ed-timeline-host" data-ed-tl-host></div>
+      </div>
     `;
     host.appendChild(this.root);
 
@@ -106,9 +111,10 @@ export class StudioEditorView {
     this.interaction.attach();
     this.panels.interaction = this.interaction;
 
+    const transport = this.root.querySelector('[data-ed-transport]');
     const apHost = document.createElement('div');
     apHost.className = 'ed-audio-preview-host';
-    this.root.appendChild(apHost);
+    transport.appendChild(apHost);
     this.audioHost = apHost;
     apHost.innerHTML = `
       <audio class="ed-audio-preview" preload="metadata" playsinline></audio>
@@ -118,6 +124,7 @@ export class StudioEditorView {
         <span class="ed-audio-time" data-ed-audio-time>0:00 / 0:00</span>
       </div>
       <div class="ed-audio-mixer">
+        <span class="ed-mixer-label">Mixage</span>
         <label class="ed-audio-field">
           <span>Volume</span>
           <input type="range" min="0" max="1" step="0.05" value="1" data-ed-audio-volume>
@@ -153,15 +160,10 @@ export class StudioEditorView {
     if (audioVolume) {
       audioVolume.addEventListener('input', (e) => {
         const v = Number(e.target.value);
-        const sel = this.state.getSelectedClip ? this.state.getSelectedClip() : null;
+        const t = this._mixSel();
         this.state.beginTransaction();
-        if (sel && sel.type === 'audio' && sel.mediaId) {
-          const tr = this.state.getTimeline().tracks.find((t) => t.id === sel.trackId);
-          const clip = (tr?.clips || []).find((c) => c.id === sel.elementId);
-          if (clip) this.state.updateClipLive(sel.trackId, clip.id, { volume: v });
-        } else if (sel) {
-          this.state.setTrackVolumeLive(sel.trackId, v);
-        }
+        if (t.clipId) this.state.updateClipLive(t.trackId, t.clipId, { volume: v });
+        else if (t.trackId) this.state.setTrackVolumeLive(t.trackId, v);
       });
       audioVolume.addEventListener('change', (e) => {
         this.state.commitTransaction();
@@ -173,54 +175,45 @@ export class StudioEditorView {
     const audioMute = apHost.querySelector('[data-ed-audio-mute]');
     if (audioMute) {
       audioMute.addEventListener('click', (e) => {
-        const sel = this.state.getSelectedClip ? this.state.getSelectedClip() : null;
-        if (sel && sel.type === 'audio' && sel.mediaId) {
-          const tr = this.state.getTimeline().tracks.find((t) => t.id === sel.trackId);
-          const clip = (tr?.clips || []).find((c) => c.id === sel.elementId);
-          if (clip) this.state.updateClip(sel.trackId, clip.id, { mute: !clip.mute });
+        const t = this._mixSel();
+        if (t.clipId) {
+          const clip = this.state.getClipById(t.clipId);
+          if (clip) this.state.updateClip(t.trackId, t.clipId, { mute: !clip.mute });
         }
       });
     }
     const audioSolo = apHost.querySelector('[data-ed-audio-solo]');
     if (audioSolo) {
       audioSolo.addEventListener('click', (e) => {
-        const sel = this.state.getSelectedClip ? this.state.getSelectedClip() : null;
-        if (sel && sel.trackId) this.state.setTrackSolo(sel.trackId, !this.state.getTrackById(sel.trackId)?.solo);
+        const t = this._mixSel();
+        if (t.trackId) this.state.setTrackSolo(t.trackId, !this.state.getTrackById(t.trackId)?.solo);
       });
     }
     const audioFadeIn = apHost.querySelector('[data-ed-audio-fade-in]');
     if (audioFadeIn) {
       audioFadeIn.addEventListener('change', (e) => {
-        const sel = this.state.getSelectedClip ? this.state.getSelectedClip() : null;
-        if (sel && sel.type === 'audio' && sel.mediaId) {
-          const tr = this.state.getTimeline().tracks.find((t) => t.id === sel.trackId);
-          const clip = (tr?.clips || []).find((c) => c.id === sel.elementId);
-          if (clip) this.state.updateClip(sel.trackId, clip.id, { fadeIn: Number(e.target.value) || 0 });
-        }
+        const t = this._mixSel();
+        if (t.clipId) this.state.updateClip(t.trackId, t.clipId, { fadeIn: Number(e.target.value) || 0 });
       });
     }
     const audioFadeOut = apHost.querySelector('[data-ed-audio-fade-out]');
     if (audioFadeOut) {
       audioFadeOut.addEventListener('change', (e) => {
-        const sel = this.state.getSelectedClip ? this.state.getSelectedClip() : null;
-        if (sel && sel.type === 'audio' && sel.mediaId) {
-          const tr = this.state.getTimeline().tracks.find((t) => t.id === sel.trackId);
-          const clip = (tr?.clips || []).find((c) => c.id === sel.elementId);
-          if (clip) this.state.updateClip(sel.trackId, clip.id, { fadeOut: Number(e.target.value) || 0 });
-        }
+        const t = this._mixSel();
+        if (t.clipId) this.state.updateClip(t.trackId, t.clipId, { fadeOut: Number(e.target.value) || 0 });
       });
     }
     const audioDuck = apHost.querySelector('[data-ed-audio-duck]');
     if (audioDuck) {
       audioDuck.addEventListener('change', (e) => {
-        const sel = this.state.getSelectedClip ? this.state.getSelectedClip() : null;
-        if (sel && sel.trackId) this.state.setTrackDucking(sel.trackId, { enabled: Number(e.target.value) > 0, level: Number(e.target.value) });
+        const t = this._mixSel();
+        if (t.trackId) this.state.setTrackDucking(t.trackId, { enabled: Number(e.target.value) > 0, level: Number(e.target.value) });
       });
     }
 
     const vpHost = document.createElement('div');
     vpHost.className = 'ed-video-preview-host';
-    this.root.appendChild(vpHost);
+    transport.insertBefore(vpHost, apHost);
     this.videoHost = vpHost;
     vpHost.innerHTML = `
       <video class="ed-video-preview" preload="metadata" playsinline></video>
@@ -253,17 +246,34 @@ export class StudioEditorView {
     });
     vpHost.querySelector('[data-ed-video-play]').addEventListener('click', (e) => { e.stopPropagation(); this._playVideo(); });
     vpHost.querySelector('[data-ed-video-pause]').addEventListener('click', (e) => { e.stopPropagation(); this._pauseVideo(); });
-    const tlHost = document.createElement('div');
-    tlHost.className = 'ed-timeline-host';
-    this.root.appendChild(tlHost);
-    this.timeline = new EditorTimeline({ root: this, state: this.state });
+    const tlHost = this.root.querySelector('[data-ed-tl-host]');
+    this.timeline = new EditorTimeline({
+      root: this,
+      state: this.state,
+      // Sélection posée au pointerdown (avant beginTransaction du drag) : le
+      // click final est supprimé par Chrome quand le clip est reconstruit
+      // pendant le pointerup.
+      onSelectClip: (clipId) => {
+        const info = this.state.getClipById(clipId);
+        if (info) this.state.selectClip(info.trackId, clipId);
+      },
+    });
     this.timeline.mount(tlHost);
+    // Échelle de départ : zoom maximal pour des clips lisibles.
+    this.timeline._zoom = 4;
+    this.timeline._syncZoom();
+    this.timeline.requestRender();
+    this._mountRuler();
+    this._bindTimelineSelection();
+    this._bindBottomResize();
 
     this.state.onChange = () => {
       this.canvas.requestRender();
       this.panels.onSelectionChanged();
       this._updateUndoButtons();
       if (this.timeline) this.timeline.requestRender();
+      this._syncClipSelection();
+      this._renderRuler();
       const sel = this.state.getSelectedClip ? this.state.getSelectedClip() : null;
       if (sel && sel.type === 'video' && sel.mediaId && this.videoEl) {
         const url = this.deps.photoFileUrl ? this.deps.photoFileUrl(sel.mediaId, 'medium') : `/photos/${sel.mediaId}/file?size=medium`;
@@ -284,6 +294,12 @@ export class StudioEditorView {
   destroy() {
     this._stopRenderPoll();
     this._stopMix();
+    if (this._rulerZoomObs) { this._rulerZoomObs.disconnect(); this._rulerZoomObs = null; }
+    if (this._rulerNeedleObs) { this._rulerNeedleObs.disconnect(); this._rulerNeedleObs = null; }
+    if (this._bottomDrag) { this._bottomDrag.up(); this._bottomDrag = null; }
+    this._rulerEl = null;
+    this._rulerTicks = null;
+    this._rulerNeedle = null;
     if (this.audioEl) { try { this.audioEl.pause(); } catch (_e) { /* ignore */ } }
     if (this.audioEl && this.audioEl.parentNode) this.audioEl.parentNode.removeChild(this.audioEl);
     if (this.videoEl) { try { this.videoEl.pause(); } catch (_e) { /* ignore */ } }
@@ -480,6 +496,193 @@ export class StudioEditorView {
     const m = Math.floor(t / 60);
     const r = Math.floor(t % 60);
     return `${m}:${String(r).padStart(2, '0')}`;
+  }
+
+  // ------------------------------------------------------------------
+  // Cible du mixage, sélection des clips, règle et redimensionnement
+  // ------------------------------------------------------------------
+
+  /** Cible des commandes de mixage : clip audio sélectionné, sinon piste. */
+  _mixSel() {
+    const st = this.state;
+    const sel = st.getSelectedClip ? st.getSelectedClip() : null;
+    if (sel && sel.trackId && sel.type === 'audio' && (sel.id || sel.elementId)) {
+      return { trackId: sel.trackId, clipId: sel.id || sel.elementId };
+    }
+    const trackId =
+      st.selectedId && st.getTrackById && st.getTrackById(st.selectedId) ? st.selectedId : null;
+    return { trackId, clipId: null };
+  }
+
+  /** Met en évidence visuellement le clip sélectionné dans la timeline. */
+  _syncClipSelection() {
+    const tl = this.timeline && this.timeline._el;
+    if (!tl) return;
+    const selId = this.state.selectedId;
+    tl.querySelectorAll('[data-clip-id]').forEach((el) => {
+      el.classList.toggle('is-selected', el.getAttribute('data-clip-id') === selId);
+    });
+  }
+
+  /**
+   * Sélection au clic dans la timeline : le clic remonte jusqu'à la ligne de
+   * piste (selectTrack) qui écrase la sélection du clip ; on restaure alors la
+   * cible réellement cliquée.
+   */
+  _bindTimelineSelection() {
+    const tl = this.timeline && this.timeline._el;
+    if (!tl) return;
+    tl.addEventListener(
+      'pointerdown',
+      (e) => {
+        const clipEl = e.target && e.target.closest ? e.target.closest('[data-clip-id]') : null;
+        this._clickOnClip = clipEl ? clipEl.getAttribute('data-clip-id') : null;
+      },
+      true
+    );
+    tl.addEventListener('click', () => {
+      const clipId = this._clickOnClip;
+      this._clickOnClip = null;
+      if (clipId) {
+        const info = this.state.getClipById(clipId);
+        if (info) this.state.selectClip(info.trackId, clipId);
+      }
+      this._syncClipSelection();
+      if (this.panels) this.panels.onSelectionChanged();
+      if (this.canvas) this.canvas.requestRender();
+    });
+  }
+
+  /** Règle temporelle (graduations + aiguille) synchronisée avec la timeline. */
+  _mountRuler() {
+    const tl = this.timeline && this.timeline._el;
+    if (!tl) return;
+    const scroll = tl.querySelector('[data-ed-tl-scroll]');
+    if (!scroll) return;
+    const ruler = document.createElement('div');
+    ruler.className = 'ed-tl-ruler';
+    ruler.innerHTML = `
+      <span class="ed-tl-ruler-head">Temps</span>
+      <div class="ed-tl-ruler-viewport">
+        <div class="ed-tl-ruler-inner">
+          <div data-ed-ruler-ticks></div>
+          <div class="ed-tl-ruler-needle" data-ed-ruler-needle></div>
+        </div>
+      </div>
+    `;
+    tl.insertBefore(ruler, scroll);
+    this._rulerEl = ruler;
+    this._rulerTicks = ruler.querySelector('[data-ed-ruler-ticks]');
+    this._rulerNeedle = ruler.querySelector('[data-ed-ruler-needle]');
+
+    if (typeof MutationObserver !== 'undefined') {
+      const zoomLabel = tl.querySelector('[data-ed-tl-zoom]');
+      if (zoomLabel) {
+        this._rulerZoomObs = new MutationObserver(() => this._renderRuler());
+        this._rulerZoomObs.observe(zoomLabel, { childList: true, characterData: true, subtree: true });
+      }
+      const cursorEl = tl.querySelector('[data-ed-tl-cursor]');
+      if (cursorEl) {
+        this._rulerNeedleObs = new MutationObserver(() => this._syncRulerNeedle());
+        this._rulerNeedleObs.observe(cursorEl, { attributes: true, attributeFilter: ['style'] });
+      }
+    }
+    this._renderRuler();
+    this._syncRulerNeedle();
+  }
+
+  _rulerZoom() {
+    return Number(this.timeline && this.timeline._zoom) || 1;
+  }
+
+  _renderRuler() {
+    if (!this._rulerTicks) return;
+    const zoom = this._rulerZoom();
+    const tracks =
+      (this.state.design && this.state.design.timeline && this.state.design.timeline.tracks) || [];
+    let maxT = 0;
+    for (const tr of tracks) {
+      if (!tr || tr.hidden) continue;
+      for (const c of tr.clips || []) {
+        maxT = Math.max(maxT, (Number(c.start) || 0) + (Number(c.duration) || 0));
+      }
+    }
+    const span = Math.max(maxT + 5, 20);
+    const steps = [1, 2, 5, 10, 15, 30, 60, 120, 300, 600, 1800, 3600];
+    let step = steps[steps.length - 1];
+    const target = 64 / Math.max(zoom, 0.0001);
+    for (const s of steps) {
+      if (s >= target) {
+        step = s;
+        break;
+      }
+    }
+    while (span / step > 400) {
+      const idx = steps.indexOf(step);
+      if (idx < 0 || idx >= steps.length - 1) break;
+      step = steps[idx + 1];
+    }
+    const fmt = (t) => {
+      const m = Math.floor(t / 60);
+      const s = Math.floor(t % 60);
+      return `${m}:${String(s).padStart(2, '0')}`;
+    };
+    const parts = [];
+    const minor = step >= 5 ? step / 5 : 0;
+    if (minor) {
+      for (let t = 0; t <= span + 1e-9; t += minor) {
+        parts.push(`<i class="ed-tl-ruler-tick" style="left:${(t * zoom).toFixed(1)}px"></i>`);
+      }
+    }
+    for (let t = 0; t <= span + 1e-9; t += step) {
+      const x = (t * zoom).toFixed(1);
+      parts.push(`<i class="ed-tl-ruler-tick ed-tl-ruler-tick--major" style="left:${x}px"></i>`);
+      parts.push(`<span class="ed-tl-ruler-label" style="left:${x}px">${fmt(t)}</span>`);
+    }
+    this._rulerTicks.innerHTML = parts.join('');
+    this._syncRulerNeedle();
+  }
+
+  _syncRulerNeedle() {
+    if (!this._rulerNeedle || !this.timeline) return;
+    const t = Number(this.timeline._cursor) || 0;
+    this._rulerNeedle.style.left = `${(t * this._rulerZoom()).toFixed(2)}px`;
+  }
+
+  /** Redimensionnement vertical de la zone basse (timeline) par glisser-déposer. */
+  _bindBottomResize() {
+    const handle = this.root && this.root.querySelector('[data-ed-resize]');
+    if (!handle) return;
+    handle.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      const bottom = this.root.querySelector('[data-ed-bottom]');
+      if (!bottom) return;
+      const startY = e.clientY;
+      const startH = bottom.getBoundingClientRect().height;
+      const clamp = (h) => {
+        const maxH = Math.max(320, Math.min(640, Math.round(window.innerHeight * 0.62)));
+        const minH = Math.max(260, Math.min(440, bottom.scrollHeight));
+        return Math.min(maxH, Math.max(minH, h));
+      };
+      const move = (ev) => {
+        this.root.style.setProperty('--ed-bottom-h', `${clamp(startH + (startY - ev.clientY))}px`);
+      };
+      const up = () => {
+        window.removeEventListener('pointermove', move);
+        window.removeEventListener('pointerup', up);
+        window.removeEventListener('pointercancel', up);
+        this._bottomDrag = null;
+      };
+      this._bottomDrag = { up };
+      window.addEventListener('pointermove', move);
+      window.addEventListener('pointerup', up);
+      window.addEventListener('pointercancel', up);
+      try {
+        handle.setPointerCapture(e.pointerId);
+      } catch (_err) {
+        /* capture optionnelle */
+      }
+    });
   }
 
   _bindHeader() {

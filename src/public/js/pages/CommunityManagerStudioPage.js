@@ -26,7 +26,7 @@ import {
   cancelStudioRender,
   studioRenderFileUrl,
 } from '../services/photosApi.js?v=8';
-import { createStudioEditorView } from '../editor/StudioEditorView.js?v=1';
+import { createStudioEditorView } from '../editor/StudioEditorView.js?v=2';
 
 export class CommunityManagerStudioPage {
   constructor(router, publicationId, entryData = null, onBack = null) {

@@ -159,12 +159,16 @@ class MediaPublishService:
         try:
             signing_key = self._get_signing_key()
             payload = jwt.decode(token, signing_key, algorithms=["HS256"])
+            print(f"DEBUG _verify_signed_token: payload decoded OK: {payload}", flush=True)
             if payload.get("type") != "media_publish":
+                print(f"DEBUG _verify_signed_token: wrong type: {payload.get('type')}", flush=True)
                 return None
             return payload
         except jwt.ExpiredSignatureError:
+            print("DEBUG _verify_signed_token: ExpiredSignatureError", flush=True)
             return None
-        except jwt.InvalidTokenError:
+        except jwt.InvalidTokenError as e:
+            print(f"DEBUG _verify_signed_token: InvalidTokenError: {e}", flush=True)
             return None
 
     async def _store_token(self, token: str, photo_id: int, user_id: int, expires_at: datetime) -> None:
@@ -182,12 +186,15 @@ class MediaPublishService:
 
     async def _validate_token(self, token: str) -> Optional[dict]:
         """Valide un token : vérifie signature, expiration, et existence en base non consommé."""
+        print(f"DEBUG _validate_token: token={token[:50]}...", flush=True)
         payload = self._verify_signed_token(token)
+        print(f"DEBUG _validate_token: payload={payload}", flush=True)
         if not payload:
             logger.warning("Meta token rejected: JWT verification failed")
             return None
 
         token_hash = hashlib.sha256(token.encode()).hexdigest()
+        print(f"DEBUG _validate_token: token_hash={token_hash[:16]}...", flush=True)
         result = await self.db.execute(
             select(MediaPublishToken).where(
                 MediaPublishToken.token_hash == token_hash,
@@ -196,6 +203,7 @@ class MediaPublishService:
             )
         )
         token_record = result.scalar_one_or_none()
+        print(f"DEBUG _validate_token: token_record={token_record}", flush=True)
         if not token_record:
             logger.warning(
                 "Meta token rejected: no matching DB record (hash=%s)", token_hash[:16]

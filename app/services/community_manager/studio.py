@@ -829,13 +829,19 @@ class CommunityManagerStudioService:
 
             # Publier via Meta (contexte déjà résolu plus haut)
             try:
+                is_reel = pub.visual_type == "reel"
                 if pub.visual_type == "reel" or is_video:
                     instagram_media_id = await meta_service.publish_video(
-                        connection, media_url, caption, mime_type=media_info.mime_type if media_info else None
+                        connection, media_url, caption,
+                        mime_type=media_info.mime_type if media_info else None,
+                        is_reel=is_reel,
+                        publication_id=publication_id,
                     )
                 else:
                     instagram_media_id = await meta_service.publish_photo(
-                        connection, media_url, caption, mime_type=media_info.mime_type if media_info else None
+                        connection, media_url, caption,
+                        mime_type=media_info.mime_type if media_info else None,
+                        publication_id=publication_id,
                     )
 
                 # Récupérer le permalink

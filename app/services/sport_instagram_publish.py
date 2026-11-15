@@ -157,7 +157,9 @@ class MetaPublishService:
         image_url: str,
         caption: str,
         is_video: bool = False,
+        is_reel: bool = False,
         mime_type: Optional[str] = None,
+        publication_id: Optional[int] = None,
     ) -> str:
         """Crée un conteneur média sur Instagram (étape 1 de la publication).
 
@@ -166,7 +168,10 @@ class MetaPublishService:
             image_url: URL publique du média (photo ou vidéo).
             caption: Légende de la publication.
             is_video: True si le média est une vidéo/Reel, False pour une photo.
+            is_reel: True si le média est un Reel (utilise media_type=REELS
+              au lieu de VIDEO).
             mime_type: Type MIME du média (pour validation et logs).
+            publication_id: Identifiant de publication ForgeAI (pour les logs).
         """
         # Validation de cohérence du type de média
         if mime_type:
@@ -186,38 +191,83 @@ class MetaPublishService:
             "caption": caption,
         }
 
-        if is_video:
+        # Construction du payload selon le type de média
+        if is_reel:
+            # Reels nécessitent media_type=REELS (pas VIDEO)
+            params["media_type"] = "REELS"
+            params["video_url"] = image_url
+            media_type_param = "REELS"
+        elif is_video:
             params["media_type"] = "VIDEO"
             params["video_url"] = image_url
+            media_type_param = "VIDEO"
         else:
             params["image_url"] = image_url
+            media_type_param = None
 
-        # Log de diagnostic (sans le token)
+        # Log de diagnostic détaillé (sans le token)
         safe_url = image_url.split("?")[0] if "?" in image_url else image_url
         logger.info(
-            "Creating Meta media container: is_video=%s, mime_type=%s, url=%s",
-            is_video, mime_type or "unknown", safe_url,
+            "Meta create_media_container: publication_id=%s, is_video=%s, is_reel=%s, "
+            "media_type=%s, mime_type=%s, url_base=%s",
+            publication_id, is_video, is_reel, media_type_param,
+            mime_type or "unknown", safe_url,
         )
 
         async with httpx.AsyncClient(timeout=60.0) as client:
             try:
                 response = await client.post(url, params=params)
+                if not response.is_success:
+                    error_data = {}
+                    try:
+                        error_data = response.json()
+                    except Exception:
+                        pass
+                    error = error_data.get("error", {})
+                    error_code = error.get("code")
+                    error_subcode = error.get("error_subcode")
+                    error_message = error.get("message", str(response.status_code))
+                    logger.error(
+                        "Meta create_media_container ERROR: publication_id=%s, "
+                        "http_status=%s, meta_code=%s, meta_subcode=%s, "
+                        "message=%s, url_base=%s",
+                        publication_id, response.status_code, error_code,
+                        error_subcode, error_message, safe_url,
+                    )
+                    raise MetaPublishError(
+                        f"Erreur création conteneur: {error_message}",
+                        meta_error_code=error_code,
+                        meta_error_subcode=error_subcode,
+                    )
                 response.raise_for_status()
                 data = response.json()
                 container_id = data.get("id")
                 if not container_id:
                     raise MetaPublishError("Meta n'a pas retourné d'ID de conteneur média")
-                logger.info(f"Media container created: {container_id}")
+                logger.info(f"Media container created: container_id={container_id}, publication_id={publication_id}")
                 return container_id
             except HTTPStatusError as exc:
                 error_data = exc.response.json() if exc.response.content else {}
                 error = error_data.get("error", {})
+                logger.error(
+                    "Meta create_media_container HTTP error: publication_id=%s, "
+                    "http_status=%s, meta_code=%s, meta_subcode=%s, "
+                    "message=%s, url_base=%s",
+                    publication_id, exc.response.status_code,
+                    error.get("code"), error.get("error_subcode"),
+                    error.get("message", str(exc)), safe_url,
+                )
                 raise MetaPublishError(
                     f"Erreur création conteneur: {error.get('message', str(exc))}",
                     meta_error_code=error.get("code"),
                     meta_error_subcode=error.get("error_subcode"),
                 ) from exc
             except httpx.RequestError as exc:
+                logger.error(
+                    "Meta create_media_container network error: publication_id=%s, "
+                    "error=%s, url_base=%s",
+                    publication_id, str(exc), safe_url,
+                )
                 raise MetaPublishError(f"Erreur réseau: {str(exc)}") from exc
 
     async def publish_media_container(
@@ -295,9 +345,10 @@ class MetaPublishService:
         image_url: str,
         caption: str,
         mime_type: Optional[str] = None,
+        publication_id: Optional[int] = None,
     ) -> str:
         """Publie une photo sur Instagram (workflow complet: container + publish)."""
-        container_id = await self.create_media_container(connection, image_url, caption, is_video=False, mime_type=mime_type)
+        container_id = await self.create_media_container(connection, image_url, caption, is_video=False, mime_type=mime_type, publication_id=publication_id)
         media_id = await self.publish_media_container(connection, container_id)
         return media_id
 
@@ -307,9 +358,23 @@ class MetaPublishService:
         video_url: str,
         caption: str,
         mime_type: Optional[str] = None,
+        is_reel: bool = False,
+        publication_id: Optional[int] = None,
     ) -> str:
-        """Publie une vidéo sur Instagram (workflow complet: container + publish)."""
-        container_id = await self.create_media_container(connection, video_url, caption, is_video=True, mime_type=mime_type)
+        """Publie une vidéo sur Instagram (workflow complet: container + publish).
+
+        Args:
+            connection: Contexte de publication Meta.
+            video_url: URL publique de la vidéo.
+            caption: Légende de la publication.
+            mime_type: Type MIME de la vidéo.
+            is_reel: True si c'est un Reel (utilise media_type=REELS).
+            publication_id: Identifiant de publication ForgeAI (pour les logs).
+        """
+        container_id = await self.create_media_container(
+            connection, video_url, caption, is_video=True, mime_type=mime_type,
+            is_reel=is_reel, publication_id=publication_id,
+        )
         media_id = await self.publish_media_container(connection, container_id)
         return media_id
 

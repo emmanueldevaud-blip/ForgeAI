@@ -746,7 +746,7 @@ class TestCommunityManagerStudioServicePublish:
         
         # Mock services
         with patch('app.services.sport_instagram_publish.MetaPublishService') as MockMetaService, \
-             patch('app.services.community_manager.studio.MediaPublishService') as MockMediaService, \
+             patch('app.services.sport_media_publish.MediaPublishService') as MockMediaService, \
              patch('app.core.config.get_settings') as mock_get_settings:
             
             mock_settings = MagicMock()
@@ -780,6 +780,272 @@ class TestCommunityManagerStudioServicePublish:
                 assert result is not None
                 assert result.status == "shared"
                 assert result.instagram_media_id == "media_123"
+
+    @pytest.mark.asyncio
+    async def test_garmin_classic_photo_uses_image_url(self, service, mock_db, mock_user):
+        """Test publication photo classique Garmin : utilise publish_photo() avec image_url, sans media_type ni video_url."""
+        from app.services.sport_instagram_publish import MetaPublishService
+
+        pub = MagicMock(spec=SportPublication)
+        pub.id = 1
+        pub.athlete_id = 10
+        pub.status = "validated"
+        pub.content = "13,2 km d'Alsace"
+        pub.hashtags = "#running #alsace"
+        pub.photo_id = 123
+        pub.visual_type = "card"
+        pub.visual_generation_prompt = None
+        pub.title = "Sortie Alsace"
+        pub.tone_used = "professional"
+        pub.custom_instructions = None
+        pub.styles = ["stats"]
+        pub.calendar_entry_id = 1
+        pub.instagram_media_id = None
+        pub.instagram_permalink = None
+
+        mock_athlete = MagicMock(id=10, user_id=1)
+        mock_strategy = MagicMock(id=100, athlete_id=10)
+        service.pub_service.get_publication = AsyncMock(return_value=pub)
+
+        mock_db.execute.side_effect = [
+            AsyncMock(scalar_one_or_none=MagicMock(return_value=mock_athlete)),
+            AsyncMock(scalar_one_or_none=MagicMock(return_value=mock_strategy)),
+            AsyncMock(scalar_one_or_none=MagicMock(return_value=MagicMock(
+                id=123, owner_id=1, mime_type="image/jpeg",
+                original_filename="photo.jpg", is_deleted=False, is_public=False
+            ))),
+            AsyncMock(scalar_one_or_none=MagicMock(return_value=MagicMock(
+                id=1, user_id=1, instagram_business_account_id="17841400000000000",
+                encrypted_long_lived_token="encrypted_token"
+            ))),
+            AsyncMock(scalar_one_or_none=MagicMock(return_value=MagicMock(
+                id=1, user_id=1, instagram_business_account_id="17841400000000000",
+                encrypted_long_lived_token="encrypted_token"
+            ))),
+        ]
+
+        mock_connection = MagicMock()
+        mock_connection.instagram_business_account_id = "17841400000000000"
+        mock_connection.encrypted_long_lived_token = "encrypted_token"
+
+        with patch('app.services.sport_instagram_publish.MetaPublishService') as MockMetaService, \
+             patch('app.services.sport_media_publish.MediaPublishService') as MockMediaService, \
+             patch('app.core.config.get_settings') as mock_get_settings, \
+             patch('app.services.sport_instagram._decrypt_token', return_value="token"):
+
+            mock_settings = MagicMock()
+            mock_settings.PUBLIC_URL = "https://forgeai.design-ede.fr"
+            mock_get_settings.return_value = mock_settings
+
+            mock_media_service = MagicMock()
+            mock_media_service.prepare_media_for_publish = AsyncMock(return_value=MediaInfo(
+                url="https://example.com/photo.jpg?meta_token=abc",
+                mime_type="image/jpeg",
+                filename="photo.jpg",
+                is_video=False,
+            ))
+            MockMediaService.return_value = mock_media_service
+
+            mock_meta_service = MagicMock()
+            mock_meta_service.publish_photo = AsyncMock(return_value="media_123")
+            mock_meta_service.publish_video = AsyncMock(return_value="media_123")
+            mock_meta_service.get_media_permalink = AsyncMock(return_value="https://instagram.com/p/abc")
+            resolved_conn = MagicMock()
+            resolved_conn.instagram_business_account_id = "17841400000000000"
+            resolved_conn.encrypted_long_lived_token = "encrypted_token"
+            mock_meta_service.resolve_publish_context = AsyncMock(return_value=resolved_conn)
+            MockMetaService.return_value = mock_meta_service
+
+            result = await service.publish_to_instagram(1, MagicMock(confirm=True))
+
+            assert result is not None
+            assert result.status == "shared"
+
+            mock_meta_service.publish_photo.assert_called_once()
+            mock_meta_service.publish_video.assert_not_called()
+
+            call_args = mock_meta_service.publish_photo.call_args
+            call_args_tuple = call_args[0] if call_args else ()
+            call_kwargs = call_args[1] if len(call_args) > 1 and isinstance(call_args[1], dict) else {}
+
+            assert len(call_args_tuple) >= 2, f"Pas assez d'args positionnels: {call_args}"
+            assert call_args_tuple[1] == "https://example.com/photo.jpg?meta_token=abc", f"image_url incorrect: {call_args_tuple}"
+
+            assert "video_url" not in call_kwargs, f"video_url présent alors que photo: {call_kwargs}"
+            assert "media_type" not in call_kwargs, f"media_type présent alors que photo: {call_kwargs}"
+            assert call_kwargs.get("is_reel", False) is False, f"is_reel devrait être False: {call_kwargs}"
+
+    @pytest.mark.asyncio
+    async def test_garmin_video_uses_video_url(self, service, mock_db, mock_user):
+        """Test publication vidéo Garmin : utilise publish_video() avec video_url et media_type=VIDEO."""
+        from app.services.sport_instagram_publish import MetaPublishService
+
+        pub = MagicMock(spec=SportPublication)
+        pub.id = 1
+        pub.athlete_id = 10
+        pub.status = "validated"
+        pub.content = "13,2 km d'Alsace"
+        pub.hashtags = "#running #alsace"
+        pub.photo_id = 123
+        pub.visual_type = "video"
+        pub.visual_generation_prompt = None
+        pub.title = "Sortie Alsace Vidéo"
+        pub.tone_used = "professional"
+        pub.custom_instructions = None
+        pub.styles = ["stats"]
+        pub.calendar_entry_id = 1
+        pub.instagram_media_id = None
+        pub.instagram_permalink = None
+
+        mock_athlete = MagicMock(id=10, user_id=1)
+        mock_strategy = MagicMock(id=100, athlete_id=10)
+        service.pub_service.get_publication = AsyncMock(return_value=pub)
+
+        mock_db.execute.side_effect = [
+            AsyncMock(scalar_one_or_none=MagicMock(return_value=mock_athlete)),
+            AsyncMock(scalar_one_or_none=MagicMock(return_value=mock_strategy)),
+            AsyncMock(scalar_one_or_none=MagicMock(return_value=MagicMock(
+                id=123, owner_id=1, mime_type="video/mp4",
+                original_filename="video.mp4", is_deleted=False, is_public=False
+            ))),
+            AsyncMock(scalar_one_or_none=MagicMock(return_value=MagicMock(
+                id=1, user_id=1, instagram_business_account_id="17841400000000000",
+                encrypted_long_lived_token="encrypted_token"
+            ))),
+            AsyncMock(scalar_one_or_none=MagicMock(return_value=MagicMock(
+                id=1, user_id=1, instagram_business_account_id="17841400000000000",
+                encrypted_long_lived_token="encrypted_token"
+            ))),
+        ]
+
+        with patch('app.services.sport_instagram_publish.MetaPublishService') as MockMetaService, \
+             patch('app.services.sport_media_publish.MediaPublishService') as MockMediaService, \
+             patch('app.core.config.get_settings') as mock_get_settings, \
+             patch('app.services.sport_instagram._decrypt_token', return_value="token"):
+
+            mock_settings = MagicMock()
+            mock_settings.PUBLIC_URL = "https://forgeai.design-ede.fr"
+            mock_get_settings.return_value = mock_settings
+
+            mock_media_service = MagicMock()
+            mock_media_service.prepare_media_for_publish = AsyncMock(return_value=MediaInfo(
+                url="https://example.com/video.mp4?meta_token=abc",
+                mime_type="video/mp4",
+                filename="video.mp4",
+                is_video=True,
+            ))
+            MockMediaService.return_value = mock_media_service
+
+            mock_meta_service = MagicMock()
+            mock_meta_service.publish_video = AsyncMock(return_value="media_123")
+            mock_meta_service.publish_photo = AsyncMock(return_value="media_123")
+            mock_meta_service.get_media_permalink = AsyncMock(return_value="https://instagram.com/p/abc")
+            resolved_conn = MagicMock()
+            resolved_conn.instagram_business_account_id = "17841400000000000"
+            resolved_conn.encrypted_long_lived_token = "encrypted_token"
+            mock_meta_service.resolve_publish_context = AsyncMock(return_value=resolved_conn)
+            MockMetaService.return_value = mock_meta_service
+
+            result = await service.publish_to_instagram(1, MagicMock(confirm=True))
+
+            assert result is not None
+            assert result.status == "shared"
+
+            mock_meta_service.publish_video.assert_called_once()
+            mock_meta_service.publish_photo.assert_not_called()
+
+            call_args = mock_meta_service.publish_video.call_args
+            call_args_tuple = call_args[0] if call_args else ()
+            call_kwargs = call_args[1] if len(call_args) > 1 and isinstance(call_args[1], dict) else {}
+
+            assert len(call_args_tuple) >= 2, f"Pas assez d'args positionnels: {call_args}"
+            assert call_args_tuple[1] == "https://example.com/video.mp4?meta_token=abc", f"video_url incorrect: {call_args_tuple}"
+            assert "image_url" not in call_kwargs, f"image_url présent alors que vidéo: {call_kwargs}"
+            assert call_kwargs.get("is_reel") is False, f"is_reel devrait être False pour vidéo classique: {call_kwargs}"
+
+    @pytest.mark.asyncio
+    async def test_garmin_reel_uses_reels_media_type(self, service, mock_db, mock_user):
+        """Test publication Reel Garmin : utilise publish_video() avec is_reel=True et media_type=REELS."""
+        from app.services.sport_instagram_publish import MetaPublishService
+
+        pub = MagicMock(spec=SportPublication)
+        pub.id = 1
+        pub.athlete_id = 10
+        pub.status = "validated"
+        pub.content = "13,2 km d'Alsace"
+        pub.hashtags = "#running #alsace"
+        pub.photo_id = 123
+        pub.visual_type = "reel"
+        pub.visual_generation_prompt = None
+        pub.title = "Reel Sortie Alsace"
+        pub.tone_used = "professional"
+        pub.custom_instructions = None
+        pub.styles = ["stats"]
+        pub.calendar_entry_id = 1
+        pub.instagram_media_id = None
+        pub.instagram_permalink = None
+
+        mock_athlete = MagicMock(id=10, user_id=1)
+        mock_strategy = MagicMock(id=100, athlete_id=10)
+        service.pub_service.get_publication = AsyncMock(return_value=pub)
+
+        mock_db.execute.side_effect = [
+            AsyncMock(scalar_one_or_none=MagicMock(return_value=mock_athlete)),
+            AsyncMock(scalar_one_or_none=MagicMock(return_value=mock_strategy)),
+            AsyncMock(scalar_one_or_none=MagicMock(return_value=MagicMock(
+                id=123, owner_id=1, mime_type="video/mp4",
+                original_filename="video.mp4", is_deleted=False, is_public=False
+            ))),
+            AsyncMock(scalar_one_or_none=MagicMock(return_value=MagicMock(
+                id=1, user_id=1, instagram_business_account_id="17841400000000000",
+                encrypted_long_lived_token="encrypted_token"
+            ))),
+            AsyncMock(scalar_one_or_none=MagicMock(return_value=MagicMock(
+                id=1, user_id=1, instagram_business_account_id="17841400000000000",
+                encrypted_long_lived_token="encrypted_token"
+            ))),
+        ]
+
+        with patch('app.services.sport_instagram_publish.MetaPublishService') as MockMetaService, \
+             patch('app.services.sport_media_publish.MediaPublishService') as MockMediaService, \
+             patch('app.core.config.get_settings') as mock_get_settings, \
+             patch('app.services.sport_instagram._decrypt_token', return_value="token"):
+
+            mock_settings = MagicMock()
+            mock_settings.PUBLIC_URL = "https://forgeai.design-ede.fr"
+            mock_get_settings.return_value = mock_settings
+
+            mock_media_service = MagicMock()
+            mock_media_service.prepare_media_for_publish = AsyncMock(return_value=MediaInfo(
+                url="https://example.com/reel.mp4?meta_token=abc",
+                mime_type="video/mp4",
+                filename="reel.mp4",
+                is_video=True,
+            ))
+            MockMediaService.return_value = mock_media_service
+
+            mock_meta_service = MagicMock()
+            mock_meta_service.publish_video = AsyncMock(return_value="media_123")
+            mock_meta_service.publish_photo = AsyncMock(return_value="media_123")
+            mock_meta_service.get_media_permalink = AsyncMock(return_value="https://instagram.com/p/abc")
+            resolved_conn = MagicMock()
+            resolved_conn.instagram_business_account_id = "17841400000000000"
+            resolved_conn.encrypted_long_lived_token = "encrypted_token"
+            mock_meta_service.resolve_publish_context = AsyncMock(return_value=resolved_conn)
+            MockMetaService.return_value = mock_meta_service
+
+            result = await service.publish_to_instagram(1, MagicMock(confirm=True))
+
+            assert result is not None
+            assert result.status == "shared"
+
+            mock_meta_service.publish_video.assert_called_once()
+            mock_meta_service.publish_photo.assert_not_called()
+
+            call_args = mock_meta_service.publish_video.call_args
+            call_kwargs = call_args[1] if len(call_args) > 1 and isinstance(call_args[1], dict) else {}
+
+            assert call_kwargs.get("is_reel") is True, f"is_reel devrait être True pour Reel: {call_kwargs}"
 
     @pytest.mark.asyncio
     async def test_publish_to_instagram_not_validated(self, service):
@@ -1374,7 +1640,7 @@ class TestInstagramCaptionLength:
             return result
         mock_db.execute.side_effect = mock_execute
         with patch('app.services.sport_instagram_publish.MetaPublishService') as MockMetaService, \
-             patch('app.services.community_manager.studio.MediaPublishService') as MockMediaService, \
+             patch('app.services.sport_media_publish.MediaPublishService') as MockMediaService, \
              patch('app.core.config.get_settings') as mock_get_settings, \
              patch('app.services.sport_instagram._decrypt_token', return_value="token"):
             mock_settings = MagicMock()
@@ -1426,7 +1692,7 @@ class TestInstagramCaptionLength:
             return result
         mock_db.execute.side_effect = mock_execute
         with patch('app.services.sport_instagram_publish.MetaPublishService') as MockMetaService, \
-             patch('app.services.community_manager.studio.MediaPublishService') as MockMediaService, \
+             patch('app.services.sport_media_publish.MediaPublishService') as MockMediaService, \
              patch('app.core.config.get_settings') as mock_get_settings, \
              patch('app.services.sport_instagram._decrypt_token', return_value="token"):
             mock_settings = MagicMock()
@@ -1487,7 +1753,7 @@ class TestInstagramCaptionLength:
             return result
         mock_db.execute.side_effect = mock_execute
         with patch('app.services.sport_instagram_publish.MetaPublishService') as MockMetaService, \
-             patch('app.services.community_manager.studio.MediaPublishService') as MockMediaService, \
+             patch('app.services.sport_media_publish.MediaPublishService') as MockMediaService, \
              patch('app.core.config.get_settings') as mock_get_settings, \
              patch('app.services.sport_instagram._decrypt_token', return_value="token"):
             mock_settings = MagicMock()

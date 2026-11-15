@@ -8,7 +8,7 @@ et les régressions de l'audit technique.
 
 import hashlib
 import io
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime, timedelta, timezone
 
 import pytest
 from PIL import Image
@@ -874,3 +874,322 @@ async def test_upload_leaves_no_orphan_when_job_queue_fails(
     assert count == []
     after = set(storage.originals_root.rglob("*")) if storage.originals_root.exists() else set()
     assert after == before
+
+
+# ================================ Tests meta_token (publication Instagram) ================================
+
+@pytest.mark.asyncio
+async def test_photo_file_meta_token_valid_jpeg(client, db_session, admin_headers):
+    """Le endpoint /photos/{id}/file avec meta_token sert une image JPEG valide."""
+    from app.services.sport_media_publish import MediaPublishService
+
+    response = await upload_photo(client, admin_headers, make_image_bytes(), filename="test.jpg")
+    assert response.status_code == 201, response.text
+    photo_id = response.json()["items"][0]["id"]
+    await drain_jobs(db_session)
+    photo = await db_session.get(Photo, photo_id)
+    assert photo is not None
+
+    # Générer un token Meta valide (normalement fait par prepare_media_for_publish)
+    service = MediaPublishService(db_session)
+    token = service._create_signed_token(photo_id=photo_id, user_id=1, expires_in_seconds=3600)
+    await service._store_token(token, photo_id, 1, datetime.now(timezone.utc) + timedelta(seconds=3600))
+
+    # Appeler l'endpoint avec le token
+    file_resp = await client.get(
+        f"/photos/{photo_id}/file",
+        params={"size": "original", "meta_token": token},
+    )
+    assert file_resp.status_code == 200, file_resp.text
+    assert file_resp.headers["content-type"] == "image/jpeg"
+
+    # Vérifier que le contenu est bien un JPEG (magic bytes FF D8 FF)
+    content = file_resp.content
+    assert content[:3] == b"\xff\xd8\xff", f"Pas un JPEG valide: {content[:10].hex()}"
+
+    # Vérifier que le fichier original n'est pas modifié
+    photo_after = await db_session.get(Photo, photo_id)
+    assert photo_after.mime_type == "image/jpeg"
+
+
+@pytest.mark.asyncio
+async def test_photo_file_meta_token_invalid(client, db_session, admin_headers):
+    """Un token invalide est rejeté avec 403."""
+    response = await upload_photo(client, admin_headers, make_image_bytes(), filename="test.jpg")
+    photo_id = response.json()["items"][0]["id"]
+
+    file_resp = await client.get(
+        f"/photos/{photo_id}/file",
+        params={"size": "original", "meta_token": "invalid.token.signature"},
+    )
+    assert file_resp.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_photo_file_meta_token_wrong_photo(client, db_session, admin_headers):
+    """Un token pour une autre photo est rejeté."""
+    response1 = await upload_photo(client, admin_headers, make_image_bytes(), filename="photo1.jpg")
+    response2 = await upload_photo(client, admin_headers, make_image_bytes(), filename="photo2.jpg")
+    photo_id_1 = response1.json()["items"][0]["id"]
+    photo_id_2 = response2.json()["items"][0]["id"]
+    from app.services.sport_media_publish import MediaPublishService
+    service = MediaPublishService(db_session)
+    token = service._create_signed_token(photo_id=photo_id_1, user_id=1, expires_in_seconds=3600)
+    await service._store_token(token, photo_id_1, 1, datetime.now(timezone.utc) + timedelta(seconds=3600))
+
+    file_resp = await client.get(
+        f"/photos/{photo_id_2}/file",
+        params={"size": "original", "meta_token": token},
+    )
+    assert file_resp.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_photo_file_meta_token_consumed_once(client, db_session, admin_headers):
+    """Un token Meta ne peut être utilisé qu'une seule fois (single-use)."""
+    from app.services.sport_media_publish import MediaPublishService
+
+    response = await upload_photo(client, admin_headers, make_image_bytes(), filename="test.jpg")
+    photo_id = response.json()["items"][0]["id"]
+    await drain_jobs(db_session)
+
+    service = MediaPublishService(db_session)
+    token = service._create_signed_token(photo_id=photo_id, user_id=1, expires_in_seconds=3600)
+    await service._store_token(token, photo_id, 1, datetime.now(timezone.utc) + timedelta(seconds=3600))
+
+    # Première utilisation : succès
+    file_resp1 = await client.get(
+        f"/photos/{photo_id}/file",
+        params={"size": "original", "meta_token": token},
+    )
+    assert file_resp1.status_code == 200, file_resp1.text
+
+    # Deuxième utilisation : rejeté (token consommé)
+    file_resp2 = await client.get(
+        f"/photos/{photo_id}/file",
+        params={"size": "original", "meta_token": token},
+    )
+    assert file_resp2.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_photo_file_meta_token_heic_conversion(client, db_session, admin_headers):
+    """Une photo HEIC est convertie en JPEG à la volée quand meta_token est présent."""
+    import pillow_heif
+    from app.services.sport_media_publish import MediaPublishService
+
+    # Créer une image HEIC de test
+    img = Image.new("RGB", (100, 100), color="red")
+    buf = io.BytesIO()
+    img.save(buf, format="HEIF")
+    heic_bytes = buf.getvalue()
+
+    response = await upload_photo(client, admin_headers, heic_bytes, filename="test.HEIC")
+    assert response.status_code == 201, response.text
+    photo_id = response.json()["items"][0]["id"]
+    await drain_jobs(db_session)
+    photo = await db_session.get(Photo, photo_id)
+    assert photo.mime_type in ("image/heic", "image/heif")
+
+    # Générer un token Meta
+    service = MediaPublishService(db_session)
+    token = service._create_signed_token(photo_id=photo_id, user_id=1, expires_in_seconds=3600)
+    await service._store_token(token, photo_id, 1, datetime.now(timezone.utc) + timedelta(seconds=3600))
+
+    # Appeler l'endpoint avec le token → devrait retourner du JPEG
+    file_resp = await client.get(
+        f"/photos/{photo_id}/file",
+        params={"size": "original", "meta_token": token},
+    )
+    assert file_resp.status_code == 200, file_resp.text
+    assert file_resp.headers["content-type"] == "image/jpeg"
+
+    # Vérifier que le contenu est bien un JPEG (pas du HEIC)
+    content = file_resp.content
+    assert content[:3] == b"\xff\xd8\xff", f"Pas un JPEG valide: {content[:10].hex()}"
+
+    # Le fichier original n'est pas modifié
+    photo_after = await db_session.get(Photo, photo_id)
+    assert photo_after.mime_type in ("image/heic", "image/heif")
+
+
+# ================================ Tests d'intégration externe (simulation Meta) ================================
+
+@pytest.mark.asyncio
+async def test_photo_file_meta_token_external_no_session_cookies(client, db_session, admin_headers):
+    """Simule une requête externe de Meta : uniquement le meta_token, sans cookies de session.
+
+    Meta appelle l'URL signée depuis ses propres serveurs, sans aucun cookie
+    ForgeAI. Le token JWT doit suffire à authentifier la requête.
+    """
+    from app.services.sport_media_publish import MediaPublishService
+
+    response = await upload_photo(client, admin_headers, make_image_bytes(), filename="test.jpg")
+    assert response.status_code == 201, response.text
+    photo_id = response.json()["items"][0]["id"]
+    await drain_jobs(db_session)
+
+    service = MediaPublishService(db_session)
+    token = service._create_signed_token(photo_id=photo_id, user_id=1, expires_in_seconds=3600)
+    await service._store_token(token, photo_id, 1, datetime.now(timezone.utc) + timedelta(seconds=3600))
+
+    # Appel SANS les cookies de session (comme ferait Meta depuis l'extérieur)
+    file_resp = await client.get(
+        f"/photos/{photo_id}/file",
+        params={"size": "original", "meta_token": token},
+        headers={},  # Pas de Authorization, pas de cookies
+    )
+    assert file_resp.status_code == 200, f"Meta externe rejeté: {file_resp.text}"
+    assert file_resp.headers["content-type"] == "image/jpeg"
+
+    content = file_resp.content
+    assert content[:3] == b"\xff\xd8\xff", f"Pas un JPEG valide: {content[:10].hex()}"
+
+
+@pytest.mark.asyncio
+async def test_photo_file_meta_token_content_length(client, db_session, admin_headers):
+    """Vérifie que Content-Length est présent et cohérent avec le corps."""
+    from app.services.sport_media_publish import MediaPublishService
+
+    response = await upload_photo(client, admin_headers, make_image_bytes(), filename="test.jpg")
+    assert response.status_code == 201, response.text
+    photo_id = response.json()["items"][0]["id"]
+    await drain_jobs(db_session)
+
+    service = MediaPublishService(db_session)
+    token = service._create_signed_token(photo_id=photo_id, user_id=1, expires_in_seconds=3600)
+    await service._store_token(token, photo_id, 1, datetime.now(timezone.utc) + timedelta(seconds=3600))
+
+    file_resp = await client.get(
+        f"/photos/{photo_id}/file",
+        params={"size": "original", "meta_token": token},
+    )
+    assert file_resp.status_code == 200, file_resp.text
+
+    content_length = file_resp.headers.get("content-length")
+    assert content_length is not None, "Content-Length manquant"
+    assert int(content_length) == len(file_resp.content), (
+        f"Content-Length incohérent: header={content_length}, réel={len(file_resp.content)}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_photo_file_meta_token_no_redirect(client, db_session, admin_headers):
+    """Vérifie qu'il n'y a pas de redirection (Meta suit les redirects mais
+    une redirection vers une page de login échouerait)."""
+    from app.services.sport_media_publish import MediaPublishService
+
+    response = await upload_photo(client, admin_headers, make_image_bytes(), filename="test.jpg")
+    assert response.status_code == 201, response.text
+    photo_id = response.json()["items"][0]["id"]
+    await drain_jobs(db_session)
+
+    service = MediaPublishService(db_session)
+    token = service._create_signed_token(photo_id=photo_id, user_id=1, expires_in_seconds=3600)
+    await service._store_token(token, photo_id, 1, datetime.now(timezone.utc) + timedelta(seconds=3600))
+
+    # httpx suit les redirections par défaut. Si on arrive sur une page
+    # de login, le code final ne sera pas 200 avec du contenu image.
+    file_resp = await client.get(
+        f"/photos/{photo_id}/file",
+        params={"size": "original", "meta_token": token},
+        follow_redirects=True,
+    )
+    assert file_resp.status_code == 200, f"Redirection ou échec: {file_resp.text}"
+    assert file_resp.url.path == f"/photos/{photo_id}/file", (
+        f"Redirection détectée: {file_resp.url}"
+    )
+    assert len(file_resp.history) == 0, f"Redirections détectées: {file_resp.history}"
+
+
+@pytest.mark.asyncio
+async def test_photo_file_meta_token_image_decodable(client, db_session, admin_headers):
+    """Vérifie que l'image servie peut être décodée par Pillow."""
+    from app.services.sport_media_publish import MediaPublishService
+
+    response = await upload_photo(client, admin_headers, make_image_bytes(), filename="test.jpg")
+    assert response.status_code == 201, response.text
+    photo_id = response.json()["items"][0]["id"]
+    await drain_jobs(db_session)
+
+    service = MediaPublishService(db_session)
+    token = service._create_signed_token(photo_id=photo_id, user_id=1, expires_in_seconds=3600)
+    await service._store_token(token, photo_id, 1, datetime.now(timezone.utc) + timedelta(seconds=3600))
+
+    file_resp = await client.get(
+        f"/photos/{photo_id}/file",
+        params={"size": "original", "meta_token": token},
+    )
+    assert file_resp.status_code == 200, file_resp.text
+
+    content = file_resp.content
+    # Décodage effectif de l'image
+    img = Image.open(io.BytesIO(content))
+    assert img.format == "JPEG", f"Format inattendu: {img.format}"
+    assert img.mode == "RGB", f"Mode inattendu: {img.mode}"
+    assert img.size[0] > 0 and img.size[1] > 0, f"Dimensions invalides: {img.size}"
+
+
+@pytest.mark.asyncio
+async def test_photo_file_meta_token_heic_full_pipeline(client, db_session, admin_headers):
+    """Test de bout en bout : photo HEIC → conversion JPEG → servi via meta_token."""
+    import pillow_heif
+    from app.services.sport_media_publish import MediaPublishService
+
+    # Créer une image HEIC réelle
+    img = Image.new("RGB", (200, 150), color=(120, 60, 200))
+    buf = io.BytesIO()
+    img.save(buf, format="HEIF")
+    heic_bytes = buf.getvalue()
+
+    response = await upload_photo(client, admin_headers, heic_bytes, filename="IMG_0001.HEIC")
+    assert response.status_code == 201, response.text
+    photo_id = response.json()["items"][0]["id"]
+    await drain_jobs(db_session)
+
+    photo = await db_session.get(Photo, photo_id)
+    assert photo.mime_type in ("image/heic", "image/heif"), f"MIME inattendu: {photo.mime_type}"
+
+    # Générer un token Meta
+    service = MediaPublishService(db_session)
+    token = service._create_signed_token(photo_id=photo_id, user_id=1, expires_in_seconds=3600)
+    await service._store_token(token, photo_id, 1, datetime.now(timezone.utc) + timedelta(seconds=3600))
+
+    # Meta récupère le média avec le token (sans session cookies)
+    file_resp = await client.get(
+        f"/photos/{photo_id}/file",
+        params={"size": "original", "meta_token": token},
+        headers={},
+    )
+    assert file_resp.status_code == 200, f"Échec: {file_resp.text}"
+    assert file_resp.headers["content-type"] == "image/jpeg"
+
+    content = file_resp.content
+    # Signature JPEG
+    assert content[:3] == b"\xff\xd8\xff", f"Pas un JPEG: {content[:10].hex()}"
+    # Décodage effectif
+    img_decoded = Image.open(io.BytesIO(content))
+    assert img_decoded.format == "JPEG"
+    assert img_decoded.mode == "RGB"
+
+    # Le fichier original n'est pas modifié
+    photo_after = await db_session.get(Photo, photo_id)
+    assert photo_after.mime_type in ("image/heic", "image/heif")
+
+
+@pytest.mark.asyncio
+async def test_photo_file_meta_token_no_token_public_photo(client, db_session, admin_headers):
+    """Sans meta_token, une photo publique reste accessible (comportement attendu)."""
+    response = await upload_photo(client, admin_headers, make_image_bytes(), filename="test.jpg")
+    assert response.status_code == 201, response.text
+    photo_id = response.json()["items"][0]["id"]
+    await drain_jobs(db_session)
+
+    # Sans token Meta ET sans auth session, une photo publique est accessible
+    file_resp = await client.get(
+        f"/photos/{photo_id}/file",
+        params={"size": "original"},
+        headers={},
+    )
+    assert file_resp.status_code == 200, f"Photo publique devrait être accessible: {file_resp.text}"
+    assert file_resp.headers["content-type"] == "image/jpeg"

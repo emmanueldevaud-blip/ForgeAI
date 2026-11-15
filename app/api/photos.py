@@ -1000,10 +1000,18 @@ async def get_photo_file(
     size: str = Query("small", max_length=20),
     download: bool = Query(False),
     meta_token: Optional[str] = Query(None, alias="meta_token"),
+    *,
     service: PhotoService = Depends(_service),
     db: AsyncSession = Depends(get_db),
-    background_tasks: BackgroundTasks = None,
+    background_tasks: BackgroundTasks,
 ):
+    """Récupère le fichier d'une photo.
+    
+    Si un meta_token est fourni (publication Instagram), valide le jeton
+    et convertit les HEIC/HEIF en JPEG à la volée pour Meta.
+    """
+    logger = logging.getLogger(__name__)
+
     # Si un token Meta est fourni, le valider sans exiger la permission photos.view
     validation = None
     if meta_token:
@@ -1013,8 +1021,6 @@ async def get_photo_file(
             raise HTTPException(status_code=403, detail="Token d'accès média invalide ou expiré")
         if validation["photo_id"] != photo_id:
             raise HTTPException(status_code=403, detail="Token invalide pour cette photo")
-        # Token valide, on continue sans vérifier la permission photos.view
-        # (le token a déjà vérifié l'accès au propriétaire)
     else:
         # Vérification standard des permissions
         _ = Depends(_service)  # force l'évaluation de la dépendance pour la permission
@@ -1034,11 +1040,31 @@ async def get_photo_file(
         photo = result.scalar_one_or_none()
         if photo and photo.mime_type.lower() in ("image/heic", "image/heif"):
             media_service = MediaPublishService(db)
-            converted_path = await media_service.convert_heic_to_jpeg_if_needed(path)
-            if converted_path != path:
-                media_type = "image/jpeg"
-                filename = f"{photo_id}.jpg"
-                background_tasks.add_task(lambda p=converted_path: p.unlink(missing_ok=True))
+            try:
+                converted_path = await media_service.convert_heic_to_jpeg_if_needed(path)
+                if converted_path != path:
+                    media_type = "image/jpeg"
+                    filename = f"{photo_id}.jpg"
+                    background_tasks.add_task(lambda p=converted_path: p.unlink(missing_ok=True))
+                    logger.info(
+                        "Meta media conversion: photo_id=%s, heic->jpeg, url_base=/photos/%d/file",
+                        photo_id, photo_id,
+                    )
+                else:
+                    # Conversion non effectuée (pas HEIC ou échec) : servir tel quel
+                    logger.warning(
+                        "Meta media conversion skipped: photo_id=%s, mime_type=%s",
+                        photo_id, photo.mime_type,
+                    )
+            except Exception as exc:
+                logger.error(
+                    "Meta media conversion error: photo_id=%s, error=%s",
+                    photo_id, str(exc),
+                )
+                raise HTTPException(
+                    status_code=500,
+                    detail="Erreur de conversion du média pour Instagram",
+                )
 
     headers = {
         "Cache-Control": "private, max-age=86400",

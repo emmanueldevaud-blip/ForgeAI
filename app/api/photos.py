@@ -1015,6 +1015,7 @@ async def get_photo_file(
     print(f"DEBUG get_photo_file: meta_token={meta_token[:50] if meta_token else None}...", flush=True)
     raise RuntimeError(f"DEBUG: get_photo_file called with photo_id={photo_id}, meta_token present={meta_token is not None}")
     raise RuntimeError(f"DEBUG: get_photo_file called with photo_id={photo_id}, meta_token present={meta_token is not None}")
+    raise RuntimeError(f"DEBUG: get_photo_file called with photo_id={photo_id}, meta_token present={meta_token is not None}")
 
     # Si un token Meta est fourni, le valider sans exiger la permission photos.view
     print(f"DEBUG get_photo_file: about to validate meta_token: {meta_token[:50] if meta_token else None}...", flush=True)

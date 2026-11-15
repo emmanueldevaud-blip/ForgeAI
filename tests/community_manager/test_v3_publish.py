@@ -20,6 +20,7 @@ from app.models.user import User
 from app.schemas.sport import (
     PublicationDraftUpdate,
     PublicationGenerateFromCalendarRequest,
+    PublicationGenerateTextRequest,
     PublicationPublishRequest,
     PublicationValidateRequest,
     PublicationPreviewRequest,
@@ -1345,6 +1346,247 @@ class TestInstagramCaptionLength:
         service.pub_service.get_publication = AsyncMock(return_value=pub)
         with pytest.raises(ValueError, match="dépasse la limite"):
             await service.publish_to_instagram(1, MagicMock(confirm=True))
+
+
+# ============================================================
+# Tests CommunityManagerStudioService - Génération IA avec limite
+# ============================================================
+
+class TestInstagramCaptionLengthAIGeneration:
+    """Tests pour la génération IA avec contrôle de longueur (2 200 caractères max)."""
+
+    @pytest.fixture
+    def mock_user(self):
+        user = MagicMock(spec=User)
+        user.id = 1
+        return user
+
+    @pytest.fixture
+    def mock_athlete(self):
+        athlete = MagicMock(spec=SportAthlete)
+        athlete.id = 10
+        athlete.user_id = 1
+        return athlete
+
+    @pytest.fixture
+    def mock_strategy(self, mock_athlete):
+        strategy = MagicMock(spec=CommunityManagerStrategy)
+        strategy.id = 100
+        strategy.athlete_id = mock_athlete.id
+        strategy.brand_identity = "TestBrand"
+        strategy.tone = ["professional", "inspirational"]
+        strategy.target_audience = "Athlètes endurance 25-45 ans"
+        strategy.objectives = ["engagement", "visibility"]
+        strategy.themes = ["running", "recovery"]
+        strategy.frequency = 3
+        strategy.networks = ["instagram"]
+        strategy.rules = ["Pas de résultats inventés"]
+        strategy.forbidden_topics = ["politique", "concurrentiels"]
+        return strategy
+
+    @pytest.fixture
+    def mock_db(self, mock_athlete, mock_strategy):
+        db = AsyncMock(spec=AsyncSession)
+        execute_athlete = AsyncMock()
+        execute_athlete.scalar_one_or_none.return_value = mock_athlete
+        execute_strategy = AsyncMock()
+        execute_strategy.scalar_one_or_none.return_value = mock_strategy
+        db.execute.side_effect = [execute_athlete, execute_strategy]
+        db.flush = AsyncMock()
+        db.commit = AsyncMock()
+        db.refresh = AsyncMock()
+        db.add = MagicMock()
+        db.delete = AsyncMock()
+        return db
+
+    @pytest.fixture
+    def service(self, mock_db, mock_user):
+        return CommunityManagerStudioService(mock_db, mock_user)
+
+    @pytest.fixture
+    def mock_calendar_entry(self):
+        entry = MagicMock(spec=EditorialCalendarEntry)
+        entry.id = 50
+        entry.strategy_id = 100
+        entry.topic = "Sortie trail Alsace"
+        entry.theme = "running"
+        entry.objective = "engagement"
+        entry.notes = None
+        entry.date = "2026-11-15"
+        return entry
+
+    # Helper pour mocker les appels DB communs
+    async def _setup_common_db_mocks(self, mock_db, mock_athlete, mock_strategy, mock_calendar_entry):
+        """Configure les mocks DB communs pour generate_text_variants et generate_text."""
+        call_sequence = []
+
+        async def mock_execute(query):
+            query_str = str(query).lower()
+            result = MagicMock()
+            if "sport_athlete" in query_str:
+                result.scalar_one_or_none.return_value = mock_athlete
+            elif "community_manager_strategy" in query_str:
+                result.scalar_one_or_none.return_value = mock_strategy
+            elif "editorial_calendar_entry" in query_str:
+                result.scalar_one_or_none.return_value = mock_calendar_entry
+            elif "sport_activity" in query_str:
+                activities_result = MagicMock()
+                activities_result.scalars.return_value.all.return_value = []
+                return activities_result
+            elif "sport_publication" in query_str:
+                prev_result = MagicMock()
+                prev_result.scalars.return_value.all.return_value = []
+                return prev_result
+            else:
+                result.scalar_one_or_none.return_value = MagicMock()
+            return result
+
+        mock_db.execute.side_effect = mock_execute
+
+    # Test IA 1 : Variantes avec contenu IA trop long → tronqué
+    @pytest.mark.asyncio
+    async def test_ai_variants_content_truncated(self, service, mock_db, mock_calendar_entry):
+        """La génération IA de variantes tronque le contenu dépassant 2200 caractères."""
+        from unittest.mock import patch
+        from app.services.ai_gateway import ai_gateway
+
+        pub = MagicMock(spec=SportPublication)
+        pub.id = 1
+        pub.athlete_id = 10
+        pub.status = "draft"
+        pub.content = ""
+        pub.hashtags = None
+        pub.photo_id = 123
+        pub.visual_type = "photo"
+        pub.visual_generation_prompt = None
+        pub.title = "Test"
+        pub.calendar_entry_id = 50
+        pub.title_locked = False
+        pub.content_locked = False
+        pub.photo_locked = False
+        pub.styles = ["stats"]
+        pub.tone_used = "professional"
+        pub.custom_instructions = None
+
+        service.pub_service.get_publication = AsyncMock(return_value=pub)
+        await self._setup_common_db_mocks(mock_db, MagicMock(id=10, user_id=1), MagicMock(athlete_id=10), mock_calendar_entry)
+
+        # L'IA retourne un contenu trop long (3000 caractères)
+        long_content = "x" * 3000
+        fake_response = MagicMock()
+        fake_response.text = json.dumps({
+            "proposals": [{
+                "title": "Titre",
+                "content": long_content,
+                "hashtags": "#running #trail",
+                "format": "photo",
+                "idee_visuelle": "Une photo",
+                "objectif": "engagement"
+            }]
+        })
+
+        with patch.object(ai_gateway, 'generate', new=AsyncMock(return_value=fake_response)):
+            variants = await service.generate_text_variants(1, count=1)
+
+        assert len(variants) == 1
+        variant = variants[0]
+        full_caption = variant["content"] + "\n\n" + variant["hashtags"]
+        assert len(full_caption) <= 2200, f"Variante tronquée trop longue: {len(full_caption)} caractères"
+
+    # Test IA 2 : Génération texte unique avec contenu trop long → tronqué
+    @pytest.mark.asyncio
+    async def test_ai_generate_text_truncated(self, service, mock_db, mock_calendar_entry):
+        """La génération de texte unique tronque le contenu dépassant 2200 caractères."""
+        from unittest.mock import patch
+        from app.services.ai_gateway import ai_gateway
+        from app.schemas.sport import PublicationGenerateTextRequest
+
+        pub = MagicMock(spec=SportPublication)
+        pub.id = 1
+        pub.athlete_id = 10
+        pub.status = "draft"
+        pub.content = ""
+        pub.hashtags = None
+        pub.photo_id = 123
+        pub.visual_type = "photo"
+        pub.title = "Test"
+        pub.calendar_entry_id = 50
+        pub.title_locked = False
+        pub.content_locked = False
+        pub.photo_locked = False
+        pub.styles = ["stats"]
+        pub.tone_used = "professional"
+        pub.custom_instructions = None
+
+        service.pub_service.get_publication = AsyncMock(return_value=pub)
+        await self._setup_common_db_mocks(mock_db, MagicMock(id=10, user_id=1), MagicMock(athlete_id=10), mock_calendar_entry)
+
+        long_content = "x" * 3000
+        fake_response = MagicMock()
+        fake_response.text = json.dumps({
+            "proposal": {
+                "title": "Titre",
+                "content": long_content,
+                "hashtags": "#running #trail #alsace",
+            }
+        })
+
+        with patch.object(ai_gateway, 'generate', new=AsyncMock(return_value=fake_response)):
+            result = await service.generate_text(1, PublicationGenerateTextRequest(publication_id=1, length="short"))
+
+        assert result is not None
+        full_caption = (result.content or "") + ("\n\n" + result.hashtags if result.hashtags else "")
+        assert len(full_caption) <= 2200, f"Texte généré trop long: {len(full_caption)} caractères"
+
+    # Test IA 3 : Contenu IA dans les limites → pas de troncation
+    @pytest.mark.asyncio
+    async def test_ai_variants_within_limit_not_truncated(self, service, mock_db, mock_calendar_entry):
+        """La génération IA ne tronque pas si le contenu est déjà dans les limites."""
+        from unittest.mock import patch
+        from app.services.ai_gateway import ai_gateway
+
+        pub = MagicMock(spec=SportPublication)
+        pub.id = 1
+        pub.athlete_id = 10
+        pub.status = "draft"
+        pub.content = ""
+        pub.hashtags = None
+        pub.photo_id = 123
+        pub.visual_type = "photo"
+        pub.title = "Test"
+        pub.calendar_entry_id = 50
+        pub.title_locked = False
+        pub.content_locked = False
+        pub.photo_locked = False
+        pub.styles = ["stats"]
+        pub.tone_used = "professional"
+        pub.custom_instructions = None
+
+        service.pub_service.get_publication = AsyncMock(return_value=pub)
+        await self._setup_common_db_mocks(mock_db, MagicMock(id=10, user_id=1), MagicMock(athlete_id=10), mock_calendar_entry)
+
+        good_content = "Belle sortie running dans l'Alsace aujourd'hui !"
+        good_hashtags = "#running #trail #alsace"
+        fake_response = MagicMock()
+        fake_response.text = json.dumps({
+            "proposals": [{
+                "title": "Titre",
+                "content": good_content,
+                "hashtags": good_hashtags,
+                "format": "photo",
+                "idee_visuelle": "Une photo",
+                "objectif": "engagement"
+            }]
+        })
+
+        with patch.object(ai_gateway, 'generate', new=AsyncMock(return_value=fake_response)):
+            variants = await service.generate_text_variants(1, count=1)
+
+        assert len(variants) == 1
+        variant = variants[0]
+        assert variant["content"] == good_content
+        assert variant["hashtags"] == good_hashtags
+
 
 
 if __name__ == "__main__":

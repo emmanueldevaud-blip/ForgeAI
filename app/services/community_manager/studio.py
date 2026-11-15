@@ -330,6 +330,7 @@ class CommunityManagerStudioService:
             f"Génère {count} variantes de texte distinctes pour ce même sujet. "
             f"Pour chaque variante retourne : title, content, hashtags, format, idee_visuelle, objectif. "
             f"Respecte le ton et n'invente AUCUNE donnée. "
+            f"IMPORTANT : le texte (content + hashtags combinés) ne doit PAS dépasser {self.INSTAGRAM_CAPTION_MAX_LENGTH} caractères au total. "
             f"Réponds uniquement en JSON avec la clé 'proposals'."
         )
 
@@ -366,10 +367,28 @@ class CommunityManagerStudioService:
                 content = str(p.get("content") or "").strip()
                 if not content:
                     continue
+                hashtags = str(p.get("hashtags")).strip() if p.get("hashtags") else None
+                # Tronçage automatique si la légende complète dépasse la limite Instagram
+                full_caption = content + (f"\n\n{hashtags}" if hashtags else "")
+                if len(full_caption) > self.INSTAGRAM_CAPTION_MAX_LENGTH:
+                    # Priorité : conserver les hashtags, tronquer le contenu en premier
+                    if hashtags:
+                        hashtag_part_len = len("\n\n" + hashtags)
+                        content_max = self.INSTAGRAM_CAPTION_MAX_LENGTH - hashtag_part_len - 3  # place pour "..."
+                        if content_max > 50:
+                            content = content[:content_max].rstrip() + "..."
+                            full_caption = content + "\n\n" + hashtags
+                        # Si même avec le contenu très court ça dépasse encore, tronquer les hashtags
+                        if len(full_caption) > self.INSTAGRAM_CAPTION_MAX_LENGTH:
+                            hashtag_max = self.INSTAGRAM_CAPTION_MAX_LENGTH - len(content) - 3
+                            if hashtag_max > 10:
+                                hashtags = hashtags[:hashtag_max].rstrip() + "..."
+                    else:
+                        content = content[:self.INSTAGRAM_CAPTION_MAX_LENGTH - 3].rstrip() + "..."
                 proposals.append({
                     "title": str(p.get("title")).strip() if p.get("title") else None,
                     "content": content,
-                    "hashtags": str(p.get("hashtags")).strip() if p.get("hashtags") else None,
+                    "hashtags": hashtags,
                     "format": str(p.get("format")).strip() if p.get("format") else "photo",
                     "idee_visuelle": str(p.get("idee_visuelle")).strip() if p.get("idee_visuelle") else None,
                     "objectif": str(p.get("objectif")).strip() if p.get("objectif") else None,
@@ -498,6 +517,7 @@ class CommunityManagerStudioService:
             f"Génère UNE SEULE proposition de texte. "
             f"Pour chaque proposition retourne : title, content, hashtags. "
             f"Respecte le ton et n'invente AUCUNE donnée. "
+            f"IMPORTANT : le texte (content + hashtags combinés) ne doit PAS dépasser {self.INSTAGRAM_CAPTION_MAX_LENGTH} caractères au total. "
             f"Réponds uniquement en JSON avec la clé 'proposal'."
         )
 
@@ -535,13 +555,31 @@ class CommunityManagerStudioService:
         if not proposal:
             proposal = {"title": "Proposition", "content": text, "hashtags": None}
 
+        # Tronçage automatique si la légende complète dépasse la limite Instagram
+        proposal_content = str(proposal.get("content") or "").strip()
+        proposal_hashtags = str(proposal.get("hashtags")).strip() if proposal.get("hashtags") else None
+        full_caption = proposal_content + (f"\n\n{proposal_hashtags}" if proposal_hashtags else "")
+        if len(full_caption) > self.INSTAGRAM_CAPTION_MAX_LENGTH:
+            if proposal_hashtags:
+                hashtag_part_len = len("\n\n" + proposal_hashtags)
+                content_max = self.INSTAGRAM_CAPTION_MAX_LENGTH - hashtag_part_len - 3
+                if content_max > 50:
+                    proposal_content = proposal_content[:content_max].rstrip() + "..."
+                    full_caption = proposal_content + "\n\n" + proposal_hashtags
+                if len(full_caption) > self.INSTAGRAM_CAPTION_MAX_LENGTH:
+                    hashtag_max = self.INSTAGRAM_CAPTION_MAX_LENGTH - len(proposal_content) - 3
+                    if hashtag_max > 10:
+                        proposal_hashtags = proposal_hashtags[:hashtag_max].rstrip() + "..."
+            else:
+                proposal_content = proposal_content[:self.INSTAGRAM_CAPTION_MAX_LENGTH - 3].rstrip() + "..."
+
         # Mettre à jour la publication (seulement si pas verrouillé)
         if not pub.title_locked and proposal.get("title"):
             pub.title = proposal.get("title")
         if not pub.content_locked:
-            pub.content = proposal.get("content")
+            pub.content = proposal_content
         if not pub.content_locked:
-            pub.hashtags = proposal.get("hashtags")
+            pub.hashtags = proposal_hashtags
 
         pub.tone_used = data.tone or pub.tone_used
         pub.styles = data.styles or pub.styles or ["stats"]

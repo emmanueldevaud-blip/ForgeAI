@@ -3,6 +3,9 @@
  * Vérifier, modifier et publier les contenus préparés.
  * Seul le strict nécessaire : photo, titre, texte, hashtags.
  */
+
+// Instagram autorise au maximum 2 200 caractères dans une légende (accroche + hashtags).
+const INSTAGRAM_CAPTION_MAX_LENGTH = 2200;
 import {
   getStudioDraft,
   updateStudioDraft,
@@ -30,7 +33,7 @@ export class CommunityManagerStudioPage {
     this.router = router;
     this.publicationId = publicationId;
     this.entryData = entryData;
-    this.onBack = onBack;
+    this.onBack = null;
     this.element = null;
     this.publication = null;
     this.loading = true;
@@ -44,6 +47,9 @@ export class CommunityManagerStudioPage {
     this.editorOpen = false;
     this.editorMounted = false;
     this.editorView = null;
+    this.captionLength = 0;
+    this.captionOverLimit = false;
+    this.showShorten = false;
   }
 
   async initialize() {
@@ -95,6 +101,11 @@ export class CommunityManagerStudioPage {
     const title = pub?.title || '';
     const content = pub?.content || '';
     const hashtags = pub?.hashtags || '';
+    const fullCaption = content + (hashtags ? '\n\n' + hashtags : '');
+    this.captionLength = fullCaption.length;
+    this.captionOverLimit = this.captionLength > INSTAGRAM_CAPTION_MAX_LENGTH;
+    const remaining = INSTAGRAM_CAPTION_MAX_LENGTH - this.captionLength;
+    const nearLimit = this.captionLength > INSTAGRAM_CAPTION_MAX_LENGTH * 0.9;
 
     this.element.innerHTML = `
       <div class="cm-studio-header">
@@ -142,6 +153,14 @@ export class CommunityManagerStudioPage {
             <label>Hashtags</label>
             <input name="hashtags" type="text" value="${this._escape(hashtags)}" ${pub?.status === 'shared' ? 'disabled' : ''} placeholder="#trail #running">
           </div>
+          <div class="form-group cm-studio-counter ${this.captionOverLimit ? 'cm-studio-counter--over' : ''}">
+            <span class="cm-studio-counter-current">${this.captionLength}</span>
+            <span class="cm-studio-counter-separator"> / </span>
+            <span class="cm-studio-counter-max">${INSTAGRAM_CAPTION_MAX_LENGTH}</span>
+            <span class="cm-studio-counter-text">caractères</span>
+            ${nearLimit && !this.captionOverLimit ? '<span class="cm-studio-counter-warning">⚠ Approche de la limite</span>' : ''}
+            ${this.captionOverLimit ? '<span class="cm-studio-counter-error">⚠ Limite dépassée — publication bloquée</span>' : ''}
+          </div>
         </form>
 
         <div class="cm-studio-actions">
@@ -159,9 +178,19 @@ export class CommunityManagerStudioPage {
               ${this.publishing ? 'Refus…' : 'Refuser'}
             </button>
           ` : ''}
-          ${canPublish ? `
+          ${canPublish && !this.captionOverLimit ? `
             <button class="btn btn-success" data-action="publish" ${!canPublish || this.publishing ? 'disabled' : ''}>
               ${this.publishing ? 'Publication…' : 'Publier sur Instagram'}
+            </button>
+          ` : ''}
+          ${this.captionOverLimit && this.showShorten ? `
+            <button class="btn btn-secondary" data-action="shorten" ${this.publishing ? 'disabled' : ''}>
+              Raccourcir automatiquement
+            </button>
+          ` : ''}
+          ${this.captionOverLimit && !this.showShorten ? `
+            <button class="btn btn-secondary" data-action="show-shorten">
+              Raccourcir le texte
             </button>
           ` : ''}
         </div>
@@ -390,6 +419,23 @@ export class CommunityManagerStudioPage {
       saveBtn.addEventListener('click', () => this._saveForm());
     }
 
+    // Compteur de caractères en temps réel (contenu + hashtags)
+    const form = this.element.querySelector('[data-form="studio-edit"]');
+    if (form) {
+      const contentInput = form.elements.content;
+      const hashtagsInput = form.elements.hashtags;
+      const updateCounter = () => {
+        const c = contentInput ? contentInput.value : '';
+        const h = hashtagsInput ? hashtagsInput.value : '';
+        const full = c + (h ? '\n\n' + h : '');
+        this.captionLength = full.length;
+        this.captionOverLimit = this.captionLength > INSTAGRAM_CAPTION_MAX_LENGTH;
+        this.render();
+      };
+      if (contentInput) contentInput.addEventListener('input', updateCounter);
+      if (hashtagsInput) hashtagsInput.addEventListener('input', updateCounter);
+    }
+
     const regenerateBtn = this.element.querySelector('[data-action="regenerate"]');
     if (regenerateBtn) {
       regenerateBtn.addEventListener('click', async () => {
@@ -450,6 +496,56 @@ export class CommunityManagerStudioPage {
     const refuseBtn = this.element.querySelector('[data-action="refuse"]');
     if (refuseBtn) {
       refuseBtn.addEventListener('click', () => this._refuseSuggestion());
+    }
+
+    const showShortenBtn = this.element.querySelector('[data-action="show-shorten"]');
+    if (showShortenBtn) {
+      showShortenBtn.addEventListener('click', () => {
+        this.showShorten = true;
+        this.render();
+      });
+    }
+
+    const shortenBtn = this.element.querySelector('[data-action="shorten"]');
+    if (shortenBtn) {
+      shortenBtn.addEventListener('click', async () => {
+        if (this.publishing) return;
+        this.publishing = true;
+        this.error = null;
+        try {
+          const form = this.element.querySelector('[data-form="studio-edit"]');
+          const content = form.elements.content.value;
+          const hashtags = form.elements.hashtags.value;
+          const fullCaption = content + (hashtags ? '\n\n' + hashtags : '');
+          if (fullCaption.length <= INSTAGRAM_CAPTION_MAX_LENGTH) {
+            this.showShorten = false;
+            this.render();
+            return;
+          }
+          // Raccourcir : garder l'accroche, couper les hashtags si besoin, puis couper le texte
+          const maxHashtags = hashtags ? Math.max(0, INSTAGRAM_CAPTION_MAX_LENGTH - content.length - 3) : 0;
+          let newHashtags = hashtags;
+          if (hashtags && maxHashtags > 0) {
+            newHashtags = hashtags.slice(0, maxHashtags).trim();
+          }
+          let newContent = content;
+          const remaining = INSTAGRAM_CAPTION_MAX_LENGTH - (newHashtags ? 2 + newHashtags.length : 0);
+          if (newContent.length > remaining) {
+            newContent = newContent.slice(0, remaining - 3).trim() + '…';
+          }
+          await updateStudioDraft(this.publicationId, { content: newContent, hashtags: newHashtags });
+          const updated = await getStudioDraft(this.publicationId);
+          this.publication = updated;
+          this.showShorten = false;
+          this.success = 'Texte raccourci.';
+          setTimeout(() => { this.success = null; this.render(); }, 1500);
+        } catch (error) {
+          this.error = error?.data?.detail || error?.message || 'Erreur raccourcissement';
+        } finally {
+          this.publishing = false;
+          this.render();
+        }
+      });
     }
   }
 }

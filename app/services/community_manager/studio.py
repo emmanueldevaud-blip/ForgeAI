@@ -77,6 +77,9 @@ def _extract_stats_html(content: str) -> str:
 class CommunityManagerStudioService:
     """Service pour le Studio de création V2."""
 
+    # Instagram autorise au maximum 2 200 caractères dans une légende.
+    INSTAGRAM_CAPTION_MAX_LENGTH: int = 2200
+
     def __init__(self, db: AsyncSession, current_user: User):
         self.db = db
         self.current_user = current_user
@@ -720,6 +723,21 @@ class CommunityManagerStudioService:
         if not (pub.content or "").strip():
             raise ValueError("Le contenu de la publication est vide")
 
+        # Construire le caption complet pour contrôle de longueur
+        caption = pub.content or ""
+        if pub.hashtags:
+            caption += f"\n\n{pub.hashtags}"
+
+        # Contrôle de longueur avant tout appel à l'API Meta ou à la base
+        caption_length = len(caption)
+        if caption_length > self.INSTAGRAM_CAPTION_MAX_LENGTH:
+            raise ValueError(
+                f"La légende Instagram dépasse la limite de "
+                f"{self.INSTAGRAM_CAPTION_MAX_LENGTH} caractères "
+                f"(actuellement {caption_length}). "
+                f"Raccourcissez le texte ou les hashtags avant de publier."
+            )
+
         # Vérifier qu'il y a un visuel
         if not pub.photo_id and not pub.visual_generation_prompt:
             raise ValueError("Un visuel est requis pour la publication Instagram")
@@ -759,11 +777,6 @@ class CommunityManagerStudioService:
 
             if not media_url:
                 raise ValueError("Impossible de préparer le média pour publication")
-
-            # Construire le caption complet
-            caption = pub.content or ""
-            if pub.hashtags:
-                caption += f"\n\n{pub.hashtags}"
 
             # Publier via Meta (contexte déjà résolu plus haut)
             try:

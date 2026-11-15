@@ -1096,5 +1096,256 @@ class TestStudioFrontendLogic:
         assert is_publish_disabled('publishing', 'content', 123) == True
 
 
+# ============================================================
+# Tests CommunityManagerStudioService - Longueur légende Instagram
+# ============================================================
+
+class TestInstagramCaptionLength:
+    """Tests pour le contrôle de longueur des légendes Instagram (2 200 caractères max)."""
+
+    @pytest.fixture
+    def mock_user(self):
+        user = MagicMock(spec=User)
+        user.id = 1
+        user.username = "testuser"
+        return user
+
+    @pytest.fixture
+    def mock_athlete(self):
+        athlete = MagicMock(spec=SportAthlete)
+        athlete.id = 10
+        athlete.user_id = 1
+        return athlete
+
+    @pytest.fixture
+    def mock_strategy(self, mock_athlete):
+        strategy = MagicMock(spec=CommunityManagerStrategy)
+        strategy.id = 100
+        strategy.athlete_id = mock_athlete.id
+        strategy.brand_identity = "TestBrand"
+        strategy.tone = ["professional", "inspirational"]
+        strategy.target_audience = "Athlètes endurance 25-45 ans"
+        strategy.objectives = ["engagement", "visibility"]
+        strategy.themes = ["running", "recovery"]
+        strategy.frequency = 3
+        strategy.networks = ["instagram"]
+        strategy.rules = ["Pas de résultats inventés"]
+        strategy.forbidden_topics = ["politique", "concurrentiels"]
+        return strategy
+
+    @pytest.fixture
+    def mock_db(self, mock_athlete, mock_strategy):
+        db = AsyncMock(spec=AsyncSession)
+        execute_athlete = AsyncMock()
+        execute_athlete.scalar_one_or_none.return_value = mock_athlete
+        execute_strategy = AsyncMock()
+        execute_strategy.scalar_one_or_none.return_value = mock_strategy
+        db.execute.side_effect = [execute_athlete, execute_strategy]
+        db.flush = AsyncMock()
+        db.commit = AsyncMock()
+        db.refresh = AsyncMock()
+        db.add = MagicMock()
+        db.delete = AsyncMock()
+        return db
+
+    @pytest.fixture
+    def service(self, mock_db, mock_user):
+        return CommunityManagerStudioService(mock_db, mock_user)
+
+    def _make_pub(self, status="validated", content="", hashtags="", source="garmin", content_type="publication_sportive"):
+        pub = MagicMock(spec=SportPublication)
+        pub.id = 1
+        pub.athlete_id = 10
+        pub.status = status
+        pub.content = content
+        pub.hashtags = hashtags
+        pub.photo_id = 123
+        pub.visual_type = "photo"
+        pub.visual_generation_prompt = None
+        pub.title = "Test"
+        pub.calendar_entry_id = None
+        pub.source = source
+        pub.content_type = content_type
+        pub.validated_at = None
+        pub.title_locked = False
+        pub.content_locked = False
+        pub.photo_locked = False
+        return pub
+
+    # Test 1 : 2 199 caractères — doit passer
+    @pytest.mark.asyncio
+    async def test_caption_2199_chars_ok(self, service, mock_db):
+        pub = self._make_pub(content="x" * 2199)
+        service.pub_service.get_publication = AsyncMock(return_value=pub)
+        mock_athlete = MagicMock(id=10, user_id=1)
+        mock_strategy = MagicMock(athlete_id=10)
+        async def mock_execute(query):
+            result = MagicMock()
+            if "sport_athlete" in str(query):
+                result.scalar_one_or_none.return_value = mock_athlete
+            elif "community_manager_strategy" in str(query):
+                result.scalar_one_or_none.return_value = mock_strategy
+            elif "photo" in str(query) and "id" in str(query):
+                result.scalar_one_or_none.return_value = MagicMock(id=123, owner_id=1)
+            else:
+                result.scalar_one_or_none.return_value = MagicMock()
+            return result
+        mock_db.execute.side_effect = mock_execute
+        with patch('app.services.sport_instagram_publish.MetaPublishService') as MockMetaService, \
+             patch('app.services.community_manager.studio.MediaPublishService') as MockMediaService, \
+             patch('app.core.config.get_settings') as mock_get_settings, \
+             patch('app.services.sport_instagram._decrypt_token', return_value="token"):
+            mock_settings = MagicMock()
+            mock_settings.PUBLIC_URL = "https://forgeai.design-ede.fr"
+            mock_get_settings.return_value = mock_settings
+            mock_media_service = MagicMock()
+            mock_media_service.prepare_media_for_publish = AsyncMock(return_value="https://example.com/photo.jpg?meta_token=abc")
+            MockMediaService.return_value = mock_media_service
+            mock_meta_service = MagicMock()
+            mock_meta_service.publish_photo = AsyncMock(return_value="media_123")
+            mock_meta_service.get_media_permalink = AsyncMock(return_value="https://instagram.com/p/abc")
+            resolved_conn = MagicMock()
+            resolved_conn.instagram_business_account_id = "17841400000000000"
+            resolved_conn.encrypted_long_lived_token = "encrypted_token"
+            mock_meta_service.resolve_publish_context = AsyncMock(return_value=resolved_conn)
+            MockMetaService.return_value = mock_meta_service
+            result = await service.publish_to_instagram(1, MagicMock(confirm=True))
+            assert result.status == "shared"
+
+    # Test 2 : 2 200 caractères — doit passer (limite exacte)
+    @pytest.mark.asyncio
+    async def test_caption_2200_chars_ok(self, service, mock_db):
+        pub = self._make_pub(content="x" * 2200)
+        service.pub_service.get_publication = AsyncMock(return_value=pub)
+        mock_athlete = MagicMock(id=10, user_id=1)
+        mock_strategy = MagicMock(athlete_id=10)
+        async def mock_execute(query):
+            result = MagicMock()
+            if "sport_athlete" in str(query):
+                result.scalar_one_or_none.return_value = mock_athlete
+            elif "community_manager_strategy" in str(query):
+                result.scalar_one_or_none.return_value = mock_strategy
+            elif "photo" in str(query) and "id" in str(query):
+                result.scalar_one_or_none.return_value = MagicMock(id=123, owner_id=1)
+            else:
+                result.scalar_one_or_none.return_value = MagicMock()
+            return result
+        mock_db.execute.side_effect = mock_execute
+        with patch('app.services.sport_instagram_publish.MetaPublishService') as MockMetaService, \
+             patch('app.services.community_manager.studio.MediaPublishService') as MockMediaService, \
+             patch('app.core.config.get_settings') as mock_get_settings, \
+             patch('app.services.sport_instagram._decrypt_token', return_value="token"):
+            mock_settings = MagicMock()
+            mock_settings.PUBLIC_URL = "https://forgeai.design-ede.fr"
+            mock_get_settings.return_value = mock_settings
+            mock_media_service = MagicMock()
+            mock_media_service.prepare_media_for_publish = AsyncMock(return_value="https://example.com/photo.jpg?meta_token=abc")
+            MockMediaService.return_value = mock_media_service
+            mock_meta_service = MagicMock()
+            mock_meta_service.publish_photo = AsyncMock(return_value="media_123")
+            mock_meta_service.get_media_permalink = AsyncMock(return_value="https://instagram.com/p/abc")
+            resolved_conn = MagicMock()
+            resolved_conn.instagram_business_account_id = "17841400000000000"
+            resolved_conn.encrypted_long_lived_token = "encrypted_token"
+            mock_meta_service.resolve_publish_context = AsyncMock(return_value=resolved_conn)
+            MockMetaService.return_value = mock_meta_service
+            result = await service.publish_to_instagram(1, MagicMock(confirm=True))
+            assert result.status == "shared"
+
+    # Test 3 : 2 201 caractères — doit échouer
+    @pytest.mark.asyncio
+    async def test_caption_2201_chars_rejected(self, service):
+        pub = self._make_pub(content="x" * 2201)
+        service.pub_service.get_publication = AsyncMock(return_value=pub)
+        with pytest.raises(ValueError, match="dépasse la limite"):
+            await service.publish_to_instagram(1, MagicMock(confirm=True))
+
+    # Test 4 : Texte avec emojis
+    @pytest.mark.asyncio
+    async def test_caption_with_emojis(self, service, mock_db):
+        content = "Sortie trail 🏔️🏃‍♂️⛰️ 13,2 km dans l'Alsace ! 🇫🇷"
+        pub = self._make_pub(content=content)
+        service.pub_service.get_publication = AsyncMock(return_value=pub)
+        mock_athlete = MagicMock(id=10, user_id=1)
+        mock_strategy = MagicMock(athlete_id=10)
+        async def mock_execute(query):
+            result = MagicMock()
+            if "sport_athlete" in str(query):
+                result.scalar_one_or_none.return_value = mock_athlete
+            elif "community_manager_strategy" in str(query):
+                result.scalar_one_or_none.return_value = mock_strategy
+            elif "photo" in str(query) and "id" in str(query):
+                result.scalar_one_or_none.return_value = MagicMock(id=123, owner_id=1)
+            else:
+                result.scalar_one_or_none.return_value = MagicMock()
+            return result
+        mock_db.execute.side_effect = mock_execute
+        with patch('app.services.sport_instagram_publish.MetaPublishService') as MockMetaService, \
+             patch('app.services.community_manager.studio.MediaPublishService') as MockMediaService, \
+             patch('app.core.config.get_settings') as mock_get_settings, \
+             patch('app.services.sport_instagram._decrypt_token', return_value="token"):
+            mock_settings = MagicMock()
+            mock_settings.PUBLIC_URL = "https://forgeai.design-ede.fr"
+            mock_get_settings.return_value = mock_settings
+            mock_media_service = MagicMock()
+            mock_media_service.prepare_media_for_publish = AsyncMock(return_value="https://example.com/photo.jpg?meta_token=abc")
+            MockMediaService.return_value = mock_media_service
+            mock_meta_service = MagicMock()
+            mock_meta_service.publish_photo = AsyncMock(return_value="media_123")
+            mock_meta_service.get_media_permalink = AsyncMock(return_value="https://instagram.com/p/abc")
+            resolved_conn = MagicMock()
+            resolved_conn.instagram_business_account_id = "17841400000000000"
+            resolved_conn.encrypted_long_lived_token = "encrypted_token"
+            mock_meta_service.resolve_publish_context = AsyncMock(return_value=resolved_conn)
+            MockMetaService.return_value = mock_meta_service
+            result = await service.publish_to_instagram(1, MagicMock(confirm=True))
+            assert result.status == "shared"
+
+    # Test 5 : Texte avec hashtags (comptés dans la légende)
+    @pytest.mark.asyncio
+    async def test_caption_with_hashtags_counted(self, service):
+        content = "Belle sortie running aujourd'hui."
+        hashtags = "#running #trail #alsace #sport #motivation #fitness #outdoor"
+        pub = self._make_pub(content=content, hashtags=hashtags)
+        service.pub_service.get_publication = AsyncMock(return_value=pub)
+        expected_len = len(content + "\n\n" + hashtags)
+        assert expected_len <= 2200, f"Fixture trop long: {expected_len} caractères"
+        with pytest.raises(ValueError, match="dépasse la limite"):
+            # Forcer un dépassement en ajoutant beaucoup de hashtags
+            pub.hashtags = "#a" * 3000
+            await service.publish_to_instagram(1, MagicMock(confirm=True))
+
+    # Test 6 : Texte vide
+    @pytest.mark.asyncio
+    async def test_caption_empty_rejected(self, service):
+        pub = self._make_pub(content="")
+        service.pub_service.get_publication = AsyncMock(return_value=pub)
+        with pytest.raises(ValueError, match="contenu de la publication est vide"):
+            await service.publish_to_instagram(1, MagicMock(confirm=True))
+
+    # Test 7 : Publication sportive Garmin
+    @pytest.mark.asyncio
+    async def test_garmin_publication_caption_limit(self, service, mock_db):
+        pub = self._make_pub(source="garmin", content_type="publication_sportive", content="x" * 2201)
+        service.pub_service.get_publication = AsyncMock(return_value=pub)
+        with pytest.raises(ValueError, match="dépasse la limite"):
+            await service.publish_to_instagram(1, MagicMock(confirm=True))
+
+    # Test 8 : Story (même mécanisme de légende)
+    @pytest.mark.asyncio
+    async def test_story_caption_limit(self, service, mock_db):
+        entry = MagicMock(spec=EditorialCalendarEntry)
+        entry.id = 50
+        entry.source = "suggestion"
+        entry.content_type = "story_souvenir"
+        entry.status = "accepted"
+        pub = self._make_pub(source="suggestion", content_type="story_souvenir", content="x" * 2201)
+        pub.calendar_entry_id = 50
+        pub.calendar_entry = entry
+        service.pub_service.get_publication = AsyncMock(return_value=pub)
+        with pytest.raises(ValueError, match="dépasse la limite"):
+            await service.publish_to_instagram(1, MagicMock(confirm=True))
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

@@ -1005,15 +1005,6 @@ async def get_photo_file(
     db: AsyncSession = Depends(get_db),
     background_tasks: BackgroundTasks,
 ):
-async def get_photo_file(
-    photo_id: int,
-    size: str = Query("small", max_length=20),
-    download: bool = Query(False),
-    meta_token: Optional[str] = Query(None, alias="meta_token"),
-    service: PhotoService = Depends(_service),
-    db: AsyncSession = Depends(get_db),
-    background_tasks: BackgroundTasks,
-):
     """Récupère le fichier d'une photo.
     
     Si un meta_token est fourni (publication Instagram), valide le jeton
@@ -1022,6 +1013,7 @@ async def get_photo_file(
     logger = logging.getLogger(__name__)
     print(f"DEBUG get_photo_file: START photo_id={photo_id}, meta_token_present={meta_token is not None}", flush=True)
     print(f"DEBUG get_photo_file: meta_token={meta_token[:50] if meta_token else None}...", flush=True)
+    raise RuntimeError(f"DEBUG: get_photo_file called with photo_id={photo_id}, meta_token present={meta_token is not None}")
     raise RuntimeError(f"DEBUG: get_photo_file called with photo_id={photo_id}, meta_token present={meta_token is not None}")
 
     # Si un token Meta est fourni, le valider sans exiger la permission photos.view

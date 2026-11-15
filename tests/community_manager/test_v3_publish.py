@@ -9,6 +9,7 @@ import pytest
 import jwt
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.models.photo import Photo
 from app.models.sport import (
     CommunityManagerStrategy,
     EditorialCalendarEntry,
@@ -27,7 +28,7 @@ from app.schemas.sport import (
 )
 from app.services.community_manager.studio import CommunityManagerStudioService
 from app.services.sport_instagram_publish import MetaPublishService, MetaPublishError
-from app.services.sport_media_publish import MediaPublishService, MediaPublishError
+from app.services.sport_media_publish import MediaPublishService, MediaPublishError, MediaInfo
 from app.services.sport_instagram import _decrypt_token
 
 
@@ -337,6 +338,9 @@ class TestMediaPublishService:
         mock_photo.id = 123
         mock_photo.owner_id = 456
         mock_photo.is_public = False
+        mock_photo.mime_type = "image/jpeg"
+        mock_photo.original_filename = "test.jpg"
+        mock_photo.is_deleted = False
         
         mock_db = AsyncMock(spec=AsyncSession)
         execute_result = MagicMock()
@@ -356,8 +360,12 @@ class TestMediaPublishService:
             
             url = await service.prepare_media_for_publish(photo_id=123, user_id=456, expires_in_seconds=3600)
         
-        assert "meta_token=" in url
-        assert "photos/123/file" in url
+        assert isinstance(url, MediaInfo)
+        assert "meta_token=" in url.url
+        assert "photos/123/file" in url.url
+        assert url.mime_type == "image/jpeg"
+        assert url.filename == "test.jpg"
+        assert url.is_video is False
 
     @pytest.mark.asyncio
     async def test_prepare_media_for_publish_unauthorized(self, service):
@@ -368,6 +376,9 @@ class TestMediaPublishService:
         mock_photo.id = 123
         mock_photo.owner_id = 789  # Autre utilisateur
         mock_photo.is_public = False
+        mock_photo.mime_type = "image/jpeg"
+        mock_photo.original_filename = "test.jpg"
+        mock_photo.is_deleted = False
         
         mock_db = AsyncMock(spec=AsyncSession)
         execute_result = MagicMock()
@@ -379,6 +390,138 @@ class TestMediaPublishService:
         
         with pytest.raises(MediaPublishError, match="Accès non autorisé"):
             await service.prepare_media_for_publish(photo_id=123, user_id=456)
+
+    @pytest.mark.asyncio
+    async def test_prepare_media_for_publish_heic_rejected(self, service):
+        """Test rejet d'un fichier HEIC (non supporté par Instagram)."""
+        from app.models.photo import Photo
+        
+        mock_photo = MagicMock(spec=Photo)
+        mock_photo.id = 123
+        mock_photo.owner_id = 456
+        mock_photo.is_public = False
+        mock_photo.mime_type = "image/heic"
+        mock_photo.original_filename = "photo.HEIC"
+        mock_photo.is_deleted = False
+        
+        mock_db = AsyncMock(spec=AsyncSession)
+        execute_result = MagicMock()
+        execute_result.scalar_one_or_none.return_value = mock_photo
+        async def mock_execute(query):
+            return execute_result
+        service.db = AsyncMock(spec=AsyncSession)
+        service.db.execute = mock_execute
+        service.db.flush = AsyncMock()
+        
+        with pytest.raises(MediaPublishError, match="non supporté"):
+            await service.prepare_media_for_publish(photo_id=123, user_id=456)
+
+    @pytest.mark.asyncio
+    async def test_prepare_media_for_publish_video_mp4(self, service):
+        """Test acceptation d'une vidéo MP4."""
+        from app.models.photo import Photo
+        
+        mock_photo = MagicMock(spec=Photo)
+        mock_photo.id = 123
+        mock_photo.owner_id = 456
+        mock_photo.is_public = False
+        mock_photo.mime_type = "video/mp4"
+        mock_photo.original_filename = "video.mp4"
+        mock_photo.is_deleted = False
+        
+        mock_db = AsyncMock(spec=AsyncSession)
+        execute_result = MagicMock()
+        execute_result.scalar_one_or_none.return_value = mock_photo
+        async def mock_execute(query):
+            return execute_result
+        service.db = AsyncMock(spec=AsyncSession)
+        service.db.execute = mock_execute
+        service.db.flush = AsyncMock()
+        
+        with patch('app.core.config.get_settings') as mock_get_settings:
+            mock_settings = MagicMock()
+            mock_settings.PUBLIC_URL = "https://forgeai.design-ede.fr"
+            mock_get_settings.return_value = mock_settings
+            
+            media_info = await service.prepare_media_for_publish(photo_id=123, user_id=456, expires_in_seconds=3600)
+        
+        assert isinstance(media_info, MediaInfo)
+        assert media_info.mime_type == "video/mp4"
+        assert media_info.is_video is True
+        assert "size=original" in media_info.url
+        assert "meta_token=" in media_info.url
+
+    @pytest.mark.asyncio
+    async def test_prepare_media_for_publish_photo_not_found(self, service):
+        """Test photo introuvable."""
+        mock_db = AsyncMock(spec=AsyncSession)
+        execute_result = MagicMock()
+        execute_result.scalar_one_or_none.return_value = None
+        async def mock_execute(query):
+            return execute_result
+        service.db = AsyncMock(spec=AsyncSession)
+        service.db.execute = mock_execute
+        
+        with pytest.raises(MediaPublishError, match="Photo introuvable"):
+            await service.prepare_media_for_publish(photo_id=999, user_id=456)
+
+    @pytest.mark.asyncio
+    async def test_prepare_media_for_publish_deleted_media(self, service):
+        """Test média supprimé."""
+        from app.models.photo import Photo
+        
+        mock_photo = MagicMock(spec=Photo)
+        mock_photo.id = 123
+        mock_photo.owner_id = 456
+        mock_photo.is_public = False
+        mock_photo.mime_type = "image/jpeg"
+        mock_photo.original_filename = "photo.jpg"
+        mock_photo.is_deleted = True
+        
+        mock_db = AsyncMock(spec=AsyncSession)
+        execute_result = MagicMock()
+        execute_result.scalar_one_or_none.return_value = mock_photo
+        async def mock_execute(query):
+            return execute_result
+        service.db = AsyncMock(spec=AsyncSession)
+        service.db.execute = mock_execute
+        
+        with pytest.raises(MediaPublishError, match="supprimé"):
+            await service.prepare_media_for_publish(photo_id=123, user_id=456)
+
+    @pytest.mark.asyncio
+    async def test_prepare_media_for_publish_png(self, service):
+        """Test acceptation d'une photo PNG."""
+        from app.models.photo import Photo
+        
+        mock_photo = MagicMock(spec=Photo)
+        mock_photo.id = 123
+        mock_photo.owner_id = 456
+        mock_photo.is_public = False
+        mock_photo.mime_type = "image/png"
+        mock_photo.original_filename = "image.png"
+        mock_photo.is_deleted = False
+        
+        mock_db = AsyncMock(spec=AsyncSession)
+        execute_result = MagicMock()
+        execute_result.scalar_one_or_none.return_value = mock_photo
+        async def mock_execute(query):
+            return execute_result
+        service.db = AsyncMock(spec=AsyncSession)
+        service.db.execute = mock_execute
+        service.db.flush = AsyncMock()
+        
+        with patch('app.core.config.get_settings') as mock_get_settings:
+            mock_settings = MagicMock()
+            mock_settings.PUBLIC_URL = "https://forgeai.design-ede.fr"
+            mock_get_settings.return_value = mock_settings
+            
+            media_info = await service.prepare_media_for_publish(photo_id=123, user_id=456, expires_in_seconds=3600)
+        
+        assert isinstance(media_info, MediaInfo)
+        assert media_info.mime_type == "image/png"
+        assert media_info.is_video is False
+
 
     @pytest.mark.asyncio
     async def test_validate_media_token_valid(self, service):
@@ -575,7 +718,14 @@ class TestCommunityManagerStudioServicePublish:
             # MediaPublishService photo (call 2)
             elif call_count["count"] == 2:
                 result = MagicMock()
-                result.scalar_one_or_none.return_value = MagicMock(id=123, owner_id=1)
+                mock_photo = MagicMock(spec=Photo)
+                mock_photo.id = 123
+                mock_photo.owner_id = 1
+                mock_photo.mime_type = "image/jpeg"
+                mock_photo.original_filename = "photo.jpg"
+                mock_photo.is_deleted = False
+                mock_photo.is_public = False
+                result.scalar_one_or_none.return_value = mock_photo
                 return result
             # Instagram connection (call 4, 5)
             elif call_count["count"] in (4, 5):
@@ -604,7 +754,12 @@ class TestCommunityManagerStudioServicePublish:
             mock_get_settings.return_value = mock_settings
             
             mock_media_service = MagicMock()
-            mock_media_service.prepare_media_for_publish = AsyncMock(return_value="https://example.com/photo.jpg?meta_token=abc")
+            mock_media_service.prepare_media_for_publish = AsyncMock(return_value=MediaInfo(
+                url="https://example.com/photo.jpg?meta_token=abc",
+                mime_type="image/jpeg",
+                filename="photo.jpg",
+                is_video=False,
+            ))
             MockMediaService.return_value = mock_media_service
             
             mock_meta_service = MagicMock()
@@ -698,19 +853,38 @@ class TestCommunityManagerStudioServicePublish:
                     rules=["Rule 1"], forbidden_topics=["politics"]
                 )
             elif "photo" in query_str and "id" in query_str:
-                result.scalar_one_or_none.return_value = MagicMock(id=123, owner_id=1)
+                mock_photo = MagicMock(spec=Photo)
+                mock_photo.id = 123
+                mock_photo.owner_id = 1
+                mock_photo.mime_type = "image/jpeg"
+                mock_photo.original_filename = "photo.jpg"
+                mock_photo.is_deleted = False
+                mock_photo.is_public = False
+                result.scalar_one_or_none.return_value = mock_photo
             elif "meta_access_token" in query_str or "instagram" in query_str:
                 # Aucune configuration Meta de publication enregistrée
                 result.scalar_one_or_none.return_value = None
             else:
-                result.scalar_one_or_none.return_value = MagicMock(id=123, owner_id=1)
+                mock_photo = MagicMock(spec=Photo)
+                mock_photo.id = 123
+                mock_photo.owner_id = 1
+                mock_photo.mime_type = "image/jpeg"
+                mock_photo.original_filename = "photo.jpg"
+                mock_photo.is_deleted = False
+                mock_photo.is_public = False
+                result.scalar_one_or_none.return_value = mock_photo
             return result
 
         mock_db.execute.side_effect = mock_execute
 
         with patch('app.services.sport_media_publish.MediaPublishService') as MockMediaService:
             mock_media_service = MagicMock()
-            mock_media_service.prepare_media_for_publish = AsyncMock(return_value="https://example.com/photo.jpg?meta_token=abc")
+            mock_media_service.prepare_media_for_publish = AsyncMock(return_value=MediaInfo(
+                url="https://example.com/photo.jpg?meta_token=abc",
+                mime_type="image/jpeg",
+                filename="photo.jpg",
+                is_video=False,
+            ))
             MockMediaService.return_value = mock_media_service
 
             with pytest.raises(ValueError, match="Aucune source de publication Instagram"):
@@ -1187,7 +1361,14 @@ class TestInstagramCaptionLength:
             elif "community_manager_strategy" in str(query):
                 result.scalar_one_or_none.return_value = mock_strategy
             elif "photo" in str(query) and "id" in str(query):
-                result.scalar_one_or_none.return_value = MagicMock(id=123, owner_id=1)
+                mock_photo = MagicMock(spec=Photo)
+                mock_photo.id = 123
+                mock_photo.owner_id = 1
+                mock_photo.mime_type = "image/jpeg"
+                mock_photo.original_filename = "photo.jpg"
+                mock_photo.is_deleted = False
+                mock_photo.is_public = False
+                result.scalar_one_or_none.return_value = mock_photo
             else:
                 result.scalar_one_or_none.return_value = MagicMock()
             return result
@@ -1200,7 +1381,12 @@ class TestInstagramCaptionLength:
             mock_settings.PUBLIC_URL = "https://forgeai.design-ede.fr"
             mock_get_settings.return_value = mock_settings
             mock_media_service = MagicMock()
-            mock_media_service.prepare_media_for_publish = AsyncMock(return_value="https://example.com/photo.jpg?meta_token=abc")
+            mock_media_service.prepare_media_for_publish = AsyncMock(return_value=MediaInfo(
+                url="https://example.com/photo.jpg?meta_token=abc",
+                mime_type="image/jpeg",
+                filename="photo.jpg",
+                is_video=False,
+            ))
             MockMediaService.return_value = mock_media_service
             mock_meta_service = MagicMock()
             mock_meta_service.publish_photo = AsyncMock(return_value="media_123")
@@ -1227,7 +1413,14 @@ class TestInstagramCaptionLength:
             elif "community_manager_strategy" in str(query):
                 result.scalar_one_or_none.return_value = mock_strategy
             elif "photo" in str(query) and "id" in str(query):
-                result.scalar_one_or_none.return_value = MagicMock(id=123, owner_id=1)
+                mock_photo = MagicMock(spec=Photo)
+                mock_photo.id = 123
+                mock_photo.owner_id = 1
+                mock_photo.mime_type = "image/jpeg"
+                mock_photo.original_filename = "photo.jpg"
+                mock_photo.is_deleted = False
+                mock_photo.is_public = False
+                result.scalar_one_or_none.return_value = mock_photo
             else:
                 result.scalar_one_or_none.return_value = MagicMock()
             return result
@@ -1240,7 +1433,12 @@ class TestInstagramCaptionLength:
             mock_settings.PUBLIC_URL = "https://forgeai.design-ede.fr"
             mock_get_settings.return_value = mock_settings
             mock_media_service = MagicMock()
-            mock_media_service.prepare_media_for_publish = AsyncMock(return_value="https://example.com/photo.jpg?meta_token=abc")
+            mock_media_service.prepare_media_for_publish = AsyncMock(return_value=MediaInfo(
+                url="https://example.com/photo.jpg?meta_token=abc",
+                mime_type="image/jpeg",
+                filename="photo.jpg",
+                is_video=False,
+            ))
             MockMediaService.return_value = mock_media_service
             mock_meta_service = MagicMock()
             mock_meta_service.publish_photo = AsyncMock(return_value="media_123")
@@ -1276,7 +1474,14 @@ class TestInstagramCaptionLength:
             elif "community_manager_strategy" in str(query):
                 result.scalar_one_or_none.return_value = mock_strategy
             elif "photo" in str(query) and "id" in str(query):
-                result.scalar_one_or_none.return_value = MagicMock(id=123, owner_id=1)
+                mock_photo = MagicMock(spec=Photo)
+                mock_photo.id = 123
+                mock_photo.owner_id = 1
+                mock_photo.mime_type = "image/jpeg"
+                mock_photo.original_filename = "photo.jpg"
+                mock_photo.is_deleted = False
+                mock_photo.is_public = False
+                result.scalar_one_or_none.return_value = mock_photo
             else:
                 result.scalar_one_or_none.return_value = MagicMock()
             return result
@@ -1289,7 +1494,12 @@ class TestInstagramCaptionLength:
             mock_settings.PUBLIC_URL = "https://forgeai.design-ede.fr"
             mock_get_settings.return_value = mock_settings
             mock_media_service = MagicMock()
-            mock_media_service.prepare_media_for_publish = AsyncMock(return_value="https://example.com/photo.jpg?meta_token=abc")
+            mock_media_service.prepare_media_for_publish = AsyncMock(return_value=MediaInfo(
+                url="https://example.com/photo.jpg?meta_token=abc",
+                mime_type="image/jpeg",
+                filename="photo.jpg",
+                is_video=False,
+            ))
             MockMediaService.return_value = mock_media_service
             mock_meta_service = MagicMock()
             mock_meta_service.publish_photo = AsyncMock(return_value="media_123")

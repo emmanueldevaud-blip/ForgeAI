@@ -803,12 +803,23 @@ class CommunityManagerStudioService:
             # Préparer l'URL du média
             media_publish_service = MediaPublishService(self.db)
             media_url = None
+            media_info = None
             is_video = pub.visual_type in ("reel", "video")
 
             if pub.photo_id:
-                # Préparer l'URL publique du média
+                # Préparer l'URL publique du média (taille originale pour Meta)
                 media_service = MediaPublishService(self.db)
-                media_url = await media_service.prepare_media_for_publish(pub.photo_id, self.current_user.id)
+                media_info = await media_service.prepare_media_for_publish(
+                    pub.photo_id, self.current_user.id, size="original"
+                )
+                media_url = media_info.url
+                # Valider la cohérence entre le type visuel déclaré et le type MIME réel
+                if media_info.is_video != is_video:
+                    raise ValueError(
+                        f"Incohérence de type de média : le visuel est une {'vidéo' if media_info.is_video else 'photo'} "
+                        f"(MIME: {media_info.mime_type}) mais le type visuel déclaré est '{pub.visual_type}'. "
+                        f"Sélectionnez le type de visuel correspondant dans le Studio."
+                    )
             elif pub.visual_generation_prompt:
                 # TODO: Génération d'image IA - pour l'instant erreur
                 raise ValueError("La génération d'images IA n'est pas encore disponible. Sélectionnez une photo.")
@@ -819,9 +830,13 @@ class CommunityManagerStudioService:
             # Publier via Meta (contexte déjà résolu plus haut)
             try:
                 if pub.visual_type == "reel" or is_video:
-                    instagram_media_id = await meta_service.publish_video(connection, media_url, caption)
+                    instagram_media_id = await meta_service.publish_video(
+                        connection, media_url, caption, mime_type=media_info.mime_type if media_info else None
+                    )
                 else:
-                    instagram_media_id = await meta_service.publish_photo(connection, media_url, caption)
+                    instagram_media_id = await meta_service.publish_photo(
+                        connection, media_url, caption, mime_type=media_info.mime_type if media_info else None
+                    )
 
                 # Récupérer le permalink
                 permalink = await meta_service.get_media_permalink(connection, instagram_media_id)

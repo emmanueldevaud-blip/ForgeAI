@@ -9,6 +9,7 @@ Sécurité :
 - Protection contre l'accès aux photos d'autres utilisateurs
 - Révocation/invalidation après expiration
 - Tokens stockés en base pour validation et révocation
+- Contrôle du type MIME avant envoi à Meta (reject HEIC, HTML, JSON, etc.)
 """
 
 import hashlib
@@ -30,10 +31,32 @@ from app.models.sport import MediaPublishToken
 logger = logging.getLogger(__name__)
 
 
+# Types MIME acceptés par l'API Meta Instagram
+SUPPORTED_IMAGE_MIME_TYPES = {"image/jpeg", "image/jpg", "image/png", "image/webp"}
+SUPPORTED_VIDEO_MIME_TYPES = {"video/mp4", "video/quicktime"}
+SUPPORTED_MIME_TYPES = SUPPORTED_IMAGE_MIME_TYPES | SUPPORTED_VIDEO_MIME_TYPES
+
+# Extensions de fichiers à rejeter explicitement (non supportées par Meta)
+REJECTED_EXTENSIONS = {".heic", ".heif", ".avif", ".html", ".htm", ".json", ".txt", ".pdf"}
+
+
 class MediaPublishError(Exception):
     """Erreur lors de la préparation du média pour publication."""
 
     pass
+
+
+class MediaInfo:
+    """Informations sur un média préparé pour publication."""
+
+    def __init__(self, url: str, mime_type: str, filename: str, is_video: bool):
+        self.url = url
+        self.mime_type = mime_type
+        self.filename = filename
+        self.is_video = is_video
+
+    def __repr__(self) -> str:
+        return f"MediaInfo(url={self.url[:60]}..., mime_type={self.mime_type}, is_video={self.is_video})"
 
 
 class MediaPublishService:
@@ -46,6 +69,7 @@ class MediaPublishService:
     - Protection contre l'accès aux photos d'autres utilisateurs
     - Révocation/invalidation après expiration ou utilisation
     - Protection contre l'accès aux photos d'autres utilisateurs
+    - Contrôle du type MIME avant envoi à Meta
     """
 
     def __init__(self, db: AsyncSession):
@@ -141,11 +165,28 @@ class MediaPublishService:
         token_record.consumed = True
         await self.db.flush()
 
-    async def prepare_media_for_publish(self, photo_id: int, user_id: int, expires_in_seconds: int = 3600) -> str:
+    def _detect_rejected_extension(self, filename: str) -> bool:
+        """Détecte si l'extension du fichier est explicitement rejetée."""
+        import os
+        ext = os.path.splitext(filename or "")[1].lower()
+        return ext in REJECTED_EXTENSIONS
+
+    async def prepare_media_for_publish(
+        self,
+        photo_id: int,
+        user_id: int,
+        expires_in_seconds: int = 3600,
+        size: str = "original",
+    ) -> MediaInfo:
         """Prépare un média pour publication Meta.
 
         Returns:
-            URL signée accessible par Meta pour télécharger le média.
+            MediaInfo avec url, mime_type, filename, is_video.
+
+        Raises:
+            MediaPublishError: si le média n'est pas valide pour Instagram
+                (fichier introuvable, accès refusé, type MIME non supporté,
+                extension rejetée, etc.)
         """
         # Récupérer la photo et vérifier l'accès
         result = await self.db.execute(
@@ -161,6 +202,25 @@ class MediaPublishService:
             # Pour l'instant, on autorise si l'utilisateur est propriétaire
             raise MediaPublishError("Accès non autorisé à ce média")
 
+        # Vérifier que le fichier n'est pas supprimé
+        if photo.is_deleted:
+            raise MediaPublishError("Ce média a été supprimé")
+
+        # Vérifier le type MIME
+        mime_type = (photo.mime_type or "").lower()
+        if mime_type not in SUPPORTED_MIME_TYPES:
+            raise MediaPublishError(
+                f"Type de média non supporté par Instagram : {mime_type or 'inconnu'}. "
+                f"Types acceptés : {', '.join(sorted(SUPPORTED_MIME_TYPES))}"
+            )
+
+        # Vérifier l'extension de fichier (rejet explicite HEIC, etc.)
+        if self._detect_rejected_extension(photo.original_filename):
+            raise MediaPublishError(
+                f"Format de fichier non supporté par Instagram : {photo.original_filename}. "
+                f"Utilisez un fichier JPEG, PNG ou MP4."
+            )
+
         # Créer le token signé
         token = self._create_signed_token(photo_id, user_id, expires_in_seconds)
         expires_at = datetime.now(timezone.utc) + timedelta(seconds=expires_in_seconds)
@@ -168,15 +228,28 @@ class MediaPublishService:
         # Stocker le token en base
         await self._store_token(token, photo_id, user_id, expires_at)
 
-        # Construire l'URL signée
+        # Construire l'URL signée (taille originale pour la meilleure qualité)
         from app.core.config import get_settings
         settings = get_settings()
         base_url = settings.PUBLIC_URL.rstrip('/') if settings.PUBLIC_URL else "https://forgeai.design-ede.fr"
 
-        public_url = f"{base_url}/photos/{photo_id}/file?meta_token={token}"
+        # Passer la taille demandée ; "original" pour le fichier complet
+        public_url = f"{base_url}/photos/{photo_id}/file?size={size}&meta_token={token}"
 
-        logger.info(f"Media prepared for publish: photo_id={photo_id}, user_id={user_id}, expires_in={expires_in_seconds}s")
-        return public_url
+        is_video = mime_type in SUPPORTED_VIDEO_MIME_TYPES
+
+        logger.info(
+            "Media prepared for publish: photo_id=%s, user_id=%s, mime_type=%s, "
+            "is_video=%s, size=%s, expires_in=%ss",
+            photo_id, user_id, mime_type, is_video, size, expires_in_seconds,
+        )
+
+        return MediaInfo(
+            url=public_url,
+            mime_type=mime_type,
+            filename=photo.original_filename or f"photo_{photo_id}",
+            is_video=is_video,
+        )
 
     async def validate_media_token(self, token: str) -> Optional[dict]:
         """Valide un token d'accès média (appelé par l'endpoint /photos/{id}/file)."""

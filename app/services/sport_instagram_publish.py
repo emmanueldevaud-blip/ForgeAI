@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+import os
 from typing import Optional
 
 import httpx
@@ -22,6 +23,12 @@ class MetaPublishError(Exception):
         super().__init__(message)
         self.meta_error_code = meta_error_code
         self.meta_error_subcode = meta_error_subcode
+
+
+# Extensions de fichiers vidéo acceptées par Meta
+VIDEO_EXTENSIONS = {".mp4", ".mov", ".avi", ".mkv", ".webm"}
+# Extensions de fichiers photo acceptées par Meta
+PHOTO_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
 
 
 class _MetaConfigContext:
@@ -105,14 +112,66 @@ class MetaPublishService:
         expiration choisie à la création de la configuration Meta)."""
         return self._get_long_lived_token(connection)
 
+    def _detect_media_type_from_url(self, url: str) -> str:
+        """Détecte le type de média à partir de l'extension du fichier dans l'URL.
+
+        Retourne "video" ou "photo".
+        """
+        import os
+        ext = os.path.splitext(url.split("?")[0])[1].lower()
+        if ext in VIDEO_EXTENSIONS:
+            return "video"
+        if ext in PHOTO_EXTENSIONS:
+            return "photo"
+        # Par défaut, on considère que c'est une photo (cas des URLs sans extension
+        # explicite mais qui servent une image via Content-Type)
+        return "photo"
+
+    def _validate_media_type_consistency(self, is_video_expected: bool, url: str, mime_type: str) -> None:
+        """Vérifie que le type de média attendu (photo/vidéo) est cohérent
+        avec le type MIME et l'extension du fichier.
+
+        Raises:
+            MetaPublishError: si une incohérence est détectée.
+        """
+        detected_type = self._detect_media_type_from_url(url)
+        mime_is_video = mime_type in {"video/mp4", "video/quicktime"}
+
+        # Si l'extension suggère une vidéo mais qu'on attend une photo (ou vice versa)
+        if is_video_expected and not mime_is_video and detected_type != "video":
+            raise MetaPublishError(
+                f"Incohérence de type de média : publication vidéo demandée mais "
+                f"le fichier semble être une image (MIME: {mime_type}, extension détectée: {detected_type}). "
+                f"Vérifiez le visuel associé à la publication."
+            )
+        if not is_video_expected and mime_is_video:
+            raise MetaPublishError(
+                f"Incohérence de type de média : publication photo demandée mais "
+                f"le fichier est une vidéo (MIME: {mime_type}). "
+                f"Sélectionnez 'Reel' ou 'Vidéo' comme type de visuel, ou choisissez une photo."
+            )
+
     async def create_media_container(
         self,
         connection,
         image_url: str,
         caption: str,
         is_video: bool = False,
+        mime_type: Optional[str] = None,
     ) -> str:
-        """Crée un conteneur média sur Instagram (étape 1 de la publication)."""
+        """Crée un conteneur média sur Instagram (étape 1 de la publication).
+
+        Args:
+            connection: Contexte de publication Meta (jeton + compte).
+            image_url: URL publique du média (photo ou vidéo).
+            caption: Légende de la publication.
+            is_video: True si le média est une vidéo/Reel, False pour une photo.
+            mime_type: Type MIME du média (pour validation et logs).
+        """
+        # Validation de cohérence du type de média
+        if mime_type:
+            self._validate_media_type_consistency(is_video, image_url, mime_type)
+
         token = await self._get_valid_token(connection)
         if not token:
             raise MetaPublishError("Aucun token valide disponible pour la publication")
@@ -132,6 +191,13 @@ class MetaPublishService:
             params["video_url"] = image_url
         else:
             params["image_url"] = image_url
+
+        # Log de diagnostic (sans le token)
+        safe_url = image_url.split("?")[0] if "?" in image_url else image_url
+        logger.info(
+            "Creating Meta media container: is_video=%s, mime_type=%s, url=%s",
+            is_video, mime_type or "unknown", safe_url,
+        )
 
         async with httpx.AsyncClient(timeout=60.0) as client:
             try:
@@ -228,9 +294,10 @@ class MetaPublishService:
         connection,
         image_url: str,
         caption: str,
+        mime_type: Optional[str] = None,
     ) -> str:
         """Publie une photo sur Instagram (workflow complet: container + publish)."""
-        container_id = await self.create_media_container(connection, image_url, caption, is_video=False)
+        container_id = await self.create_media_container(connection, image_url, caption, is_video=False, mime_type=mime_type)
         media_id = await self.publish_media_container(connection, container_id)
         return media_id
 
@@ -239,9 +306,10 @@ class MetaPublishService:
         connection,
         video_url: str,
         caption: str,
+        mime_type: Optional[str] = None,
     ) -> str:
         """Publie une vidéo sur Instagram (workflow complet: container + publish)."""
-        container_id = await self.create_media_container(connection, video_url, caption, is_video=True)
+        container_id = await self.create_media_container(connection, video_url, caption, is_video=True, mime_type=mime_type)
         media_id = await self.publish_media_container(connection, container_id)
         return media_id
 

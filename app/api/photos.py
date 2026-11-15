@@ -1011,12 +1011,15 @@ async def get_photo_file(
     et convertit les HEIC/HEIF en JPEG à la volée pour Meta.
     """
     logger = logging.getLogger(__name__)
+    print(f"DEBUG get_photo_file: meta_token={meta_token[:50] if meta_token else None}...", flush=True)
 
     # Si un token Meta est fourni, le valider sans exiger la permission photos.view
+    print(f"DEBUG get_photo_file: about to validate meta_token: {meta_token[:50] if meta_token else None}...", flush=True)
     validation = None
     if meta_token:
         media_service = MediaPublishService(db)
         validation = await media_service.validate_media_token(meta_token)
+        print(f"DEBUG get_photo_file: validation result={validation}", flush=True)
         if not validation:
             raise HTTPException(status_code=403, detail="Token d'accès média invalide ou expiré")
         if validation["photo_id"] != photo_id:

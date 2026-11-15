@@ -9,14 +9,19 @@ Sécurité :
 - Protection contre l'accès aux photos d'autres utilisateurs
 - Révocation/invalidation après expiration
 - Tokens stockés en base pour validation et révocation
-- Contrôle du type MIME avant envoi à Meta (reject HEIC, HTML, JSON, etc.)
+- Contrôle du type MIME avant envoi à Meta (reject HTML, JSON, etc.)
+- Conversion automatique HEIC/HEIF → JPEG pour Instagram
 """
 
 import hashlib
 import base64
 import logging
+import os
 import secrets
+import tempfile
+import asyncio
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from typing import Optional
 
 import jwt
@@ -30,14 +35,53 @@ from app.models.sport import MediaPublishToken
 
 logger = logging.getLogger(__name__)
 
+# Lazy import de Pillow + pillow-heif pour la conversion HEIC→JPEG
+try:
+    from PIL import Image, ImageOps
+    import pillow_heif
+
+    pillow_heif.register_heif_opener()
+    _HEIC_SUPPORT = True
+except ImportError:  # pragma: no cover - dépendance optionnelle en dev
+    _HEIC_SUPPORT = False
 
 # Types MIME acceptés par l'API Meta Instagram
-SUPPORTED_IMAGE_MIME_TYPES = {"image/jpeg", "image/jpg", "image/png", "image/webp"}
+SUPPORTED_IMAGE_MIME_TYPES = {
+    "image/jpeg",
+    "image/jpg",
+    "image/png",
+    "image/webp",
+    "image/heic",
+    "image/heif",
+}
 SUPPORTED_VIDEO_MIME_TYPES = {"video/mp4", "video/quicktime"}
 SUPPORTED_MIME_TYPES = SUPPORTED_IMAGE_MIME_TYPES | SUPPORTED_VIDEO_MIME_TYPES
 
 # Extensions de fichiers à rejeter explicitement (non supportées par Meta)
-REJECTED_EXTENSIONS = {".heic", ".heif", ".avif", ".html", ".htm", ".json", ".txt", ".pdf"}
+# .heic/.heif sont désormais convertis en JPEG à la volée, donc non rejetés.
+REJECTED_EXTENSIONS = {".avif", ".html", ".htm", ".json", ".txt", ".pdf"}
+
+# Qualité JPEG pour la conversion HEIC/HEIF
+HEIC_TO_JPEG_QUALITY = 90
+
+
+class MediaPublishError(Exception):
+    """Erreur lors de la préparation du média pour publication."""
+
+    pass
+
+
+class MediaInfo:
+    """Informations sur un média préparé pour publication."""
+
+    def __init__(self, url: str, mime_type: str, filename: str, is_video: bool):
+        self.url = url
+        self.mime_type = mime_type
+        self.filename = filename
+        self.is_video = is_video
+
+    def __repr__(self) -> str:
+        return f"MediaInfo(url={self.url[:60]}..., mime_type={self.mime_type}, is_video={self.is_video})"
 
 
 class MediaPublishError(Exception):
@@ -170,6 +214,71 @@ class MediaPublishService:
         import os
         ext = os.path.splitext(filename or "")[1].lower()
         return ext in REJECTED_EXTENSIONS
+
+    async def convert_heic_to_jpeg_if_needed(self, original_path: Path) -> Path:
+        """Convertit une image HEIC/HEIF en JPEG si nécessaire.
+
+        Lit le fichier original, détecte son véritable format (via Pillow,
+        pas seulement l'extension), applique l'orientation EXIF, aplatit la
+        transparence sur fond blanc, et sauvegarde en JPEG qualité 90.
+
+        Returns:
+            Chemin vers le fichier JPEG (original si déjà JPEG/PNG, ou
+            fichier temporaire si conversion HEIC→JPEG effectuée).
+        """
+        if not _HEIC_SUPPORT:
+            return original_path
+
+        # Détecter le format réel via Pillow (pas seulement l'extension)
+        try:
+            with Image.open(original_path) as img:
+                fmt = img.format
+                if fmt not in ("HEIF", "HEIC"):
+                    return original_path
+        except Exception:
+            # Fichier illisible ou pas une image : retourner tel quel
+            return original_path
+
+        # Conversion HEIC→JPEG (exécutée dans un thread pour ne pas bloquer)
+        return await asyncio.to_thread(self._do_convert_heic_to_jpeg, original_path)
+
+    def _do_convert_heic_to_jpeg(self, original_path: Path) -> Path:
+        """Conversion HEIC→JPEG synchrone (à exécuter dans un thread via
+        asyncio.to_thread)."""
+        import os
+        import tempfile
+
+        tmp_fd, tmp_path = tempfile.mkstemp(suffix=".jpg", prefix="heic_convert_")
+        os.close(tmp_fd)
+
+        try:
+            with Image.open(original_path) as img:
+                # Appliquer l'orientation EXIF
+                img = ImageOps.exif_transpose(img)
+
+                # Aplatir la transparence sur fond blanc
+                if img.mode in ("RGBA", "LA") or (
+                    img.mode == "P" and "transparency" in img.info
+                ):
+                    background = Image.new("RGB", img.size, (255, 255, 255))
+                    if img.mode == "RGBA":
+                        background.paste(img, mask=img.split()[-1])
+                    else:
+                        background.paste(img)
+                    img = background
+                elif img.mode != "RGB":
+                    img = img.convert("RGB")
+
+                img.save(tmp_path, "JPEG", quality=HEIC_TO_JPEG_QUALITY, optimize=True)
+        except Exception:
+            # Nettoyer le fichier temp en cas d'échec
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
+            raise
+
+        return Path(tmp_path)
 
     async def prepare_media_for_publish(
         self,

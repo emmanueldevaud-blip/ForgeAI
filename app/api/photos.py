@@ -2,6 +2,7 @@
 
 import logging
 import urllib.parse
+from pathlib import Path
 from typing import List, Optional
 
 from fastapi import (
@@ -15,10 +16,12 @@ from fastapi import (
     status,
 )
 from fastapi.responses import FileResponse, Response
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_db, require_module_enabled, require_permission
 from app.core.config import get_settings
+from app.models.photo import Photo
 from app.models.user import User
 from app.schemas.photos import (
     MessageResponse,
@@ -999,8 +1002,10 @@ async def get_photo_file(
     meta_token: Optional[str] = Query(None, alias="meta_token"),
     service: PhotoService = Depends(_service),
     db: AsyncSession = Depends(get_db),
+    background_tasks: BackgroundTasks = None,
 ):
     # Si un token Meta est fourni, le valider sans exiger la permission photos.view
+    validation = None
     if meta_token:
         media_service = MediaPublishService(db)
         validation = await media_service.validate_media_token(meta_token)
@@ -1021,11 +1026,30 @@ async def get_photo_file(
     except PhotoServiceError as exc:
         raise HTTPException(status_code=exc.status_code, detail=exc.message) from None
 
+    # Si un token Meta est fourni et que le fichier est HEIC/HEIF,
+    # convertir en JPEG à la volée pour Instagram (Meta n'accepte pas le HEIC)
+    converted_path: Optional[Path] = None
+    if meta_token and validation:
+        result = await db.execute(select(Photo).where(Photo.id == photo_id))
+        photo = result.scalar_one_or_none()
+        if photo and photo.mime_type.lower() in ("image/heic", "image/heif"):
+            media_service = MediaPublishService(db)
+            converted_path = await media_service.convert_heic_to_jpeg_if_needed(path)
+            if converted_path != path:
+                media_type = "image/jpeg"
+                filename = f"{photo_id}.jpg"
+                background_tasks.add_task(lambda p=converted_path: p.unlink(missing_ok=True))
+
     headers = {
         "Cache-Control": "private, max-age=86400",
         "Content-Disposition": _content_disposition(filename, download=download),
     }
-    return FileResponse(path, media_type=media_type, headers=headers)
+    return FileResponse(
+        converted_path or path,
+        media_type=media_type,
+        headers=headers,
+        background=background_tasks,
+    )
 
 
 @router.post("/{photo_id}/analyze", response_model=PhotoJobResponse, status_code=201)

@@ -1,12 +1,15 @@
 """Tests pour Community Manager V3 - Publication Instagram."""
 
+import asyncio
 import json
 import hashlib
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 import jwt
+from PIL import Image
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.photo import Photo
@@ -392,8 +395,8 @@ class TestMediaPublishService:
             await service.prepare_media_for_publish(photo_id=123, user_id=456)
 
     @pytest.mark.asyncio
-    async def test_prepare_media_for_publish_heic_rejected(self, service):
-        """Test rejet d'un fichier HEIC (non supporté par Instagram)."""
+    async def test_prepare_media_for_publish_heic_accepted(self, service):
+        """Test acceptation d'un fichier HEIC (converti en JPEG à la volée)."""
         from app.models.photo import Photo
         
         mock_photo = MagicMock(spec=Photo)
@@ -413,11 +416,223 @@ class TestMediaPublishService:
         service.db.execute = mock_execute
         service.db.flush = AsyncMock()
         
-        with pytest.raises(MediaPublishError, match="non supporté"):
-            await service.prepare_media_for_publish(photo_id=123, user_id=456)
+        with patch('app.core.config.get_settings') as mock_get_settings:
+            mock_settings = MagicMock()
+            mock_settings.PUBLIC_URL = "https://forgeai.design-ede.fr"
+            mock_get_settings.return_value = mock_settings
+            
+            media_info = await service.prepare_media_for_publish(photo_id=123, user_id=456, expires_in_seconds=3600)
+        
+        assert isinstance(media_info, MediaInfo)
+        assert media_info.mime_type == "image/heic"  # MIME type original, conversion à la volée
+        assert media_info.is_video is False
+        assert "size=original" in media_info.url
+        assert "meta_token=" in media_info.url
 
     @pytest.mark.asyncio
-    async def test_prepare_media_for_publish_video_mp4(self, service):
+    async def test_prepare_media_for_publish_heif_accepted(self, service):
+        """Test acceptation d'un fichier HEIF (converti en JPEG à la volée)."""
+        from app.models.photo import Photo
+        
+        mock_photo = MagicMock(spec=Photo)
+        mock_photo.id = 123
+        mock_photo.owner_id = 456
+        mock_photo.is_public = False
+        mock_photo.mime_type = "image/heif"
+        mock_photo.original_filename = "photo.HEIF"
+        mock_photo.is_deleted = False
+        
+        mock_db = AsyncMock(spec=AsyncSession)
+        execute_result = MagicMock()
+        execute_result.scalar_one_or_none.return_value = mock_photo
+        async def mock_execute(query):
+            return execute_result
+        service.db = AsyncMock(spec=AsyncSession)
+        service.db.execute = mock_execute
+        service.db.flush = AsyncMock()
+        
+        with patch('app.core.config.get_settings') as mock_get_settings:
+            mock_settings = MagicMock()
+            mock_settings.PUBLIC_URL = "https://forgeai.design-ede.fr"
+            mock_get_settings.return_value = mock_settings
+            
+            media_info = await service.prepare_media_for_publish(photo_id=123, user_id=456, expires_in_seconds=3600)
+        
+        assert isinstance(media_info, MediaInfo)
+        assert media_info.mime_type == "image/heif"
+        assert media_info.is_video is False
+
+    # ------------------------------------------------------------------
+    # Tests de conversion HEIC→JPEG (convert_heic_to_jpeg_if_needed)
+    # ------------------------------------------------------------------
+    def _create_test_heic_file(self, tmp_path, filename="test.heic", width=100, height=100):
+        """Crée un fichier HEIC de test valide."""
+        import pillow_heif
+        
+        img = Image.new("RGB", (width, height), color="red")
+        heic_path = tmp_path / filename
+        img.save(heic_path, format="HEIF")
+        return heic_path
+
+    def _create_test_jpeg_file(self, tmp_path, filename="test.jpg", width=100, height=100):
+        """Crée un fichier JPEG de test valide."""
+        img = Image.new("RGB", (width, height), color="blue")
+        jpeg_path = tmp_path / filename
+        img.save(jpeg_path, format="JPEG")
+        return jpeg_path
+
+    def _create_test_png_file(self, tmp_path, filename="test.png", width=100, height=100):
+        """Crée un fichier PNG de test valide avec transparence."""
+        img = Image.new("RGBA", (width, height), color=(0, 255, 0, 128))
+        png_path = tmp_path / filename
+        img.save(png_path, format="PNG")
+        return png_path
+
+    @pytest.mark.asyncio
+    async def test_convert_heic_to_jpeg_converts_heic(self, service, tmp_path):
+        """Test conversion HEIC→JPEG."""
+        heic_path = self._create_test_heic_file(tmp_path)
+        
+        result = await service.convert_heic_to_jpeg_if_needed(heic_path)
+        
+        assert result != heic_path  # Nouveau fichier
+        assert result.suffix == ".jpg"
+        assert result.exists()
+        
+        # Vérifier que c'est un JPEG valide
+        with Image.open(result) as img:
+            assert img.format == "JPEG"
+            assert img.mode == "RGB"
+        
+        # Nettoyer
+        result.unlink(missing_ok=True)
+
+    @pytest.mark.asyncio
+    async def test_convert_heic_to_jpeg_jpeg_not_converted(self, service, tmp_path):
+        """Test qu'un fichier JPEG n'est pas converti."""
+        jpeg_path = self._create_test_jpeg_file(tmp_path)
+        
+        result = await service.convert_heic_to_jpeg_if_needed(jpeg_path)
+        
+        assert result == jpeg_path  # Même fichier retourné
+
+    @pytest.mark.asyncio
+    async def test_convert_heic_to_jpeg_png_not_converted(self, service, tmp_path):
+        """Test qu'un fichier PNG n'est pas converti."""
+        png_path = self._create_test_png_file(tmp_path)
+        
+        result = await service.convert_heic_to_jpeg_if_needed(png_path)
+        
+        assert result == png_path  # Même fichier retourné
+
+    @pytest.mark.asyncio
+    async def test_convert_heic_to_jpeg_exif_orientation(self, service, tmp_path):
+        """Test que l'orientation EXIF est appliquée lors de la conversion."""
+        # Créer une image HEIC avec orientation EXIF
+        img = Image.new("RGB", (100, 200), color="green")
+        # Appliquer une orientation EXIF (rotation 90°)
+        img.info["exif"] = None  # Simplifier pour ce test
+        heic_path = tmp_path / "orientation.heic"
+        img.save(heic_path, format="HEIF")
+        
+        result = await service.convert_heic_to_jpeg_if_needed(heic_path)
+        
+        assert result != heic_path
+        assert result.exists()
+        assert result.suffix == ".jpg"
+        
+        # Vérifier que c'est un JPEG valide
+        with Image.open(result) as converted:
+            assert converted.format == "JPEG"
+            assert converted.mode == "RGB"
+        
+        result.unlink(missing_ok=True)
+
+    @pytest.mark.asyncio
+    async def test_convert_heic_to_jpeg_transparency_flattened(self, service, tmp_path):
+        """Test que la transparence est aplatie sur fond blanc."""
+        # Créer une image HEIC avec canal alpha
+        img = Image.new("RGBA", (100, 100), color=(0, 255, 0, 128))
+        heic_path = tmp_path / "transparent.heic"
+        img.save(heic_path, format="HEIF")
+        
+        result = await service.convert_heic_to_jpeg_if_needed(heic_path)
+        
+        assert result != heic_path
+        assert result.exists()
+        with Image.open(result) as converted:
+            assert converted.format == "JPEG"
+            assert converted.mode == "RGB"  # Pas de canal alpha
+            # Vérifier qu'un pixel est soit vert (image opaque) soit blanc (fond)
+            # Avec transparence 50%, le pixel est un mélange vert/blanc
+            pixel = converted.getpixel((50, 50))
+            r, g, b = pixel
+            assert g > 200, f"Vert devrait être dominant: {pixel}"
+            assert abs(r - b) < 10, f"R et B devraient être égaux (mélange): {pixel}"
+        
+        result.unlink(missing_ok=True)
+
+    @pytest.mark.asyncio
+    async def test_convert_heic_to_jpeg_corrupted_file(self, service, tmp_path):
+        """Test qu'un fichier HEIC corrompu retourne le fichier original."""
+        # Créer un fichier avec extension .heic mais contenu invalide
+        corrupted_path = tmp_path / "corrupted.heic"
+        corrupted_path.write_bytes(b"not a valid heic file")
+        
+        result = await service.convert_heic_to_jpeg_if_needed(corrupted_path)
+        
+        assert result == corrupted_path  # Fichier original retourné tel quel
+
+    @pytest.mark.asyncio
+    async def test_convert_heic_to_jpeg_temp_file_cleanup(self, service, tmp_path):
+        """Test que les fichiers temporaires sont nettoyés."""
+        heic_path = self._create_test_heic_file(tmp_path)
+        
+        result = await service.convert_heic_to_jpeg_if_needed(heic_path)
+        
+        assert result != heic_path
+        assert result.exists()
+        
+        # Le fichier temp devrait exister après la conversion
+        # (le nettoyage est fait par l'appelant via BackgroundTasks)
+        result.unlink(missing_ok=True)
+        assert not result.exists()
+
+    @pytest.mark.asyncio
+    async def test_prepare_media_for_publish_original_intact(self, service, tmp_path):
+        """Test que le fichier original n'est pas modifié."""
+        from app.models.photo import Photo
+        
+        mock_photo = MagicMock(spec=Photo)
+        mock_photo.id = 123
+        mock_photo.owner_id = 456
+        mock_photo.is_public = False
+        mock_photo.mime_type = "image/heic"
+        mock_photo.original_filename = "photo.HEIC"
+        mock_photo.is_deleted = False
+        
+        mock_db = AsyncMock(spec=AsyncSession)
+        execute_result = MagicMock()
+        execute_result.scalar_one_or_none.return_value = mock_photo
+        async def mock_execute(query):
+            return execute_result
+        service.db = AsyncMock(spec=AsyncSession)
+        service.db.execute = mock_execute
+        service.db.flush = AsyncMock()
+        
+        with patch('app.core.config.get_settings') as mock_get_settings:
+            mock_settings = MagicMock()
+            mock_settings.PUBLIC_URL = "https://forgeai.design-ede.fr"
+            mock_get_settings.return_value = mock_settings
+            
+            media_info = await service.prepare_media_for_publish(photo_id=123, user_id=456, expires_in_seconds=3600)
+        
+        # Le media_info doit pointer vers l'URL originale (conversion à la volée
+        # lors de la requête Meta, pas ici)
+        assert media_info.mime_type == "image/heic"
+        assert media_info.is_video is False
+        assert "size=original" in media_info.url
+        assert "meta_token=" in media_info.url
         """Test acceptation d'une vidéo MP4."""
         from app.models.photo import Photo
         

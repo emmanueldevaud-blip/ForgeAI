@@ -336,6 +336,7 @@ class MediaPublishService:
 
         # Stocker le token en base
         await self._store_token(token, photo_id, user_id, expires_at)
+        await self.db.commit()
 
         # Construire l'URL signée (taille originale pour la meilleure qualité)
         from app.core.config import get_settings

@@ -75,6 +75,7 @@ export class CommunityManagerStudioPage {
       || calendarEntry?.content_type === 'story_souvenir'
       || calendarEntry?.content_type === 'story_edito';
     const canPublish = pub && pub.status === 'validated' && pub.status !== 'shared' && pub.status !== 'refused' && pub.status !== 'failed' && pub.status !== 'publishing';
+    const canValidate = pub && pub.status !== 'validated' && pub.status !== 'shared' && pub.status !== 'refused' && pub.status !== 'failed' && pub.status !== 'publishing';
 
     if (this.loading) {
       this.element.innerHTML = `<div class="cm-studio-loading">Chargement du contenu…</div>`;
@@ -148,18 +149,21 @@ export class CommunityManagerStudioPage {
           <button class="btn btn-primary" data-action="save" ${pub?.status === 'shared' ? 'disabled' : ''}>
             ${this.saving ? 'Enregistrement…' : 'Enregistrer'}
           </button>
-          ${isSuggestion ? `
+          ${canValidate ? `
+            <button class="btn btn-primary" data-action="validate" ${this.publishing ? 'disabled' : ''}>
+              ${this.publishing ? 'Validation en cours…' : 'Valider'}
+            </button>
+          ` : ''}
+          ${isSuggestion && !canValidate && !canPublish ? `
             <button class="btn btn-secondary btn-small" data-action="refuse" ${pub?.status === 'shared' ? 'disabled' : ''}>
               ${this.publishing ? 'Refus…' : 'Refuser'}
             </button>
-            <button class="btn btn-primary" data-action="validate" ${pub?.status === 'shared' || pub?.status === 'refused' ? 'disabled' : ''}>
-              ${this.publishing ? 'Validation…' : 'Valider la story'}
-            </button>
-          ` : `
+          ` : ''}
+          ${canPublish ? `
             <button class="btn btn-success" data-action="publish" ${!canPublish || this.publishing ? 'disabled' : ''}>
               ${this.publishing ? 'Publication…' : 'Publier sur Instagram'}
             </button>
-          `}
+          ` : ''}
         </div>
       </div>
 
@@ -425,14 +429,19 @@ export class CommunityManagerStudioPage {
     const validateBtn = this.element.querySelector('[data-action="validate"]');
     if (validateBtn) {
       validateBtn.addEventListener('click', async () => {
+        if (this.publishing) return;
+        this.publishing = true;
+        this.error = null;
         try {
           await validateStudioDraft(this.publicationId, { confirm: true });
           const updated = await getStudioDraft(this.publicationId);
           this.publication = updated;
-          this.success = 'Story validée.';
+          this.success = 'Publication validée.';
           setTimeout(() => { this.success = null; this.render(); }, 1500);
         } catch (error) {
           this.error = error?.data?.detail || error?.message || 'Erreur validation';
+        } finally {
+          this.publishing = false;
           this.render();
         }
       });

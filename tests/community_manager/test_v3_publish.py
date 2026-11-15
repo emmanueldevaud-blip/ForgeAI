@@ -717,6 +717,259 @@ class TestCommunityManagerStudioServicePublish:
 
 
 # ============================================================
+# Tests CommunityManagerStudioService - Validation (Studio)
+# ============================================================
+
+class TestCommunityManagerStudioServiceValidate:
+    """Tests pour la validation des publications dans le Studio."""
+
+    @pytest.fixture
+    def mock_user(self):
+        user = MagicMock(spec=User)
+        user.id = 1
+        return user
+
+    @pytest.fixture
+    def mock_athlete(self):
+        athlete = MagicMock(spec=SportAthlete)
+        athlete.id = 10
+        athlete.user_id = 1
+        return athlete
+
+    @pytest.fixture
+    def mock_strategy(self, mock_athlete):
+        strategy = MagicMock(spec=CommunityManagerStrategy)
+        strategy.id = 100
+        strategy.athlete_id = mock_athlete.id
+        strategy.brand_identity = "TestBrand"
+        strategy.tone = ["professional", "inspirational"]
+        strategy.target_audience = "Athlètes endurance 25-45 ans"
+        strategy.objectives = ["engagement", "visibility"]
+        strategy.themes = ["running", "recovery"]
+        strategy.frequency = 3
+        strategy.networks = ["instagram"]
+        strategy.rules = ["Pas de résultats inventés"]
+        strategy.forbidden_topics = ["politique", "concurrentiels"]
+        return strategy
+
+    @pytest.fixture
+    def mock_db(self, mock_athlete, mock_strategy):
+        db = AsyncMock(spec=AsyncSession)
+        execute_athlete = AsyncMock()
+        execute_athlete.scalar_one_or_none.return_value = mock_athlete
+        execute_strategy = AsyncMock()
+        execute_strategy.scalar_one_or_none.return_value = mock_strategy
+        db.execute.side_effect = [execute_athlete, execute_strategy]
+        db.flush = AsyncMock()
+        db.commit = AsyncMock()
+        db.refresh = AsyncMock()
+        db.add = MagicMock()
+        db.delete = AsyncMock()
+        return db
+
+    @pytest.fixture
+    def service(self, mock_db, mock_user):
+        return CommunityManagerStudioService(mock_db, mock_user)
+
+    @pytest.fixture
+    def mock_publication_garmin(self):
+        """Publication Garmin non validée (source=garmin, content_type=publication_sportive)."""
+        pub = MagicMock(spec=SportPublication)
+        pub.id = 1
+        pub.athlete_id = 10
+        pub.status = "draft"
+        pub.content = "13,2 km d'Alsace, belle sortie running"
+        pub.hashtags = "#running #alsace"
+        pub.photo_id = 123
+        pub.visual_type = "photo"
+        pub.visual_generation_prompt = None
+        pub.title = "Sortie Alsace"
+        pub.calendar_entry_id = None
+        pub.source = "garmin"
+        pub.content_type = "publication_sportive"
+        pub.validated_at = None
+        pub.title_locked = False
+        pub.content_locked = False
+        pub.photo_locked = False
+        return pub
+
+    @pytest.fixture
+    def mock_publication_story_souvenir(self):
+        """Story souvenir non validée."""
+        entry = MagicMock(spec=EditorialCalendarEntry)
+        entry.id = 50
+        entry.source = "suggestion"
+        entry.content_type = "story_souvenir"
+        entry.status = "accepted"
+
+        pub = MagicMock(spec=SportPublication)
+        pub.id = 2
+        pub.athlete_id = 10
+        pub.status = "draft"
+        pub.content = "Souvenir de course"
+        pub.hashtags = "#souvenir"
+        pub.photo_id = 124
+        pub.visual_type = "story"
+        pub.visual_generation_prompt = None
+        pub.title = "Souvenir"
+        pub.calendar_entry_id = 50
+        pub.source = "suggestion"
+        pub.content_type = "story_souvenir"
+        pub.calendar_entry = entry
+        pub.validated_at = None
+        pub.title_locked = False
+        pub.content_locked = False
+        pub.photo_locked = False
+        return pub
+
+    @pytest.fixture
+    def mock_publication_story_edito(self):
+        """Story éditoriale non validée."""
+        entry = MagicMock(spec=EditorialCalendarEntry)
+        entry.id = 51
+        entry.source = "manuel"
+        entry.content_type = "story_edito"
+        entry.status = "accepted"
+
+        pub = MagicMock(spec=SportPublication)
+        pub.id = 3
+        pub.athlete_id = 10
+        pub.status = "draft"
+        pub.content = "Story éditoriale"
+        pub.hashtags = "#edito"
+        pub.photo_id = 125
+        pub.visual_type = "story"
+        pub.visual_generation_prompt = None
+        pub.title = "Story Edito"
+        pub.calendar_entry_id = 51
+        pub.source = "manuel"
+        pub.content_type = "story_edito"
+        pub.calendar_entry = entry
+        pub.validated_at = None
+        pub.title_locked = False
+        pub.content_locked = False
+        pub.photo_locked = False
+        return pub
+
+    # ------------------------------------------------------------------ #
+    # Test 1 : Publication Garmin non validée
+    # ------------------------------------------------------------------ #
+    @pytest.mark.asyncio
+    async def test_garmin_publication_not_validated(self, service, mock_publication_garmin):
+        """Une publication Garmin démarre en statut draft (non validée)."""
+        service.pub_service.get_publication = AsyncMock(return_value=mock_publication_garmin)
+        pub = await service.pub_service.get_publication(1)
+        assert pub.status == "draft"
+        assert pub.source == "garmin"
+        assert pub.content_type == "publication_sportive"
+
+    # ------------------------------------------------------------------ #
+    # Test 2 : Validation réussie d'une publication Garmin
+    # ------------------------------------------------------------------ #
+    @pytest.mark.asyncio
+    async def test_validate_garmin_publication_success(self, service, mock_publication_garmin):
+        """Validation d'une publication Garmin passe le statut à validated."""
+        service.pub_service.get_publication = AsyncMock(return_value=mock_publication_garmin)
+        result = await service.validate_for_publication(1, MagicMock(confirm=True))
+        assert result.status == "validated"
+        assert result.validated_at is not None
+
+    # ------------------------------------------------------------------ #
+    # Test 3 : Déblocage du bouton Instagram après validation (Garmin)
+    # ------------------------------------------------------------------ #
+    @pytest.mark.asyncio
+    async def test_publish_garmin_after_validation(self, service, mock_publication_garmin):
+        """Après validation, la publication Garmin peut être publiée."""
+        service.pub_service.get_publication = AsyncMock(return_value=mock_publication_garmin)
+        # D'abord valider
+        await service.validate_for_publication(1, MagicMock(confirm=True))
+        assert mock_publication_garmin.status == "validated"
+        # Vérifier que le statut permet maintenant la publication
+        assert mock_publication_garmin.status == "validated"
+        assert mock_publication_garmin.content is not None
+        assert mock_publication_garmin.photo_id is not None
+
+    # ------------------------------------------------------------------ #
+    # Test 4 : Story souvenir : validation réussie
+    # ------------------------------------------------------------------ #
+    @pytest.mark.asyncio
+    async def test_validate_story_souvenir_success(self, service, mock_publication_story_souvenir):
+        """Validation d'une story souvenir passe le statut à validated."""
+        service.pub_service.get_publication = AsyncMock(return_value=mock_publication_story_souvenir)
+        result = await service.validate_for_publication(2, MagicMock(confirm=True))
+        assert result.status == "validated"
+        assert result.validated_at is not None
+
+    # ------------------------------------------------------------------ #
+    # Test 5 : Story éditoriale : validation réussie
+    # ------------------------------------------------------------------ #
+    @pytest.mark.asyncio
+    async def test_validate_story_edito_success(self, service, mock_publication_story_edito):
+        """Validation d'une story éditoriale passe le statut à validated."""
+        service.pub_service.get_publication = AsyncMock(return_value=mock_publication_story_edito)
+        result = await service.validate_for_publication(3, MagicMock(confirm=True))
+        assert result.status == "validated"
+        assert result.validated_at is not None
+
+    # ------------------------------------------------------------------ #
+    # Test 6 : Échec API - contenu reste non validé
+    # ------------------------------------------------------------------ #
+    @pytest.mark.asyncio
+    async def test_validate_empty_content_fails(self, service, mock_publication_garmin):
+        """Validation échoue si le contenu est vide, statut reste draft."""
+        mock_publication_garmin.content = ""
+        service.pub_service.get_publication = AsyncMock(return_value=mock_publication_garmin)
+        with pytest.raises(ValueError, match="Le texte de la publication est vide"):
+            await service.validate_for_publication(1, MagicMock(confirm=True))
+        assert mock_publication_garmin.status == "draft"
+
+    # ------------------------------------------------------------------ #
+    # Test 7 : Validation persistante après rechargement
+    # ------------------------------------------------------------------ #
+    @pytest.mark.asyncio
+    async def test_validation_persists(self, service, mock_publication_garmin):
+        """La validation reste en base après la requête (status changé durablement)."""
+        service.pub_service.get_publication = AsyncMock(return_value=mock_publication_garmin)
+        await service.validate_for_publication(1, MagicMock(confirm=True))
+        # Simuler un "rechargement" : le même objet a le status mis à jour
+        pub = await service.pub_service.get_publication(1)
+        assert pub.status == "validated"
+
+    # ------------------------------------------------------------------ #
+    # Test 8 : Double clic sur Valider (déjà validé)
+    # ------------------------------------------------------------------ #
+    @pytest.mark.asyncio
+    async def test_validate_already_validated(self, service, mock_publication_garmin):
+        """Valider une publication déjà validée ne produit pas d'erreur (idempotent)."""
+        mock_publication_garmin.status = "validated"
+        mock_publication_garmin.validated_at = datetime.now(timezone.utc)
+        service.pub_service.get_publication = AsyncMock(return_value=mock_publication_garmin)
+        result = await service.validate_for_publication(1, MagicMock(confirm=True))
+        assert result.status == "validated"
+
+    # ------------------------------------------------------------------ #
+    # Test 9 : Modification d'un contenu déjà validé invalide la validation
+    # ------------------------------------------------------------------ #
+    @pytest.mark.asyncio
+    async def test_modify_after_validation_invalidates(self, service, mock_publication_garmin):
+        """Modifier le contenu d'une publication validée repasse le statut à draft."""
+        # D'abord valider
+        mock_publication_garmin.status = "validated"
+        mock_publication_garmin.validated_at = datetime.now(timezone.utc)
+        service.pub_service.get_publication = AsyncMock(return_value=mock_publication_garmin)
+        await service.validate_for_publication(1, MagicMock(confirm=True))
+
+        # Puis modifier le contenu (simule l'update_draft qui déverrouille)
+        from app.schemas.sport import PublicationDraftUpdate
+        update_data = PublicationDraftUpdate(content="Nouveau contenu modifié après validation")
+        result = await service.update_draft(1, update_data)
+        # Le statut repasse à draft car le contenu a été modifié après validation
+        assert result.status == "draft"
+        assert result.validated_at is None
+        assert result.content == "Nouveau contenu modifié après validation"
+
+
+# ============================================================
 # Tests API Routes
 # ============================================================
 

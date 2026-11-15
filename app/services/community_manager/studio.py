@@ -213,6 +213,11 @@ class CommunityManagerStudioService:
         if data.photo_locked is not None:
             pub.photo_locked = data.photo_locked
 
+        # Si le contenu ou le titre est modifié après validation, invalider la validation
+        if pub.status == "validated" and (data.content is not None or data.title is not None):
+            pub.status = "draft"
+            pub.validated_at = None
+
         await self.db.commit()
         await self.db.refresh(pub)
         return pub

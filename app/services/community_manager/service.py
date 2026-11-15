@@ -202,7 +202,7 @@ class CommunityManagerService:
                     objective=validated_entry["objective"],
                     notes=validated_entry["notes"],
                     hashtags=validated_entry["hashtags"],
-                    status="brouillon",
+                    status="draft",
                 )
                 self.db.add(entry)
                 calendar_entries.append(entry)

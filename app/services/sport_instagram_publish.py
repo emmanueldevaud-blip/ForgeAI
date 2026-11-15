@@ -216,7 +216,25 @@ class MetaPublishService:
 
         async with httpx.AsyncClient(timeout=60.0) as client:
             try:
+                # Log du payload exact (sans le token) avant l'appel Meta
+                safe_params = {k: v for k, v in params.items() if k != "access_token"}
+                logger.info(
+                    "Meta create_media_container REQUEST: publication_id=%s, "
+                    "url=%s, params=%s",
+                    publication_id, url, safe_params,
+                )
                 response = await client.post(url, params=params)
+                # Log de la réponse Meta complète (sans le token)
+                fbtrace_id = response.headers.get("fbtrace-id", "unknown")
+                logger.info(
+                    "Meta create_media_container RESPONSE: publication_id=%s, "
+                    "http_status=%s, content_type=%s, fbtrace_id=%s, "
+                    "body=%s",
+                    publication_id, response.status_code,
+                    response.headers.get("content-type", "unknown"),
+                    fbtrace_id,
+                    response.text[:500],
+                )
                 if not response.is_success:
                     error_data = {}
                     try:
@@ -226,13 +244,15 @@ class MetaPublishService:
                     error = error_data.get("error", {})
                     error_code = error.get("code")
                     error_subcode = error.get("error_subcode")
+                    error_type = error.get("type")
                     error_message = error.get("message", str(response.status_code))
                     logger.error(
                         "Meta create_media_container ERROR: publication_id=%s, "
                         "http_status=%s, meta_code=%s, meta_subcode=%s, "
-                        "message=%s, url_base=%s",
+                        "meta_type=%s, fbtrace_id=%s, message=%s, url_base=%s",
                         publication_id, response.status_code, error_code,
-                        error_subcode, error_message, safe_url,
+                        error_subcode, error_type, fbtrace_id,
+                        error_message, safe_url,
                     )
                     raise MetaPublishError(
                         f"Erreur création conteneur: {error_message}",
@@ -249,12 +269,14 @@ class MetaPublishService:
             except HTTPStatusError as exc:
                 error_data = exc.response.json() if exc.response.content else {}
                 error = error_data.get("error", {})
+                fbtrace_id = exc.response.headers.get("fbtrace-id", "unknown")
                 logger.error(
                     "Meta create_media_container HTTP error: publication_id=%s, "
                     "http_status=%s, meta_code=%s, meta_subcode=%s, "
-                    "message=%s, url_base=%s",
+                    "meta_type=%s, fbtrace_id=%s, message=%s, url_base=%s",
                     publication_id, exc.response.status_code,
                     error.get("code"), error.get("error_subcode"),
+                    error.get("type"), fbtrace_id,
                     error.get("message", str(exc)), safe_url,
                 )
                 raise MetaPublishError(

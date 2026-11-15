@@ -2279,6 +2279,146 @@ class TestInstagramCaptionLengthAIGeneration:
         assert variant["hashtags"] == good_hashtags
 
 
+# ============================================================
+# Tests MetaPublishService.create_media_container - Payload vérifié
+# ============================================================
+
+class TestCreateMediaContainerPayload:
+    """Tests pour vérifier le payload exact envoyé à l'API Meta Graph."""
+
+    @pytest.fixture
+    def service(self, mock_db):
+        return MetaPublishService(mock_db)
+
+    @pytest.fixture
+    def mock_connection(self):
+        conn = MagicMock()
+        conn.instagram_business_account_id = "17841400000000000"
+        conn.encrypted_long_lived_token = "encrypted_token"
+        return conn
+
+    async def _capture_post_params(self, service, mock_connection, **kwargs):
+        """Intercepte l'appel httpx.post pour capturer les params envoyés."""
+        captured = {}
+
+        class FakeResponse:
+            def __init__(self, status_code=200, json_data=None):
+                self.status_code = status_code
+                self._json = json_data or {"id": "container_123"}
+                self.headers = {"content-type": "application/json", "fbtrace-id": "test_trace_123"}
+                self.content = json.dumps(self._json).encode() if self._json else b""
+                self.text = json.dumps(self._json) if self._json else ""
+                self.is_success = 200 <= status_code < 300
+
+            def json(self):
+                return self._json
+
+            def raise_for_status(self):
+                if self.status_code >= 400:
+                    raise HTTPStatusError(f"HTTP {self.status_code}", request=None, response=self)
+
+    async def _capture_post_params(self, service, mock_connection, **kwargs):
+        """Intercepte l'appel httpx.post pour capturer les params envoyés."""
+        service.captured = {}
+
+        class FakeResponse:
+            def __init__(self, status_code=200, json_data=None):
+                self.status_code = status_code
+                self._json = json_data or {"id": "container_123"}
+                self.headers = {"content-type": "application/json", "fbtrace-id": "test_trace_123"}
+                self.content = json.dumps(self._json).encode() if self._json else b""
+                self.text = json.dumps(self._json) if self._json else ""
+                self.is_success = 200 <= status_code < 300
+
+            def json(self):
+                return self._json
+
+            def raise_for_status(self):
+                if self.status_code >= 400:
+                    raise HTTPStatusError(f"HTTP {self.status_code}", request=None, response=self)
+
+        async def fake_post(self_client, url, **kwargs):
+            service.captured["url"] = url
+            service.captured["params"] = kwargs.get("params", {})
+            service.captured["kwargs"] = kwargs
+            return FakeResponse()
+
+        # Mock _get_valid_token pour retourner un token valide sans déchiffrement
+        with patch.object(service, "_get_valid_token", new=AsyncMock(return_value="fake_token")):
+            with patch("httpx.AsyncClient.post", new=fake_post):
+                return await service.create_media_container(
+                    connection=mock_connection,
+                    **kwargs,
+                )
+
+        return service.captured
+
+    @pytest.mark.asyncio
+    async def test_photo_payload_no_media_type_no_video_url(self, service, mock_connection):
+        """Photo simple : payload contient image_url, PAS media_type ni video_url."""
+        container_id = await self._capture_post_params(
+            service, mock_connection,
+            image_url="https://forgeai.design-ede.fr/photos/123/file?size=original&meta_token=abc",
+            caption="Ma légende de publication",
+            is_video=False,
+            is_reel=False,
+            mime_type="image/jpeg",
+            publication_id=1,
+        )
+        assert container_id == "container_123"
+
+        params = service.captured["params"]
+        # image_url doit être présent
+        assert "image_url" in params, f"image_url absent: {params}"
+        assert params["image_url"] == "https://forgeai.design-ede.fr/photos/123/file?size=original&meta_token=abc"
+        # video_url doit être ABSENT
+        assert "video_url" not in params, f"video_url présent pour photo: {params}"
+        # media_type doit être ABSENT pour photo standard
+        assert "media_type" not in params, f"media_type présent pour photo: {params}"
+        # access_token et caption doivent être présents
+        assert "access_token" in params
+        assert "caption" in params
+
+    @pytest.mark.asyncio
+    async def test_video_payload_video_url_media_type_video(self, service, mock_connection):
+        """Vidéo classique : payload contient video_url et media_type=VIDEO."""
+        container_id = await self._capture_post_params(
+            service, mock_connection,
+            image_url="https://forgeai.design-ede.fr/photos/456/file?size=original&meta_token=def",
+            caption="Ma vidéo",
+            is_video=True,
+            is_reel=False,
+            mime_type="video/mp4",
+            publication_id=2,
+        )
+        assert container_id == "container_123"
+
+        params = service.captured["params"]
+        assert "video_url" in params, f"video_url absent pour vidéo: {params}"
+        assert params["video_url"] == "https://forgeai.design-ede.fr/photos/456/file?size=original&meta_token=def"
+        assert params.get("media_type") == "VIDEO", f"media_type devrait être VIDEO: {params}"
+        assert "image_url" not in params, f"image_url présent pour vidéo: {params}"
+
+    @pytest.mark.asyncio
+    async def test_reel_payload_video_url_media_type_reels(self, service, mock_connection):
+        """Reel : payload contient video_url et media_type=REELS (jamais VIDEO)."""
+        container_id = await self._capture_post_params(
+            service, mock_connection,
+            image_url="https://forgeai.design-ede.fr/photos/789/file?size=original&meta_token=ghi",
+            caption="Mon Reel",
+            is_video=True,
+            is_reel=True,
+            mime_type="video/mp4",
+            publication_id=3,
+        )
+        assert container_id == "container_123"
+
+        params = service.captured["params"]
+        assert "video_url" in params, f"video_url absent pour Reel: {params}"
+        assert params.get("media_type") == "REELS", f"media_type devrait être REELS: {params}"
+        assert params.get("media_type") != "VIDEO", f"media_type ne doit pas être VIDEO pour Reel: {params}"
+        assert "image_url" not in params, f"image_url présent pour Reel: {params}"
+
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

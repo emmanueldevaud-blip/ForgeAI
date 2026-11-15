@@ -20,6 +20,10 @@ class Settings(BaseSettings):
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 480
     REFRESH_TOKEN_EXPIRE_DAYS: int = 7
+    # URL publique de l'application ForgeAI. Utilisée pour générer les URLs
+    # absolues des médias destinés à la publication Meta (Instagram/Facebook).
+    # Doit être une URL HTTPS accessible publiquement depuis les serveurs Meta.
+    PUBLIC_URL: str = "https://forgeai.design-ede.fr"
 
     # Database
     DATABASE_URL: str = Field(..., description="URL de connexion MySQL (obligatoire)")

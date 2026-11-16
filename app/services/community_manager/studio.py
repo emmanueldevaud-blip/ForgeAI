@@ -1014,21 +1014,18 @@ class CommunityManagerStudioService:
 
         # Audio choisi intelligemment (heuristique) et aléatoirement - stocké dans le design
         try:
+            from app.services.community_manager.audio import ensure_audio_config
+
             design = pub.design if isinstance(pub.design, dict) else {}
-            audio = design.get("audio") or {}
-            if not audio.get("track"):
-                track = pick_sport_music(activity)
-                audio = {
-                    "track": track,
-                    "url": f"/music/{track}",
-                    "chosen_at": datetime.now(timezone.utc).isoformat(),
-                    "strategy": "heuristic_random",
-                }
-                design = dict(design)
-                design["audio"] = audio
-                pub.design = design
+            design = ensure_audio_config(
+                design,
+                activity=activity,
+                tone=getattr(pub, "tone_used", None),
+                force=False,  # persisté : pas de changement à chaque chargement
+            )
+            pub.design = design
         except Exception:
-            logger.exception("[CM-STUDIO] Impossible de choisir l'audio sport pour publication %s", pub.id)
+            logger.exception("[CM-STUDIO] Impossible de sélectionner l'audio sport pour publication %s", pub.id)
 
         await self.db.flush()
         return pub
@@ -1342,6 +1339,31 @@ class CommunityManagerStudioService:
 
                 logger.info(f"Publication Facebook Page réussie: media_id={facebook_media_id}, publication_id={publication_id}")
                 return pub
+
+            except Exception as e:
+                pub.status = "failed"
+                pub.failed_at = datetime.now(timezone.utc)
+                pub.error_message = str(e)
+                await self.db.commit()
+                await self.db.refresh(pub)
+                logger.error(f"Erreur publication Facebook Page: {e}")
+                raise ValueError(f"Échec de la publication Facebook Page: {str(e)}")
+
+        except MetaPublishError as e:
+            pub.status = "failed"
+            pub.failed_at = datetime.now(timezone.utc)
+            pub.error_message = f"Meta API: {str(e)}"
+            await self.db.commit()
+            await self.db.refresh(pub)
+            raise ValueError(f"Erreur Meta: {str(e)}")
+        except Exception as e:
+            pub.status = "failed"
+            pub.failed_at = datetime.now(timezone.utc)
+            pub.error_message = str(e)
+            await self.db.commit()
+            await self.db.refresh(pub)
+            logger.exception(f"Erreur publication Facebook Page: {e}")
+            raise ValueError(f"Erreur de publication: {str(e)}")
 
     async def publish_to_both(
         self, publication_id: int, data: Any

@@ -1343,16 +1343,200 @@ class CommunityManagerStudioService:
                 logger.info(f"Publication Facebook Page réussie: media_id={facebook_media_id}, publication_id={publication_id}")
                 return pub
 
+    async def publish_to_both(
+        self, publication_id: int, data: Any
+    ) -> SportPublication:
+        """Publie une publication validée sur Instagram ET Facebook Page simultanément."""
+        from app.services.sport_instagram_publish import MetaPublishService, MetaPublishError
+        from app.services.sport_media_publish import MediaPublishService
+
+        pub = await self.pub_service.get_publication(publication_id)
+        if not pub:
+            raise ValueError("Publication introuvable")
+        # Charger le contexte calendrier
+        if pub.calendar_entry_id:
+            entry_result = await self.db.execute(
+                select(EditorialCalendarEntry).where(
+                    EditorialCalendarEntry.id == pub.calendar_entry_id
+                )
+            )
+            pub.calendar_entry = entry_result.scalar_one_or_none()
+        pub = await self._ensure_sport_defaults(pub)
+
+        # Nettoyage du contenu
+        content = clean_caption_text(pub.content)
+        if content and content != pub.content:
+            pub.content = content
+        hashtags = clean_hashtags(pub.hashtags)
+        if hashtags and hashtags != pub.hashtags:
+            pub.hashtags = hashtags
+
+        # Auto-validation si brouillon
+        if pub.status == "draft":
+            pub.status = "validated"
+            pub.validated_at = datetime.now(timezone.utc)
+            await self.db.commit()
+
+        if pub.status not in ("validated", "draft"):
+            raise ValueError("Seules les publications validées peuvent être publiées")
+
+        if not (pub.content or "").strip():
+            raise ValueError("Le contenu de la publication est vide")
+
+        # Construire le caption
+        caption = pub.content or ""
+        if pub.hashtags:
+            caption += f"\n\n{pub.hashtags}"
+
+        # Contrôle de longueur (limite Instagram = 2200)
+        caption_length = len(caption)
+        if caption_length > 2200:
+            raise ValueError(
+                f"La légende dépasse la limite Instagram de 2200 caractères "
+                f"(actuellement {caption_length}). Raccourcissez le texte."
+            )
+
+        # Vérifier visuel
+        if not pub.photo_id and not pub.visual_generation_prompt:
+            raise ValueError("Un visuel est requis pour la publication")
+
+        # Récupérer l'athlète
+        athlete = await self.pub_service.get_or_create_athlete()
+
+        # Résoudre les DEUX contextes de publication
+        meta_service = MetaPublishService(self.db)
+        
+        # Contexte Instagram
+        ig_connection = await meta_service.resolve_publish_context()
+        if not ig_connection or not ig_connection.instagram_business_account_id:
+            raise ValueError(
+                "Aucune source de publication Instagram configurée. "
+                "Configurez le compte Instagram Business dans la configuration Meta."
+            )
+        
+        # Contexte Facebook
+        fb_connection = await meta_service.resolve_facebook_publish_context()
+        if not fb_connection or not fb_connection.facebook_page_id:
+            raise ValueError(
+                "Aucune source de publication Facebook Page configurée. "
+                "Configurez l'ID de Page Facebook dans la configuration Meta."
+            )
+
+        # Marquer comme "en cours de publication"
+        pub.status = "publishing"
+        await self.db.commit()
+
+        try:
+            # Préparer l'URL du média (une seule fois pour les deux)
+            media_publish_service = MediaPublishService(self.db)
+            media_url = None
+            media_info = None
+            is_video = pub.visual_type in ("reel", "video")
+
+            if pub.photo_id:
+                media_service = MediaPublishService(self.db)
+                media_info = await media_service.prepare_media_for_publish(
+                    pub.photo_id, self.current_user.id, size="original"
+                )
+                media_url = media_info.url
+                if media_info.is_video != is_video:
+                    raise ValueError(
+                        f"Incohérence de type de média : le visuel est une {'vidéo' if media_info.is_video else 'photo'} "
+                        f"(MIME: {media_info.mime_type}) mais le type visuel déclaré est '{pub.visual_type}'."
+                    )
+            elif pub.visual_generation_prompt:
+                raise ValueError("La génération d'images IA n'est pas encore disponible. Sélectionnez une photo.")
+
+            if not media_url:
+                raise ValueError("Impossible de préparer le média pour publication")
+
+            # Publier sur LES DEUX plateformes
+            try:
+                is_reel = pub.visual_type == "reel"
+                results = {}
+                
+                # Publication Instagram
+                try:
+                    if pub.visual_type == "reel" or is_video:
+                        ig_media_id = await meta_service.publish_video(
+                            ig_connection, media_url, caption,
+                            mime_type=media_info.mime_type if media_info else None,
+                            is_reel=is_reel,
+                            publication_id=publication_id,
+                        )
+                    else:
+                        ig_media_id = await meta_service.publish_photo(
+                            ig_connection, media_url, caption,
+                            mime_type=media_info.mime_type if media_info else None,
+                            publication_id=publication_id,
+                        )
+                    ig_permalink = await meta_service.get_media_permalink(ig_connection, ig_media_id)
+                    results['instagram'] = {'media_id': ig_media_id, 'permalink': ig_permalink}
+                    logger.info(f"Publication Instagram réussie: media_id={ig_media_id}")
+                except Exception as e:
+                    logger.error(f"Échec publication Instagram: {e}")
+                    results['instagram'] = {'error': str(e)}
+                
+                # Publication Facebook
+                try:
+                    fb_media_id = await meta_service.publish_to_facebook_page(
+                        fb_connection, media_url, caption,
+                        mime_type=media_info.mime_type if media_info else None,
+                        is_video=is_video,
+                        publication_id=publication_id,
+                    )
+                    fb_permalink = await meta_service.get_facebook_media_permalink(fb_connection, fb_media_id)
+                    results['facebook'] = {'media_id': fb_media_id, 'permalink': fb_permalink}
+                    logger.info(f"Publication Facebook Page réussie: media_id={fb_media_id}")
+                except Exception as e:
+                    logger.error(f"Échec publication Facebook: {e}")
+                    results['facebook'] = {'error': str(e)}
+                
+                # Déterminer le statut final
+                ig_success = 'instagram' in results and 'error' not in results['instagram']
+                fb_success = 'facebook' in results and 'error' not in results['facebook']
+                
+                if ig_success and fb_success:
+                    pub.status = "shared"
+                    pub.error_message = None
+                elif ig_success or fb_success:
+                    pub.status = "shared"
+                    errors = []
+                    if 'instagram' in results and 'error' in results['instagram']:
+                        errors.append(f"Instagram: {results['instagram']['error']}")
+                    if 'facebook' in results and 'error' in results['facebook']:
+                        errors.append(f"Facebook: {results['facebook']['error']}")
+                    pub.error_message = "Publication partielle - " + " | ".join(errors)
+                else:
+                    pub.status = "failed"
+                    errors = []
+                    if 'instagram' in results and 'error' in results['instagram']:
+                        errors.append(f"Instagram: {results['instagram']['error']}")
+                    if 'facebook' in results and 'error' in results['facebook']:
+                        errors.append(f"Facebook: {results['facebook']['error']}")
+                    pub.error_message = "Échec complet - " + " | ".join(errors)
+                
+                if ig_success:
+                    pub.instagram_media_id = results['instagram']['media_id']
+                    pub.instagram_permalink = results['instagram']['permalink']
+                if fb_success:
+                    pub.facebook_media_id = results['facebook']['media_id']
+                    pub.facebook_permalink = results['facebook']['permalink']
+                
+                pub.shared_at = datetime.now(timezone.utc)
+                await self.db.commit()
+                await self.db.refresh(pub)
+                logger.info(f"Publication multi-plateforme: IG={ig_success}, FB={fb_success}")
+                return pub
+
             except Exception as e:
-                # En cas d'erreur, marquer comme échouée
                 pub.status = "failed"
                 pub.failed_at = datetime.now(timezone.utc)
                 pub.error_message = str(e)
                 await self.db.commit()
                 await self.db.refresh(pub)
-
-                logger.error(f"Erreur publication Facebook: {e}")
-                raise ValueError(f"Échec de la publication Facebook: {str(e)}")
+                logger.error(f"Erreur publication multi-plateforme: {e}")
+                raise ValueError(f"Échec de la publication: {str(e)}")
 
         except MetaPublishError as e:
             pub.status = "failed"
@@ -1367,7 +1551,7 @@ class CommunityManagerStudioService:
             pub.error_message = str(e)
             await self.db.commit()
             await self.db.refresh(pub)
-            logger.exception(f"Erreur publication Facebook: {e}")
+            logger.exception(f"Erreur publication multi-plateforme: {e}")
             raise ValueError(f"Erreur de publication: {str(e)}")
 
     async def get_suggested_photos(self, publication_id: int, limit: int = 15) -> list[dict[str, Any]]:

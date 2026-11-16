@@ -27,7 +27,14 @@ from app.schemas.sport import (
     PublicationPreviewRequest,
 )
 from app.services.ai_gateway import AIGatewayError, ai_gateway
-from app.services.sport_publications import SportPublicationService, SYSTEM_PROMPT, STYLE_LABELS, STYLE_INSTRUCTIONS
+from app.services.sport_publications import (
+    SportPublicationService,
+    SYSTEM_PROMPT,
+    STYLE_LABELS,
+    STYLE_INSTRUCTIONS,
+    clean_caption_text,
+    clean_hashtags,
+)
 from app.services.sport_instagram_publish import MetaPublishService, MetaPublishError
 from app.services.sport_media_publish import MediaPublishService
 
@@ -145,6 +152,15 @@ class CommunityManagerStudioService:
                 ).options(selectinload(EditorialCalendarEntry.strategy))
             )
             pub.calendar_entry = entry_result.scalar_one_or_none()
+        # Une réponse IA non parsée peut être stockée en JSON brut : afficher le
+        # texte lisible (ce qui sera réellement publié). Non commité : la
+        # correction durable passe par l'enregistrement du formulaire.
+        cleaned_content = clean_caption_text(pub.content)
+        if cleaned_content and cleaned_content != pub.content:
+            pub.content = cleaned_content
+        cleaned_hashtags = clean_hashtags(pub.hashtags)
+        if cleaned_hashtags and cleaned_hashtags != pub.hashtags:
+            pub.hashtags = cleaned_hashtags
         return pub
 
     async def update_draft(
@@ -364,10 +380,10 @@ class CommunityManagerStudioService:
             for p in payload["proposals"][:count]:
                 if not isinstance(p, dict):
                     continue
-                content = str(p.get("content") or "").strip()
+                content = clean_caption_text(p.get("content"))
                 if not content:
                     continue
-                hashtags = str(p.get("hashtags")).strip() if p.get("hashtags") else None
+                hashtags = clean_hashtags(p.get("hashtags"))
                 # Tronçage automatique si la légende complète dépasse la limite Instagram
                 full_caption = content + (f"\n\n{hashtags}" if hashtags else "")
                 if len(full_caption) > self.INSTAGRAM_CAPTION_MAX_LENGTH:
@@ -395,7 +411,7 @@ class CommunityManagerStudioService:
                 })
 
         if not proposals:
-            proposals = [{"title": "Variante", "content": text, "hashtags": None, "format": "photo", "idee_visuelle": None, "objectif": None}]
+            proposals = [{"title": "Variante", "content": clean_caption_text(text), "hashtags": None, "format": "photo", "idee_visuelle": None, "objectif": None}]
 
         return proposals[:count]
 
@@ -556,8 +572,8 @@ class CommunityManagerStudioService:
             proposal = {"title": "Proposition", "content": text, "hashtags": None}
 
         # Tronçage automatique si la légende complète dépasse la limite Instagram
-        proposal_content = str(proposal.get("content") or "").strip()
-        proposal_hashtags = str(proposal.get("hashtags")).strip() if proposal.get("hashtags") else None
+        proposal_content = clean_caption_text(proposal.get("content"))
+        proposal_hashtags = clean_hashtags(proposal.get("hashtags"))
         full_caption = proposal_content + (f"\n\n{proposal_hashtags}" if proposal_hashtags else "")
         if len(full_caption) > self.INSTAGRAM_CAPTION_MAX_LENGTH:
             if proposal_hashtags:
@@ -748,6 +764,15 @@ class CommunityManagerStudioService:
         pub = await self.pub_service.get_publication(publication_id)
         if not pub:
             raise ValueError("Publication introuvable")
+
+        # Texte lisible : une réponse IA brute (JSON) ne doit jamais partir sur
+        # Instagram. La correction est persistée par le commit ci-dessous.
+        content = clean_caption_text(pub.content)
+        if content and content != pub.content:
+            pub.content = content
+        hashtags = clean_hashtags(pub.hashtags)
+        if hashtags and hashtags != pub.hashtags:
+            pub.hashtags = hashtags
 
         # Auto-validation si la publication est encore en brouillon
         if pub.status == "draft":

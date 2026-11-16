@@ -54,6 +54,96 @@ STYLE_INSTRUCTIONS = {
 
 VALID_STYLES = set(STYLE_LABELS.keys())
 
+# Champs de texte d'une reponse IA (JSON) : on n'en retient que la valeur.
+_CAPTION_FIELD_RE = re.compile(
+    r'"(?:content|caption|text|accroche)"\s*:\s*"((?:[^"\\]|\\.)*)"', re.IGNORECASE
+)
+_JSON_STRING_RE = re.compile(r'"[^"]+"\s*:\s*"((?:[^"\\]|\\.)*)"')
+
+
+def _caption_from_payload(payload: Any) -> str:
+    """Cherche le texte de legende dans une charge JSON deja parsee."""
+    if isinstance(payload, dict):
+        for key in ("content", "caption", "text", "accroche"):
+            value = payload.get(key)
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+        for key in ("proposal", "publication", "post", "suggestion", "item"):
+            value = payload.get(key)
+            if isinstance(value, dict):
+                found = _caption_from_payload(value)
+                if found:
+                    return found
+        for key in ("proposals", "posts", "suggestions", "variants"):
+            value = payload.get(key)
+            if isinstance(value, list) and value and isinstance(value[0], dict):
+                found = _caption_from_payload(value[0])
+                if found:
+                    return found
+    elif isinstance(payload, list) and payload and isinstance(payload[0], dict):
+        return _caption_from_payload(payload[0])
+    return ""
+
+
+def clean_caption_text(value: Any) -> str:
+    """Retourne le texte lisible d'une legende IA.
+
+    Une reponse IA non conforme est parfois stockee telle quelle (bloc JSON,
+    accolades, cles...). On n'en conserve que le texte destine a la legende,
+    afin que l'affichage corresponde a ce qui sera publie.
+    """
+    if value is None:
+        return ""
+    text = str(value).strip()
+    if not text:
+        return ""
+    if text.startswith("```"):
+        parts = text.split("```")
+        if len(parts) >= 3:
+            text = parts[1]
+            if text.startswith("json"):
+                text = text[4:]
+        text = text.strip()
+    if text[:1] not in ("{", "["):
+        return text
+    try:
+        payload = json.loads(text)
+    except (json.JSONDecodeError, ValueError):
+        payload = None
+    found = _caption_from_payload(payload)
+    if found:
+        return found
+    candidates = _CAPTION_FIELD_RE.findall(text) or _JSON_STRING_RE.findall(text)
+    if not candidates:
+        return text
+    best = max(candidates, key=len).strip()
+    try:
+        return json.loads(f'"{best}"').strip()
+    except (json.JSONDecodeError, ValueError):
+        return best
+
+
+def clean_hashtags(value: Any) -> Optional[str]:
+    """Normalise les hashtags : une liste IA devient la chaine '#a #b'."""
+    if value is None:
+        return None
+    if isinstance(value, (list, tuple, set)):
+        parts = [str(item).strip() for item in value if str(item).strip()]
+        return " ".join(parts) or None
+    text = str(value).strip()
+    if not text:
+        return None
+    if text[:1] == "[":
+        try:
+            payload = json.loads(text)
+        except (json.JSONDecodeError, ValueError):
+            payload = None
+        if isinstance(payload, list):
+            parts = [str(item).strip() for item in payload if str(item).strip()]
+            return " ".join(parts) or None
+    return text
+
+
 SYSTEM_PROMPT = """
 # RÔLE : EXPERT INSTAGRAM – TRAIL RUNNING & CROISSANCE D'AUDIENCE
 
@@ -609,18 +699,18 @@ class SportPublicationService:
             for p in payload["proposals"][:3]:
                 if not isinstance(p, dict):
                     continue
-                content = str(p.get("content") or "").strip()
+                content = clean_caption_text(p.get("content"))
                 if not content:
                     continue
                 proposals_raw.append({
                     "title": (str(p.get("title")).strip() if p.get("title") is not None else None),
                     "content": content,
-                    "hashtags": (str(p.get("hashtags")).strip() if p.get("hashtags") is not None else None),
+                    "hashtags": clean_hashtags(p.get("hashtags")),
                 })
 
         if not proposals_raw:
             # repli : une seule proposition avec le texte brut
-            proposals_raw = [{"title": "Publication", "content": text, "hashtags": None}]
+            proposals_raw = [{"title": "Publication", "content": clean_caption_text(text), "hashtags": None}]
 
         # complete a 3 si besoin
         while len(proposals_raw) < 3:
@@ -853,20 +943,20 @@ class SportPublicationService:
             for p in payload["proposals"][:3]:
                 if not isinstance(p, dict):
                     continue
-                content = str(p.get("content") or "").strip()
+                content = clean_caption_text(p.get("content"))
                 if not content:
                     continue
                 proposals_raw.append({
                     "title": str(p.get("title")).strip() if p.get("title") else None,
                     "content": content,
-                    "hashtags": str(p.get("hashtags")).strip() if p.get("hashtags") else None,
+                    "hashtags": clean_hashtags(p.get("hashtags")),
                     "format": str(p.get("format")).strip() if p.get("format") else "photo",
                     "idee_visuelle": str(p.get("idee_visuelle")).strip() if p.get("idee_visuelle") else None,
                     "objectif": str(p.get("objectif")).strip() if p.get("objectif") else None,
                 })
 
         if not proposals_raw:
-            proposals_raw = [{"title": "Publication", "content": text, "hashtags": None, "format": "photo", "idee_visuelle": None, "objectif": None}]
+            proposals_raw = [{"title": "Publication", "content": clean_caption_text(text), "hashtags": None, "format": "photo", "idee_visuelle": None, "objectif": None}]
 
         while len(proposals_raw) < 3:
             proposals_raw.append({"title": None, "content": "", "hashtags": None, "format": "photo", "idee_visuelle": None, "objectif": None})

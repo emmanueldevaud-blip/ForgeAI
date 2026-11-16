@@ -136,7 +136,7 @@ const hasCall = (n) => calls.some(c => c[0] === n);
   check('B3: aucun appel API', !hasCall('refuse'));
 }
 
-// --- C : les deux boutons Annuler sont liés et déclenchent le même comportement
+// --- C : « Annuler » (vue principale) et « Retour » (vue erreur) sont liés à onBack
 {
   calls.length = 0;
   let backCount = 0;
@@ -155,12 +155,20 @@ const hasCall = (n) => calls.some(c => c[0] === n);
   check('C: les 2 déclenchent onBack (2 appels)', backCount === 2, `backCount=${backCount}`);
 }
 
+// --- C2 : pas de bouton « Retour » dans l'en-tête du Studio
+{
+  const p = makePage({ ...V1_PUB });
+  const html = p.render().innerHTML;
+  check('C2: en-tête sans bouton Retour', !html.includes('>Retour<'), 'bouton Retour présent');
+  check('C2: bouton Annuler présent', html.includes('data-action="back"') && html.includes('>Annuler<'));
+}
+
 // --- D : effacement puis sauvegarde d'un champ (valeur transmise telle quelle)
 {
   const p = makePage({ ...V1_PUB });
   p.element.querySelector = (sel) => {
     if (sel === '[data-form="studio-edit"]') {
-      return { elements: { title: { value: '' }, content: { value: 'Texte conservé.' }, hashtags: { value: '#garmin' } } };
+      return { elements: { title: { value: '' }, content: { value: 'Texte conservé.', addEventListener() {} }, hashtags: { value: '#garmin', addEventListener() {} } } };
     }
     return null;
   };
@@ -176,7 +184,7 @@ const hasCall = (n) => calls.some(c => c[0] === n);
   const p = makePage({ ...V1_PUB });
   p.element.querySelector = (sel) => {
     if (sel === '[data-form="studio-edit"]') {
-      return { elements: { title: { value: 'Nouveau titre' }, content: { value: 'Nouveau texte' }, hashtags: { value: '#new' } } };
+      return { elements: { title: { value: 'Nouveau titre' }, content: { value: 'Nouveau texte', addEventListener() {} }, hashtags: { value: '#new', addEventListener() {} } } };
     }
     return null;
   };

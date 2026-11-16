@@ -33,7 +33,7 @@ export class CommunityManagerStudioPage {
     this.router = router;
     this.publicationId = publicationId;
     this.entryData = entryData;
-    this.onBack = null;
+    this.onBack = onBack;
     this.element = null;
     this.publication = null;
     this.loading = true;
@@ -109,10 +109,6 @@ export class CommunityManagerStudioPage {
 
     this.element.innerHTML = `
       <div class="cm-studio-header">
-        <button class="btn btn-secondary" data-action="back">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
-          Retour
-        </button>
         <h2>${isSuggestion ? 'Story suggérée' : 'Publication sportive'}</h2>
         <span class="cm-studio-badge ${this._escape(pub?.status || '')}">${this._escape(pub?.status || '')}</span>
       </div>
@@ -392,6 +388,8 @@ export class CommunityManagerStudioPage {
   }
 
   _bindEvents() {
+    // « Annuler » (et « Retour » sur l'écran d'erreur) : abandonne les
+    // modifications non enregistrées et quitte le Studio.
     this.element.querySelectorAll('[data-action="back"]').forEach(backBtn => {
       backBtn.addEventListener('click', () => { if (this.onBack) this.onBack(); });
     });

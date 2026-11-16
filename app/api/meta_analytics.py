@@ -176,7 +176,7 @@ async def instagram_account(
     snap_result = await db.execute(
         sa_select(MetaAnalyticsSnapshot)
         .where(
-            MetaAnalyticsAccount.account_id == account.id,
+            MetaAnalyticsSnapshot.account_id == account.id,
             MetaAnalyticsSnapshot.metric_name == "follower_count",
         )
         .order_by(desc(MetaAnalyticsSnapshot.collected_at))
@@ -485,7 +485,7 @@ async def history(
         snap_result = await db.execute(
             sa_select(MetaAnalyticsSnapshot)
             .where(
-                MetaAnalyticsAccount.account_id == account.id,
+                MetaAnalyticsSnapshot.account_id == account.id,
                 MetaAnalyticsSnapshot.metric_name == metric,
                 MetaAnalyticsSnapshot.collected_at >= datetime(start.year, start.month, start.day),
                 MetaAnalyticsSnapshot.metric_status == "available",

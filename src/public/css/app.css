@@ -9949,6 +9949,44 @@
   color: var(--color-white);
 }
 
+.cal-entry-btn--delete {
+  border-color: var(--color-danger-light);
+  background: var(--color-danger-light);
+  color: var(--color-danger);
+}
+
+.cal-entry-btn--delete:hover {
+  border-color: var(--color-danger);
+  background: var(--color-danger);
+  color: var(--color-white);
+}
+
+/* --- Entree publiee (lecture seule) --- */
+.cal-entry--published {
+  opacity: 0.55;
+  cursor: default;
+  background: var(--color-bg-secondary);
+  border-left-color: var(--color-success);
+}
+
+.cal-entry--published:hover {
+  background: var(--color-bg-secondary);
+  box-shadow: none;
+}
+
+.cal-entry--published .cal-entry-title {
+  text-decoration: line-through;
+  color: var(--color-text-muted);
+}
+
+.cal-entry--published .cal-entry-status {
+  color: var(--color-success);
+}
+
+.cal-entry--published .cal-entry-dot {
+  background: var(--color-success);
+}
+
 /* --- Grille hebdomadaire --- */
 .cal-week {
   width: 100%;

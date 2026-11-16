@@ -182,7 +182,10 @@ async def delete_calendar_entry(
     service: CommunityManagerService = Depends(get_cm_generate_service),
 ):
     """Supprimer une entrée du calendrier (refus définitif)."""
-    deleted = await service.delete_calendar_entry(entry_id)
+    try:
+        deleted = await service.delete_calendar_entry(entry_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     if not deleted:
         raise HTTPException(status_code=404, detail="Entrée de calendrier introuvable")
 

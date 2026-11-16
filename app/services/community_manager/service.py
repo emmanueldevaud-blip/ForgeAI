@@ -303,7 +303,12 @@ class CommunityManagerService:
         return EditorialCalendarEntryResponse.model_validate(entry)
 
     async def delete_calendar_entry(self, entry_id: int) -> bool:
-        """Supprime une entrée du calendrier (refus)."""
+        """Supprime une entrée du calendrier (refus).
+
+        Interdit la suppression si une publication liée a été partagée
+        sur les réseaux sociaux (statut 'shared'). Dans ce cas, l'entrée
+        est conservée en lecture seule côté frontend.
+        """
         strategy = await self.get_strategy()
         if not strategy:
             return False
@@ -317,6 +322,19 @@ class CommunityManagerService:
         entry = result.scalar_one_or_none()
         if not entry:
             return False
+
+        # Vérifier si une publication liée a été partagée sur les réseaux sociaux
+        pub_result = await self.db.execute(
+            select(SportPublication).where(
+                SportPublication.calendar_entry_id == entry_id,
+                SportPublication.status == "shared",
+            )
+        )
+        shared_pub = pub_result.scalar_one_or_none()
+        if shared_pub:
+            raise ValueError(
+                "Cette entrée ne peut pas être supprimée car elle a été partagée sur les réseaux sociaux."
+            )
 
         await self.db.delete(entry)
         await self.db.commit()

@@ -12,6 +12,7 @@ import {
   refuseSuggestion,
   rescheduleSuggestion,
   updateCommunityManagerCalendarEntry,
+  deleteCommunityManagerCalendarEntry,
   createStudioDraftFromCalendar,
   getStudioDraft,
   publishStudioDraft,
@@ -180,6 +181,19 @@ export class CommunityManagerCalendarPage {
       else this._loadWeek();
     } catch (error) {
       this.error = error?.data?.detail || error?.message || 'Erreur report';
+      this.render();
+    }
+  }
+
+  async _deleteEntry(entryId) {
+    if (!confirm('Supprimer cet élément du calendrier ?')) return;
+    try {
+      await deleteCommunityManagerCalendarEntry(entryId);
+      this.selectedEntry = null;
+      if (this.view === 'month') this._loadMonth();
+      else this._loadWeek();
+    } catch (error) {
+      this.error = error?.data?.detail || error?.message || 'Erreur suppression';
       this.render();
     }
   }
@@ -365,9 +379,15 @@ export class CommunityManagerCalendarPage {
     const statusColor = STATUS_COLORS[entry.status] || '#6b7280';
     const isSuggestion = entry.source === 'suggestion';
     const topic = this._escape(entry.topic || '');
+    const isShared = entry.pub_status === 'shared';
+    const publishedClass = isShared ? ' cal-entry--published' : '';
+    const deleteBtn = !isShared ? `
+      <button class="cal-entry-btn cal-entry-btn--delete" data-action="delete-entry" data-entry-id="${entry.entry_id}" title="Supprimer">🗑</button>
+    ` : '';
     return `
-      <div class="cal-entry" data-entry-id="${entry.entry_id}" data-entry-pub-id="${entry.pub_id || ''}"
+      <div class="cal-entry${publishedClass}" data-entry-id="${entry.entry_id}" data-entry-pub-id="${entry.pub_id || ''}"
            data-entry-status="${this._escape(entry.status || '')}" data-entry-source="${this._escape(entry.source || 'manuel')}"
+           data-entry-pub-status="${this._escape(entry.pub_status || '')}"
            title="${topic}"
            style="--color: ${color}; --status-color: ${statusColor};">
         <div class="cal-entry-head">
@@ -381,6 +401,7 @@ export class CommunityManagerCalendarPage {
               <button class="cal-entry-btn cal-entry-btn--accept" data-action="accept-suggestion" data-entry-id="${entry.entry_id}" title="Accepter">✓</button>
               <button class="cal-entry-btn cal-entry-btn--refuse" data-action="refuse-suggestion" data-entry-id="${entry.entry_id}" title="Refuser">✗</button>
             </div>` : ''}
+          ${deleteBtn ? `<div class="cal-entry-actions">${deleteBtn}</div>` : ''}
         </div>
       </div>
     `;
@@ -455,6 +476,15 @@ export class CommunityManagerCalendarPage {
         refuseBtn.addEventListener('click', (e) => {
           e.stopPropagation();
           this._refuseSuggestion(parseInt(refuseBtn.dataset.entryId, 10));
+        });
+      }
+
+      // Bouton suppression rapide
+      const deleteBtn = entryEl.querySelector('[data-action="delete-entry"]');
+      if (deleteBtn) {
+        deleteBtn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          this._deleteEntry(parseInt(deleteBtn.dataset.entryId, 10));
         });
       }
     });

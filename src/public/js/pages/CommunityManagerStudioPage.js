@@ -423,7 +423,10 @@ export class CommunityManagerStudioPage {
         this.publication = await getStudioDraft(this.publicationId);
       }
       const res = await previewStudioDraft(this.publicationId, 'feed');
-      this.previewHtml = res?.preview_html || '';
+      const html = typeof res === 'string'
+        ? res
+        : (res?.preview_html ?? res?.previewHtml ?? res?.html ?? '');
+      this.previewHtml = typeof html === 'string' ? html : '';
       this.previewOpen = true;
     } catch (error) {
       this.error = error?.data?.detail || error?.message || 'Erreur lors de la génération de l’aperçu';

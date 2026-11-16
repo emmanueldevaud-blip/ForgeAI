@@ -18,7 +18,7 @@ import {
   publishStudioDraft,
   regeneratePublicationContent,
 } from '../services/sportApi.js?v=14';
-import { createCommunityManagerStudioPage } from './CommunityManagerStudioPage.js?v=8';
+import { createCommunityManagerStudioPage } from './CommunityManagerStudioPage.js?v=9';
 
 const MONTHS = [
   'Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin',

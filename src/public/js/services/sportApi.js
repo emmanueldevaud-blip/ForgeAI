@@ -245,7 +245,10 @@ export async function scheduleStudioDraft(publicationId, scheduledAt) {
 
 // V2 : Prévisualiser le rendu Instagram
 export async function previewStudioDraft(publicationId, format = 'feed') {
-  return cmApi.post(`/community-manager/studio/draft/${encodeURIComponent(publicationId)}/preview`, { format });
+  return cmApi.post(`/community-manager/studio/draft/${encodeURIComponent(publicationId)}/preview`, {
+    publication_id: Number(publicationId),
+    format,
+  });
 }
 
 // V2 : Publier sur Instagram

@@ -173,16 +173,14 @@ class CommunityManagerStudioService:
 
         # Vérifier que l'utilisateur a le droit (déjà fait par get_publication)
 
-        # Mettre à jour les champs fournis
+        # Mettre à jour les champs fournis (texte/hashtags/titre toujours modifiables
+        # pour stories et publications sportives, sauf publication partagée gérée côté statut/UI)
         if data.title is not None:
-            if not pub.title_locked:
-                pub.title = data.title
+            pub.title = data.title
         if data.content is not None:
-            if not pub.content_locked:
-                pub.content = data.content
+            pub.content = data.content
         if data.hashtags is not None:
-            if not pub.content_locked:
-                pub.hashtags = data.hashtags
+            pub.hashtags = data.hashtags
         if "photo_id" in data.model_fields_set:
             if not pub.photo_locked:
                 pub.photo_id = data.photo_id
@@ -202,12 +200,9 @@ class CommunityManagerStudioService:
                 if isinstance(pub.proposals, list) and 0 <= idx < len(pub.proposals):
                     p = pub.proposals[idx]
                     if isinstance(p, dict):
-                        if not pub.title_locked:
-                            pub.title = p.get("title")
-                        if not pub.content_locked:
-                            pub.content = p.get("content")
-                        if not pub.content_locked:
-                            pub.hashtags = p.get("hashtags")
+                        pub.title = p.get("title") or pub.title
+                        pub.content = p.get("content")
+                        pub.hashtags = p.get("hashtags")
         if data.proposals is not None:
             pub.proposals = data.proposals
         if data.styles is not None:
@@ -503,10 +498,10 @@ class CommunityManagerStudioService:
             length_instruction = "Génère un texte LONG (plus développé, narratif, avec contexte et détails)."
 
         title_instruction = ""
-        if pub.title_locked and pub.title:
-            title_instruction = f"\nLe titre est déjà défini et verrouillé : \"{pub.title}\". NE LE CHANGE PAS. Écris le texte en cohérence avec ce titre."
+        if pub.title:
+            title_instruction = f"\nLe titre actuel est : \"{pub.title}\". Tu peux le conserver ou en proposer un plus accrocheur, en cohérence avec le ton choisi."
         else:
-            title_instruction = "\nPropose aussi un titre accrocheur et percutant en cohérence avec le ton choisi."
+            title_instruction = "\nPropose un titre accrocheur et percutant en cohérence avec le ton choisi."
 
         mix_note = ""
         if len(effective_styles) > 1:
@@ -589,13 +584,11 @@ class CommunityManagerStudioService:
             else:
                 proposal_content = proposal_content[:self.INSTAGRAM_CAPTION_MAX_LENGTH - 3].rstrip() + "..."
 
-        # Mettre à jour la publication (seulement si pas verrouillé)
-        if not pub.title_locked and proposal.get("title"):
+        # Mettre à jour la publication (le texte et le titre doivent toujours être modifiables)
+        if proposal.get("title"):
             pub.title = proposal.get("title")
-        if not pub.content_locked:
-            pub.content = proposal_content
-        if not pub.content_locked:
-            pub.hashtags = proposal_hashtags
+        pub.content = proposal_content
+        pub.hashtags = proposal_hashtags
 
         pub.tone_used = data.tone or pub.tone_used
         pub.styles = data.styles or pub.styles or ["stats"]

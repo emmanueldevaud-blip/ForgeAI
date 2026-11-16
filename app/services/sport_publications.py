@@ -969,7 +969,18 @@ class SportPublicationService:
         pub.photo_id = photo_id
         pub.proposals = proposals_raw
         pub.selected_proposal = 0
-        pub.title = proposals_raw[0].get("title")
+
+        # Publications sportives Garmin : le titre doit rester celui de l'activité Garmin.
+        # Stories : l'IA propose titre, texte et hashtags.
+        is_garmin_sport = bool(
+            entry.source == "garmin"
+            or entry.content_type == "publication_sportive"
+            or getattr(entry, "source_activity_id", None)
+        )
+        if is_garmin_sport:
+            pub.title = entry.topic or pub.title
+        else:
+            pub.title = proposals_raw[0].get("title") or entry.topic or pub.title
         pub.content = proposals_raw[0].get("content")
         pub.hashtags = proposals_raw[0].get("hashtags")
         pub.provider = getattr(response, "provider_used", None)

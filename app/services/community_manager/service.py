@@ -26,7 +26,7 @@ from app.schemas.sport import (
     CALENDAR_ENTRY_STATUSES,
 )
 from app.services.ai_gateway import AIGatewayError, ai_gateway
-from app.services.community_manager.hashtags import enforce_max_hashtags, hashtags_to_str
+from app.services.community_manager.hashtags import enforce_max_hashtags, hashtags_to_str, select_hashtags
 from app.services.community_manager.prompts import SYSTEM_PROMPT, build_generation_prompt
 
 logger = logging.getLogger(__name__)
@@ -507,6 +507,29 @@ def _validate_and_sanitize_entry(item: dict[str, Any], strategy: CommunityManage
         hashtags = str(hashtags)
     if hashtags and len(hashtags) > 500:
         hashtags = hashtags[:500]
+
+    # AUTO-GÉNÉRATION HASHTAGS depuis la stratégie si l'IA n'en fournit pas
+    if not hashtags:
+        context = {
+            "topic": topic,
+            "notes": notes,
+            "activity_name": item.get("activity_name"),
+            "sport_type": item.get("sport_type"),
+            "title": item.get("title"),
+        }
+        # Construire la stratégie dict pour la sélection hashtags
+        strategy_dict = {
+            "signature_hashtag": strategy.signature_hashtag,
+            "max_hashtags": strategy.max_hashtags,
+        }
+        selected = select_hashtags(context, strategy_dict, existing=None, max_hashtags=strategy.max_hashtags)
+        hashtags = hashtags_to_str(selected)
+        logger.info(f"[COMMUNITY-MANAGER] Hashtags auto-générés pour '{topic}': {hashtags}")
+    else:
+        # IA a fourni des hashtags -> appliquer limite stratégie
+        strategy_max_hashtags = int(strategy.max_hashtags or 5)
+        selected = enforce_max_hashtags(hashtags, strategy_max_hashtags)
+        hashtags = hashtags_to_str(selected)
     
     # Vérifier les sujets interdits dans le topic et les notes
     forbidden = strategy.forbidden_topics or []

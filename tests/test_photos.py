@@ -892,7 +892,7 @@ async def test_photo_file_meta_token_valid_jpeg(client, db_session, admin_header
 
     # Générer un token Meta valide (normalement fait par prepare_media_for_publish)
     service = MediaPublishService(db_session)
-    token = service._create_signed_token(photo_id=photo_id, user_id=1, expires_in_seconds=3600)
+    token = service._create_hex_token()
     await service._store_token(token, photo_id, 1, datetime.now(timezone.utc) + timedelta(seconds=3600))
 
     # Appeler l'endpoint avec le token
@@ -934,7 +934,7 @@ async def test_photo_file_meta_token_wrong_photo(client, db_session, admin_heade
     photo_id_2 = response2.json()["items"][0]["id"]
     from app.services.sport_media_publish import MediaPublishService
     service = MediaPublishService(db_session)
-    token = service._create_signed_token(photo_id=photo_id_1, user_id=1, expires_in_seconds=3600)
+    token = service._create_hex_token()
     await service._store_token(token, photo_id_1, 1, datetime.now(timezone.utc) + timedelta(seconds=3600))
 
     file_resp = await client.get(
@@ -954,7 +954,7 @@ async def test_photo_file_meta_token_consumed_once(client, db_session, admin_hea
     await drain_jobs(db_session)
 
     service = MediaPublishService(db_session)
-    token = service._create_signed_token(photo_id=photo_id, user_id=1, expires_in_seconds=3600)
+    token = service._create_hex_token()
     await service._store_token(token, photo_id, 1, datetime.now(timezone.utc) + timedelta(seconds=3600))
 
     # Première utilisation : succès
@@ -993,7 +993,7 @@ async def test_photo_file_meta_token_heic_conversion(client, db_session, admin_h
 
     # Générer un token Meta
     service = MediaPublishService(db_session)
-    token = service._create_signed_token(photo_id=photo_id, user_id=1, expires_in_seconds=3600)
+    token = service._create_hex_token()
     await service._store_token(token, photo_id, 1, datetime.now(timezone.utc) + timedelta(seconds=3600))
 
     # Appeler l'endpoint avec le token → devrait retourner du JPEG
@@ -1030,7 +1030,7 @@ async def test_photo_file_meta_token_external_no_session_cookies(client, db_sess
     await drain_jobs(db_session)
 
     service = MediaPublishService(db_session)
-    token = service._create_signed_token(photo_id=photo_id, user_id=1, expires_in_seconds=3600)
+    token = service._create_hex_token()
     await service._store_token(token, photo_id, 1, datetime.now(timezone.utc) + timedelta(seconds=3600))
 
     # Appel SANS les cookies de session (comme ferait Meta depuis l'extérieur)
@@ -1057,7 +1057,7 @@ async def test_photo_file_meta_token_content_length(client, db_session, admin_he
     await drain_jobs(db_session)
 
     service = MediaPublishService(db_session)
-    token = service._create_signed_token(photo_id=photo_id, user_id=1, expires_in_seconds=3600)
+    token = service._create_hex_token()
     await service._store_token(token, photo_id, 1, datetime.now(timezone.utc) + timedelta(seconds=3600))
 
     file_resp = await client.get(
@@ -1085,7 +1085,7 @@ async def test_photo_file_meta_token_no_redirect(client, db_session, admin_heade
     await drain_jobs(db_session)
 
     service = MediaPublishService(db_session)
-    token = service._create_signed_token(photo_id=photo_id, user_id=1, expires_in_seconds=3600)
+    token = service._create_hex_token()
     await service._store_token(token, photo_id, 1, datetime.now(timezone.utc) + timedelta(seconds=3600))
 
     # httpx suit les redirections par défaut. Si on arrive sur une page
@@ -1113,7 +1113,7 @@ async def test_photo_file_meta_token_image_decodable(client, db_session, admin_h
     await drain_jobs(db_session)
 
     service = MediaPublishService(db_session)
-    token = service._create_signed_token(photo_id=photo_id, user_id=1, expires_in_seconds=3600)
+    token = service._create_hex_token()
     await service._store_token(token, photo_id, 1, datetime.now(timezone.utc) + timedelta(seconds=3600))
 
     file_resp = await client.get(
@@ -1152,7 +1152,7 @@ async def test_photo_file_meta_token_heic_full_pipeline(client, db_session, admi
 
     # Générer un token Meta
     service = MediaPublishService(db_session)
-    token = service._create_signed_token(photo_id=photo_id, user_id=1, expires_in_seconds=3600)
+    token = service._create_hex_token()
     await service._store_token(token, photo_id, 1, datetime.now(timezone.utc) + timedelta(seconds=3600))
 
     # Meta récupère le média avec le token (sans session cookies)
@@ -1178,18 +1178,29 @@ async def test_photo_file_meta_token_heic_full_pipeline(client, db_session, admi
 
 
 @pytest.mark.asyncio
-async def test_photo_file_meta_token_no_token_public_photo(client, db_session, admin_headers):
-    """Sans meta_token, une photo publique reste accessible (comportement attendu)."""
+async def test_photo_file_meta_token_no_token_requires_auth(client, db_session, admin_headers):
+    """Sans meta_token, l'endpoint requiert une authentification standard."""
     response = await upload_photo(client, admin_headers, make_image_bytes(), filename="test.jpg")
     assert response.status_code == 201, response.text
     photo_id = response.json()["items"][0]["id"]
     await drain_jobs(db_session)
 
-    # Sans token Meta ET sans auth session, une photo publique est accessible
+    # Sans token Meta ET sans auth, l'accès est refusé (401).
+    # Le client porte le cookie access_token posé par le login du fixture :
+    # on le vide pour que la requête soit réellement anonyme.
+    client.cookies.clear()
     file_resp = await client.get(
         f"/photos/{photo_id}/file",
         params={"size": "original"},
         headers={},
     )
-    assert file_resp.status_code == 200, f"Photo publique devrait être accessible: {file_resp.text}"
+    assert file_resp.status_code == 401
+
+    # Avec auth admin, ça fonctionne
+    file_resp = await client.get(
+        f"/photos/{photo_id}/file",
+        params={"size": "original"},
+        headers=admin_headers,
+    )
+    assert file_resp.status_code == 200
     assert file_resp.headers["content-type"] == "image/jpeg"

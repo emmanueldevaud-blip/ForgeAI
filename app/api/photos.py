@@ -1,6 +1,7 @@
 """API REST du module Photos."""
 
 import logging
+import os
 import urllib.parse
 from pathlib import Path
 from typing import List, Optional
@@ -12,6 +13,7 @@ from fastapi import (
     File,
     HTTPException,
     Query,
+    Request,
     UploadFile,
     status,
 )
@@ -94,6 +96,67 @@ router = APIRouter(
     tags=["photos"],
     dependencies=[Depends(require_module_enabled("photos"))],
 )
+
+# Router public pour les endpoints accessibles sans auth standard (ex: meta_token pour Instagram)
+public_router = APIRouter(
+    prefix="/photos",
+    tags=["photos"],
+)
+
+
+async def _get_auth_for_photo_file(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+) -> tuple[Optional[str], Optional[dict], Optional[User]]:
+    """Dependency pour l'endpoint /photos/{id}/file.
+    
+    Permet l'accès soit par meta_token (publication Instagram, sans auth standard)
+    soit par authentification standard (avec header Authorization).
+    
+    Returns:
+        tuple: (meta_token, validation, current_user) - validation is None for standard auth
+    """
+    # Extraire meta_token des query params
+    meta_token = request.query_params.get("meta_token")
+    if meta_token:
+        # Validation du token Meta
+        from app.services.sport_media_publish import MediaPublishService
+        media_service = MediaPublishService(db)
+        validation = await media_service.validate_media_token(meta_token)
+        if not validation:
+            raise HTTPException(status_code=403, detail="Token d'acces media invalide ou expire")
+        return meta_token, validation, None
+    
+    # Authentification standard
+    from app.api.deps import oauth2_scheme, get_current_user
+    from app.services.rbac import RBACService
+    
+    # Extraire le token Bearer
+    token = await oauth2_scheme(request)
+    if not token:
+        token = request.cookies.get("access_token")
+    
+    if not token:
+        raise HTTPException(status_code=401, detail="Non authentifie")
+    
+    # Valider le token et récupérer l'utilisateur
+    try:
+        current_user = await get_current_user(request=request, token=token, db=db)
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(status_code=401, detail="Non authentifie")
+    
+    if not current_user.is_active:
+        raise HTTPException(status_code=403, detail="Compte désactivé")
+    
+    # Vérifier la permission photos.view
+    rbac = RBACService(db)
+    has_perm = await rbac.user_has_permission(current_user, "photos.view")
+    if not has_perm:
+        raise HTTPException(status_code=403, detail="Permission refusée")
+    
+    return None, None, current_user
 
 
 # ================================ Dépendances ================================
@@ -994,59 +1057,74 @@ async def delete_photo(
         _raise_not_found()
 
 
-@router.get("/{photo_id}/file")
+@public_router.get("/{photo_id}/file")
 async def get_photo_file(
     photo_id: int,
     size: str = Query("small", max_length=20),
     download: bool = Query(False),
-    meta_token: Optional[str] = Query(None, alias="meta_token"),
     *,
-    service: PhotoService = Depends(_service),
+    auth: tuple[Optional[str], Optional[dict], Optional[User]] = Depends(_get_auth_for_photo_file),
     db: AsyncSession = Depends(get_db),
     background_tasks: BackgroundTasks,
 ):
-    """Récupère le fichier d'une photo.
+    """Recupere le fichier d'une photo.
     
     Si un meta_token est fourni (publication Instagram), valide le jeton
-    et convertit les HEIC/HEIF en JPEG à la volée pour Meta.
+    et convertit les HEIC/HEIF en JPEG a la volee pour Meta.
+    Sinon, requiert une authentification standard.
     """
+    import uuid
+    correlation_id = str(uuid.uuid4())[:8]
     logger = logging.getLogger(__name__)
-    print(f"DEBUG get_photo_file: START photo_id={photo_id}, meta_token_present={meta_token is not None}", flush=True)
-    print(f"DEBUG get_photo_file: meta_token={meta_token[:50] if meta_token else None}...", flush=True)
-    raise RuntimeError(f"DEBUG: get_photo_file called with photo_id={photo_id}, meta_token present={meta_token is not None}")
-    raise RuntimeError(f"DEBUG: get_photo_file called with photo_id={photo_id}, meta_token present={meta_token is not None}")
-    raise RuntimeError(f"DEBUG: get_photo_file called with photo_id={photo_id}, meta_token present={meta_token is not None}")
-
-    # Si un token Meta est fourni, le valider sans exiger la permission photos.view
-    print(f"DEBUG get_photo_file: about to validate meta_token: {meta_token[:50] if meta_token else None}...", flush=True)
-    validation = None
+    
+    meta_token, validation, current_user = auth
+    
+    logger.info("get_photo_file: correlation_id=%s, photo_id=%s, meta_token_present=%s, current_user=%s", correlation_id, photo_id, meta_token is not None, current_user.id if current_user else None)
+    
     if meta_token:
-        media_service = MediaPublishService(db)
-        validation = await media_service.validate_media_token(meta_token)
-        logger.warning(f"DEBUG get_photo_file: validation result={validation}")
-        print(f"DEBUG get_photo_file: validation result={validation}", flush=True)
         if not validation:
-            raise HTTPException(status_code=403, detail="Token d'accès média invalide ou expiré")
+            logger.warning("get_photo_file: correlation_id=%s, token validation FAILED", correlation_id)
+            raise HTTPException(status_code=403, detail="Token d'acces media invalide ou expire")
         if validation["photo_id"] != photo_id:
+            logger.warning("get_photo_file: correlation_id=%s, token photo_id MISMATCH: token=%s, request=%s", correlation_id, validation["photo_id"], photo_id)
             raise HTTPException(status_code=403, detail="Token invalide pour cette photo")
+        logger.info("get_photo_file: correlation_id=%s, token validation SUCCESS: photo_id=%s, user_id=%s", correlation_id, validation["photo_id"], validation["user_id"])
+        # Token already consumed by dependency, just commit
+        await db.commit()
+        use_public_resolver = True
     else:
-        # Vérification standard des permissions
-        _ = Depends(_service)  # force l'évaluation de la dépendance pour la permission
+        # Standard authentication - current_user is already validated by require_permission
+        use_public_resolver = False
+    
+    # Get photo service for file resolution
+    from app.services.photo.service import PhotoService
+    from app.services.audit import get_audit_service
+    
+    audit = await get_audit_service(db)
+    service = PhotoService(db, current_user=current_user, audit=audit)
 
     try:
-        path, filename, media_type = await service.resolve_file(photo_id, size)
+        if use_public_resolver:
+            # Use public resolver for Meta token access (no ownership check)
+            path, filename, media_type = await service.resolve_file_public(photo_id, size)
+        else:
+            path, filename, media_type = await service.resolve_file(photo_id, size)
+        logger.info("get_photo_file: correlation_id=%s, file resolved: path_exists=%s, filename=%s, media_type=%s", correlation_id, os.path.exists(path) if path else False, filename, media_type)
     except PhotoNotFound:
+        logger.error("get_photo_file: correlation_id=%s, PhotoNotFound", correlation_id)
         _raise_not_found()
     except PhotoServiceError as exc:
+        logger.error("get_photo_file: correlation_id=%s, PhotoServiceError: %s", correlation_id, exc.message)
         raise HTTPException(status_code=exc.status_code, detail=exc.message) from None
 
     # Si un token Meta est fourni et que le fichier est HEIC/HEIF,
-    # convertir en JPEG à la volée pour Instagram (Meta n'accepte pas le HEIC)
+    # convertir en JPEG a la volee pour Instagram (Meta n'accepte pas le HEIC)
     converted_path: Optional[Path] = None
     if meta_token and validation:
         result = await db.execute(select(Photo).where(Photo.id == photo_id))
         photo = result.scalar_one_or_none()
         if photo and photo.mime_type.lower() in ("image/heic", "image/heif"):
+            logger.info("get_photo_file: correlation_id=%s, HEIC/HEIF detected, converting to JPEG", correlation_id)
             media_service = MediaPublishService(db)
             try:
                 converted_path = await media_service.convert_heic_to_jpeg_if_needed(path)
@@ -1059,7 +1137,7 @@ async def get_photo_file(
                         photo_id, photo_id,
                     )
                 else:
-                    # Conversion non effectuée (pas HEIC ou échec) : servir tel quel
+                    # Conversion non effectuee (pas HEIC ou echec) : servir tel quel
                     logger.warning(
                         "Meta media conversion skipped: photo_id=%s, mime_type=%s",
                         photo_id, photo.mime_type,
@@ -1071,9 +1149,10 @@ async def get_photo_file(
                 )
                 raise HTTPException(
                     status_code=500,
-                    detail="Erreur de conversion du média pour Instagram",
+                    detail="Erreur de conversion du media pour Instagram",
                 )
 
+    logger.info("get_photo_file: correlation_id=%s, SERVING FILE: media_type=%s, filename=%s", correlation_id, media_type, filename)
     headers = {
         "Cache-Control": "private, max-age=86400",
         "Content-Disposition": _content_disposition(filename, download=download),
@@ -1306,8 +1385,6 @@ async def remove_photo_tag(
         raise HTTPException(status_code=404, detail="Tag absent de la photo")
     return MessageResponse(message="Tag retiré")
 
-
-# ================================ Helpers ================================
 
 async def _detail_or_404(service: PhotoService, photo_id: int) -> dict:
     try:

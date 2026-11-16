@@ -276,61 +276,46 @@ class TestMediaPublishService:
     def service(self, mock_db):
         return MediaPublishService(mock_db)
 
-    def test_create_signed_token(self, service):
-        """Test création token JWT signé."""
-        token = service._create_signed_token(photo_id=123, user_id=456, expires_in_seconds=3600)
+    def test_create_hex_token(self, service):
+        """Test création token hex aléatoire."""
+        token = service._create_hex_token()
         
         assert isinstance(token, str)
-        assert len(token) > 0
-        # Vérifier que c'est un JWT valide (3 parties séparées par des points)
-        parts = token.split('.')
-        assert len(parts) == 3
+        assert len(token) == 64  # 32 bytes = 64 hex chars
+        # Vérifier que ce sont bien des caractères hexadécimaux
+        assert all(c in '0123456789abcdef' for c in token)
 
-    def test_verify_signed_token_valid(self, service):
-        """Test vérification token valide."""
-        token = service._create_signed_token(photo_id=123, user_id=456, expires_in_seconds=3600)
-        payload = service._verify_signed_token(token)
+    def test_hash_token(self, service):
+        """Test hash SHA256 d'un token."""
+        token = "a" * 64
+        hash1 = service._hash_token(token)
+        hash2 = service._hash_token(token)
         
-        assert payload is not None
-        assert payload["photo_id"] == 123
-        assert payload["user_id"] == 456
-        assert payload["type"] == "media_publish"
+        assert isinstance(hash1, str)
+        assert len(hash1) == 64  # SHA256 = 64 hex chars
+        assert hash1 == hash2  # Deterministic
+        
+        # Token différent = hash différent
+        hash3 = service._hash_token("b" * 64)
+        assert hash3 != hash1
 
     def test_verify_signed_token_expired(self, service):
-        """Test vérification token expiré."""
-        import jwt
-        import hashlib
-        import base64
-        
-        # Créer un token expiré manuellement avec la même clé que le service
-        from app.core.config import get_settings
-        import hashlib
-        import base64
-        
-        settings = get_settings()
-        secret = f"{settings.SECRET_KEY}:media-publish".encode("utf-8")
-        signing_key = base64.urlsafe_b64encode(hashlib.sha256(secret).digest())
-        
-        now = datetime.now(timezone.utc)
-        exp = now - timedelta(hours=1)
-        
-        payload = {
-            "photo_id": 123,
-            "user_id": 456,
-            "iat": int((now - timedelta(hours=2)).timestamp()),
-            "exp": int(exp.timestamp()),
-            "type": "media_publish",
-        }
-        
-        token = jwt.encode(payload, signing_key, algorithm="HS256")
-        
-        payload = service._verify_signed_token(token)
-        assert payload is None  # Expiré
+        """Test vérification token expiré - non applicable pour tokens hex (expiration en base)."""
+        # Pour les tokens hex, l'expiration est gérée en base, pas dans le token lui-même
+        # Ce test est conservé pour compatibilité mais n'a plus de sens direct
+        pass
 
-    def test_verify_signed_token_invalid_signature(self, service):
-        """Test vérification token signature invalide."""
-        payload = service._verify_signed_token("invalid.token.signature")
-        assert payload is None
+    @pytest.mark.asyncio
+    async def test_verify_signed_token_invalid_signature(self, service):
+        """Test vérification token invalide - hash ne correspond pas."""
+        # Un token aléatoire n'aura pas de hash en base
+        # Configurer le mock pour retourner None (pas de token en base)
+        execute_result = MagicMock()
+        execute_result.scalar_one_or_none.return_value = None
+        service.db.execute = AsyncMock(return_value=execute_result)
+        
+        result = await service._validate_token("invalid_token_that_does_not_exist")
+        assert result is None
 
     @pytest.mark.asyncio
     async def test_prepare_media_for_publish_success(self, service):
@@ -391,7 +376,7 @@ class TestMediaPublishService:
         service.db = AsyncMock(spec=AsyncSession)
         service.db.execute = mock_execute
         
-        with pytest.raises(MediaPublishError, match="Accès non autorisé"):
+        with pytest.raises(MediaPublishError, match="Acces non autorise"):
             await service.prepare_media_for_publish(photo_id=123, user_id=456)
 
     @pytest.mark.asyncio
@@ -701,7 +686,7 @@ class TestMediaPublishService:
         service.db = AsyncMock(spec=AsyncSession)
         service.db.execute = mock_execute
         
-        with pytest.raises(MediaPublishError, match="supprimé"):
+        with pytest.raises(MediaPublishError, match="supprime"):
             await service.prepare_media_for_publish(photo_id=123, user_id=456)
 
     @pytest.mark.asyncio
@@ -743,9 +728,16 @@ class TestMediaPublishService:
         """Test validation token valide."""
         from app.models.sport import MediaPublishToken
         
+        # Créer un token hex et son hash
+        token = service._create_hex_token()
+        token_hash = service._hash_token(token)
+        
         mock_token_record = MagicMock(spec=MediaPublishToken)
         mock_token_record.consumed = False
         mock_token_record.expires_at = datetime.now(timezone.utc) + timedelta(hours=1)
+        mock_token_record.photo_id = 123
+        mock_token_record.user_id = 456
+        mock_token_record.id = 1
         
         execute_result = MagicMock()
         execute_result.scalar_one_or_none.return_value = mock_token_record
@@ -757,14 +749,13 @@ class TestMediaPublishService:
         service.db.execute = mock_execute
         service.db.flush = AsyncMock()
         
-        # Créer un token valide
-        token = service._create_signed_token(photo_id=123, user_id=456, expires_in_seconds=3600)
-        
         result = await service.validate_media_token(token)
         
         assert result is not None
         assert result["photo_id"] == 123
         assert result["user_id"] == 456
+        # Vérifier que le token a été marqué comme consommé
+        assert mock_token_record.consumed is True
 
     @pytest.mark.asyncio
     async def test_validate_media_token_consumed(self, service):

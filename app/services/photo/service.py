@@ -980,6 +980,45 @@ class PhotoService:
             raise PhotoServiceError("Miniature manquante sur le disque", 404)
         return path, f"{photo.id}-{size}.jpg", "image/jpeg"
 
+    async def resolve_file_public(
+        self, photo_id: int, size: str = "small"
+    ) -> tuple[Path, str, str]:
+        """Résout un fichier sans vérification de propriété (pour accès via token Meta)."""
+        photo = await self.db.get(Photo, photo_id)
+        if photo is None:
+            raise PhotoNotFound()
+        if photo.is_deleted:
+            raise PhotoNotFound()
+        if size == "original":
+            try:
+                path = self.storage.backend_for_photo(photo).original_path(
+                    photo.storage_path
+                )
+            except PhotoStorageError as exc:
+                raise PhotoServiceError(
+                    "Original inaccessible (backend de stockage non configuré)", 404
+                ) from exc
+            if not path.is_file():
+                raise PhotoServiceError("Fichier original introuvable", 404)
+            return path, photo.original_filename, photo.mime_type
+
+        thumb = (
+            await self.db.execute(
+                select(PhotoThumbnail).where(
+                    PhotoThumbnail.photo_id == photo.id,
+                    PhotoThumbnail.size == size,
+                )
+            )
+        ).scalar_one_or_none()
+        if thumb is None:
+            raise PhotoServiceError(
+                "Miniature indisponible (import en cours de traitement)", 404
+            )
+        path = self.storage.thumbnail_path(thumb.storage_path)
+        if not path.is_file():
+            raise PhotoServiceError("Miniature manquante sur le disque", 404)
+        return path, f"{photo.id}-{size}.jpg", "image/jpeg"
+
     async def resolve_edit_file(self, photo_id: int, edit_id: int) -> tuple[Path, str, str]:
         photo = await self._get_owned(photo_id)
         edit = await self.db.get(PhotoEdit, edit_id)

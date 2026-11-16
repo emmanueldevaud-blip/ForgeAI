@@ -378,7 +378,7 @@ export class CommunityManagerCalendarPage {
     const color = CONTENT_TYPE_COLORS[entry.content_type] || '#6b7280';
     const statusColor = STATUS_COLORS[entry.status] || '#6b7280';
     const isSuggestion = entry.source === 'suggestion';
-    const topic = this._escape(entry.topic || '');
+    const topic = this._escape(entry.pub_title || entry.topic || '');
     const isShared = entry.pub_status === 'shared';
     const publishedClass = isShared ? ' cal-entry--published' : '';
     const deleteBtn = !isShared ? `

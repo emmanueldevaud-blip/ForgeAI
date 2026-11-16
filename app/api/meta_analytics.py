@@ -750,7 +750,7 @@ async def recommendation_to_calendar(
         objective=None,
         notes=f"Recommandation IA Meta Analytics: {rec.rationale or rec.description}",
         hashtags=None,
-        status="draft",
+        status="brouillon",
         content_type="manuel",
         source="meta_analytics",
     )

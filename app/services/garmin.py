@@ -188,7 +188,7 @@ class SportGarminConnectService:
                 objective=None,
                 notes=f"Générée automatiquement depuis l'activité Garmin {activity.external_id}.",
                 hashtags=None,
-                status="draft",
+                status="brouillon",
                 content_type="publication_sportive",
                 source="garmin",
                 source_activity_id=activity.id,

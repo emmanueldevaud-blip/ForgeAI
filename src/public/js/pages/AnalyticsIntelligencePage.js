@@ -256,7 +256,7 @@ export class AnalyticsIntelligencePage {
   // ===================================================================== #
   // Instagram
   // ===================================================================== #
-  async _renderInstagram() {
+  _renderInstagram() {
     if (this.data.instagram === null && !this.data.instagramMedia.length) {
       return this._renderEmpty('Aucune donn\u00e9e Instagram. Cliquez sur Synchroniser.');
     }
@@ -301,7 +301,7 @@ export class AnalyticsIntelligencePage {
   // ===================================================================== #
   // Facebook
   // ===================================================================== #
-  async _renderFacebook() {
+  _renderFacebook() {
     if (this.data.facebook === null && !this.data.facebookPosts.length) {
       return this._renderEmpty('Aucune donn\u00e9e Facebook. La Page doit \u00eatre accessible via /me/accounts (jeton SUAT avec t\u00e2ches Page).');
     }
@@ -344,7 +344,7 @@ export class AnalyticsIntelligencePage {
   // ===================================================================== #
   // Performance editoriale
   // ===================================================================== #
-  async _renderPerformance() {
+  _renderPerformance() {
     const perf = this.data.performance;
     if (!perf || !perf.data) return this._renderEmpty('Aucune performance editoriale calcul\u00e9e.');
 
@@ -394,7 +394,7 @@ export class AnalyticsIntelligencePage {
   // ===================================================================== #
   // IA
   // ===================================================================== #
-  async _renderAI() {
+  _renderAI() {
     return `
       <div class="card" style="margin-bottom:16px;">
         <div class="card-header"><div><span class="eyebrow">Analyse IA editoriale</span><p class="text-muted">Utilise le routage IA existant de ForgeAI (aucune donn\u00e9e invent\u00e9e).</p></div></div>
@@ -450,7 +450,7 @@ export class AnalyticsIntelligencePage {
   // ===================================================================== #
   // Historique et rapports
   // ===================================================================== #
-  async _renderHistory() {
+  _renderHistory() {
     return `
       <div class="card" style="margin-bottom:16px;">
         <div class="card-header"><div><span class="eyebrow">Historique des synchronisations</span><p class="text-muted">Traces d'ex\u00e9cution, erreurs et relances.</p></div></div>

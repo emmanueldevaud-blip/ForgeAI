@@ -45,12 +45,12 @@ def upgrade() -> None:
     if "human_validation_required" not in existing:
         op.add_column(
             "community_manager_strategies",
-            sa.Column("human_validation_required", sa.Boolean(), nullable=False, server_default="true"),
+            sa.Column("human_validation_required", sa.Boolean(), nullable=False, server_default="1"),
         )
     if "auto_publish" not in existing:
         op.add_column(
             "community_manager_strategies",
-            sa.Column("auto_publish", sa.Boolean(), nullable=False, server_default="false"),
+            sa.Column("auto_publish", sa.Boolean(), nullable=False, server_default="0"),
         )
 
 

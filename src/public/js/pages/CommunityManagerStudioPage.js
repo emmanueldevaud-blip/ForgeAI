@@ -11,6 +11,7 @@ import {
   updateStudioDraft,
   validateStudioDraft,
   publishStudioDraft,
+  previewStudioDraft,
   regeneratePublicationContent,
   getSuggestedPhotos,
   refuseSuggestion,
@@ -50,6 +51,9 @@ export class CommunityManagerStudioPage {
     this.captionLength = 0;
     this.captionOverLimit = false;
     this.showShorten = false;
+    this.previewOpen = false;
+    this.previewHtml = '';
+    this.previewLoading = false;
   }
 
   async initialize() {
@@ -161,6 +165,9 @@ export class CommunityManagerStudioPage {
 
         <div class="cm-studio-actions">
           <button class="btn btn-secondary" data-action="back">Annuler</button>
+          <button class="btn btn-secondary" data-action="preview" ${this.previewLoading ? 'disabled' : ''}>
+            ${this.previewLoading ? 'Chargement…' : 'Aperçu'}
+          </button>
           <button class="btn btn-primary" data-action="save" ${pub?.status === 'shared' ? 'disabled' : ''}>
             ${this.saving ? 'Enregistrement…' : 'Enregistrer'}
           </button>
@@ -193,6 +200,17 @@ export class CommunityManagerStudioPage {
       </div>
 
       ${this.success ? `<div class="cm-studio-success">${this._escape(this.success)}</div>` : ''}
+
+      ${this.previewOpen ? `
+        <div class="cm-studio-preview-overlay" data-action="close-preview">
+          <div class="cm-studio-preview-modal">
+            <div class="cm-studio-preview-header">
+              <span>Aperçu de la publication</span>
+              <button class="btn btn-secondary btn-small" data-action="close-preview">Fermer</button>
+            </div>
+            <div class="cm-studio-preview-body">${this.previewHtml}</div>
+          </div>
+        </div>` : ''}
     `;
 
     this._bindEvents();
@@ -387,6 +405,39 @@ export class CommunityManagerStudioPage {
     }
   }
 
+  async _openPreview() {
+    if (this.previewLoading) return;
+    this.previewLoading = true;
+    this.error = null;
+    this.render();
+    try {
+      // Sauvegarder le contenu actuel avant l'aperçu pour refléter les modifications en cours
+      const form = this.element.querySelector('[data-form="studio-edit"]');
+      if (form) {
+        const data = {
+          title: form.elements.title.value,
+          content: form.elements.content.value,
+          hashtags: form.elements.hashtags.value,
+        };
+        await updateStudioDraft(this.publicationId, data);
+        this.publication = await getStudioDraft(this.publicationId);
+      }
+      const res = await previewStudioDraft(this.publicationId, 'feed');
+      this.previewHtml = res?.preview_html || '';
+      this.previewOpen = true;
+    } catch (error) {
+      this.error = error?.data?.detail || error?.message || 'Erreur lors de la génération de l’aperçu';
+    } finally {
+      this.previewLoading = false;
+      this.render();
+    }
+  }
+
+  _closePreview() {
+    this.previewOpen = false;
+    this.render();
+  }
+
   _bindEvents() {
     // « Annuler » (et « Retour » sur l'écran d'erreur) : abandonne les
     // modifications non enregistrées et quitte le Studio.
@@ -495,6 +546,16 @@ export class CommunityManagerStudioPage {
     if (refuseBtn) {
       refuseBtn.addEventListener('click', () => this._refuseSuggestion());
     }
+
+    const previewBtn = this.element.querySelector('[data-action="preview"]');
+    if (previewBtn) previewBtn.addEventListener('click', () => this._openPreview());
+
+    this.element.querySelectorAll('[data-action="close-preview"]').forEach(el => {
+      el.addEventListener('click', (e) => {
+        if (e.currentTarget !== e.target && !e.currentTarget.classList.contains('btn')) return;
+        this._closePreview();
+      });
+    });
 
     const showShortenBtn = this.element.querySelector('[data-action="show-shorten"]');
     if (showShortenBtn) {

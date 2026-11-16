@@ -11418,3 +11418,45 @@
 .am-tab--active { color:#1877f2; border-bottom-color:#1877f2; background:rgba(24,119,242,.06); }
 .am-tab-panels { padding:0 16px 24px; }
 .am-empty { border:1px dashed #ddd; border-radius:8px; background:#fafafa; }
+
+/* Aperçu Studio (prévisualisation publication) */
+.cm-studio-preview-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 2000;
+  background: rgba(15, 23, 42, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+.cm-studio-preview-modal {
+  width: 100%;
+  max-width: 560px;
+  max-height: 90vh;
+  background: #fff;
+  border-radius: 12px;
+  box-shadow: 0 20px 50px rgba(0,0,0,0.25);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.cm-studio-preview-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 16px;
+  border-bottom: 1px solid #e5e7eb;
+  font-weight: 600;
+}
+.cm-studio-preview-body {
+  padding: 16px;
+  overflow: auto;
+  background: #f3f4f6;
+  display: flex;
+  justify-content: center;
+}
+.cm-studio-preview-body > div {
+  max-width: 100%;
+}

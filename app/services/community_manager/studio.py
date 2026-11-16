@@ -2,8 +2,12 @@
 
 import json
 import logging
+import os
+import random
 import re
+import tempfile
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, Optional
 
 from sqlalchemy import select
@@ -79,6 +83,160 @@ def _extract_stats_html(content: str) -> str:
     
     stats_html = "".join(f'<span style="background: #f0f0f0; padding: 4px 8px; border-radius: 4px; font-size: 12px; font-weight: 500;">{s}</span>' for s in stats)
     return f'<div style="display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 8px;">{stats_html}</div>'
+
+
+# --- Publications sportives : overlay stats + audio ---
+
+SPORT_MUSIC_TRACKS = [
+    "calm-piano.mp3",
+    "city-sunshine.mp3",
+    "happy-ukulele.mp3",
+    "infinite-peace.mp3",
+    "lovely-piano.mp3",
+    "mysterious-lights.mp3",
+    "nomadic-sunset.mp3",
+    "nostalgia-piano.mp3",
+    "space-ambience.mp3",
+]
+
+# Catégories simples pour un choix "intelligent" (heuristique) + aléatoire
+_SPORT_MUSIC_ENERGETIC = ["city-sunshine.mp3", "happy-ukulele.mp3", "mysterious-lights.mp3"]
+_SPORT_MUSIC_CALM = ["calm-piano.mp3", "infinite-peace.mp3", "lovely-piano.mp3", "nostalgia-piano.mp3", "space-ambience.mp3", "nomadic-sunset.mp3"]
+
+
+def _is_sport_publication(pub: SportPublication) -> bool:
+    entry = getattr(pub, "calendar_entry", None)
+    if getattr(pub, "source", None) == "garmin":
+        return True
+    if getattr(pub, "content_type", None) == "publication_sportive":
+        return True
+    if getattr(pub, "activity_id", None):
+        # activité liée => publication sportive Garmin
+        return True
+    if entry is not None:
+        if getattr(entry, "source", None) == "garmin":
+            return True
+        if getattr(entry, "content_type", None) == "publication_sportive":
+            return True
+        if getattr(entry, "source_activity_id", None):
+            return True
+    return False
+
+
+def _format_duration(seconds: int | None) -> str | None:
+    if not seconds:
+        return None
+    seconds = int(seconds)
+    h, rem = divmod(seconds, 3600)
+    m = rem // 60
+    if h:
+        return f"{h}h{m:02d}"
+    return f"{m} min"
+
+
+def _sport_stats_from_activity(activity: SportActivity | None) -> dict[str, str]:
+    if activity is None:
+        return {}
+    stats: dict[str, str] = {}
+    if getattr(activity, "distance_m", None) is not None:
+        stats["distance"] = f"{activity.distance_m / 1000:.1f} km"
+    if getattr(activity, "elevation_gain_m", None) is not None:
+        stats["denivele"] = f"{int(activity.elevation_gain_m)} m D+"
+    dur = _format_duration(getattr(activity, "duration_seconds", None))
+    if dur:
+        stats["duree"] = dur
+    return stats
+
+
+def pick_sport_music(activity: SportActivity | None) -> str:
+    """Choix 'intelligent' (heuristique) + aléatoire d'une piste audio."""
+    pool = SPORT_MUSIC_TRACKS
+    if activity is not None:
+        dist_km = (activity.distance_m or 0) / 1000 if getattr(activity, "distance_m", None) else 0
+        elev = getattr(activity, "elevation_gain_m", None) or 0
+        dur = getattr(activity, "duration_seconds", None) or 0
+        # Sorties longues/intenses -> pistes plus énergiques, sinon calmes
+        if dist_km >= 15 or elev >= 500 or dur >= 5400:
+            pool = _SPORT_MUSIC_ENERGETIC
+        else:
+            pool = _SPORT_MUSIC_CALM
+    return random.choice(pool)
+
+
+def render_sport_overlay_image(photo_path: str, stats: dict[str, str], out_path: str) -> str | None:
+    """Dessine durée, dénivelé et kilomètres sur la photo. Retourne out_path ou None."""
+    try:
+        from PIL import Image, ImageDraw, ImageFont, ImageOps
+    except Exception:
+        return None
+    if not stats:
+        return None
+    try:
+        with Image.open(photo_path) as src:
+            img = ImageOps.exif_transpose(src).convert("RGBA")
+        w, h = img.size
+        overlay = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+        draw = ImageDraw.Draw(overlay)
+
+        # Bandeau bas semi-transparent
+        band_h = max(int(h * 0.16), 140)
+        y0 = h - band_h
+        draw.rectangle([(0, y0), (w, h)], fill=(0, 0, 0, 150))
+
+        # Police
+        def load_font(size):
+            for path in (
+                "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+                "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+            ):
+                try:
+                    return ImageFont.truetype(path, size)
+                except Exception:
+                    continue
+            return ImageFont.load_default()
+
+        font_label = load_font(max(int(h * 0.022), 18))
+        font_value = load_font(max(int(h * 0.045), 30))
+
+        items = []
+        if "duree" in stats:
+            items.append(("DURÉE", stats["duree"]))
+        if "denivele" in stats:
+            items.append(("DÉNIVELÉ", stats["denivele"]))
+        if "distance" in stats:
+            items.append(("DISTANCE", stats["distance"]))
+        if not items:
+            return None
+
+        n = len(items)
+        col_w = w / n
+        for i, (label, value) in enumerate(items):
+            cx = int(col_w * i + col_w / 2)
+            # label
+            try:
+                lb = draw.textbbox((0, 0), label, font=font_label)
+                lw = lb[2] - lb[0]
+            except Exception:
+                lw = len(label) * 8
+            try:
+                vb = draw.textbbox((0, 0), value, font=font_value)
+                vw = vb[2] - vb[0]
+                vh = vb[3] - vb[1]
+            except Exception:
+                vw = len(value) * 14
+                vh = 30
+            ly = y0 + int(band_h * 0.18)
+            vy = y0 + int(band_h * 0.45)
+            draw.text((cx - lw / 2, ly), label, fill=(220, 220, 220, 255), font=font_label)
+            draw.text((cx - vw / 2, vy), value, fill=(255, 255, 255, 255), font=font_value)
+
+        out = Image.alpha_composite(img, overlay).convert("RGB")
+        Path(out_path).parent.mkdir(parents=True, exist_ok=True)
+        out.save(out_path, format="JPEG", quality=92, optimize=True)
+        return out_path
+    except Exception:
+        logger.exception("[CM-STUDIO] Overlay stats sport impossible")
+        return None
 
 
 class CommunityManagerStudioService:
@@ -652,9 +810,15 @@ class CommunityManagerStudioService:
             )
             pub.calendar_entry = entry_result.scalar_one_or_none()
 
+        # Publications sportives : appliquer overlay stats (durée, dénivelé, km) et choisir audio
+        if _is_sport_publication(pub):
+            pub = await self._ensure_sport_defaults(pub)
+            await self.db.commit()
+            await self.db.refresh(pub)
+
         # Rendu HTML simple pour prévisualisation
-        content = pub.content or ""
-        hashtags = pub.hashtags or ""
+        content = clean_caption_text(pub.content) or ""
+        hashtags = clean_hashtags(pub.hashtags) or ""
         title = pub.title or ""
         photo_url = None
         if pub.photo_id:
@@ -746,6 +910,129 @@ class CommunityManagerStudioService:
             "format": format,
         }
 
+    async def _get_publication_with_context(self, publication_id: int) -> Optional[SportPublication]:
+        pub = await self.pub_service.get_publication(publication_id)
+        if not pub:
+            return None
+        if pub.calendar_entry_id:
+            entry_result = await self.db.execute(
+                select(EditorialCalendarEntry).where(
+                    EditorialCalendarEntry.id == pub.calendar_entry_id
+                )
+            )
+            pub.calendar_entry = entry_result.scalar_one_or_none()
+        return pub
+
+    async def _get_activity_for_publication(self, pub: SportPublication) -> SportActivity | None:
+        if pub.activity_id:
+            return await self.db.get(SportActivity, pub.activity_id)
+        entry = getattr(pub, "calendar_entry", None)
+        if entry and getattr(entry, "source_activity_id", None):
+            return await self.db.get(SportActivity, entry.source_activity_id)
+        return None
+
+    async def _ensure_sport_defaults(self, pub: SportPublication) -> SportPublication:
+        """Pour les publications sportives : overlay stats sur la photo + choix audio (intelligent/aléatoire)."""
+        if not _is_sport_publication(pub):
+            return pub
+
+        activity = await self._get_activity_for_publication(pub)
+        stats = _sport_stats_from_activity(activity)
+
+        # Overlay stats sur la photo (durée, dénivelé, km) - appliqué systématiquement
+        if pub.photo_id and stats:
+            try:
+                from app.services.photo.service import PhotoService
+                photo_service = PhotoService(self.db, self.current_user)
+                photo = await photo_service._get_owned(pub.photo_id, include_deleted=True)
+                storage = photo_service.storage
+                src_path = storage.backend_for_photo(photo).original_path(photo.storage_path)
+                if src_path and Path(src_path).is_file():
+                    # Éviter de ré-appliquer si déjà un overlay sport généré pour cette photo/stats
+                    design = pub.design if isinstance(pub.design, dict) else {}
+                    sport_meta = design.get("sport_overlay") or {}
+                    signature = f"{pub.photo_id}:{stats.get('duree')}:{stats.get('denivele')}:{stats.get('distance')}"
+                    if sport_meta.get("signature") != signature or not sport_meta.get("overlay_photo_id"):
+                        with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as tmp:
+                            tmp_path = tmp.name
+                        out = render_sport_overlay_image(str(src_path), stats, tmp_path)
+                        if out:
+                            try:
+                                data = Path(out).read_bytes()
+                                from app.core.config import get_settings
+                                settings = get_settings()
+                                # réutiliser la logique d'import simple (PhotoService ne permet pas d'injecter des bytes facilement)
+                                from app.services.photo.metadata import sniff_image_format_maybe
+                                from app.services.photo.storage import get_photo_storage
+                                from uuid import uuid4
+                                image_format = await sniff_image_format_maybe(data) or "jpeg"
+                                if image_format == "jpg":
+                                    image_format = "jpeg"
+                                mime_type = {"jpeg": "image/jpeg", "png": "image/png", "webp": "image/webp"}.get(image_format, "image/jpeg")
+                                photo_storage = get_photo_storage()
+                                backend = photo_storage.backend()
+                                rel = photo_storage.save_original(
+                                    self.current_user.id, uuid4().hex, f".{image_format}", data, backend.name
+                                )
+                                overlay_photo = Photo(
+                                    owner_id=self.current_user.id,
+                                    title=f"Overlay sport #{pub.id}",
+                                    original_filename=f"sport_overlay_{pub.id}.{image_format}",
+                                    storage_path=rel,
+                                    storage_backend=backend.name,
+                                    mime_type=mime_type,
+                                    byte_size=len(data),
+                                    taken_at=datetime.now(),
+                                    content_hash=photo_storage.hash_bytes(data),
+                                    status="ready",
+                                    analysis_status="pending",
+                                )
+                                self.db.add(overlay_photo)
+                                await self.db.flush()
+                                # remplacer la photo de publication par la version avec overlay
+                                pub.photo_id = overlay_photo.id
+                                design = dict(design)
+                                design["sport_overlay"] = {
+                                    "signature": signature,
+                                    "overlay_photo_id": overlay_photo.id,
+                                    "stats": stats,
+                                    "applied_at": datetime.now(timezone.utc).isoformat(),
+                                }
+                                pub.design = design
+                            finally:
+                                try:
+                                    os.unlink(out)
+                                except Exception:
+                                    pass
+                        else:
+                            try:
+                                os.unlink(tmp_path)
+                            except Exception:
+                                pass
+            except Exception:
+                logger.exception("[CM-STUDIO] Impossible d'appliquer l'overlay sport pour publication %s", pub.id)
+
+        # Audio choisi intelligemment (heuristique) et aléatoirement - stocké dans le design
+        try:
+            design = pub.design if isinstance(pub.design, dict) else {}
+            audio = design.get("audio") or {}
+            if not audio.get("track"):
+                track = pick_sport_music(activity)
+                audio = {
+                    "track": track,
+                    "url": f"/music/{track}",
+                    "chosen_at": datetime.now(timezone.utc).isoformat(),
+                    "strategy": "heuristic_random",
+                }
+                design = dict(design)
+                design["audio"] = audio
+                pub.design = design
+        except Exception:
+            logger.exception("[CM-STUDIO] Impossible de choisir l'audio sport pour publication %s", pub.id)
+
+        await self.db.flush()
+        return pub
+
     async def publish_to_instagram(
         self, publication_id: int, data: Any
     ) -> SportPublication:
@@ -756,6 +1043,16 @@ class CommunityManagerStudioService:
         pub = await self.pub_service.get_publication(publication_id)
         if not pub:
             raise ValueError("Publication introuvable")
+        # Charger le contexte calendrier pour détecter les publications sportives
+        if pub.calendar_entry_id:
+            entry_result = await self.db.execute(
+                select(EditorialCalendarEntry).where(
+                    EditorialCalendarEntry.id == pub.calendar_entry_id
+                )
+            )
+            pub.calendar_entry = entry_result.scalar_one_or_none()
+        # Publications sportives : overlay stats (durée, dénivelé, km) + audio choisi automatiquement
+        pub = await self._ensure_sport_defaults(pub)
 
         # Texte lisible : une réponse IA brute (JSON) ne doit jamais partir sur
         # Instagram. La correction est persistée par le commit ci-dessous.

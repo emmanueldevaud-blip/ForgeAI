@@ -84,6 +84,15 @@ export class CommunityManagerStudioPage {
     const isSuggestion = calendarEntry?.source === 'suggestion'
       || calendarEntry?.content_type === 'story_souvenir'
       || calendarEntry?.content_type === 'story_edito';
+    const isSportPublication = !isSuggestion && (
+      pub?.source === 'garmin'
+      || pub?.content_type === 'publication_sportive'
+      || !!pub?.activity_id
+      || !!calendarEntry?.source_activity_id
+      || calendarEntry?.source === 'garmin'
+      || calendarEntry?.content_type === 'publication_sportive'
+    );
+    this.isSportPublication = isSportPublication;
     const canPublish = pub && pub.status === 'validated' && pub.status !== 'shared' && pub.status !== 'refused' && pub.status !== 'failed' && pub.status !== 'publishing';
     const canValidate = pub && pub.status !== 'validated' && pub.status !== 'shared' && pub.status !== 'refused' && pub.status !== 'failed' && pub.status !== 'publishing';
 
@@ -133,9 +142,10 @@ export class CommunityManagerStudioPage {
             </button>
             ${photoUrl && !pub?.photo_locked && pub?.status !== 'shared' ? `
               <button class="btn btn-secondary btn-small" data-action="remove-photo">Retirer la photo</button>` : ''}
-            <button class="btn btn-secondary btn-small" data-action="regenerate" ${pub?.status === 'shared' ? 'disabled' : ''}>
-              ${pub?.error_message ? 'Régénérer le contenu' : 'Régénérer le visuel'}
-            </button>
+            ${!isSportPublication ? `
+              <button class="btn btn-secondary btn-small" data-action="regenerate" ${pub?.status === 'shared' ? 'disabled' : ''}>
+                ${pub?.error_message ? 'Régénérer le contenu' : 'Régénérer le visuel'}
+              </button>` : ''}
           </div>
           ${this.photoPickerOpen ? this._renderPhotoPicker() : ''}
         </div>

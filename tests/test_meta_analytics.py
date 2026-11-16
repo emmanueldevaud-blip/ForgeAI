@@ -177,3 +177,37 @@ def test_sync_run_account_id_nullable():
 
     run = MetaAnalyticsSyncRun(platform="instagram", status="started")
     assert run.account_id is None
+
+
+def test_instagram_meta_metrics_are_valid_for_current_api():
+    """Les champs/metres Meta demandes a l'API Graph doivent rester valides.
+
+    Meta a retire ou renomme certaines metriques (impressions, profile_views,
+    website_clicks, profile_visits, video_views) : toute demande invalide
+    (code 100) fait echouer la synchronisation Meta.
+    """
+    from app.services.meta_analytics.instagram_insights_service import (
+        INSTAGRAM_ACCOUNT_FIELDS,
+        INSTAGRAM_ACCOUNT_METRICS,
+        INSTAGRAM_MEDIA_METRICS_COMMON,
+        INSTAGRAM_MEDIA_METRICS_STORY,
+    )
+
+    for deprecated in (
+        "profile_views",
+        "website_clicks",
+        "profile_visits",
+        "impressions",
+        "video_views",
+        "saves",
+    ):
+        assert deprecated not in INSTAGRAM_ACCOUNT_FIELDS
+        assert deprecated not in INSTAGRAM_ACCOUNT_METRICS
+        assert deprecated not in INSTAGRAM_MEDIA_METRICS_COMMON
+        assert deprecated not in INSTAGRAM_MEDIA_METRICS_STORY
+
+    assert "follower_count" in INSTAGRAM_ACCOUNT_METRICS
+    assert "reach" in INSTAGRAM_ACCOUNT_METRICS
+    assert "reach" in INSTAGRAM_MEDIA_METRICS_COMMON
+    assert "views" in INSTAGRAM_MEDIA_METRICS_COMMON
+    assert "saved" in INSTAGRAM_MEDIA_METRICS_COMMON

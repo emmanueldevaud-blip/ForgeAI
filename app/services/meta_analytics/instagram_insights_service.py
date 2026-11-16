@@ -23,15 +23,20 @@ logger = logging.getLogger(__name__)
 INSTAGRAM_ACCOUNT_METRICS = [
     "follower_count",
     "reach",
-    "impressions",
-    "profile_visits",
-    "website_clicks",
 ]
 
-INSTAGRAM_MEDIA_METRICS_COMMON = ["reach", "impressions", "likes", "comments", "shares", "saves"]
-INSTAGRAM_MEDIA_METRICS_VIDEO = ["video_views"]
+INSTAGRAM_MEDIA_METRICS_COMMON = ["reach", "likes", "comments", "shares", "saved", "views"]
+# Les stories n'exposent pas les metriques d'engagement / likes / comments / saves.
+INSTAGRAM_MEDIA_METRICS_STORY = ["reach", "shares", "views"]
 
-INSTAGRAM_ACCOUNT_FIELDS = "id,username,name,followers_count,follows_count,media_count,profile_views,website_clicks"
+# Metriques Meta renommees depuis l'ancienne generation : on conserve le nom
+# historique attendu par le scoring, l'API et le frontend.
+MEDIA_METRIC_STORAGE_NAMES = {
+    "saved": "saves",
+    "views": "video_views",
+}
+
+INSTAGRAM_ACCOUNT_FIELDS = "id,username,name,followers_count,follows_count,media_count"
 INSTAGRAM_MEDIA_FIELDS = "id,media_type,media_url,permalink,caption,timestamp,like_count,comments_count"
 
 
@@ -84,8 +89,6 @@ class InstagramInsightsService:
                 "followers_count": me.get("followers_count"),
                 "follows_count": me.get("follows_count"),
                 "media_count": me.get("media_count"),
-                "profile_views": me.get("profile_views"),
-                "website_clicks": me.get("website_clicks"),
             }
             for name, value in basic.items():
                 status = "available" if value is not None else "unavailable"
@@ -140,7 +143,7 @@ class InstagramInsightsService:
         try:
             data = await client.get_insights(
                 account.platform_account_id,
-                ["follower_count", "reach", "impressions"],
+                ["follower_count", "reach"],
                 period="day",
             )
             for item in data.get("data") or []:
@@ -155,7 +158,7 @@ class InstagramInsightsService:
         return audience
 
     async def collect_media(self, client: MetaGraphClient, account: MetaAnalyticsAccount, limit: int = 50) -> dict[str, Any]:
-        results: dict[str, Any] = {"media": [], "errors": []}
+        results: dict[str, Any] = {"media": [], "errors": [], "warnings": []}
         try:
             media_list = await client.get_paginated(
                 f"{account.platform_account_id}/media",
@@ -208,20 +211,27 @@ class InstagramInsightsService:
                 media.collected_at = datetime.now(timezone.utc)
             await self.db.commit()
 
-            media_metrics = list(INSTAGRAM_MEDIA_METRICS_COMMON)
-            if media_type in ("VIDEO", "REELS"):
-                media_metrics.extend(INSTAGRAM_MEDIA_METRICS_VIDEO)
+            media_metrics = (
+                list(INSTAGRAM_MEDIA_METRICS_STORY)
+                if media_type == "STORY"
+                else list(INSTAGRAM_MEDIA_METRICS_COMMON)
+            )
             try:
                 insights = await client.get_insights(media_id, media_metrics, period="lifetime")
-                for insight in insights.get("data") or []:
-                    name = insight.get("name")
-                    values = insight.get("values") or []
-                    value = values[-1].get("value") if values else None
+                for item in insights.get("data") or []:
+                    name = MEDIA_METRIC_STORAGE_NAMES.get(item.get("name"), item.get("name"))
+                    values = item.get("values") or []
+                    if not values:
+                        continue
+                    latest = values[-1]
+                    value = latest.get("value")
                     status = "available" if value is not None else "unavailable"
                     await upsert_snapshot(self.db, account, media.id, name, value, status, period="lifetime")
             except MetaGraphError as exc:
-                logger.warning("Instagram insights media %s echec: %s", media_id, exc)
-                results["errors"].append(f"media_{media_id}: {exc}")
+                # Insights non disponibles pour ce media (ex. publie avant la
+                # connexion du compte) : avertissement non bloquant.
+                logger.warning("Instagram insights media %s indisponibles: %s", media_id, exc)
+                results.setdefault("warnings", []).append(f"media_{media_id}: {exc}")
 
             results["media"].append({
                 "id": media.id,

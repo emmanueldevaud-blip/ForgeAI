@@ -119,6 +119,7 @@ class MetaCollectorService:
             run.details_json = {
                 "metrics": metrics.get("metrics"),
                 "errors": metrics.get("errors") + media.get("errors", []),
+                "warnings": media.get("warnings", []),
             }
             await self.db.commit()
 

@@ -1201,6 +1201,175 @@ class CommunityManagerStudioService:
             logger.exception(f"Erreur publication Instagram: {e}")
             raise ValueError(f"Erreur de publication: {str(e)}")
 
+    async def publish_to_facebook_page(
+        self, publication_id: int, data: Any
+    ) -> SportPublication:
+        """Publie une publication validée sur une Page Facebook via l'API Meta."""
+        from app.services.sport_instagram_publish import MetaPublishService, MetaPublishError
+        from app.services.sport_media_publish import MediaPublishService
+
+        pub = await self.pub_service.get_publication(publication_id)
+        if not pub:
+            raise ValueError("Publication introuvable")
+        # Charger le contexte calendrier pour détecter les publications sportives
+        if pub.calendar_entry_id:
+            entry_result = await self.db.execute(
+                select(EditorialCalendarEntry).where(
+                    EditorialCalendarEntry.id == pub.calendar_entry_id
+                )
+            )
+            pub.calendar_entry = entry_result.scalar_one_or_none()
+        # Publications sportives : overlay stats (durée, dénivelé, km) + audio choisi automatiquement
+        pub = await self._ensure_sport_defaults(pub)
+
+        # Texte lisible : une réponse IA brute (JSON) ne doit jamais partir sur
+        # Facebook. La correction est persistée par le commit ci-dessous.
+        content = clean_caption_text(pub.content)
+        if content and content != pub.content:
+            pub.content = content
+        hashtags = clean_hashtags(pub.hashtags)
+        if hashtags and hashtags != pub.hashtags:
+            pub.hashtags = hashtags
+
+        # Auto-validation si la publication est encore en brouillon
+        if pub.status == "draft":
+            pub.status = "validated"
+            pub.validated_at = datetime.now(timezone.utc)
+            await self.db.commit()
+
+        if pub.status not in ("validated", "draft"):
+            raise ValueError("Seules les publications validées peuvent être publiées")
+
+        if not (pub.content or "").strip():
+            raise ValueError("Le contenu de la publication est vide")
+
+        # Construire le caption complet pour contrôle de longueur
+        caption = pub.content or ""
+        if pub.hashtags:
+            caption += f"\n\n{pub.hashtags}"
+
+        # Contrôle de longueur avant tout appel à l'API Meta
+        # Facebook n'a pas de limite stricte comme Instagram, mais on garde une limite raisonnable
+        caption_length = len(caption)
+        if caption_length > 2000:
+            raise ValueError(
+                f"La légende Facebook dépasse la limite de 2000 caractères "
+                f"(actuellement {caption_length}). "
+                f"Raccourcissez le texte ou les hashtags avant de publier."
+            )
+
+        # Vérifier qu'il y a un visuel
+        if not pub.photo_id and not pub.visual_generation_prompt:
+            raise ValueError("Un visuel est requis pour la publication Facebook")
+
+        # Récupérer l'athlète associé à l'utilisateur
+        athlete = await self.pub_service.get_or_create_athlete()
+
+        # Source de publication : configuration Meta centralisée (jeton SUAT)
+        meta_service = MetaPublishService(self.db)
+        connection = await meta_service.resolve_facebook_publish_context()
+        if not connection:
+            raise ValueError(
+                "Aucune source de publication Facebook Page configurée. "
+                "Configurez l'ID de Page Facebook dans la configuration Meta."
+            )
+
+        if not connection.facebook_page_id:
+            raise ValueError("ID de Page Facebook non configuré")
+
+        # Marquer comme "en cours de publication"
+        pub.status = "publishing"
+        await self.db.commit()
+
+        try:
+            # Préparer l'URL du média
+            media_publish_service = MediaPublishService(self.db)
+            media_url = None
+            media_info = None
+            is_video = pub.visual_type in ("reel", "video")
+
+            if pub.photo_id:
+                # Préparer l'URL publique du média (taille originale pour Meta)
+                media_service = MediaPublishService(self.db)
+                media_info = await media_service.prepare_media_for_publish(
+                    pub.photo_id, self.current_user.id, size="original"
+                )
+                media_url = media_info.url
+                # Valider la cohérence entre le type visuel déclaré et le type MIME réel
+                if media_info.is_video != is_video:
+                    raise ValueError(
+                        f"Incohérence de type de média : le visuel est une {'vidéo' if media_info.is_video else 'photo'} "
+                        f"(MIME: {media_info.mime_type}) mais le type visuel déclaré est '{pub.visual_type}'. "
+                        f"Sélectionnez le type de visuel correspondant dans le Studio."
+                    )
+            elif pub.visual_generation_prompt:
+                # TODO: Génération d'image IA - pour l'instant erreur
+                raise ValueError("La génération d'images IA n'est pas encore disponible. Sélectionnez une photo.")
+
+            if not media_url:
+                raise ValueError("Impossible de préparer le média pour publication")
+
+            # Publier via Meta (contexte Facebook Page)
+            try:
+                is_reel = pub.visual_type == "reel"
+                if pub.visual_type == "reel" or is_video:
+                    facebook_media_id = await meta_service.publish_to_facebook_page(
+                        connection, media_url, caption,
+                        mime_type=media_info.mime_type if media_info else None,
+                        is_video=is_video,
+                        publication_id=publication_id,
+                    )
+                else:
+                    facebook_media_id = await meta_service.publish_to_facebook_page(
+                        connection, media_url, caption,
+                        mime_type=media_info.mime_type if media_info else None,
+                        is_video=False,
+                        publication_id=publication_id,
+                    )
+
+                # Récupérer le permalink
+                permalink = await meta_service.get_facebook_media_permalink(connection, facebook_media_id)
+
+                # Marquer comme publiée avec succès
+                pub.status = "shared"
+                pub.shared_at = datetime.now(timezone.utc)
+                pub.facebook_media_id = facebook_media_id
+                pub.facebook_permalink = permalink
+                pub.error_message = None
+
+                await self.db.commit()
+                await self.db.refresh(pub)
+
+                logger.info(f"Publication Facebook Page réussie: media_id={facebook_media_id}, publication_id={publication_id}")
+                return pub
+
+            except Exception as e:
+                # En cas d'erreur, marquer comme échouée
+                pub.status = "failed"
+                pub.failed_at = datetime.now(timezone.utc)
+                pub.error_message = str(e)
+                await self.db.commit()
+                await self.db.refresh(pub)
+
+                logger.error(f"Erreur publication Facebook: {e}")
+                raise ValueError(f"Échec de la publication Facebook: {str(e)}")
+
+        except MetaPublishError as e:
+            pub.status = "failed"
+            pub.failed_at = datetime.now(timezone.utc)
+            pub.error_message = f"Meta API: {str(e)}"
+            await self.db.commit()
+            await self.db.refresh(pub)
+            raise ValueError(f"Erreur Meta: {str(e)}")
+        except Exception as e:
+            pub.status = "failed"
+            pub.failed_at = datetime.now(timezone.utc)
+            pub.error_message = str(e)
+            await self.db.commit()
+            await self.db.refresh(pub)
+            logger.exception(f"Erreur publication Facebook: {e}")
+            raise ValueError(f"Erreur de publication: {str(e)}")
+
     async def get_suggested_photos(self, publication_id: int, limit: int = 15) -> list[dict[str, Any]]:
         """Récupère des photos suggérées pour la publication en reliant activités Garmin et dates."""
         pub = await self.pub_service.get_publication(publication_id)

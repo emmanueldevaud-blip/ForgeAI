@@ -369,6 +369,8 @@ class SportPublication(Base):
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
     instagram_media_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
     instagram_permalink: Mapped[str | None] = mapped_column(Text, nullable=True)
+    facebook_media_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    facebook_permalink: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
 

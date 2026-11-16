@@ -1,4 +1,4 @@
-"""Service de publication Meta (Instagram Business) - Publication effective."""
+"""Service de publication Meta (Instagram Business & Facebook Pages) - Publication effective."""
 
 import asyncio
 import logging
@@ -43,6 +43,7 @@ class _MetaConfigContext:
         self.encrypted_long_lived_token = encrypted_token
         self.encrypted_access_token = encrypted_token
         self.instagram_business_account_id = instagram_business_account_id
+        self.facebook_page_id: Optional[str] = None
         self.expires_in = None
         self.obtained_at = None
         self.auth_type = "meta_config"
@@ -75,7 +76,7 @@ class MetaPublishService:
             .join(Module)
             .where(
                 Module.code == "administration",
-                ModuleConfig.key.in_(("meta_access_token", "instagram_user_id")),
+                ModuleConfig.key.in_(("meta_access_token", "instagram_user_id", "facebook_page_id")),
             )
         )
         configs = {
@@ -85,6 +86,7 @@ class MetaPublishService:
         }
         raw_token = configs.get("meta_access_token")
         ig_user_id = configs.get("instagram_user_id")
+        fb_page_id = configs.get("facebook_page_id")
         if not raw_token or not ig_user_id:
             return None
 
@@ -97,10 +99,13 @@ class MetaPublishService:
             )
             return None
 
-        return _MetaConfigContext(
+        context = _MetaConfigContext(
             encrypted_token=raw_token,
             instagram_business_account_id=str(ig_user_id),
         )
+        if fb_page_id:
+            context.facebook_page_id = str(fb_page_id)
+        return context
 
     def _get_long_lived_token(self, connection) -> Optional[str]:
         """Déchiffre le token de publication du contexte de publication."""
@@ -418,6 +423,284 @@ class MetaPublishService:
             except Exception as e:
                 logger.warning(f"Failed to get permalink: {e}")
                 return None
+
+    # ===================================================================== #
+    # Facebook Page Publishing
+    # ===================================================================== #
+
+    async def create_facebook_media_container(
+        self,
+        connection,
+        image_url: str,
+        caption: str,
+        is_video: bool = False,
+        mime_type: Optional[str] = None,
+        publication_id: Optional[int] = None,
+    ) -> str:
+        """Crée un conteneur média sur Facebook Page (étape 1 de la publication).
+
+        Args:
+            connection: Contexte de publication Meta (jeton + compte).
+            image_url: URL publique du média (photo ou vidéo).
+            caption: Légende de la publication.
+            is_video: True si le média est une vidéo, False pour une photo.
+            mime_type: Type MIME du média (pour validation et logs).
+            publication_id: Identifiant de publication ForgeAI (pour les logs).
+        """
+        if mime_type:
+            self._validate_media_type_consistency(is_video, image_url, mime_type)
+
+        token = await self._get_valid_token(connection)
+        if not token:
+            raise MetaPublishError("Aucun token valide disponible pour la publication")
+
+        # Pour Facebook, on utilise le page_id stocké dans la connexion
+        fb_page_id = getattr(connection, 'facebook_page_id', None)
+        if not fb_page_id:
+            raise MetaPublishError("Aucun ID de Page Facebook associé")
+
+        url = f"{self._base_url}/{fb_page_id}/media"
+        params = {
+            "access_token": token,
+            "caption": caption,
+        }
+
+        if is_video:
+            params["media_type"] = "VIDEO"
+            params["video_url"] = image_url
+            media_type_param = "VIDEO"
+        else:
+            params["image_url"] = image_url
+            media_type_param = None
+
+        safe_url = image_url.split("?")[0] if "?" in image_url else image_url
+        logger.info(
+            "Meta create_facebook_media_container: publication_id=%s, is_video=%s, "
+            "media_type=%s, mime_type=%s, url_base=%s, fb_page_id=%s",
+            publication_id, is_video, media_type_param,
+            mime_type or "unknown", safe_url, fb_page_id,
+        )
+
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            try:
+                safe_params = {k: v for k, v in params.items() if k != "access_token"}
+                logger.info(
+                    "Meta create_facebook_media_container REQUEST: publication_id=%s, "
+                    "url=%s, params=%s",
+                    publication_id, url, safe_params,
+                )
+                response = await client.post(url, params=params)
+                fbtrace_id = response.headers.get("fbtrace-id", "unknown")
+                logger.info(
+                    "Meta create_facebook_media_container RESPONSE: publication_id=%s, "
+                    "http_status=%s, content_type=%s, fbtrace_id=%s, "
+                    "body=%s",
+                    publication_id, response.status_code,
+                    response.headers.get("content-type", "unknown"),
+                    fbtrace_id,
+                    response.text[:500],
+                )
+                if not response.is_success:
+                    error_data = {}
+                    try:
+                        error_data = response.json()
+                    except Exception:
+                        pass
+                    error = error_data.get("error", {})
+                    error_code = error.get("code")
+                    error_subcode = error.get("error_subcode")
+                    error_type = error.get("type")
+                    error_message = error.get("message", str(response.status_code))
+                    logger.error(
+                        "Meta create_facebook_media_container ERROR: publication_id=%s, "
+                        "http_status=%s, meta_code=%s, meta_subcode=%s, "
+                        "meta_type=%s, fbtrace_id=%s, message=%s, url_base=%s",
+                        publication_id, response.status_code, error_code,
+                        error_subcode, error_type, fbtrace_id,
+                        error_message, safe_url,
+                    )
+                    raise MetaPublishError(
+                        f"Erreur création conteneur Facebook: {error_message}",
+                        meta_error_code=error_code,
+                        meta_error_subcode=error_subcode,
+                    )
+                response.raise_for_status()
+                data = response.json()
+                container_id = data.get("id")
+                if not container_id:
+                    raise MetaPublishError("Meta n'a pas retourné d'ID de conteneur média")
+                logger.info(f"Facebook media container created: container_id={container_id}, publication_id={publication_id}")
+                return container_id
+            except HTTPStatusError as exc:
+                error_data = exc.response.json() if exc.response.content else {}
+                error = error_data.get("error", {})
+                fbtrace_id = exc.response.headers.get("fbtrace-id", "unknown")
+                logger.error(
+                    "Meta create_facebook_media_container HTTP error: publication_id=%s, "
+                    "http_status=%s, meta_code=%s, meta_subcode=%s, "
+                    "meta_type=%s, fbtrace_id=%s, message=%s, url_base=%s",
+                    publication_id, exc.response.status_code,
+                    error.get("code"), error.get("error_subcode"),
+                    error.get("type"), fbtrace_id,
+                    error.get("message", str(exc)), safe_url,
+                )
+                raise MetaPublishError(
+                    f"Erreur création conteneur Facebook: {error.get('message', str(exc))}",
+                    meta_error_code=error.get("code"),
+                    meta_error_subcode=error.get("error_subcode"),
+                ) from exc
+            except httpx.RequestError as exc:
+                logger.error(
+                    "Meta create_facebook_media_container network error: publication_id=%s, "
+                    "error=%s, url_base=%s",
+                    publication_id, str(exc), safe_url,
+                )
+                raise MetaPublishError(f"Erreur réseau: {str(exc)}") from exc
+
+    async def publish_facebook_media_container(
+        self,
+        connection,
+        container_id: str,
+    ) -> str:
+        """Publie un conteneur média Facebook précédemment créé (étape 2)."""
+        token = await self._get_valid_token(connection)
+        if not token:
+            raise MetaPublishError("Aucun token valide disponible pour la publication")
+
+        fb_page_id = getattr(connection, 'facebook_page_id', None)
+        if not fb_page_id:
+            raise MetaPublishError("Aucun ID de Page Facebook associé")
+
+        url = f"{self._base_url}/{fb_page_id}/media_publish"
+        params = {
+            "access_token": token,
+            "creation_id": container_id,
+        }
+
+        # Polling pour vérifier le statut du conteneur
+        max_attempts = 30
+        for attempt in range(max_attempts):
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                try:
+                    status_resp = await client.get(
+                        f"{self._base_url}/{container_id}",
+                        params={"fields": "status_code", "access_token": token},
+                    )
+                    if status_resp.status_code == 200:
+                        status_data = status_resp.json()
+                        status_code = status_data.get("status_code")
+                        if status_code == "FINISHED":
+                            break
+                        elif status_code in ("ERROR", "EXPIRED"):
+                            raise MetaPublishError(f"Conteneur média invalide: {status_code}")
+                    await asyncio.sleep(2)
+                except Exception as e:
+                    logger.warning(f"Erreur polling conteneur Facebook: {e}")
+                    await asyncio.sleep(2)
+        else:
+            raise MetaPublishError("Timeout: le conteneur média Facebook n'est pas prêt après 60 secondes")
+
+        # Publier le conteneur
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            try:
+                response = await client.post(
+                    url,
+                    params=params,
+                )
+                response.raise_for_status()
+                data = response.json()
+                media_id = data.get("id")
+                if not media_id:
+                    raise MetaPublishError("Meta n'a pas retourné d'ID de média publié")
+                logger.info(f"Facebook media published successfully: {media_id}")
+                return media_id
+            except HTTPStatusError as exc:
+                error_data = exc.response.json() if exc.response.content else {}
+                error = error_data.get("error", {})
+                raise MetaPublishError(
+                    f"Erreur publication Facebook: {error.get('message', str(exc))}",
+                    meta_error_code=error.get("code"),
+                    meta_error_subcode=error.get("error_subcode"),
+                ) from exc
+            except httpx.RequestError as exc:
+                raise MetaPublishError(f"Erreur réseau: {str(exc)}") from exc
+
+    async def publish_to_facebook_page(
+        self,
+        connection,
+        image_url: str,
+        caption: str,
+        mime_type: Optional[str] = None,
+        is_video: bool = False,
+        publication_id: Optional[int] = None,
+    ) -> str:
+        """Publie une photo ou vidéo sur une Page Facebook (workflow complet)."""
+        container_id = await self.create_facebook_media_container(
+            connection, image_url, caption, is_video=is_video, mime_type=mime_type, publication_id=publication_id
+        )
+        media_id = await self.publish_facebook_media_container(connection, container_id)
+        return media_id
+
+    async def get_facebook_media_permalink(self, connection, media_id: str) -> Optional[str]:
+        """Récupère le permalink d'un média publié sur Facebook Page."""
+        token = await self._get_valid_token(connection)
+        if not token:
+            return None
+
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            try:
+                response = await client.get(
+                    f"{self._base_url}/{media_id}",
+                    params={"fields": "permalink_url", "access_token": token},
+                )
+                response.raise_for_status()
+                data = response.json()
+                return data.get("permalink_url")
+            except Exception as e:
+                logger.warning(f"Failed to get Facebook permalink: {e}")
+                return None
+
+    async def resolve_facebook_publish_context(self) -> Optional["_MetaConfigContext"]:
+        """Résout le contexte de publication pour Facebook Page.
+        
+        Récupère la config Meta (jeton + page_id) depuis l'administration.
+        """
+        from app.models.module import Module, ModuleConfig
+
+        result = await self.db.execute(
+            select(ModuleConfig)
+            .join(Module)
+            .where(
+                Module.code == "administration",
+                ModuleConfig.key.in_(("meta_access_token", "facebook_page_id")),
+            )
+        )
+        configs = {
+            config.key: config.value
+            for config in result.scalars().all()
+            if config.value is not None
+        }
+        raw_token = configs.get("meta_access_token")
+        fb_page_id = configs.get("facebook_page_id")
+        if not raw_token or not fb_page_id:
+            logger.warning("Configuration Facebook Page incomplète (token ou page_id manquant)")
+            return None
+
+        from app.services.sport_instagram import _decrypt_token
+
+        if not _decrypt_token(raw_token):
+            logger.warning(
+                "meta_access_token illisible — publication Facebook impossible"
+            )
+            return None
+
+        # Étend le contexte avec le facebook_page_id
+        context = _MetaConfigContext(
+            encrypted_token=raw_token,
+            instagram_business_account_id=str(fb_page_id),  # réutilisé pour compatibilité
+        )
+        context.facebook_page_id = str(fb_page_id)
+        return context
 
 
 # Fonction helper pour récupérer le service

@@ -34,11 +34,11 @@ def upgrade() -> None:
     )
     op.add_column(
         "community_manager_strategies",
-        sa.Column("human_validation_required", sa.Boolean(), nullable=False, server_default=True),
+        sa.Column("human_validation_required", sa.Boolean(), nullable=False, server_default="true"),
     )
     op.add_column(
         "community_manager_strategies",
-        sa.Column("auto_publish", sa.Boolean(), nullable=False, server_default=False),
+        sa.Column("auto_publish", sa.Boolean(), nullable=False, server_default="false"),
     )
 
 

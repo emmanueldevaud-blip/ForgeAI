@@ -591,7 +591,8 @@ export class AnalyticsIntelligencePage {
   }
 
   async _loadOverview() {
-    this.data.overview = await getMetaOverview(this.period);
+    const res = await getMetaOverview(this.period);
+    this.data.overview = res?.data || res;
   }
 
   async _loadInstagram() {

@@ -10184,11 +10184,12 @@
   background: var(--color-surface-raised);
 }
 
-.cm-photo-badge {
+.cm-studio-photo-thumb .cm-photo-badge {
   position: absolute;
   top: 4px;
-  left: 4px;
   right: 4px;
+  bottom: auto;
+  left: 4px;
   padding: 2px 6px;
   border-radius: var(--radius-sm);
   background: rgba(0, 0, 0, 0.65);

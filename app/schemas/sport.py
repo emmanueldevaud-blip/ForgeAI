@@ -472,14 +472,20 @@ CALENDAR_ENTRY_STATUSES = [
 
 class CommunityManagerStrategyBase(BaseModel):
     brand_identity: Optional[str] = Field(None, max_length=200)
+    signature_hashtag: Optional[str] = Field(None, max_length=100)
     tone: list[str] = Field(default_factory=list)
     target_audience: Optional[str] = Field(None, max_length=1000)
     objectives: list[str] = Field(default_factory=list)
+    editorial_objective: Optional[str] = Field(None, max_length=100)
     themes: list[str] = Field(default_factory=list)
     frequency: int = Field(3, ge=1, le=14)
     networks: list[str] = Field(default_factory=list)
     rules: list[str] = Field(default_factory=list)
     forbidden_topics: list[str] = Field(default_factory=list)
+    editorial_pillars: Optional[dict[str, Any]] = None
+    max_hashtags: int = Field(5, ge=1, le=30)
+    human_validation_required: bool = Field(True)
+    auto_publish: bool = Field(False)
 
 
 class CommunityManagerStrategyCreate(CommunityManagerStrategyBase):
@@ -488,14 +494,20 @@ class CommunityManagerStrategyCreate(CommunityManagerStrategyBase):
 
 class CommunityManagerStrategyUpdate(CommunityManagerStrategyBase):
     brand_identity: Optional[str] = Field(None, max_length=200)
+    signature_hashtag: Optional[str] = Field(None, max_length=100)
     tone: Optional[list[str]] = None
     target_audience: Optional[str] = Field(None, max_length=1000)
     objectives: Optional[list[str]] = None
+    editorial_objective: Optional[str] = Field(None, max_length=100)
     themes: Optional[list[str]] = None
     frequency: Optional[int] = Field(None, ge=1, le=14)
     networks: Optional[list[str]] = None
     rules: Optional[list[str]] = None
     forbidden_topics: Optional[list[str]] = None
+    editorial_pillars: Optional[dict[str, Any]] = None
+    max_hashtags: Optional[int] = Field(None, ge=1, le=30)
+    human_validation_required: Optional[bool] = None
+    auto_publish: Optional[bool] = None
 
 
 class CommunityManagerStrategyResponse(CommunityManagerStrategyBase):

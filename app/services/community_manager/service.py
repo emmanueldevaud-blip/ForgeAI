@@ -26,6 +26,7 @@ from app.schemas.sport import (
     CALENDAR_ENTRY_STATUSES,
 )
 from app.services.ai_gateway import AIGatewayError, ai_gateway
+from app.services.community_manager.hashtags import enforce_max_hashtags, hashtags_to_str
 from app.services.community_manager.prompts import SYSTEM_PROMPT, build_generation_prompt
 
 logger = logging.getLogger(__name__)
@@ -194,6 +195,11 @@ class CommunityManagerService:
                 if validated_entry is None:
                     continue
 
+                strategy_max_hashtags = int(strategy.max_hashtags or 5)
+                selected_hashtags = enforce_max_hashtags(
+                    validated_entry.get("hashtags"), strategy_max_hashtags
+                )
+
                 entry = EditorialCalendarEntry(
                     strategy_id=strategy.id,
                     date=validated_entry["date"],
@@ -201,7 +207,7 @@ class CommunityManagerService:
                     theme=validated_entry["theme"],
                     objective=validated_entry["objective"],
                     notes=validated_entry["notes"],
-                    hashtags=validated_entry["hashtags"],
+                    hashtags=hashtags_to_str(selected_hashtags),
                     status="brouillon",
                 )
                 self.db.add(entry)
@@ -393,14 +399,20 @@ def _sanitize_strategy_for_prompt(strategy: CommunityManagerStrategy) -> dict[st
     
     return {
         "brand_identity": sanitize_string(strategy.brand_identity, 200),
+        "signature_hashtag": sanitize_string(strategy.signature_hashtag, 100),
         "tone": sanitize_list(strategy.tone),
         "target_audience": sanitize_string(strategy.target_audience, 1000),
         "objectives": sanitize_list(strategy.objectives),
+        "editorial_objective": sanitize_string(strategy.editorial_objective, 100),
         "themes": sanitize_list(strategy.themes),
         "frequency": strategy.frequency if isinstance(strategy.frequency, int) and 1 <= strategy.frequency <= 14 else 3,
         "networks": sanitize_list(strategy.networks),
         "rules": sanitize_list(strategy.rules, max_len=200),
         "forbidden_topics": sanitize_list(strategy.forbidden_topics, max_len=100),
+        "editorial_pillars": strategy.editorial_pillars if isinstance(strategy.editorial_pillars, dict) else None,
+        "max_hashtags": strategy.max_hashtags if isinstance(strategy.max_hashtags, int) and strategy.max_hashtags >= 1 else 5,
+        "human_validation_required": strategy.human_validation_required if isinstance(strategy.human_validation_required, bool) else True,
+        "auto_publish": strategy.auto_publish if isinstance(strategy.auto_publish, bool) else False,
     }
 
 

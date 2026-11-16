@@ -23,6 +23,13 @@ from app.schemas.sport import (
     COMMUNITY_MANAGER_OBJECTIVES,
     CALENDAR_ENTRY_STATUSES,
 )
+from app.services.community_manager.hashtags import (
+    DEFAULT_MAX_HASHTAGS,
+    enforce_max_hashtags,
+    hashtags_to_str,
+    normalize_hashtag_list,
+    select_hashtags,
+)
 from app.services.community_manager.service import (
     CommunityManagerService,
     _sanitize_strategy_for_prompt,
@@ -249,6 +256,64 @@ class TestSanitizeStrategyForPrompt:
         strategy.frequency = 15  # invalide
         result = _sanitize_strategy_for_prompt(strategy)
         assert result["frequency"] == 3  # défaut
+
+    def test_sanitize_jepepagtrail_fields(self):
+        strategy = MagicMock(spec=CommunityManagerStrategy)
+        strategy.brand_identity = "Jepepagtrail"
+        strategy.signature_hashtag = "#Jepepagtrail"
+        strategy.tone = ["humour", "autoderision"]
+        strategy.target_audience = None
+        strategy.objectives = ["community_performance_personal_brand"]
+        strategy.editorial_objective = "community_performance_personal_brand"
+        strategy.themes = ["running"]
+        strategy.frequency = 3
+        strategy.networks = ["instagram"]
+        strategy.rules = []
+        strategy.forbidden_topics = []
+        strategy.editorial_pillars = {"humour_autoderision": 40}
+        strategy.max_hashtags = 5
+        strategy.human_validation_required = True
+        strategy.auto_publish = False
+
+        result = _sanitize_strategy_for_prompt(strategy)
+
+        assert result["signature_hashtag"] == "#Jepepagtrail"
+        assert result["editorial_objective"] == "community_performance_personal_brand"
+        assert result["editorial_pillars"] == {"humour_autoderision": 40}
+        assert result["max_hashtags"] == 5
+        assert result["human_validation_required"] is True
+        assert result["auto_publish"] is False
+
+
+class TestHashtagSelection:
+    """Tests pour le moteur de hashtags."""
+
+    def test_select_hashtags_max_five_with_brand(self):
+        strategy = {
+            "max_hashtags": 5,
+            "signature_hashtag": "#Jepepagtrail",
+        }
+        context = {"topic": "Ultra trail 100 miles", "sport_type": "trail_run"}
+        result = select_hashtags(context, strategy)
+        assert len(result) <= DEFAULT_MAX_HASHTAGS
+        assert "#Jepepagtrail" in result
+
+    def test_select_hashtags_respects_limit(self):
+        strategy = {"max_hashtags": 3, "signature_hashtag": "#Jepepagtrail"}
+        result = select_hashtags({"topic": "Sortie longue"}, strategy, max_hashtags=3)
+        assert len(result) == 3
+
+    def test_enforce_max_hashtags_caps_and_dedupes(self):
+        assert enforce_max_hashtags(["#a", "#b", "#a"], 2) == ["#a", "#b"]
+        assert enforce_max_hashtags(["#a", "#b", "#c"], 2) == ["#a", "#b"]
+
+    def test_hashtags_to_str_and_normalize(self):
+        assert hashtags_to_str(["#trailrunning", "#jepepagtrail"]) == json.dumps(
+            ["#trailrunning", "#jepepagtrail"]
+        )
+        assert hashtags_to_str(None) == "[]"
+        assert normalize_hashtag_list("#trailrunning #trailrunner") == ["#trailrunning", "#trailrunner"]
+        assert normalize_hashtag_list(["#a", "b"]) == ["#a"]
 
 
 class TestParseAIJSONResponse:

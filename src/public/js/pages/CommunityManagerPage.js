@@ -199,6 +199,48 @@ export class CommunityManagerPage {
             </label>
           </div>
         </div>
+        <div class="form-row">
+          <div class="form-group" style="grid-column: 1 / -1;">
+            <label><span>Signature hashtag</span>
+              <input name="signature_hashtag" type="text" maxlength="100" placeholder="#Jepepagtrail" value="${this._escape((s.signature_hashtag || '').replace(/^#/, ''))}">
+              <small class="form-help">Hashtag de marque utilisé pour la signature.</small>
+            </label>
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group" style="grid-column: 1 / -1;">
+            <label><span>Objectif éditorial</span>
+              <input name="editorial_objective" type="text" maxlength="100" placeholder="community_performance_personal_brand" value="${this._escape(s.editorial_objective || '')}">
+            </label>
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group" style="grid-column: 1 / -1;">
+            <label><span>Piliers éditoriaux (JSON)</span>
+              <textarea name="editorial_pillars" rows="3" maxlength="1000" placeholder='{"humour_autoderision": 40, "performances_defis": 25, "aventures_paysages": 20, "coulisses_progression": 15}'>${this._escape(JSON.stringify(s.editorial_pillars || { humour_autoderision: 40, performances_defis: 25, aventures_paysages: 20, coulisses_progression: 15 }))}</textarea>
+              <small class="form-help">JSON : clé = pilier, valeur = poids (% indicatif).</small>
+            </label>
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group" style="grid-column: 1 / -1;">
+            <label><span>Max hashtags</span>
+              <input name="max_hashtags" type="number" min="1" max="30" value="${s.max_hashtags || 5}">
+            </label>
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group" style="grid-column: 1 / -1;">
+            <label style="display: flex; align-items: center; gap: 8px;">
+              <input name="human_validation_required" type="checkbox" ${s.human_validation_required === false ? '' : 'checked'}>
+              <span>Validation humaine requise avant publication</span>
+            </label>
+            <label style="display: flex; align-items: center; gap: 8px; margin-top: 8px;">
+              <input name="auto_publish" type="checkbox" ${s.auto_publish === true ? 'checked' : ''}>
+              <span>Publication automatique (désactivée par défaut)</span>
+            </label>
+          </div>
+        </div>
         <div class="form-actions">
           <button type="button" class="btn btn-secondary" data-action="close-strategy-modal">Annuler</button>
           <button class="btn btn-primary" type="submit" ${!this.canUpdateCMStrategy ? 'disabled' : ''}>Enregistrer la stratégie</button>
@@ -388,6 +430,25 @@ export class CommunityManagerPage {
     }
   }
 
+  _parseEditorialPillars(form) {
+    const raw = (form.elements.editorial_pillars?.value || '').trim();
+    if (!raw) return {};
+    try {
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        const result = {};
+        for (const [key, value] of Object.entries(parsed)) {
+          const num = Number(value);
+          result[key] = Number.isFinite(num) ? num : 0;
+        }
+        return result;
+      }
+    } catch (e) {
+      // JSON invalide -> retourner un objet vide
+    }
+    return {};
+  }
+
   async _saveCMStrategy(form) {
     const message = this.element.querySelector('[data-role="cm-strategy-status"]');
     const submitBtn = form.querySelector('[type="submit"]');
@@ -423,14 +484,20 @@ export class CommunityManagerPage {
     try {
       const data = {
         brand_identity: form.elements.brand_identity.value.trim(),
+        signature_hashtag: (form.elements.signature_hashtag?.value || '').trim(),
         tone: getSelectedValues('tone'),
         target_audience: form.elements.target_audience.value.trim(),
         objectives: getSelectedValues('objectives'),
+        editorial_objective: (form.elements.editorial_objective?.value || '').trim(),
         themes: getSelectedValues('themes'),
         frequency: parseInt(form.elements.frequency.value, 10),
         networks: getSelectedValues('networks'),
         rules: getTextareaLines('rules'),
         forbidden_topics: getTextareaComma('forbidden_topics'),
+        editorial_pillars: this._parseEditorialPillars(form),
+        max_hashtags: parseInt(form.elements.max_hashtags?.value, 10) || 5,
+        human_validation_required: form.elements.human_validation_required?.checked !== false,
+        auto_publish: !!form.elements.auto_publish?.checked,
       };
 
       this.cmStrategy = await updateCommunityManagerStrategy(data);

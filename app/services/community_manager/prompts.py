@@ -100,10 +100,13 @@ def build_generation_prompt(
 
 STRATÉGIE ÉDITORIALE :
 - Identité de marque : {strategy.get("brand_identity", "Non définie")}
+- Signature hashtag : {strategy.get("signature_hashtag", "Non définie")}
 - Ton : {", ".join(strategy.get("tone", []))}
 - Audience cible : {strategy.get("target_audience", "Non définie")}
 - Objectifs : {", ".join(strategy.get("objectives", []))}
+- Objectif éditorial : {strategy.get("editorial_objective", "Non définie")}
 - Thèmes autorisés : {", ".join(strategy.get("themes", []))}
+- Piliers éditoriaux : {strategy.get("editorial_pillars") or "Non définis"}
 - Fréquence : {freq} publications/semaine
 - Réseaux : {", ".join(strategy.get("networks", []))}
 - Règles : {"; ".join(strategy.get("rules", []))}
@@ -116,6 +119,9 @@ IMPORTANT :
 - Si pas d'activité récente, créer des sujets evergreen (conseils, éducation, lifestyle) dans les thèmes autorisés
 - Respecter scrupuleusement les règles et topics interdits
 - Varier les thèmes et objectifs sur l'ensemble du calendrier
+- Hashtags : maximum {strategy.get("max_hashtags") or 5} hashtags, incluant la signature #{strategy.get("signature_hashtag", "Jepepagtrail")}
+- Validation humaine requise avant publication : {strategy.get("human_validation_required")}
+- Publication automatique : {strategy.get("auto_publish")}
 - Format de sortie : JSON strict avec la clé "calendar"
 """
     return prompt

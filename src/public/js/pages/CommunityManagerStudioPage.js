@@ -474,16 +474,48 @@ export class CommunityManagerStudioPage {
     // Compteur de caractères en temps réel (contenu + hashtags)
     const form = this.element.querySelector('[data-form="studio-edit"]');
     if (form) {
-      const contentInput = form.elements.content;
-      const hashtagsInput = form.elements.hashtags;
       const updateCounter = () => {
+        const contentInput = form.elements.content;
+        const hashtagsInput = form.elements.hashtags;
         const c = contentInput ? contentInput.value : '';
         const h = hashtagsInput ? hashtagsInput.value : '';
         const full = c + (h ? '\n\n' + h : '');
-        this.captionLength = full.length;
-        this.captionOverLimit = this.captionLength > INSTAGRAM_CAPTION_MAX_LENGTH;
-        this.render();
+        const newLen = full.length;
+        const newOver = newLen > INSTAGRAM_CAPTION_MAX_LENGTH;
+        const nearLimit = newLen > INSTAGRAM_CAPTION_MAX_LENGTH * 0.9;
+        const prevNear = this.captionLength > INSTAGRAM_CAPTION_MAX_LENGTH * 0.9;
+
+        const needsRender = (newOver !== this.captionOverLimit) || (nearLimit !== prevNear);
+        this.captionLength = newLen;
+        this.captionOverLimit = newOver;
+
+        if (needsRender) {
+          const active = document.activeElement;
+          const activeName = active && active.name;
+          const selStart = active ? active.selectionStart : null;
+          const selEnd = active ? active.selectionEnd : null;
+          this.render();
+          if (activeName) {
+            const f = this.element.querySelector('[data-form="studio-edit"]');
+            const el = f && f.elements[activeName];
+            if (el && typeof el.focus === 'function') {
+              el.focus();
+              if (selStart != null && selEnd != null && typeof el.setSelectionRange === 'function') {
+                try { el.setSelectionRange(selStart, selEnd); } catch {}
+              }
+            }
+          }
+          return;
+        }
+
+        // Mise à jour légère sans re-render (préserve le focus pendant la saisie)
+        const counterCurrent = this.element.querySelector('.cm-studio-counter-current');
+        if (counterCurrent) counterCurrent.textContent = String(newLen);
+        const counterWrap = this.element.querySelector('.cm-studio-counter');
+        if (counterWrap) counterWrap.classList.toggle('cm-studio-counter--over', newOver);
       };
+      const contentInput = form.elements.content;
+      const hashtagsInput = form.elements.hashtags;
       if (contentInput) contentInput.addEventListener('input', updateCounter);
       if (hashtagsInput) hashtagsInput.addEventListener('input', updateCounter);
     }

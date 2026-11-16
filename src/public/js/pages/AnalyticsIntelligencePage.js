@@ -152,7 +152,7 @@ export class AnalyticsIntelligencePage {
   // ===================================================================== #
   _renderOverview() {
     const o = this.data.overview;
-    if (!o) return this._renderEmpty('Aucune donn\u00e9e de vue d\u2019ensemble. Cliquez sur Synchroniser.');
+    if (!o || o.comptes?.length === 0) return this._renderEmpty('Aucune donn\u00e9e de vue d\u2019ensemble. Cliquez sur Synchroniser.');
 
     const ig = o.instagram || {};
     const fb = o.facebook || {};
@@ -538,6 +538,17 @@ export class AnalyticsIntelligencePage {
 
   _refreshContent() {
     if (!this.element) return;
+    // Mettre à jour l'état visuel des onglets
+    this.element.querySelectorAll('[data-tab]').forEach(btn => {
+      const isActive = btn.dataset.tab === this.tab;
+      btn.classList.toggle('am-tab--active', isActive);
+      btn.setAttribute('aria-selected', isActive);
+    });
+    this.element.querySelectorAll('[role="tabpanel"]').forEach(panel => {
+      const isActive = panel.id === `am-panel-${this.tab}`;
+      panel.hidden = !isActive;
+    });
+    // Mettre à jour le contenu du panneau actif
     const panel = this.element.querySelector(`#am-panel-${this.tab}`);
     if (panel) panel.innerHTML = this._renderPanel(this.tab);
     this._bindPanelEvents(this.tab);

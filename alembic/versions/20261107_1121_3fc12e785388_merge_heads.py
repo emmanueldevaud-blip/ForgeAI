@@ -14,3 +14,11 @@ branch_labels = None
 depends_on = None
 
 # This is a merge migration - no operations needed
+
+
+def upgrade() -> None:
+    pass
+
+
+def downgrade() -> None:
+    pass

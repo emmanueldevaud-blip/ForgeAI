@@ -20,6 +20,7 @@ from app.services.meta_analytics.normalizer import upsert_snapshot
 from app.models.meta_analytics import (
     MetaAnalyticsAccount,
     MetaAnalyticsSnapshot,
+    MetaAnalyticsSyncRun,
 )
 
 
@@ -163,3 +164,16 @@ async def test_rbac_permissions_seeded(admin_user, db_session):
         "meta_analytics.configure",
     }
     assert expected.issubset(codes), codes
+
+
+def test_sync_run_account_id_nullable():
+    """La trace de sync est creee avant la resolution du compte Meta.
+
+    account_id doit rester nullable : sinon chaque cycle plante sur
+    (1048, "Column 'account_id' cannot be null") et toute la synchro echoue.
+    """
+    col = MetaAnalyticsSyncRun.__table__.c.account_id
+    assert col.nullable is True
+
+    run = MetaAnalyticsSyncRun(platform="instagram", status="started")
+    assert run.account_id is None

@@ -191,8 +191,11 @@ class MetaAnalyticsSyncRun(Base):
     __tablename__ = "meta_analytics_sync_runs"
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
-    account_id: Mapped[int] = mapped_column(
-        ForeignKey("meta_analytics_accounts.id", ondelete="CASCADE"), nullable=False, index=True
+    # Nullable : la trace est créée au début du cycle, avant la résolution du
+    # compte Meta (account_id renseigné ensuite, ou laissé nul si la résolution
+    # échoue). Le verrou multi-worker repose sur status/finished_at, pas ici.
+    account_id: Mapped[int | None] = mapped_column(
+        ForeignKey("meta_analytics_accounts.id", ondelete="CASCADE"), nullable=True, index=True
     )
     platform: Mapped[str] = mapped_column(String(20), nullable=False, index=True)
     status: Mapped[str] = mapped_column(String(30), nullable=False, index=True)  # started | completed | failed | partial

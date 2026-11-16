@@ -14,10 +14,10 @@ services:
     volumes:
       - mysql_data:/var/lib/mysql
       - ./mysql-init:/docker-entrypoint-initdb.d
+      - ./mysql-conf:/etc/mysql/conf.d
     command:
       - --character-set-server=utf8mb4
       - --collation-server=utf8mb4_unicode_ci
-      - --sort-buffer-size=4M
     healthcheck:
       test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-proot_password_change_me"]
       interval: 10s

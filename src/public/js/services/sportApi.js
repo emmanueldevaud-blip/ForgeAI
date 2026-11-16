@@ -256,6 +256,16 @@ export async function publishStudioDraft(publicationId, data) {
   return cmApi.post(`/community-manager/studio/draft/${encodeURIComponent(publicationId)}/publish`, data);
 }
 
+// V2 : Publier sur Facebook Page
+export async function publishStudioDraftFacebook(publicationId, data) {
+  return cmApi.post(`/community-manager/studio/draft/${encodeURIComponent(publicationId)}/publish-facebook`, data);
+}
+
+// V2 : Publier sur Instagram ET Facebook Page simultanément
+export async function publishStudioDraftBoth(publicationId, data) {
+  return cmApi.post(`/community-manager/studio/draft/${encodeURIComponent(publicationId)}/publish-both`, data);
+}
+
 // --------------------------------------------------------------------------- #
 // Community Manager V3 - Lock/Unlock & Text Generation
 // --------------------------------------------------------------------------- #

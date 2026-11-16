@@ -385,6 +385,14 @@ class SportPublication(Base):
     content_locked: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     photo_locked: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 
+    # Média vidéo musical complémentaire (publications sportives) — génération async
+    # Statuts : none | pending | running | ready | failed
+    companion_video_status: Mapped[str] = mapped_column(String(30), nullable=False, default="none", server_default="none", index=True)
+    companion_video_job_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    companion_video_path: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    companion_video_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    companion_video_generated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
     athlete: Mapped["SportAthlete"] = relationship("SportAthlete", lazy="selectin")
     activity: Mapped["SportActivity | None"] = relationship("SportActivity", lazy="selectin")
     calendar_entry: Mapped["EditorialCalendarEntry | None"] = relationship("EditorialCalendarEntry", lazy="selectin")

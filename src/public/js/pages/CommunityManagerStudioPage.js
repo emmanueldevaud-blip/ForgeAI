@@ -11,6 +11,8 @@ import {
   updateStudioDraft,
   validateStudioDraft,
   publishStudioDraft,
+  publishStudioDraftFacebook,
+  publishStudioDraftBoth,
   previewStudioDraft,
   regeneratePublicationContent,
   getSuggestedPhotos,
@@ -192,8 +194,16 @@ export class CommunityManagerStudioPage {
             </button>
           ` : ''}
           ${canPublish && !this.captionOverLimit ? `
+            <div class="cm-studio-publish-platform" style="display:flex;align-items:center;gap:8px;margin-right:8px;">
+              <label style="font-size:12px;color:#666;">Publier sur :</label>
+              <select id="cm-publish-platform" class="form-select form-select-sm" style="width:auto;min-width:160px;padding:4px 8px;" ${this.publishing ? 'disabled' : ''}>
+                <option value="both">Instagram + Facebook</option>
+                <option value="instagram">Instagram seulement</option>
+                <option value="facebook">Facebook seulement</option>
+              </select>
+            </div>
             <button class="btn btn-success" data-action="publish" ${!canPublish || this.publishing ? 'disabled' : ''}>
-              ${this.publishing ? 'Publication…' : 'Publier sur Instagram'}
+              ${this.publishing ? 'Publication…' : 'Publier'}
             </button>
           ` : ''}
           ${this.captionOverLimit && this.showShorten ? `
@@ -546,25 +556,41 @@ export class CommunityManagerStudioPage {
       });
     }
 
-    const publishBtn = this.element.querySelector('[data-action="publish"]');
-    if (publishBtn) {
-      publishBtn.addEventListener('click', async () => {
-        if (this.publishing) return;
-        this.publishing = true;
-        try {
-          await publishStudioDraft(this.publicationId, { confirm: true });
-          const updated = await getStudioDraft(this.publicationId);
-          this.publication = updated;
-          this.success = 'Publication envoyée sur Instagram.';
-          setTimeout(() => { this.success = null; this.render(); }, 1500);
-        } catch (error) {
-          this.error = error?.data?.detail || error?.message || 'Erreur publication';
-        } finally {
-          this.publishing = false;
-          this.render();
-        }
-      });
-    }
+const publishBtn = this.element.querySelector('[data-action="publish"]');
+      if (publishBtn) {
+        publishBtn.addEventListener('click', async () => {
+          if (this.publishing) return;
+          const platformSelect = this.element.querySelector('#cm-publish-platform');
+          const platform = platformSelect ? platformSelect.value : 'both';
+          this.publishing = true;
+          try {
+            let publishFn;
+            switch (platform) {
+              case 'facebook':
+                publishFn = publishStudioDraftFacebook;
+                break;
+              case 'both':
+                publishFn = publishStudioDraftBoth;
+                break;
+              case 'instagram':
+              default:
+                publishFn = publishStudioDraft;
+                break;
+            }
+            await publishFn(this.publicationId, { confirm: true });
+            const updated = await getStudioDraft(this.publicationId);
+            this.publication = updated;
+            const platformLabels = { instagram: 'Instagram', facebook: 'Facebook', both: 'Instagram + Facebook' };
+            this.success = `Publication envoyée sur ${platformLabels[platform]}.`;
+            setTimeout(() => { this.success = null; this.render(); }, 1500);
+          } catch (error) {
+            this.error = error?.data?.detail || error?.message || 'Erreur publication';
+          } finally {
+            this.publishing = false;
+            this.render();
+          }
+        });
+      }
 
     const validateBtn = this.element.querySelector('[data-action="validate"]');
     if (validateBtn) {

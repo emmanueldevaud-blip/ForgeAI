@@ -411,6 +411,8 @@ async def publish_draft(
             status=publication.status,
             instagram_media_id=getattr(publication, 'instagram_media_id', None),
             instagram_permalink=getattr(publication, 'instagram_permalink', None),
+            facebook_media_id=getattr(publication, 'facebook_media_id', None),
+            facebook_permalink=getattr(publication, 'facebook_permalink', None),
             shared_at=publication.shared_at,
             error_message=publication.error_message,
         )
@@ -418,6 +420,62 @@ async def publish_draft(
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     except Exception as exc:
         logger.exception("[CM-STUDIO] Erreur publication Instagram")
+        raise HTTPException(status_code=503, detail="Publication impossible") from exc
+
+
+@router.post("/studio/draft/{publication_id}/publish-facebook", response_model=PublicationPublishResponse)
+async def publish_draft_facebook(
+    publication_id: int,
+    data: PublicationPublishRequest,
+    service: CommunityManagerStudioService = Depends(get_cm_studio_write_service),
+):
+    """Publier une publication validée sur Facebook Page."""
+    try:
+        publication = await service.publish_to_facebook_page(publication_id, data)
+        if not publication:
+            raise HTTPException(status_code=404, detail="Publication introuvable")
+        return PublicationPublishResponse(
+            publication_id=publication.id,
+            status=publication.status,
+            instagram_media_id=getattr(publication, 'instagram_media_id', None),
+            instagram_permalink=getattr(publication, 'instagram_permalink', None),
+            facebook_media_id=getattr(publication, 'facebook_media_id', None),
+            facebook_permalink=getattr(publication, 'facebook_permalink', None),
+            shared_at=publication.shared_at,
+            error_message=publication.error_message,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.exception("[CM-STUDIO] Erreur publication Facebook")
+        raise HTTPException(status_code=503, detail="Publication impossible") from exc
+
+
+@router.post("/studio/draft/{publication_id}/publish-both", response_model=PublicationPublishResponse)
+async def publish_draft_both(
+    publication_id: int,
+    data: PublicationPublishRequest,
+    service: CommunityManagerStudioService = Depends(get_cm_studio_write_service),
+):
+    """Publier une publication validée sur Instagram ET Facebook Page simultanément."""
+    try:
+        publication = await service.publish_to_both(publication_id, data)
+        if not publication:
+            raise HTTPException(status_code=404, detail="Publication introuvable")
+        return PublicationPublishResponse(
+            publication_id=publication.id,
+            status=publication.status,
+            instagram_media_id=getattr(publication, 'instagram_media_id', None),
+            instagram_permalink=getattr(publication, 'instagram_permalink', None),
+            facebook_media_id=getattr(publication, 'facebook_media_id', None),
+            facebook_permalink=getattr(publication, 'facebook_permalink', None),
+            shared_at=publication.shared_at,
+            error_message=publication.error_message,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.exception("[CM-STUDIO] Erreur publication multi-plateforme")
         raise HTTPException(status_code=503, detail="Publication impossible") from exc
 
 

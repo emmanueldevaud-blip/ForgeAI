@@ -267,6 +267,13 @@ class SportPublicationResponse(BaseModel):
     content_locked: bool = False
     photo_locked: bool = False
 
+    # Média vidéo musical complémentaire (publications sportives)
+    companion_video_status: str = "none"
+    companion_video_job_id: Optional[str] = None
+    companion_video_path: Optional[str] = None
+    companion_video_error: Optional[str] = None
+    companion_video_generated_at: Optional[datetime] = None
+
 
 class SportPublicationListResponse(BaseModel):
     items: list[SportPublicationResponse]
@@ -435,11 +442,13 @@ class PublicationPublishRequest(BaseModel):
 
 
 class PublicationPublishResponse(BaseModel):
-    """Réponse après publication Instagram."""
+    """Réponse après publication (Instagram, Facebook, ou les deux)."""
     publication_id: int
     status: str
     instagram_media_id: Optional[str] = None
     instagram_permalink: Optional[str] = None
+    facebook_media_id: Optional[str] = None
+    facebook_permalink: Optional[str] = None
     shared_at: Optional[datetime] = None
     error_message: Optional[str] = None
 

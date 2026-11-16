@@ -665,10 +665,9 @@ class CommunityManagerStudioService:
         title = pub.title or ""
         photo_url = None
         if pub.photo_id:
-            # Pour l'aperçu, on utilise l'URL avec le token Meta pour que Meta puisse accéder à l'image
-            from app.services.sport_media_publish import MediaPublishService
-            media_service = MediaPublishService(self.db)
-            photo_url = await media_service.prepare_media_for_publish(pub.photo_id, self.current_user.id, expires_in_seconds=3600)
+            # URL de fichier photo pour l'aperçu côté navigateur (authentification standard).
+            # Ne pas utiliser de meta_token ici: les tokens de publication Meta sont à usage unique.
+            photo_url = f"/photos/{pub.photo_id}/file?size=large"
 
         # Helper pour extraire les stats de l'activité Garmin si disponible
         stats_html = ""

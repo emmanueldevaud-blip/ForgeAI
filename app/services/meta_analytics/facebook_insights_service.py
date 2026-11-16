@@ -27,16 +27,10 @@ logger = logging.getLogger(__name__)
 
 PAGE_FIELDS = "id,name,access_token,fan_count,website,instagram_business_account,link"
 PAGE_INSIGHT_METRICS = [
-    "page_fans",
-    "page_impressions",
-    "page_impressions_organic",
-    "page_impressions_paid",
-    "page_engaged_users",
-    "page_actions_post_reactions_like_total",
-    "page_actions_post_comments_total",
-    "page_actions_post_shares_total",
+    "page_video_views",
+    "page_post_engagements",
     "page_views_total",
-    "page_link_clicks_total",
+    "page_actions_post_reactions_like_total",
 ]
 PAGE_POST_FIELDS = "id,message,created_time,permalink,type,likes.summary(true),comments.summary(true),shares"
 

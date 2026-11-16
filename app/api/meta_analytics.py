@@ -107,6 +107,7 @@ async def overview(
         "donnees_disponibles": False,
     }
 
+    last_sync_dt = None
     for account in accounts:
         metrics_result = await db.execute(
             sa_select(MetaAnalyticsAccountMetrics).where(
@@ -130,14 +131,17 @@ async def overview(
         }
         overview_data["comptes"].append(entry)
         if account.last_sync_at:
-            if not overview_data["date_derniere_synchronisation"] or account.last_sync_at > overview_data["date_derniere_synchronisation"]:
-                overview_data["date_derniere_synchronisation"] = account.last_sync_at.isoformat()
+            if last_sync_dt is None or account.last_sync_at > last_sync_dt:
+                last_sync_dt = account.last_sync_at
         if any(m["statut"] == "available" for m in metrics.values()):
             overview_data["donnees_disponibles"] = True
         if account.platform == "instagram":
             overview_data["instagram"] = entry
         elif account.platform == "facebook":
             overview_data["facebook"] = entry
+
+    if last_sync_dt:
+        overview_data["date_derniere_synchronisation"] = last_sync_dt.isoformat()
 
     if not accounts:
         overview_data["message"] = "Aucun compte Meta configure. Connectez Instagram/Facebook depuis la configuration Meta."

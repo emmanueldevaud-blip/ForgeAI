@@ -963,22 +963,35 @@ class PhotoService:
                 raise PhotoServiceError("Fichier original introuvable", 404)
             return path, photo.original_filename, photo.mime_type
 
-        thumb = (
-            await self.db.execute(
-                select(PhotoThumbnail).where(
-                    PhotoThumbnail.photo_id == photo.id,
-                    PhotoThumbnail.size == size,
+        # Try requested size first, then fall back to other sizes
+        fallback_sizes = [size, "small", "preview", "medium", "tiny", "large"]
+        for fallback_size in fallback_sizes:
+            thumb = (
+                await self.db.execute(
+                    select(PhotoThumbnail).where(
+                        PhotoThumbnail.photo_id == photo.id,
+                        PhotoThumbnail.size == fallback_size,
+                    )
                 )
+            ).scalar_one_or_none()
+            if thumb is not None:
+                path = self.storage.thumbnail_path(thumb.storage_path)
+                if path.is_file():
+                    return path, f"{photo.id}-{fallback_size}.jpg", "image/jpeg"
+
+        # Last resort: serve original file if it exists (for authenticated owner)
+        try:
+            path = self.storage.backend_for_photo(photo).original_path(
+                photo.storage_path
             )
-        ).scalar_one_or_none()
-        if thumb is None:
-            raise PhotoServiceError(
-                "Miniature indisponible (import en cours de traitement)", 404
-            )
-        path = self.storage.thumbnail_path(thumb.storage_path)
-        if not path.is_file():
-            raise PhotoServiceError("Miniature manquante sur le disque", 404)
-        return path, f"{photo.id}-{size}.jpg", "image/jpeg"
+            if path.is_file():
+                return path, photo.original_filename, photo.mime_type
+        except PhotoStorageError:
+            pass
+
+        raise PhotoServiceError(
+            "Miniature indisponible (import en cours de traitement)", 404
+        )
 
     async def resolve_file_public(
         self, photo_id: int, size: str = "small"
@@ -1002,22 +1015,25 @@ class PhotoService:
                 raise PhotoServiceError("Fichier original introuvable", 404)
             return path, photo.original_filename, photo.mime_type
 
-        thumb = (
-            await self.db.execute(
-                select(PhotoThumbnail).where(
-                    PhotoThumbnail.photo_id == photo.id,
-                    PhotoThumbnail.size == size,
+        # Try requested size first, then fall back to other sizes
+        fallback_sizes = [size, "small", "preview", "medium", "tiny", "large"]
+        for fallback_size in fallback_sizes:
+            thumb = (
+                await self.db.execute(
+                    select(PhotoThumbnail).where(
+                        PhotoThumbnail.photo_id == photo.id,
+                        PhotoThumbnail.size == fallback_size,
+                    )
                 )
-            )
-        ).scalar_one_or_none()
-        if thumb is None:
-            raise PhotoServiceError(
-                "Miniature indisponible (import en cours de traitement)", 404
-            )
-        path = self.storage.thumbnail_path(thumb.storage_path)
-        if not path.is_file():
-            raise PhotoServiceError("Miniature manquante sur le disque", 404)
-        return path, f"{photo.id}-{size}.jpg", "image/jpeg"
+            ).scalar_one_or_none()
+            if thumb is not None:
+                path = self.storage.thumbnail_path(thumb.storage_path)
+                if path.is_file():
+                    return path, f"{photo.id}-{fallback_size}.jpg", "image/jpeg"
+
+        raise PhotoServiceError(
+            "Miniature indisponible (import en cours de traitement)", 404
+        )
 
     async def resolve_edit_file(self, photo_id: int, edit_id: int) -> tuple[Path, str, str]:
         photo = await self._get_owned(photo_id)

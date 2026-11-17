@@ -116,10 +116,9 @@ export class CommunityManagerStudioPage {
     const title = pub?.title || '';
     const content = pub?.content || '';
     const hashtags = pub?.hashtags || '';
-    const fullCaption = content + (hashtags ? '\n\n' + hashtags : '');
+    const fullCaption = [title, content, hashtags].filter(Boolean).join('\n\n');
     this.captionLength = fullCaption.length;
     this.captionOverLimit = this.captionLength > INSTAGRAM_CAPTION_MAX_LENGTH;
-    const remaining = INSTAGRAM_CAPTION_MAX_LENGTH - this.captionLength;
     const nearLimit = this.captionLength > INSTAGRAM_CAPTION_MAX_LENGTH * 0.9;
 
     this.element.innerHTML = `
@@ -154,17 +153,15 @@ export class CommunityManagerStudioPage {
         </div>
 
         <form data-form="studio-edit" class="cm-studio-form">
+          <!-- Champs cachés pour l'API de sauvegarde -->
+          <input type="hidden" name="title" value="${this._escape(title)}">
+          <input type="hidden" name="content" value="${this._escape(content)}">
+          <input type="hidden" name="hashtags" value="${this._escape(hashtags)}">
+          
           <div class="form-group">
-            <label>Titre</label>
-            <input name="title" type="text" value="${this._escape(title)}" ${pub?.status === 'shared' ? 'disabled' : ''} placeholder="Titre de la publication">
-          </div>
-          <div class="form-group">
-            <label>Texte d'accroche</label>
-            <textarea name="content" rows="6" ${pub?.status === 'shared' ? 'disabled' : ''} placeholder="Votre texte…">${this._escape(content)}</textarea>
-          </div>
-          <div class="form-group">
-            <label>Hashtags</label>
-            <input name="hashtags" type="text" value="${this._escape(hashtags)}" ${pub?.status === 'shared' ? 'disabled' : ''} placeholder="#trail #running">
+            <label>Légende Instagram complète</label>
+            <textarea name="full_caption" rows="10" ${pub?.status === 'shared' ? 'disabled' : ''} placeholder="Titre, accroche et hashtags…">${this._escape(fullCaption)}</textarea>
+            <div class="form-hint">Format : Titre (ligne 1), ligne vide, accroche, ligne vide, hashtags</div>
           </div>
           <div class="form-group cm-studio-counter ${this.captionOverLimit ? 'cm-studio-counter--over' : ''}">
             <span class="cm-studio-counter-current">${this.captionLength}</span>
@@ -492,15 +489,42 @@ export class CommunityManagerStudioPage {
       saveBtn.addEventListener('click', () => this._saveForm());
     }
 
-    // Compteur de caractères en temps réel (contenu + hashtags)
+    // Compteur de caractères en temps réel (légende complète)
     const form = this.element.querySelector('[data-form="studio-edit"]');
     if (form) {
+      const fullCaptionInput = form.elements.full_caption;
+      const titleInput = form.elements.title;
+      const contentInput = form.elements.content;
+      const hashtagsInput = form.elements.hashtags;
+
+      const parseFullCaption = (full) => {
+        const parts = full.split('\n\n').map(p => p.trim()).filter(Boolean);
+        let title = '';
+        let content = '';
+        let hashtags = '';
+        if (parts.length === 1) {
+          content = parts[0];
+        } else if (parts.length === 2) {
+          title = parts[0];
+          content = parts[1];
+        } else if (parts.length >= 3) {
+          title = parts[0];
+          hashtags = parts[parts.length - 1];
+          content = parts.slice(1, -1).join('\n\n');
+        }
+        return { title, content, hashtags };
+      };
+
+      const updateHiddenFields = (full) => {
+        const { title, content, hashtags } = parseFullCaption(full);
+        if (titleInput) titleInput.value = title;
+        if (contentInput) contentInput.value = content;
+        if (hashtagsInput) hashtagsInput.value = hashtags;
+      };
+
       const updateCounter = () => {
-        const contentInput = form.elements.content;
-        const hashtagsInput = form.elements.hashtags;
-        const c = contentInput ? contentInput.value : '';
-        const h = hashtagsInput ? hashtagsInput.value : '';
-        const full = c + (h ? '\n\n' + h : '');
+        const full = fullCaptionInput ? fullCaptionInput.value : '';
+        updateHiddenFields(full);
         const newLen = full.length;
         const newOver = newLen > INSTAGRAM_CAPTION_MAX_LENGTH;
         const nearLimit = newLen > INSTAGRAM_CAPTION_MAX_LENGTH * 0.9;
@@ -535,10 +559,7 @@ export class CommunityManagerStudioPage {
         const counterWrap = this.element.querySelector('.cm-studio-counter');
         if (counterWrap) counterWrap.classList.toggle('cm-studio-counter--over', newOver);
       };
-      const contentInput = form.elements.content;
-      const hashtagsInput = form.elements.hashtags;
-      if (contentInput) contentInput.addEventListener('input', updateCounter);
-      if (hashtagsInput) hashtagsInput.addEventListener('input', updateCounter);
+      if (fullCaptionInput) fullCaptionInput.addEventListener('input', updateCounter);
     }
 
     const regenerateBtn = this.element.querySelector('[data-action="regenerate"]');

@@ -44,6 +44,32 @@ from app.services.sport_media_publish import MediaPublishService
 
 logger = logging.getLogger(__name__)
 
+INSTAGRAM_CAPTION_MAX_LENGTH = 2200
+
+def build_full_caption(title: Optional[str], content: Optional[str], hashtags: Optional[str]) -> str:
+    """Construit la légende Instagram complète : titre + accroche + hashtags.
+    
+    Format :
+    [TITRE]
+    
+    [ACCROCHE]
+    
+    [HASHTAGS]
+    
+    Règles :
+    - Supprime les champs vides
+    - Pas de doublons d'espaces/retours à la ligne
+    - Préserve les emojis et accents
+    """
+    parts = []
+    if title and title.strip():
+        parts.append(title.strip())
+    if content and content.strip():
+        parts.append(content.strip())
+    if hashtags and hashtags.strip():
+        parts.append(hashtags.strip())
+    return "\n\n".join(parts)
+
 
 def _extract_stats_html(content: str) -> str:
     """Extrait les stats du contenu et génère un HTML léger pour le mode stratégique."""
@@ -1268,10 +1294,8 @@ class CommunityManagerStudioService:
         if not (pub.content or "").strip():
             raise ValueError("Le contenu de la publication est vide")
 
-        # Construire le caption complet pour contrôle de longueur
-        caption = pub.content or ""
-        if pub.hashtags:
-            caption += f"\n\n{pub.hashtags}"
+        # Construire le caption complet (titre + accroche + hashtags)
+        caption = build_full_caption(pub.title, pub.content, pub.hashtags)
 
         # Contrôle de longueur avant tout appel à l'API Meta ou à la base
         caption_length = len(caption)
@@ -1443,10 +1467,8 @@ class CommunityManagerStudioService:
         if not (pub.content or "").strip():
             raise ValueError("Le contenu de la publication est vide")
 
-        # Construire le caption complet pour contrôle de longueur
-        caption = pub.content or ""
-        if pub.hashtags:
-            caption += f"\n\n{pub.hashtags}"
+        # Construire le caption complet (titre + accroche + hashtags)
+        caption = build_full_caption(pub.title, pub.content, pub.hashtags)
 
         # Contrôle de longueur avant tout appel à l'API Meta
         # Facebook n'a pas de limite stricte comme Instagram, mais on garde une limite raisonnable
@@ -1608,10 +1630,8 @@ class CommunityManagerStudioService:
         if not (pub.content or "").strip():
             raise ValueError("Le contenu de la publication est vide")
 
-        # Construire le caption
-        caption = pub.content or ""
-        if pub.hashtags:
-            caption += f"\n\n{pub.hashtags}"
+        # Construire le caption complet (titre + accroche + hashtags)
+        caption = build_full_caption(pub.title, pub.content, pub.hashtags)
 
         # Contrôle de longueur (limite Instagram = 2200)
         caption_length = len(caption)

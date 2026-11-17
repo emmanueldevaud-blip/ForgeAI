@@ -1071,9 +1071,15 @@ class CommunityManagerStudioService:
                         <div style="font-size: 12px; color: #8e8e8e;">{datetime.now().strftime('%d/%m/%Y')}</div>
                     </div>
                 </div>
-                {f'<img src="{photo_url}" style="width: 100%; height: 480px; object-fit: cover;">' if photo_url else '<div style="width: 100%; height: 480px; background: #fafafa; display: flex; align-items: center; justify-content: center; color: #999;">Aucune image</div>'}
+                <div style="position: relative; width: 100%; height: 480px;">
+                    {f'<img src="{photo_url}" style="width: 100%; height: 100%; object-fit: cover;">' if photo_url else '<div style="width: 100%; height: 100%; background: #fafafa; display: flex; align-items: center; justify-content: center; color: #999;">Aucune image</div>'}
+                    {f'''
+                    <div style="position: absolute; top: 16px; left: 16px; right: 16px; text-shadow: 0 2px 8px rgba(0,0,0,0.8); color: white;">
+                        <div style="font-size: 22px; font-weight: 700; line-height: 1.3;">{title}</div>
+                    </div>
+                    ''' if title else ''}
+                </div>
                 <div style="padding: 12px 16px;">
-                    {f'<div style="font-weight: 600; margin-bottom: 8px;">{title}</div>' if title else ''}
                     <div style="font-size: 14px; line-height: 1.5; white-space: pre-wrap;">{content}</div>
                     {f'<div style="margin-top: 12px; font-size: 13px; color: #8e8e8e; line-height: 1.6;">{hashtags}</div>' if hashtags else ''}
                 </div>

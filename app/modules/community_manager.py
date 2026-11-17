@@ -20,6 +20,15 @@ class CommunityManagerModule(BaseModule):
             dependencies=["sport"],
         ))
 
+    def has_required_permissions(self, user_permissions: list[str] | None) -> bool:
+        permissions = user_permissions or []
+        if "*" in permissions:
+            return True
+        return (
+            "community_manager.strategy_view" in permissions
+            or "meta_analytics.view" in permissions
+        )
+
     def get_navigation_items(self, user_permissions=None):
         permissions = user_permissions or []
         children = []

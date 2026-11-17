@@ -209,6 +209,10 @@ export async function deleteCommunityManagerCalendarEntry(entryId) {
   return cmApi.delete(`/community-manager/calendar/${encodeURIComponent(entryId)}`);
 }
 
+export async function regenerateCommunityManagerHashtags(entryId) {
+  return cmApi.post(`/community-manager/calendar/${encodeURIComponent(entryId)}/regenerate-hashtags`);
+}
+
 // --------------------------------------------------------------------------- #
 // Community Manager V2 - Studio de création
 // --------------------------------------------------------------------------- #

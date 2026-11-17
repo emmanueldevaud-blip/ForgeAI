@@ -176,6 +176,18 @@ async def update_calendar_entry(
     return entry
 
 
+@router.post("/calendar/{entry_id}/regenerate-hashtags", response_model=EditorialCalendarEntryResponse)
+async def regenerate_calendar_entry_hashtags(
+    entry_id: int,
+    service: CommunityManagerService = Depends(get_cm_generate_service),
+):
+    """Regenerer les hashtags d'une entree du calendrier selon la strategie editeeionale."""
+    entry = await service.regenerate_calendar_entry_hashtags(entry_id)
+    if not entry:
+        raise HTTPException(status_code=404, detail="Entrée de calendrier introuvable")
+    return entry
+
+
 @router.delete("/calendar/{entry_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_calendar_entry(
     entry_id: int,

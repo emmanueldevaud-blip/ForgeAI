@@ -13,6 +13,7 @@ import {
   rescheduleSuggestion,
   updateCommunityManagerCalendarEntry,
   deleteCommunityManagerCalendarEntry,
+  regenerateCommunityManagerHashtags,
   createStudioDraftFromCalendar,
   getStudioDraft,
   publishStudioDraft,
@@ -194,6 +195,17 @@ export class CommunityManagerCalendarPage {
       else this._loadWeek();
     } catch (error) {
       this.error = error?.data?.detail || error?.message || 'Erreur suppression';
+      this.render();
+    }
+  }
+
+  async _regenerateHashtags(entryId) {
+    try {
+      await regenerateCommunityManagerHashtags(entryId);
+      if (this.view === 'month') this._loadMonth();
+      else this._loadWeek();
+    } catch (error) {
+      this.error = error?.data?.detail || error?.message || 'Erreur regeneration hashtags';
       this.render();
     }
   }
@@ -384,6 +396,9 @@ export class CommunityManagerCalendarPage {
     const deleteBtn = !isShared ? `
       <button class="cal-entry-btn cal-entry-btn--delete" data-action="delete-entry" data-entry-id="${entry.entry_id}" title="Supprimer">🗑</button>
     ` : '';
+    const regenerateBtn = !isShared ? `
+      <button class="cal-entry-btn cal-entry-btn--regen" data-action="regenerate-hashtags" data-entry-id="${entry.entry_id}" title="Regenerer les hashtags">🔄</button>
+    ` : '';
     return `
       <div class="cal-entry${publishedClass}" data-entry-id="${entry.entry_id}" data-entry-pub-id="${entry.pub_id || ''}"
            data-entry-status="${this._escape(entry.status || '')}" data-entry-source="${this._escape(entry.source || 'manuel')}"
@@ -402,6 +417,7 @@ export class CommunityManagerCalendarPage {
               <button class="cal-entry-btn cal-entry-btn--refuse" data-action="refuse-suggestion" data-entry-id="${entry.entry_id}" title="Refuser">✗</button>
             </div>` : ''}
           ${deleteBtn ? `<div class="cal-entry-actions">${deleteBtn}</div>` : ''}
+          ${regenerateBtn ? `<div class="cal-entry-actions">${regenerateBtn}</div>` : ''}
         </div>
       </div>
     `;
@@ -485,6 +501,14 @@ export class CommunityManagerCalendarPage {
         deleteBtn.addEventListener('click', (e) => {
           e.stopPropagation();
           this._deleteEntry(parseInt(deleteBtn.dataset.entryId, 10));
+        });
+      }
+
+      const regenerateBtn = entryEl.querySelector('[data-action="regenerate-hashtags"]');
+      if (regenerateBtn) {
+        regenerateBtn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          this._regenerateHashtags(parseInt(regenerateBtn.dataset.entryId, 10));
         });
       }
     });

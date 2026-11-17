@@ -155,3 +155,44 @@ async def test_admin_access_permission_exists():
         assert perm.is_system is True
 
     await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_navigation_includes_community_manager_for_meta_analytics_user(db_session, client):
+    """Un user ne possedant que meta_analytics.view doit voir l'entree Community Manager (menu sidebar Meta Analytics)."""
+    from app.services.rbac import RBACService
+
+    rbac = RBACService(db_session)
+    role = await rbac.create_role(
+        "meta_analytics_viewer",
+        "Meta Analytics Viewer",
+        description="Consultation des analytics Meta",
+        is_system=False,
+    )
+    perm = await rbac.get_permission_by_code("meta_analytics.view")
+    assert perm is not None, "meta_analytics.view permission should exist"
+    await rbac.assign_permission_to_role(role.id, perm.id)
+
+    user = await create_user(db_session, {
+        'username': 'metauser',
+        'email': 'metauser@example.com',
+        'password': 'password123',
+        'is_active': True,
+        'role': UserRole.USER,
+        'source': 'local',
+    })
+    await rbac.assign_role_to_user(user.id, role.id)
+
+    resp = await client.post("/auth/login", json={
+        "username": "metauser",
+        "password": "password123",
+    })
+    access_token = resp.cookies.get("access_token")
+    headers = {"Authorization": f"Bearer {access_token}"}
+
+    resp = await client.get("/modules/navigation", headers=headers)
+    assert resp.status_code == 200
+    codes = [item["code"] for item in resp.json().get("navigation", [])]
+    assert "community_manager" in codes, (
+        f"Community Manager (menu Meta Analytics) absent pour un user meta_analytics.view : {codes}"
+    )

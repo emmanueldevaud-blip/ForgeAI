@@ -424,13 +424,6 @@ class PublicationPreviewRequest(BaseModel):
     format: str = Field("feed", pattern="^(feed|story|reel)$")
 
 
-class PublicationPreviewResponse(BaseModel):
-    """Réponse avec le rendu prévisualisé."""
-    publication_id: int
-    preview_html: str
-    format: str
-
-
 class PublicationValidateRequest(BaseModel):
     """Validation humaine avant publication."""
     confirm: bool = True

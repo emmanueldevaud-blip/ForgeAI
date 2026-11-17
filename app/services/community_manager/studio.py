@@ -828,9 +828,19 @@ class CommunityManagerStudioService:
 
         # Helper pour extraire les stats de l'activité Garmin si disponible
         stats_html = ""
-        if pub.calendar_entry and pub.calendar_entry.notes:
-            # Essayer d'extraire des stats depuis les notes de l'entrée
-            pass
+
+        # Infos vidéo musicale compagnon (si disponible)
+        companion = {
+            "status": getattr(pub, "companion_video_status", "none"),
+            "job_id": getattr(pub, "companion_video_job_id", None),
+            "error": getattr(pub, "companion_video_error", None),
+            "generated_at": pub.companion_video_generated_at.isoformat() if getattr(pub, "companion_video_generated_at", None) else None,
+            "ready": bool(getattr(pub, "companion_video_status", None) == "ready" and getattr(pub, "companion_video_path", None)),
+        }
+        audio = (pub.design or {}).get("audio") if isinstance(pub.design, dict) else None
+        if isinstance(audio, dict):
+            from app.services.community_manager.audio import normalize_audio_config
+            audio = normalize_audio_config(audio)
 
         # HTML de prévisualisation (style Instagram)
         if format == "feed":
@@ -908,6 +918,8 @@ class CommunityManagerStudioService:
             "publication_id": publication_id,
             "preview_html": html,
             "format": format,
+            "companion_video": companion,
+            "audio": audio,
         }
 
     async def _get_publication_with_context(self, publication_id: int) -> Optional[SportPublication]:
@@ -1027,8 +1039,101 @@ class CommunityManagerStudioService:
         except Exception:
             logger.exception("[CM-STUDIO] Impossible de sélectionner l'audio sport pour publication %s", pub.id)
 
+        # Vidéo musicale compagnon (async, idempotente) : déclenchée si photo + audio prêts
+        try:
+            await self.ensure_companion_video_job(pub, force=False)
+        except Exception:
+            logger.exception("[CM-STUDIO] Impossible de planifier la vidéo compagnon pour publication %s", pub.id)
+
         await self.db.flush()
         return pub
+
+    async def ensure_companion_video_job(self, pub: SportPublication, force: bool = False) -> Any:
+        """Planifie (idempotent, async) le rendu vidéo musical compagnon d'une publication sportive.
+
+        Conditions : publication sportive, photo présente, audio activé avec piste.
+        Ne bloque pas ; le traitement est effectué par le worker photo_jobs (studio_render).
+        """
+        from app.core.config import get_settings
+        from app.models.photo import PhotoJob
+        from app.services.photo.jobs import enqueue_job, run_pending_jobs_now
+        from app.services.community_manager.audio import normalize_audio_config, resolve_track_path
+
+        if not _is_sport_publication(pub):
+            return None
+
+        # Pas de vidéo sans photo (overlay/stats appliqués sur la photo)
+        if not pub.photo_id:
+            return None
+
+        design = pub.design if isinstance(pub.design, dict) else {}
+        audio_cfg = normalize_audio_config(design.get("audio") if isinstance(design.get("audio"), dict) else {})
+        track_id = audio_cfg.get("track_id") or audio_cfg.get("track")
+        if not audio_cfg.get("enabled", True) or not track_id:
+            return None
+        # Fichier audio indisponible -> pas de rendu (évite jobs voués à l'échec en boucle)
+        if resolve_track_path(str(track_id)) is None:
+            return None
+
+        # Idempotence : rendu déjà prêt et fichier présent
+        if not force and pub.companion_video_status == "ready" and pub.companion_video_path:
+            try:
+                if Path(pub.companion_video_path).is_file():
+                    return None
+            except Exception:
+                pass
+
+        # Idempotence : rendu/job déjà en cours
+        if not force and pub.companion_video_status in ("pending", "running"):
+            return None
+
+        # Vérifier l'absence de job actif existant pour cette publication
+        existing = (
+            await self.db.execute(
+                select(PhotoJob).where(
+                    PhotoJob.type == "studio_render",
+                    PhotoJob.status.in_(("pending", "running")),
+                )
+            )
+        ).scalars().all()
+        for j in existing:
+            p = j.payload_json or {}
+            if p.get("kind") == "sport_companion_video" and str(p.get("publication_id")) == str(pub.id):
+                # Réconcilier l'état publication si besoin
+                if pub.companion_video_status not in ("ready", "running"):
+                    pub.companion_video_status = "pending"
+                    pub.companion_video_job_id = str(j.id)
+                return j
+
+        payload = {
+            "kind": "sport_companion_video",
+            "publication_id": pub.id,
+            "user_id": getattr(self.current_user, "id", None),
+            "duration": 12.0,
+            "force": bool(force),
+        }
+        job = await enqueue_job(self.db, type="studio_render", photo_id=None, payload=payload, commit=False)
+
+        pub.companion_video_status = "pending"
+        pub.companion_video_job_id = str(job.id)
+        pub.companion_video_error = None
+        if force:
+            pub.companion_video_generated_at = None
+        # Refléter l'état audio "en attente d'intégration"
+        design = {**design, "audio": {**audio_cfg, "embedded": False, "audio_status": "selected"}}
+        pub.design = design
+
+        # Déclenchement immédiat best-effort en contexte HTTP (sinon boucle lifespan)
+        if get_settings().PHOTO_BACKGROUND_JOBS:
+            try:
+                import asyncio
+
+                loop = asyncio.get_running_loop()
+                loop.create_task(run_pending_jobs_now())
+            except Exception:
+                pass
+
+        return job
 
     async def publish_to_instagram(
         self, publication_id: int, data: Any

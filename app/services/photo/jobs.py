@@ -515,10 +515,6 @@ async def _place_geocode(db: AsyncSession, photo: Photo | None, payload: dict) -
 async def _studio_render(db: AsyncSession, photo: Photo | None, payload: dict) -> None:
     from app.services.studio_render import StudioRenderService
 
-    design = payload.get("design")
-    if not design:
-        raise PhotoJobError("Design introuvable")
-
     user_id = payload.get("user_id") or (photo.owner_id if photo else None)
     user = await db.get(User, user_id) if user_id else None
     if user is None:
@@ -530,6 +526,26 @@ async def _studio_render(db: AsyncSession, photo: Photo | None, payload: dict) -
         return
 
     service = StudioRenderService(db, user)
+
+    # Rendu vidéo musical compagnon d'une publication sportive (image + audio intégré)
+    if payload.get("kind") == "sport_companion_video":
+        publication_id = payload.get("publication_id")
+        if not publication_id:
+            raise PhotoJobError("publication_id requis pour le rendu compagnon")
+        duration = float(payload.get("duration") or 12.0)
+        force = bool(payload.get("force"))
+        await service.render_sport_companion_video(
+            publication_id=int(publication_id),
+            job_id=str(job_id) if job_id else None,
+            duration=duration,
+            force=force,
+        )
+        return
+
+    design = payload.get("design")
+    if not design:
+        raise PhotoJobError("Design introuvable")
+
     await service.render(
         design=design,
         job_id=job_id,

@@ -346,6 +346,68 @@ class CommunityManagerService:
         await self.db.commit()
         return True
 
+    async def regenerate_calendar_entry_hashtags(self, entry_id: int) -> EditorialCalendarEntryResponse | None:
+        """Régénère les hashtags d'une entrée du calendrier selon la stratégie éditoriale."""
+        strategy = await self.get_strategy()
+        if not strategy:
+            return None
+
+        result = await self.db.execute(
+            select(EditorialCalendarEntry).where(
+                EditorialCalendarEntry.id == entry_id,
+                EditorialCalendarEntry.strategy_id == strategy.id,
+            )
+        )
+        entry = result.scalar_one_or_none()
+        if not entry:
+            return None
+
+        selected: list[str] = []
+        try:
+            prompt = (
+                "Sujet editorial deja valide pour une publication :\n"
+                f"- Titre : {entry.topic}\n"
+                f"- Note IA : {entry.notes or 'Aucune'}\n\n"
+                "Strategie editoionale :\n"
+                f"- Signature hashtag : {strategy.signature_hashtag or 'Non definie'}\n"
+                f"- Max hashtags : {strategy.max_hashtags or 5}\n\n"
+                "Genere les hashtags pertinents pour ce sujet (3-5 max, incluant la signature).\n"
+                "Reponds UNIQUEMENT en JSON avec la cle 'hashtags'."
+            )
+            response = await ai_gateway.generate(
+                prompt=prompt,
+                system_prompt=SYSTEM_PROMPT,
+                temperature=0.7,
+                max_tokens=600,
+            )
+            payload = _parse_ai_json_response(response.text)
+            raw_hashtags = payload.get("hashtags") if payload else None
+            if isinstance(raw_hashtags, list):
+                selected = enforce_max_hashtags(raw_hashtags, int(strategy.max_hashtags or 5))
+        except Exception as exc:
+            logger.warning("[COMMUNITY-MANAGER] Regeneration hashtags IA echouee pour l'entree %s: %s", entry_id, exc)
+
+        if not selected:
+            context = {
+                "topic": entry.topic,
+                "notes": entry.notes,
+                "activity_name": None,
+                "sport_type": None,
+                "title": entry.topic,
+            }
+            strategy_dict = {
+                "signature_hashtag": strategy.signature_hashtag,
+                "max_hashtags": strategy.max_hashtags,
+            }
+            selected = select_hashtags(context, strategy_dict, existing=None, max_hashtags=strategy.max_hashtags)
+            selected = enforce_max_hashtags(selected, int(strategy.max_hashtags or 5))
+        entry.hashtags = hashtags_to_str(selected)
+
+        await self.db.flush()
+        await self.db.commit()
+        await self.db.refresh(entry)
+        return EditorialCalendarEntryResponse.model_validate(entry)
+
 
 async def get_community_manager_config(db: AsyncSession) -> dict[str, Any]:
     """Récupère la configuration du module community_manager depuis ModuleConfig."""

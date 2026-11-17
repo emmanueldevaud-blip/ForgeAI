@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import shutil
 import subprocess
 import tempfile
@@ -816,4 +817,322 @@ class StudioRenderService:
     def _run_ffmpeg(command: list[str]) -> None:
         result = subprocess.run(command, capture_output=True, check=False, timeout=3600)
         if result.returncode != 0:
-            raise StudioRenderError(f"FFmpeg impossible : {result.stderr[-500:]}")
+            stderr = (result.stderr or b"").decode(errors="ignore") if isinstance(result.stderr, (bytes, bytearray)) else (result.stderr or "")
+            raise StudioRenderError(f"FFmpeg impossible : {stderr[-800:]}")
+
+    # ------------------------------------------------------------------ helpers binaires / ffprobe
+
+    @staticmethod
+    def _find_binary(name: str) -> str | None:
+        found = shutil.which(name)
+        if found:
+            return found
+        # Emplacements courants hors PATH (ex. installation locale ffmpeg-8)
+        candidates = [
+            Path.home() / ".local" / "share" / "ffmpeg-8" / "bin" / name,
+            Path("/usr/bin") / name,
+            Path("/usr/local/bin") / name,
+        ]
+        for p in candidates:
+            try:
+                if p.is_file():
+                    return str(p)
+            except Exception:
+                continue
+        return None
+
+    @classmethod
+    def _probe_with_ffmpeg(cls, path: Path) -> dict[str, Any] | None:
+        """Fallback quand ffprobe est indisponible/non fonctionnel : parse `ffmpeg -i` (stderr)."""
+        ffmpeg = cls._find_binary("ffmpeg")
+        if not ffmpeg:
+            return None
+        try:
+            res = subprocess.run([ffmpeg, "-hide_banner", "-i", str(path)], capture_output=True, text=True, timeout=30)
+            out = (res.stderr or "") + (res.stdout or "")
+            # Durée : Duration: HH:MM:SS.xx
+            import re as _re
+
+            dur = None
+            m = _re.search(r"Duration:\s*(\d+):(\d+):(\d+(?:\.\d+)?)", out)
+            if m:
+                dur = int(m.group(1)) * 3600 + int(m.group(2)) * 60 + float(m.group(3))
+            has_video = bool(_re.search(r"Stream #\d+:\d+.*Video:\s*(\w+)", out))
+            has_audio = bool(_re.search(r"Stream #\d+:\d+.*Audio:\s*(\w+)", out))
+            vm = _re.search(r"Stream #\d+:\d+.*Video:\s*(\w+)", out)
+            am = _re.search(r"Stream #\d+:\d+.*Audio:\s*(\w+)", out)
+            return {
+                "available": True,
+                "ok": True,
+                "has_video": has_video,
+                "has_audio": has_audio,
+                "video_codec": (vm.group(1).lower() if vm else None),
+                "audio_codec": (am.group(1).lower() if am else None),
+                "duration": dur,
+                "size": path.stat().st_size if path.exists() else None,
+                "source": "ffmpeg",
+            }
+        except Exception:
+            return None
+
+    @classmethod
+    def _ffprobe(cls, path: Path) -> dict[str, Any]:
+        ffprobe = cls._find_binary("ffprobe")
+        if not ffprobe:
+            fallback = cls._probe_with_ffmpeg(path)
+            return fallback or {"available": False, "reason": "ffprobe introuvable"}
+        try:
+            res = subprocess.run(
+                [ffprobe, "-v", "error", "-print_format", "json", "-show_streams", "-show_format", str(path)],
+                capture_output=True, text=True, timeout=60,
+            )
+            if res.returncode != 0:
+                # Binaire présent mais non fonctionnel (ex. libs manquantes) -> fallback ffmpeg
+                fallback = cls._probe_with_ffmpeg(path)
+                if fallback:
+                    return fallback
+                return {"available": True, "ok": False, "error": (res.stderr or "")[-500:]}
+            data = json.loads(res.stdout or "{}")
+            streams = data.get("streams") or []
+            v = [s for s in streams if s.get("codec_type") == "video"]
+            a = [s for s in streams if s.get("codec_type") == "audio"]
+            fmt = data.get("format") or {}
+            return {
+                "available": True,
+                "ok": True,
+                "has_video": bool(v),
+                "has_audio": bool(a),
+                "video_codec": (v[0].get("codec_name") if v else None),
+                "audio_codec": (a[0].get("codec_name") if a else None),
+                "duration": float(fmt.get("duration") or 0) if fmt.get("duration") else None,
+                "size": int(fmt.get("size") or 0) if fmt.get("size") else None,
+                "source": "ffprobe",
+            }
+        except Exception as exc:  # noqa: BLE001
+            fallback = cls._probe_with_ffmpeg(path)
+            if fallback:
+                return fallback
+            return {"available": True, "ok": False, "error": str(exc)}
+
+    @staticmethod
+    def _assert_companion_probe(probe: dict[str, Any], expected_duration: float) -> None:
+        if not probe.get("available"):
+            raise StudioRenderError(f"Vérification impossible : {probe.get('reason') or 'ffprobe indisponible'}")
+        if not probe.get("ok"):
+            raise StudioRenderError(f"Vérification ffprobe échouée : {probe.get('error') or 'erreur inconnue'}")
+        if not probe.get("has_video"):
+            raise StudioRenderError("Rendu invalide : flux vidéo manquant")
+        if not probe.get("has_audio"):
+            # Exigence fonctionnelle : l'audio ne doit jamais être absent silencieusement
+            raise StudioRenderError("Rendu invalide : flux audio manquant (AAC requis)")
+        vcodec = (probe.get("video_codec") or "").lower()
+        acodec = (probe.get("audio_codec") or "").lower()
+        if vcodec and vcodec not in ("h264", "avc", "avc1"):
+            raise StudioRenderError(f"Codec vidéo inattendu : {vcodec} (H.264 requis)")
+        if acodec and acodec not in ("aac", "mp4a", "mp4a.40.2"):
+            raise StudioRenderError(f"Codec audio inattendu : {acodec} (AAC requis)")
+        dur = probe.get("duration")
+        if dur is not None and expected_duration > 0:
+            if abs(float(dur) - float(expected_duration)) > 1.5:
+                raise StudioRenderError(
+                    f"Durée inattendue : {float(dur):.2f}s (attendu ~{float(expected_duration):.2f}s)"
+                )
+
+    # ---------------------------------------------------------- vidéo compagnon sportive
+
+    async def render_sport_companion_video(
+        self,
+        *,
+        publication_id: int,
+        job_id: str | None = None,
+        duration: float = 12.0,
+        force: bool = False,
+    ) -> tuple[Path, dict[str, Any]]:
+        """Génère un MP4 9:16 (photo + overlay stats + animation + audio intégré AAC).
+
+        Vérifie par ffprobe la présence réelle des flux vidéo (H.264) et audio (AAC).
+        Échoue explicitement si l'audio est absent ou invalide (jamais de vidéo muette).
+        """
+        from app.models.sport import SportPublication
+        from app.services.community_manager.studio import _ensure_sport_defaults, _is_sport_publication
+        from app.services.community_manager.audio import resolve_track_path, normalize_audio_config
+
+        pub = await self.db.get(SportPublication, publication_id)
+        if pub is None:
+            raise StudioRenderError("Publication introuvable")
+
+        # S'assurer que l'overlay sport et l'audio sont appliqués/persistés
+        if _is_sport_publication(pub):
+            # Charger le contexte calendrier si besoin
+            if pub.calendar_entry_id and getattr(pub, "calendar_entry", None) is None:
+                from app.models.sport import EditorialCalendarEntry
+                entry = await self.db.get(EditorialCalendarEntry, pub.calendar_entry_id)
+                pub.calendar_entry = entry
+            # _ensure_sport_defaults a besoin d'un service studio-like (current_user/db)
+            from app.services.community_manager.studio import CommunityManagerStudioService
+            studio = CommunityManagerStudioService(self.db, self.current_user)
+            pub = await studio._ensure_sport_defaults(pub)
+            await self.db.commit()
+            await self.db.refresh(pub)
+
+        if not pub.photo_id:
+            raise StudioRenderError("Photo requise pour générer la vidéo musicale")
+
+        design = pub.design if isinstance(pub.design, dict) else {}
+        audio_cfg = normalize_audio_config(design.get("audio") if isinstance(design.get("audio"), dict) else {})
+        track_id = audio_cfg.get("track_id") or audio_cfg.get("track")
+        if not audio_cfg.get("enabled", True):
+            raise StudioRenderError("Audio désactivé : une piste est requise pour la vidéo sportive")
+        if not track_id:
+            raise StudioRenderError("Aucune piste audio sélectionnée")
+        audio_path = resolve_track_path(str(track_id))
+        if audio_path is None or not audio_path.is_file():
+            raise StudioRenderError("Fichier audio introuvable ou indisponible")
+        if not shutil.which("ffmpeg") and not self._find_binary("ffmpeg"):
+            raise StudioRenderError("ffmpeg introuvable")
+
+        # Idempotence : rendu existant et valide
+        if not force and pub.companion_video_status == "ready" and pub.companion_video_path:
+            existing = Path(pub.companion_video_path)
+            if existing.is_file():
+                probe = self._ffprobe(existing)
+                try:
+                    self._assert_companion_probe(probe, duration)
+                    audio_cfg["embedded"] = True
+                    audio_cfg["audio_status"] = "integrated"
+                    design = {**design, "audio": audio_cfg}
+                    pub.design = design
+                    await self.db.commit()
+                    return existing, {"probe": probe, "audio": audio_cfg, "reused": True}
+                except Exception:
+                    pass  # régénérer si invalide
+
+        # Marquer en cours
+        pub.companion_video_status = "running"
+        pub.companion_video_error = None
+        if job_id:
+            pub.companion_video_job_id = job_id
+        audio_cfg["audio_status"] = "rendering"
+        design = {**design, "audio": audio_cfg}
+        pub.design = design
+        await self.db.commit()
+
+        ffmpeg = self._find_binary("ffmpeg") or "ffmpeg"
+        width, height, fps = 1080, 1920, 30
+        target_dur = max(8.0, min(float(duration or 12.0), 20.0))
+        temp_dir = Path(tempfile.mkdtemp(prefix="forgeai-sport-video-"))
+        try:
+            # Résoudre la photo (avec overlay stats déjà appliquée par _ensure_sport_defaults)
+            photo_service = PhotoService(self.db, self.current_user)
+            photo_path, _fn, _mt = await photo_service.resolve_file(pub.photo_id, "original")
+
+            video_tmp = temp_dir / "video.mp4"
+            audio_tmp = temp_dir / "audio.m4a"
+            final_tmp = temp_dir / "final.mp4"
+
+            # Animation légère : zoom progressif (Ken Burns simple) sur image statique
+            # zoompan produit des frames à fps constant sur la durée cible
+            d_frames = int(round(target_dur * fps))
+            zoom_expr = f"min(zoom+0.0008,1.08)"
+            vf = (
+                f"scale=8000:-1,"
+                f"zoompan=z='{zoom_expr}':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d={d_frames}:s={width}x{height}:fps={fps},"
+                f"format=yuv420p"
+            )
+            cmd_v = [
+                ffmpeg, "-y",
+                "-loop", "1",
+                "-t", str(target_dur),
+                "-i", str(photo_path),
+                "-vf", vf,
+                "-c:v", "libx264",
+                "-preset", "medium",
+                "-crf", "20",
+                "-pix_fmt", "yuv420p",
+                "-movflags", "+faststart",
+                str(video_tmp),
+            ]
+            await asyncio.to_thread(self._run_ffmpeg, cmd_v)
+
+            # Audio : normalisation simple + fades in/out, pad/trim à la durée cible, AAC
+            fade_in = float(audio_cfg.get("fade_in") or 0.4)
+            fade_out = float(audio_cfg.get("fade_out") or 0.8)
+            vol = float(audio_cfg.get("volume") or 1.0)
+            fade_out_start = max(0.0, target_dur - fade_out)
+            af = (
+                f"volume={vol},"
+                f"afade=t=in:st=0:d={fade_in},"
+                f"afade=t=out:st={fade_out_start}:d={fade_out},"
+                f"apad=whole_dur={target_dur},"
+                f"atrim=0:{target_dur},"
+                f"asetpts=PTS-STARTPTS,"
+                f"aformat=sample_rates=44100:channel_layouts=stereo"
+            )
+            cmd_a = [
+                ffmpeg, "-y",
+                "-i", str(audio_path),
+                "-vn",
+                "-af", af,
+                "-c:a", "aac",
+                "-b:a", "192k",
+                str(audio_tmp),
+            ]
+            await asyncio.to_thread(self._run_ffmpeg, cmd_a)
+
+            # Mux : piste audio réellement intégrée
+            cmd_m = [
+                ffmpeg, "-y",
+                "-i", str(video_tmp),
+                "-i", str(audio_tmp),
+                "-c:v", "copy",
+                "-c:a", "aac",
+                "-t", str(target_dur),
+                "-movflags", "+faststart",
+                str(final_tmp),
+            ]
+            await asyncio.to_thread(self._run_ffmpeg, cmd_m)
+
+            # Vérification ffprobe (obligatoire : pas de vidéo sans audio)
+            probe = self._ffprobe(final_tmp)
+            self._assert_companion_probe(probe, target_dur)
+
+            # Enregistrer le rendu final (dans studio_renders/publications/<id>/)
+            out_dir = get_photo_storage().root / "studio_renders" / "publications" / str(publication_id)
+            out_dir.mkdir(parents=True, exist_ok=True)
+            suffix = job_id or f"cmp_{int(time.time())}"
+            out_path = out_dir / f"companion_{suffix}.mp4"
+            out_path.write_bytes(final_tmp.read_bytes())
+
+            audio_cfg["embedded"] = True
+            audio_cfg["audio_status"] = "integrated"
+            design = {**(pub.design if isinstance(pub.design, dict) else {}), "audio": audio_cfg}
+            pub.design = design
+            pub.companion_video_status = "ready"
+            pub.companion_video_path = str(out_path)
+            pub.companion_video_error = None
+            pub.companion_video_generated_at = datetime.now(timezone.utc)
+            if job_id:
+                pub.companion_video_job_id = job_id
+            await self.db.commit()
+            await self.db.refresh(pub)
+
+            try:
+                cleanup_expired_renders()
+            except Exception:  # noqa: BLE001
+                pass
+
+            return out_path, {"probe": probe, "audio": audio_cfg, "reused": False}
+        except Exception as exc:
+            pub.companion_video_status = "failed"
+            pub.companion_video_error = str(exc)
+            audio_cfg["embedded"] = False
+            audio_cfg["audio_status"] = "error"
+            design = {**(pub.design if isinstance(pub.design, dict) else {}), "audio": audio_cfg}
+            pub.design = design
+            if job_id:
+                pub.companion_video_job_id = job_id
+            await self.db.commit()
+            raise
+        finally:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+

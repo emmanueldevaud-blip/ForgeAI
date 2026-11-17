@@ -1047,8 +1047,10 @@ export class StudioEditorView {
 
     // Ajouter chaque stat comme élément graphique distinct
     const centerX = w / 2;
-    const startY = h / 2 - (stats.length - 1) * (h * 0.09);
     const elHeight = Math.max(40, Math.round(h * 0.14));
+    const spacing = 10; // espace entre les éléments
+    const totalHeight = stats.length * elHeight + (stats.length - 1) * spacing;
+    const startY = h / 2 - totalHeight / 2;
     const fontSize = Math.max(24, Math.round(w * 0.07));
 
     for (let i = 0; i < stats.length; i++) {
@@ -1061,7 +1063,7 @@ export class StudioEditorView {
         value: s.value,
         unit: s.unit,
         x: centerX,
-        y: startY + i * (elHeight + 10),
+        y: startY + i * (elHeight + spacing),
         w: w * 0.6,
         h: elHeight,
         size: fontSize,

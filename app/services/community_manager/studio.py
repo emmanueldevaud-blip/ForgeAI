@@ -256,7 +256,15 @@ def pick_sport_music(activity: SportActivity | None) -> str:
 
 
 def render_sport_overlay_image(photo_path: str, stats: dict[str, str], out_path: str) -> str | None:
-    """Dessine durée, dénivelé et kilomètres sur la photo. Retourne out_path ou None."""
+    """Compose les statistiques sportives (distance, temps, dénivelé) sur la photo.
+    
+    Layout adaptatif selon l'orientation :
+    - Portrait: panneau en bas, stats empilées
+    - Paysage: panneau en bas à droite, stats en deux lignes
+    - Carré: panneau centré en bas
+    
+    Retourne out_path ou None en cas d'erreur.
+    """
     try:
         from PIL import Image, ImageDraw, ImageFont, ImageOps
     except Exception:
@@ -270,11 +278,6 @@ def render_sport_overlay_image(photo_path: str, stats: dict[str, str], out_path:
         overlay = Image.new("RGBA", (w, h), (0, 0, 0, 0))
         draw = ImageDraw.Draw(overlay)
 
-        # Bandeau bas semi-transparent
-        band_h = max(int(h * 0.16), 140)
-        y0 = h - band_h
-        draw.rectangle([(0, y0), (w, h)], fill=(0, 0, 0, 150))
-
         # Police
         def load_font(size):
             for path in (
@@ -287,41 +290,143 @@ def render_sport_overlay_image(photo_path: str, stats: dict[str, str], out_path:
                     continue
             return ImageFont.load_default()
 
-        font_label = load_font(max(int(h * 0.022), 18))
-        font_value = load_font(max(int(h * 0.045), 30))
+        # Tailles de police adaptatives
+        base_font_size = max(int(min(w, h) * 0.035), 20)
+        font_label = load_font(max(base_font_size // 2, 14))
+        font_value = load_font(base_font_size)
+        font_signature = load_font(max(base_font_size // 3, 12))
 
-        items = []
-        if "duree" in stats:
-            items.append(("DURÉE", stats["duree"]))
-        if "denivele" in stats:
-            items.append(("DÉNIVELÉ", stats["denivele"]))
-        if "distance" in stats:
-            items.append(("DISTANCE", stats["distance"]))
-        if not items:
-            return None
+        # Extraire les stats dans l'ordre souhaité
+        distance = stats.get("distance")
+        duree = stats.get("duree")
+        denivele = stats.get("denivele")
 
-        n = len(items)
-        col_w = w / n
-        for i, (label, value) in enumerate(items):
-            cx = int(col_w * i + col_w / 2)
-            # label
+        # Construire les lignes de texte
+        top_items = []
+        if distance:
+            top_items.append(("DISTANCE", distance))
+        if duree:
+            top_items.append(("TEMPS", duree))
+        
+        bottom_items = []
+        if denivele:
+            bottom_items.append(("DÉNIVELÉ", denivele))
+
+        # Mesurer les dimensions du texte
+        def measure_text(text, font):
             try:
-                lb = draw.textbbox((0, 0), label, font=font_label)
-                lw = lb[2] - lb[0]
+                bbox = draw.textbbox((0, 0), text, font=font)
+                return bbox[2] - bbox[0], bbox[3] - bbox[1]
             except Exception:
-                lw = len(label) * 8
-            try:
-                vb = draw.textbbox((0, 0), value, font=font_value)
-                vw = vb[2] - vb[0]
-                vh = vb[3] - vb[1]
-            except Exception:
-                vw = len(value) * 14
-                vh = 30
-            ly = y0 + int(band_h * 0.18)
-            vy = y0 + int(band_h * 0.45)
-            draw.text((cx - lw / 2, ly), label, fill=(220, 220, 220, 255), font=font_label)
-            draw.text((cx - vw / 2, vy), value, fill=(255, 255, 255, 255), font=font_value)
+                return len(text) * (font.size // 2), font.size
 
+        # Calculer les dimensions du panneau
+        padding = max(int(min(w, h) * 0.025), 20)
+        gap_x = max(int(w * 0.03), 30)
+        gap_y = max(int(h * 0.015), 12)
+        
+        # Mesurer les éléments du haut
+        top_widths = []
+        top_heights = []
+        for label, value in top_items:
+            lw, lh = measure_text(label, font_label)
+            vw, vh = measure_text(value, font_value)
+            top_widths.append(max(lw, vw))
+            top_heights.append(lh + vh + gap_y)
+        
+        # Mesurer les éléments du bas
+        bottom_widths = []
+        bottom_heights = []
+        for label, value in bottom_items:
+            lw, lh = measure_text(label, font_label)
+            vw, vh = measure_text(value, font_value)
+            bottom_widths.append(max(lw, vw))
+            bottom_heights.append(lh + vh + gap_y)
+
+        # Signature
+        sig_text = "Jepepagtrail"
+        sig_w, sig_h = measure_text(sig_text, font_signature)
+
+        # Déterminer la position et taille du panneau selon l'orientation
+        is_portrait = h > w * 1.2
+        is_landscape = w > h * 1.2
+        
+        if is_portrait:
+            # Portrait: panneau en bas, centré, stats empilées
+            panel_w = min(w - 2 * padding, max(sum(top_widths) + gap_x * (len(top_items) - 1), max(bottom_widths) if bottom_widths else 0, sig_w) + 2 * padding)
+            top_h = max(top_heights) if top_heights else 0
+            bottom_h = max(bottom_heights) if bottom_heights else 0
+            panel_h = top_h + (gap_y if top_items and bottom_items else 0) + bottom_h + sig_h + gap_y + 2 * padding
+            panel_x = (w - panel_w) // 2
+            panel_y = h - panel_h - max(int(h * 0.05), 40)
+        elif is_landscape:
+            # Paysage: panneau en bas à droite
+            panel_w = min(w * 0.55, max(sum(top_widths) + gap_x * (len(top_items) - 1), max(bottom_widths) if bottom_widths else 0, sig_w) + 2 * padding)
+            top_h = max(top_heights) if top_heights else 0
+            bottom_h = max(bottom_heights) if bottom_heights else 0
+            panel_h = top_h + (gap_y if top_items and bottom_items else 0) + bottom_h + sig_h + gap_y + 2 * padding
+            panel_x = w - panel_w - max(int(w * 0.05), 40)
+            panel_y = h - panel_h - max(int(h * 0.05), 40)
+        else:
+            # Carré: panneau centré en bas
+            panel_w = min(w - 2 * padding, max(sum(top_widths) + gap_x * (len(top_items) - 1), max(bottom_widths) if bottom_widths else 0, sig_w) + 2 * padding)
+            top_h = max(top_heights) if top_heights else 0
+            bottom_h = max(bottom_heights) if bottom_heights else 0
+            panel_h = top_h + (gap_y if top_items and bottom_items else 0) + bottom_h + sig_h + gap_y + 2 * padding
+            panel_x = (w - panel_w) // 2
+            panel_y = h - panel_h - max(int(h * 0.05), 40)
+
+        # Dessiner le fond semi-transparent du panneau
+        corner_radius = max(int(min(w, h) * 0.015), 12)
+        draw.rounded_rectangle(
+            [(panel_x, panel_y), (panel_x + panel_w, panel_y + panel_h)],
+            radius=corner_radius,
+            fill=(0, 0, 0, 180)
+        )
+
+        # Position de départ pour le contenu
+        content_x = panel_x + padding
+        content_y = panel_y + padding
+        current_y = content_y
+
+        # Dessiner la ligne du haut (Distance, Temps)
+        if top_items:
+            total_top_w = sum(top_widths) + gap_x * (len(top_items) - 1)
+            start_x = panel_x + (panel_w - total_top_w) // 2
+            for i, (label, value) in enumerate(top_items):
+                item_w = top_widths[i]
+                item_x = start_x + i * (top_widths[i-1] + gap_x) if i > 0 else start_x
+                
+                lw, lh = measure_text(label, font_label)
+                vw, vh = measure_text(value, font_value)
+                
+                label_x = item_x + (item_w - lw) // 2
+                value_x = item_x + (item_w - vw) // 2
+                
+                draw.text((label_x, current_y), label, fill=(200, 200, 200, 255), font=font_label)
+                draw.text((value_x, current_y + lh + 2), value, fill=(255, 255, 255, 255), font=font_value)
+            
+            current_y += max(top_heights) + gap_y
+
+        # Dessiner la ligne du bas (Dénivelé)
+        if bottom_items:
+            for label, value in bottom_items:
+                lw, lh = measure_text(label, font_label)
+                vw, vh = measure_text(value, font_value)
+                
+                label_x = panel_x + (panel_w - lw) // 2
+                value_x = panel_x + (panel_w - vw) // 2
+                
+                draw.text((label_x, current_y), label, fill=(200, 200, 200, 255), font=font_label)
+                draw.text((value_x, current_y + lh + 2), value, fill=(255, 255, 255, 255), font=font_value)
+            
+            current_y += max(bottom_heights) + gap_y
+
+        # Dessiner la signature
+        sig_x = panel_x + (panel_w - sig_w) // 2
+        draw.text((sig_x, current_y), sig_text, fill=(180, 180, 180, 255), font=font_signature)
+
+        # Composer l'image finale
         out = Image.alpha_composite(img, overlay).convert("RGB")
         Path(out_path).parent.mkdir(parents=True, exist_ok=True)
         out.save(out_path, format="JPEG", quality=92, optimize=True)
@@ -451,6 +556,10 @@ class CommunityManagerStudioService:
         if "photo_id" in data.model_fields_set:
             if not pub.photo_locked:
                 pub.photo_id = data.photo_id
+                # Déclencher la composition automatique de l'overlay sport
+                # si c'est une publication sportive (Garmin)
+                if _is_sport_publication(pub):
+                    pub = await self._ensure_sport_defaults(pub)
         if data.visual_type is not None:
             if not pub.photo_locked:
                 pub.visual_type = data.visual_type
@@ -1091,7 +1200,7 @@ class CommunityManagerStudioService:
                                 from app.core.config import get_settings
                                 settings = get_settings()
                                 # réutiliser la logique d'import simple (PhotoService ne permet pas d'injecter des bytes facilement)
-                                from app.services.photo.metadata import sniff_image_format_maybe
+                                from app.services.photo.service import sniff_image_format_maybe
                                 from app.services.photo.storage import get_photo_storage
                                 from uuid import uuid4
                                 image_format = await sniff_image_format_maybe(data) or "jpeg"

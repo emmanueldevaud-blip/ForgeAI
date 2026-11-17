@@ -116,7 +116,8 @@ export class CommunityManagerStudioPage {
     const title = pub?.title || '';
     const content = pub?.content || '';
     const hashtags = pub?.hashtags || '';
-    const fullCaption = [title, content, hashtags].filter(Boolean).join('\n\n');
+    // Nouveau format : titre + hashtags seulement (l'accroche est sur la photo)
+    const fullCaption = [title, hashtags].filter(Boolean).join('\n\n');
     this.captionLength = fullCaption.length;
     this.captionOverLimit = this.captionLength > INSTAGRAM_CAPTION_MAX_LENGTH;
     const nearLimit = this.captionLength > INSTAGRAM_CAPTION_MAX_LENGTH * 0.9;
@@ -160,8 +161,8 @@ export class CommunityManagerStudioPage {
           
           <div class="form-group">
             <label>Légende Instagram complète</label>
-            <textarea name="full_caption" rows="10" ${pub?.status === 'shared' ? 'disabled' : ''} placeholder="Titre, accroche et hashtags…">${this._escape(fullCaption)}</textarea>
-            <div class="form-hint">Format : Titre (ligne 1), ligne vide, accroche, ligne vide, hashtags</div>
+            <textarea name="full_caption" rows="10" ${pub?.status === 'shared' ? 'disabled' : ''} placeholder="Titre (ligne 1), ligne vide, hashtags…">${this._escape(fullCaption)}</textarea>
+            <div class="form-hint">Format : Titre sur la première ligne, ligne vide, hashtags sur la dernière ligne</div>
           </div>
           <div class="form-group cm-studio-counter ${this.captionOverLimit ? 'cm-studio-counter--over' : ''}">
             <span class="cm-studio-counter-current">${this.captionLength}</span>
@@ -500,25 +501,24 @@ export class CommunityManagerStudioPage {
       const parseFullCaption = (full) => {
         const parts = full.split('\n\n').map(p => p.trim()).filter(Boolean);
         let title = '';
-        let content = '';
         let hashtags = '';
         if (parts.length === 1) {
-          content = parts[0];
-        } else if (parts.length === 2) {
-          title = parts[0];
-          content = parts[1];
-        } else if (parts.length >= 3) {
+          // Only title or only hashtags
+          if (parts[0].startsWith('#')) {
+            hashtags = parts[0];
+          } else {
+            title = parts[0];
+          }
+        } else if (parts.length >= 2) {
           title = parts[0];
           hashtags = parts[parts.length - 1];
-          content = parts.slice(1, -1).join('\n\n');
         }
-        return { title, content, hashtags };
+        return { title, hashtags };
       };
 
       const updateHiddenFields = (full) => {
-        const { title, content, hashtags } = parseFullCaption(full);
+        const { title, hashtags } = parseFullCaption(full);
         if (titleInput) titleInput.value = title;
-        if (contentInput) contentInput.value = content;
         if (hashtagsInput) hashtagsInput.value = hashtags;
       };
 
@@ -666,30 +666,25 @@ const publishBtn = this.element.querySelector('[data-action="publish"]');
         this.error = null;
         try {
           const form = this.element.querySelector('[data-form="studio-edit"]');
-          const content = form.elements.content.value;
+          const title = form.elements.title.value;
           const hashtags = form.elements.hashtags.value;
-          const fullCaption = content + (hashtags ? '\n\n' + hashtags : '');
+          const fullCaption = title + (hashtags ? '\n\n' + hashtags : '');
           if (fullCaption.length <= INSTAGRAM_CAPTION_MAX_LENGTH) {
             this.showShorten = false;
             this.render();
             return;
           }
-          // Raccourcir : garder l'accroche, couper les hashtags si besoin, puis couper le texte
-          const maxHashtags = hashtags ? Math.max(0, INSTAGRAM_CAPTION_MAX_LENGTH - content.length - 3) : 0;
+          // Raccourcir : couper les hashtags si besoin (titre non modifié)
           let newHashtags = hashtags;
+          const maxHashtags = Math.max(0, INSTAGRAM_CAPTION_MAX_LENGTH - title.length - 2);
           if (hashtags && maxHashtags > 0) {
             newHashtags = hashtags.slice(0, maxHashtags).trim();
           }
-          let newContent = content;
-          const remaining = INSTAGRAM_CAPTION_MAX_LENGTH - (newHashtags ? 2 + newHashtags.length : 0);
-          if (newContent.length > remaining) {
-            newContent = newContent.slice(0, remaining - 3).trim() + '…';
-          }
-          await updateStudioDraft(this.publicationId, { content: newContent, hashtags: newHashtags });
+          await updateStudioDraft(this.publicationId, { hashtags: newHashtags });
           const updated = await getStudioDraft(this.publicationId);
           this.publication = updated;
           this.showShorten = false;
-          this.success = 'Texte raccourci.';
+          this.success = 'Hashtags raccourcis.';
           setTimeout(() => { this.success = null; this.render(); }, 1500);
         } catch (error) {
           this.error = error?.data?.detail || error?.message || 'Erreur raccourcissement';

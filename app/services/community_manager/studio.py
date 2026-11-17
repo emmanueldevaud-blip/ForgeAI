@@ -47,14 +47,14 @@ logger = logging.getLogger(__name__)
 INSTAGRAM_CAPTION_MAX_LENGTH = 2200
 
 def build_full_caption(title: Optional[str], content: Optional[str], hashtags: Optional[str]) -> str:
-    """Construit la légende Instagram complète : titre + accroche + hashtags.
+    """Construit la légende Instagram complète : titre + hashtags.
     
-    Format :
+    Format (nouveau) :
     [TITRE]
     
-    [ACCROCHE]
-    
     [HASHTAGS]
+    
+    L'accroche (content) n'est plus dans la légende - elle est affichée sur la photo via l'overlay.
     
     Règles :
     - Supprime les champs vides
@@ -64,8 +64,6 @@ def build_full_caption(title: Optional[str], content: Optional[str], hashtags: O
     parts = []
     if title and title.strip():
         parts.append(title.strip())
-    if content and content.strip():
-        parts.append(content.strip())
     if hashtags and hashtags.strip():
         parts.append(hashtags.strip())
     return "\n\n".join(parts)

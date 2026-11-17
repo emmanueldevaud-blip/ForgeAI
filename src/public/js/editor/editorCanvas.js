@@ -285,7 +285,7 @@ export class EditorCanvas {
     ctx.fillText(`${value}${unit}`, 0, 0);
     if (el.label) {
       ctx.font = labelFont;
-      ctx.fillText(String(el.label).toUpperCase(), 0, -labelSize * 1.6);
+      ctx.fillText(String(el.label).toUpperCase(), 0, -labelSize * 2.2);
     }
     ctx.restore();
     ctx.shadowColor = 'transparent';

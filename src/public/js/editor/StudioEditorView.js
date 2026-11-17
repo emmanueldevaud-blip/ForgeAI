@@ -1045,13 +1045,16 @@ export class StudioEditorView {
 
     if (stats.length === 0) return;
 
-    // Ajouter chaque stat comme élément graphique distinct
+    // Calculer les dimensions du groupe de stats
     const centerX = w / 2;
     const elHeight = Math.max(40, Math.round(h * 0.14));
-    const spacing = 10; // espace entre les éléments
-    const totalHeight = stats.length * elHeight + (stats.length - 1) * spacing;
-    const startY = h / 2 - totalHeight / 2;
+    const spacing = 10;
+    const groupWidth = w * 0.6;
+    const groupHeight = stats.length * elHeight + (stats.length - 1) * spacing;
     const fontSize = Math.max(24, Math.round(w * 0.07));
+
+    // Trouver une position Y qui ne chevauche pas les autres éléments
+    const startY = this._findFreeYForStats(groupWidth, groupHeight, centerX, h);
 
     for (let i = 0; i < stats.length; i++) {
       const s = stats[i];
@@ -1064,7 +1067,7 @@ export class StudioEditorView {
         unit: s.unit,
         x: centerX,
         y: startY + i * (elHeight + spacing),
-        w: w * 0.6,
+        w: groupWidth,
         h: elHeight,
         size: fontSize,
         font: 'Arial',
@@ -1077,6 +1080,74 @@ export class StudioEditorView {
         opacity: 1,
       });
     }
+  }
+
+  /**
+   * Trouve une position Y libre pour le groupe de stats sportives
+   * Évite les chevauchements avec les autres éléments (hors fond)
+   */
+  _findFreeYForStats(groupW, groupH, centerX, canvasH) {
+    const d = this.state.design;
+    // Récupérer les éléments non-fond, non-stats
+    const otherElements = d.elements.filter((e) =>
+      e.type !== 'image' || !e.isBackground
+    );
+
+    if (otherElements.length === 0) {
+      // Aucun autre élément : centrer verticalement
+      return canvasH / 2 - groupH / 2;
+    }
+
+    // Construire les zones occupées (AABB)
+    const occupied = otherElements.map((el) => {
+      const halfW = el.w / 2;
+      const halfH = el.h / 2;
+      return {
+        left: el.x - halfW,
+        right: el.x + halfW,
+        top: el.y - halfH,
+        bottom: el.y + halfH,
+      };
+    });
+
+    // Tester des positions Y candidates (du haut vers le bas, puis centré)
+    const candidates = [];
+    const step = 40;
+    const margin = 20;
+    const maxY = canvasH - groupH - margin;
+
+    // 1. Positions régulières du haut vers le bas
+    for (let y = margin; y <= maxY; y += step) {
+      candidates.push(y + groupH / 2); // centre du groupe
+    }
+    // 2. Position centrée en fallback
+    candidates.push(canvasH / 2);
+
+    // Trouver la première position sans collision horizontale
+    const groupLeft = centerX - groupW / 2;
+    const groupRight = centerX + groupW / 2;
+
+    for (const centerY of candidates) {
+      const groupTop = centerY - groupH / 2;
+      const groupBottom = centerY + groupH / 2;
+
+      let collision = false;
+      for (const zone of occupied) {
+        // Test collision AABB
+        const hOverlap = groupLeft < zone.right && groupRight > zone.left;
+        const vOverlap = groupTop < zone.bottom && groupBottom > zone.top;
+        if (hOverlap && vOverlap) {
+          collision = true;
+          break;
+        }
+      }
+      if (!collision) {
+        return centerY;
+      }
+    }
+
+    // Fallback : centrer (même si collision, l'utilisateur déplacera)
+    return canvasH / 2;
   }
 
   /**

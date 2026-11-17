@@ -240,11 +240,6 @@ export class CommunityManagerCalendarPage {
     const status = entryEl.dataset.entryStatus || '';
     const source = entryEl.dataset.entrySource || '';
 
-    // Ne pas ouvrir le Studio pour les publications sportives (Garmin)
-    if (source === 'garmin') {
-      return;
-    }
-
     if (pubId) {
       this._openStudio(pubId);
       return;

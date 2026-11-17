@@ -310,9 +310,7 @@ export class CommunityManagerPage {
             ${entry.publication_id ? (() => {
               let html = '<div style="display: inline-flex; align-items: center; gap: 8px;">';
               html += `<span class="status-badge ${this._getPubBadgeClass(entry.publication_status)}">${this._formatPubStatus(entry.publication_status)}</span>`;
-              if (entry.source !== 'garmin') {
-                html += `<button class="btn btn-sm btn-primary" data-cm-open-studio data-publication-id="${entry.publication_id}">Ouvrir le Studio</button>`;
-              }
+              html += `<button class="btn btn-sm btn-primary" data-cm-open-studio data-publication-id="${entry.publication_id}">Ouvrir le Studio</button>`;
               html += '</div>';
               return html;
             })() : (entry.status === 'brouillon' ? `

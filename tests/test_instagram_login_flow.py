@@ -445,7 +445,8 @@ class TestCallback:
         )
         assert response.status_code == 302
         assert response.headers["location"].startswith("/settings?error=")
-        assert "user_denied" in response.headers["location"]
+        # Le message d'erreur est en français dans l'URL de redirection
+        assert "acc%C3%A8s" in response.headers["location"]  # "accès" encodé
 
     async def test_callback_exchange_error_sanitized_in_redirect(
         self, client, db_session, admin_headers, monkeypatch

@@ -80,7 +80,7 @@ export function normalizeDesign(raw) {
   if (!raw || typeof raw !== 'object' || !raw.format) return null;
   const fmt = FORMATS.find((f) => f.type === raw.format.type);
   const base = defaultDesign(fmt ? fmt.key : 'ig_feed_45');
-  return {
+  const out = {
     version: 2,
     format: {
       platform: raw.format.platform || base.format.platform,
@@ -99,6 +99,9 @@ export function normalizeDesign(raw) {
       : convertV1ToV2Design(Array.isArray(raw.elements) ? raw.elements : []),
     subtitles: Array.isArray(raw.subtitles) ? raw.subtitles.map((sub) => ({ ...sub })) : [],
   };
+  out.audio = raw.audio ?? null;
+  out.sport_overlay = raw.sport_overlay ?? null;
+  return out;
 }
 
 /** Conversion design V1 (sans timeline) → design V2 (timeline reconstruit). */

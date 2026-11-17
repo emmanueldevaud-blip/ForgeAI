@@ -148,6 +148,72 @@ def _sport_stats_from_activity(activity: SportActivity | None) -> dict[str, str]
     return stats
 
 
+def _merge_design(base: dict | None, patch: dict | None) -> dict:
+    """Fusionne un patch design dans un design existant sans écraser les clés non fournies."""
+    base = dict(base or {})
+    patch = dict(patch or {})
+    merged = dict(base)
+    list_keys = ("elements", "timeline", "subtitles", "carousel")
+    for key, value in patch.items():
+        if key in list_keys and isinstance(value, list):
+            merged[key] = value
+        elif key in ("background", "format") and isinstance(value, dict):
+            merged[key] = {**(base.get(key) or {}), **value}
+        else:
+            merged[key] = value
+    return merged
+
+
+def _sport_stats_elements_to_add(design: dict, activity: SportActivity | None) -> list[dict]:
+    """Construit les elements graphiques `sport_stats` (distance / denivele / duree) pour une activite."""
+    elements = design.get("elements") if isinstance(design, dict) else None
+    if isinstance(elements, list) and any(
+        isinstance(e, dict) and e.get("type") == "sport_stats" for e in elements
+    ):
+        return []
+    if activity is None:
+        return []
+    fmt = design.get("format") if isinstance(design, dict) else None
+    w = float((fmt or {}).get("width") or 1080)
+    h = float((fmt or {}).get("height") or 1350)
+    dist_m = getattr(activity, "distance_m", None)
+    elev = getattr(activity, "elevation_gain_m", None)
+    dur = getattr(activity, "duration_seconds", None)
+    specs: list[tuple[str, str, str, str]] = []
+    if dist_m is not None:
+        specs.append(("distance", "DISTANCE", f"{dist_m / 1000:.1f}", "km"))
+    if elev is not None:
+        specs.append(("denivele", "DÉNIVELÉ", str(int(elev)), "m D+"))
+    if dur:
+        specs.append(("duree", "TEMPS", _format_duration(int(dur)) or "", ""))
+    new_els: list[dict] = []
+    for stat, label, value, unit in specs:
+        new_els.append(
+            {
+                "id": f"el-stats-{stat}",
+                "type": "sport_stats",
+                "stat": stat,
+                "label": label,
+                "value": value,
+                "unit": unit,
+                "x": w / 2,
+                "y": h / 2,
+                "w": w * 0.6,
+                "h": max(40, int(h * 0.16)),
+                "size": max(24, int(w * 0.07)),
+                "font": "Arial",
+                "color": "#ffffff",
+                "bold": True,
+                "italic": False,
+                "shadow": True,
+                "align": "center",
+                "rotation": 0,
+                "opacity": 1,
+            }
+        )
+    return new_els
+
+
 def pick_sport_music(activity: SportActivity | None) -> str:
     """Choix 'intelligent' (heuristique) + aléatoire d'une piste audio."""
     pool = SPORT_MUSIC_TRACKS
@@ -313,6 +379,20 @@ class CommunityManagerStudioService:
         # Une réponse IA non parsée peut être stockée en JSON brut : afficher le
         # texte lisible (ce qui sera réellement publié). Non commité : la
         # correction durable passe par l'enregistrement du formulaire.
+        # Pour les publications sportives V2 (depuis calendrier) : garantir les elements
+        # graphiques sport_stats (Garmin -> design). Pour V1 (depuis activité directe),
+        # n'ajouter les stats que si un design existe déjà.
+        if _is_sport_publication(pub):
+            is_v2 = getattr(pub, "created_from", None) == "calendar"
+            has_design = isinstance(pub.design, dict) and pub.design
+            if is_v2 or has_design:
+                design0 = pub.design if isinstance(pub.design, dict) else {}
+                design = dict(design0)
+                activity = await self._get_activity_for_publication(pub)
+                new_stats = _sport_stats_elements_to_add(design, activity)
+                if new_stats:
+                    design["elements"] = list(design.get("elements") or []) + new_stats
+                    pub.design = design
         cleaned_content = clean_caption_text(pub.content)
         if cleaned_content and cleaned_content != pub.content:
             pub.content = cleaned_content
@@ -376,7 +456,7 @@ class CommunityManagerStudioService:
         if data.custom_instructions is not None:
             pub.custom_instructions = data.custom_instructions.strip() or None
         if data.design is not None:
-            pub.design = data.design
+            pub.design = _merge_design(pub.design, data.design)
         # Lock fields
         if data.title_locked is not None:
             pub.title_locked = data.title_locked
@@ -951,6 +1031,14 @@ class CommunityManagerStudioService:
         activity = await self._get_activity_for_publication(pub)
         stats = _sport_stats_from_activity(activity)
 
+        # Injection des elements graphiques sport_stats (distance / denivele / duree) depuis l'activite Garmin
+        design0 = pub.design if isinstance(pub.design, dict) else {}
+        design = dict(design0)
+        new_stats = _sport_stats_elements_to_add(design, activity)
+        if new_stats:
+            design["elements"] = list(design.get("elements") or []) + new_stats
+            pub.design = design
+
         # Overlay stats sur la photo (durée, dénivelé, km) - appliqué systématiquement
         if pub.photo_id and stats:
             try:
@@ -1270,6 +1358,13 @@ class CommunityManagerStudioService:
                 pub.instagram_permalink = permalink
                 pub.error_message = None
 
+                # Mettre à jour le statut de l'entrée de calendrier après publication réussie
+                entry = getattr(pub, "calendar_entry", None)
+                if entry is not None:
+                    entry.status = "publié"
+                    await self.db.commit()
+                    await self.db.refresh(pub)
+
                 await self.db.commit()
                 await self.db.refresh(pub)
 
@@ -1554,28 +1649,37 @@ class CommunityManagerStudioService:
         await self.db.commit()
 
         try:
-            # Préparer l'URL du média (une seule fois pour les deux)
+            # Préparer l'URL du média : un token Meta à usage unique est consommé par
+            # plateforme, il faut donc un token distinct par cible (Instagram / Facebook).
             media_publish_service = MediaPublishService(self.db)
             media_url = None
             media_info = None
+            media_infos: dict = {}
             is_video = pub.visual_type in ("reel", "video")
 
             if pub.photo_id:
                 media_service = MediaPublishService(self.db)
-                media_info = await media_service.prepare_media_for_publish(
+                media_infos["instagram"] = await media_service.prepare_media_for_publish(
                     pub.photo_id, self.current_user.id, size="original"
                 )
-                media_url = media_info.url
-                if media_info.is_video != is_video:
-                    raise ValueError(
-                        f"Incohérence de type de média : le visuel est une {'vidéo' if media_info.is_video else 'photo'} "
-                        f"(MIME: {media_info.mime_type}) mais le type visuel déclaré est '{pub.visual_type}'."
-                    )
+                media_infos["facebook"] = await media_service.prepare_media_for_publish(
+                    pub.photo_id, self.current_user.id, size="original"
+                )
             elif pub.visual_generation_prompt:
                 raise ValueError("La génération d'images IA n'est pas encore disponible. Sélectionnez une photo.")
 
-            if not media_url:
+            if not media_infos:
                 raise ValueError("Impossible de préparer le média pour publication")
+
+            ig_media_info = media_infos["instagram"]
+            fb_media_info = media_infos["facebook"]
+            media_info = ig_media_info
+            media_url = ig_media_info.url
+            if ig_media_info.is_video != is_video:
+                raise ValueError(
+                    f"Incohérence de type de média : le visuel est une {'vidéo' if ig_media_info.is_video else 'photo'} "
+                    f"(MIME: {ig_media_info.mime_type}) mais le type visuel déclaré est '{pub.visual_type}'."
+                )
 
             # Publier sur LES DEUX plateformes
             try:
@@ -1607,8 +1711,8 @@ class CommunityManagerStudioService:
                 # Publication Facebook
                 try:
                     fb_media_id = await meta_service.publish_to_facebook_page(
-                        fb_connection, media_url, caption,
-                        mime_type=media_info.mime_type if media_info else None,
+                        fb_connection, fb_media_info.url, caption,
+                        mime_type=fb_media_info.mime_type if fb_media_info else None,
                         is_video=is_video,
                         publication_id=publication_id,
                     )
@@ -1622,6 +1726,14 @@ class CommunityManagerStudioService:
                 # Déterminer le statut final
                 ig_success = 'instagram' in results and 'error' not in results['instagram']
                 fb_success = 'facebook' in results and 'error' not in results['facebook']
+
+                # Mettre à jour le statut de l'entrée de calendrier après publication réussie
+                if ig_success or fb_success:
+                    entry = getattr(pub, "calendar_entry", None)
+                    if entry is not None:
+                        entry.status = "publié"
+                        await self.db.commit()
+                        await self.db.refresh(pub)
                 
                 if ig_success and fb_success:
                     pub.status = "shared"

@@ -51,6 +51,7 @@ export class EditorPanels {
             <button type="button" class="ed-tool" data-ed-tool="text">＋ Texte</button>
             <button type="button" class="ed-tool ${this._stickersOpen ? 'active' : ''}" data-ed-tool="sticker">Stickers</button>
             <button type="button" class="ed-tool" data-ed-tool="shape">Formes</button>
+            <button type="button" class="ed-tool" data-ed-tool="sport_stats">Stat Sport</button>
             <label class="ed-tool ed-tool-color" title="Couleur de fond">
               Fond
               <input type="color" data-ed-bg value="${esc(this.state.design.background?.color || '#111111')}">
@@ -164,6 +165,31 @@ export class EditorPanels {
 
     this.root.querySelector('[data-ed-tool="shape"]').addEventListener('click', () => {
       this._openShapePicker();
+    });
+
+    this.root.querySelector('[data-ed-tool="sport_stats"]').addEventListener('click', () => {
+      const d = this.state.design;
+      const el = this.state.addElement({
+        type: 'sport_stats',
+        stat: 'distance',
+        label: 'DISTANCE',
+        value: '0',
+        unit: 'km',
+        x: d.format.width / 2,
+        y: d.format.height / 2,
+        w: d.format.width * 0.6,
+        h: Math.round(d.format.height * 0.16),
+        size: Math.round(d.format.width * 0.07),
+        font: 'Arial',
+        color: '#ffffff',
+        bold: true,
+        italic: false,
+        shadow: true,
+        align: 'center',
+        rotation: 0,
+        opacity: 1,
+      });
+      this.onAction('added', el);
     });
 
     const bg = this.root.querySelector('[data-ed-bg]');
@@ -569,6 +595,48 @@ export class EditorPanels {
           <input type="range" data-prop="opacity" min="10" max="100" value="${Math.round(opacity * 100)}">
         </div>
       `;
+    } else if (el.type === 'sport_stats') {
+      specific = `
+        <div class="ed-field ed-field-row">
+          <label>Statistique</label>
+          <select data-prop="stat">
+            <option value="distance" ${(el.stat || 'distance') === 'distance' ? 'selected' : ''}>Distance</option>
+            <option value="denivele" ${(el.stat || 'distance') === 'denivele' ? 'selected' : ''}>Dénivelé</option>
+            <option value="duree" ${(el.stat || 'distance') === 'duree' ? 'selected' : ''}>Temps (Moving Time)</option>
+          </select>
+        </div>
+        <div class="ed-field">
+          <label>Label</label>
+          <input type="text" data-prop="label" value="${esc(el.label || '')}">
+        </div>
+        <div class="ed-field">
+          <label>Valeur</label>
+          <input type="text" data-prop="value" value="${esc(el.value || '')}">
+        </div>
+        <div class="ed-field">
+          <label>Unité</label>
+          <input type="text" data-prop="unit" value="${esc(el.unit || '')}">
+        </div>
+        <div class="ed-field ed-field-row">
+          <label>Taille</label>
+          <input type="range" data-prop="size" min="10" max="220" value="${el.size || 32}">
+        </div>
+        <div class="ed-field ed-field-row">
+          <label>Couleur</label>
+          <input type="color" data-prop="color" value="${esc(el.color || '#ffffff')}">
+        </div>
+        <div class="ed-field ed-field-row">
+          <label>Alignement</label>
+          <span class="ed-seg">
+            ${['left', 'center', 'right'].map((a) => `<button type="button" data-prop-align="${a}" class="${(el.align || 'center') === a ? 'active' : ''}">${a === 'left' ? 'Gauche' : a === 'center' ? 'Centre' : 'Droite'}</button>`).join('')}
+          </span>
+        </div>
+        <div class="ed-field ed-checks">
+          <label><input type="checkbox" data-prop="bold" ${el.bold ? 'checked' : ''}> Gras</label>
+          <label><input type="checkbox" data-prop="italic" ${el.italic ? 'checked' : ''}> Italique</label>
+          <label><input type="checkbox" data-prop="shadow" ${el.shadow ? 'checked' : ''}> Ombre</label>
+        </div>
+      `;
     } else if (el.type === 'sticker') {
       specific = `
         ${
@@ -590,7 +658,7 @@ export class EditorPanels {
 
     this.propsBody.innerHTML = `
       <div class="ed-props-title">${
-        el.type === 'text' ? 'Texte' : el.type === 'image' ? 'Image' : 'Sticker'
+        el.type === 'text' ? 'Texte' : el.type === 'image' ? 'Image' : el.type === 'sport_stats' ? 'Stat sport' : 'Sticker'
       }</div>
       ${specific}
       <div class="ed-field ed-field-row">
@@ -627,6 +695,47 @@ export class EditorPanels {
       bind('[data-prop="font"]', 'change', (e) =>
         this.state.updateElement(el.id, { font: e.target.value })
       );
+      bind('[data-prop="size"]', 'input', (e) => {
+        this.state.updateElementLive(el.id, { size: Number(e.target.value) });
+        this.canvas.requestRender();
+      });
+      bind('[data-prop="size"]', 'change', () => this.state.commitTransaction());
+      bind('[data-prop="color"]', 'input', (e) => {
+        this.state.updateElementLive(el.id, { color: e.target.value });
+        this.canvas.requestRender();
+      });
+      bind('[data-prop="color"]', 'change', () => this.state.commitTransaction());
+      body.querySelectorAll('[data-prop-align]').forEach((btn) => {
+        btn.addEventListener('click', () =>
+          this.state.updateElement(el.id, { align: btn.dataset.propAlign })
+        );
+      });
+      ['bold', 'italic', 'shadow'].forEach((key) => {
+        bind(`[data-prop="${key}"]`, 'change', (e) =>
+          this.state.updateElement(el.id, { [key]: e.target.checked })
+        );
+      });
+    }
+
+    if (el.type === 'sport_stats') {
+      bind('[data-prop="stat"]', 'change', (e) =>
+        this.state.updateElement(el.id, { stat: e.target.value })
+      );
+      bind('[data-prop="label"]', 'input', (e) => {
+        this.state.updateElementLive(el.id, { label: e.target.value });
+        this.canvas.requestRender();
+      });
+      bind('[data-prop="label"]', 'change', () => this.state.commitTransaction());
+      bind('[data-prop="value"]', 'input', (e) => {
+        this.state.updateElementLive(el.id, { value: e.target.value });
+        this.canvas.requestRender();
+      });
+      bind('[data-prop="value"]', 'change', () => this.state.commitTransaction());
+      bind('[data-prop="unit"]', 'input', (e) => {
+        this.state.updateElementLive(el.id, { unit: e.target.value });
+        this.canvas.requestRender();
+      });
+      bind('[data-prop="unit"]', 'change', () => this.state.commitTransaction());
       bind('[data-prop="size"]', 'input', (e) => {
         this.state.updateElementLive(el.id, { size: Number(e.target.value) });
         this.canvas.requestRender();

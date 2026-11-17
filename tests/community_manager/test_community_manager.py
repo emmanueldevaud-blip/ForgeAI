@@ -1009,6 +1009,10 @@ class TestCommunityManagerService:
         execute_entry = MagicMock()
         execute_entry.scalar_one_or_none.return_value = entry
         
+        # Mock pour la vérification des publications partagées (4ème appel)
+        execute_shared_pub = MagicMock()
+        execute_shared_pub.scalar_one_or_none.return_value = None
+        
         call_count = {"count": 0}
         async def mock_execute_del(q):
             call_count["count"] += 1
@@ -1016,7 +1020,9 @@ class TestCommunityManagerService:
                 return athlete_result
             elif call_count["count"] == 2:
                 return execute_strategy
-            return execute_entry
+            elif call_count["count"] == 3:
+                return execute_entry
+            return execute_shared_pub
         
         mock_db.execute = mock_execute_del
         
@@ -1180,7 +1186,7 @@ class TestUserIsolation:
 
     @pytest.mark.asyncio
     async def test_user_cannot_generate_for_other_athlete(self, mock_db):
-        """Un utilisateur ne peut pas générer un calendrier pour un autre athlète."""
+        """Un utilisateur sans athlète associé ne peut pas générer un calendrier."""
         from app.api.community_manager import generate_community_topics
         from app.services.community_manager import CommunityManagerService
         from app.models.user import User
@@ -1191,7 +1197,7 @@ class TestUserIsolation:
         
         service1 = CommunityManagerService(mock_db, user1)
         
-        # Mock: user1 essaie de générer pour athlete_id=20
+        # Mock: user1 n'a pas d'athlète associé
         execute_athlete_none = MagicMock()
         execute_athlete_none.scalar_one_or_none.return_value = None
         
@@ -1202,8 +1208,8 @@ class TestUserIsolation:
         with pytest.raises(HTTPException) as exc_info:
             await generate_community_topics(count=5, service=service1)
         
-        assert exc_info.value.status_code == 403
-        assert "Athlète non autorisé" in str(exc_info.value.detail)
+        assert exc_info.value.status_code == 422
+        assert "Aucun athlète associé à l'utilisateur" in str(exc_info.value.detail)
 
 
 # ============================================================

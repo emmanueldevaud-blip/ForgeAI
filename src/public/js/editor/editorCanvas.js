@@ -151,6 +151,7 @@ export class EditorCanvas {
     if (el.type === 'image') this._drawImage(ctx, el);
     else if (el.type === 'text') this._drawText(ctx, el);
     else if (el.type === 'sticker') this._drawSticker(ctx, el);
+    else if (el.type === 'sport_stats') this._drawSportStats(ctx, el);
 
     ctx.restore();
   }
@@ -261,6 +262,35 @@ export class EditorCanvas {
       ctx.textBaseline = 'middle';
       ctx.fillText(el.sticker || '⭐', 0, 0);
     }
+  }
+
+  _drawSportStats(ctx, el) {
+    const size = Number(el.size) || 32;
+    const font = `${el.italic ? 'italic ' : ''}${el.bold ? 'bold ' : ''}${size}px ${el.font || 'Arial'}`;
+    const labelSize = Math.max(10, Math.round(size * 0.32));
+    const labelFont = `${el.italic ? 'italic ' : ''}${el.bold ? 'bold ' : ''}${labelSize}px ${el.font || 'Arial'}`;
+    ctx.save();
+    ctx.globalAlpha = el.opacity ?? 1;
+    ctx.font = font;
+    ctx.textAlign = el.align || 'center';
+    ctx.textBaseline = 'middle';
+    if (el.shadow) {
+      ctx.shadowColor = 'rgba(0,0,0,0.55)';
+      ctx.shadowBlur = Math.max(2, size * 0.12);
+      ctx.shadowOffsetY = Math.max(1, size * 0.05);
+    }
+    ctx.fillStyle = el.color || '#ffffff';
+    const value = String(el.value ?? '');
+    const unit = el.unit ? ` ${el.unit}` : '';
+    ctx.fillText(`${value}${unit}`, 0, 0);
+    if (el.label) {
+      ctx.font = labelFont;
+      ctx.fillText(String(el.label).toUpperCase(), 0, -labelSize * 1.6);
+    }
+    ctx.restore();
+    ctx.shadowColor = 'transparent';
+    ctx.shadowBlur = 0;
+    ctx.shadowOffsetY = 0;
   }
 
   _textHeight(el) {

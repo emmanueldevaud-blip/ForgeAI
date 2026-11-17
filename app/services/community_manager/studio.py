@@ -255,13 +255,15 @@ def pick_sport_music(activity: SportActivity | None) -> str:
     return random.choice(pool)
 
 
-def render_sport_overlay_image(photo_path: str, stats: dict[str, str], out_path: str) -> str | None:
+def render_sport_overlay_image(photo_path: str, stats: dict[str, str], out_path: str, title: str | None = None) -> str | None:
     """Compose les statistiques sportives (distance, temps, dénivelé) sur la photo.
     
     Layout adaptatif selon l'orientation :
     - Portrait: panneau en bas, stats empilées
     - Paysage: panneau en bas à droite, stats en deux lignes
     - Carré: panneau centré en bas
+    
+    Si title est fourni, il est affiché en haut de la photo.
     
     Retourne out_path ou None en cas d'erreur.
     """
@@ -295,6 +297,7 @@ def render_sport_overlay_image(photo_path: str, stats: dict[str, str], out_path:
         font_label = load_font(max(base_font_size // 2, 14))
         font_value = load_font(base_font_size)
         font_signature = load_font(max(base_font_size // 3, 12))
+        font_title = load_font(max(int(min(w, h) * 0.05), 24))
 
         # Extraire les stats dans l'ordre souhaité
         distance = stats.get("distance")
@@ -375,6 +378,37 @@ def render_sport_overlay_image(photo_path: str, stats: dict[str, str], out_path:
             panel_h = top_h + (gap_y if top_items and bottom_items else 0) + bottom_h + sig_h + gap_y + 2 * padding
             panel_x = (w - panel_w) // 2
             panel_y = h - panel_h - max(int(h * 0.05), 40)
+
+        # Dessiner le titre en haut de la photo si fourni
+        if title:
+            # Mesurer le titre
+            title_lines = []
+            words = title.split()
+            current_line = ""
+            max_title_width = w - 2 * padding
+            
+            for word in words:
+                test_line = current_line + (" " if current_line else "") + word
+                tw, th = measure_text(test_line, font_title)
+                if tw <= max_title_width:
+                    current_line = test_line
+                else:
+                    if current_line:
+                        title_lines.append(current_line)
+                    current_line = word
+            if current_line:
+                title_lines.append(current_line)
+            
+            # Dessiner chaque ligne du titre avec ombre
+            title_y = padding
+            for line in title_lines:
+                tw, th = measure_text(line, font_title)
+                title_x = (w - tw) // 2
+                # Ombre
+                draw.text((title_x + 2, title_y + 2), line, fill=(0, 0, 0, 200), font=font_title)
+                # Texte principal
+                draw.text((title_x, title_y), line, fill=(255, 255, 255, 255), font=font_title)
+                title_y += th + 4
 
         # Dessiner le fond semi-transparent du panneau
         corner_radius = max(int(min(w, h) * 0.015), 12)
@@ -1195,11 +1229,11 @@ class CommunityManagerStudioService:
                     # Éviter de ré-appliquer si déjà un overlay sport généré pour cette photo/stats
                     design = pub.design if isinstance(pub.design, dict) else {}
                     sport_meta = design.get("sport_overlay") or {}
-                    signature = f"{pub.photo_id}:{stats.get('duree')}:{stats.get('denivele')}:{stats.get('distance')}"
+                    signature = f"{pub.photo_id}:{stats.get('duree')}:{stats.get('denivele')}:{stats.get('distance')}:{pub.title or ''}"
                     if sport_meta.get("signature") != signature or not sport_meta.get("overlay_photo_id"):
                         with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as tmp:
                             tmp_path = tmp.name
-                        out = render_sport_overlay_image(str(src_path), stats, tmp_path)
+                        out = render_sport_overlay_image(str(src_path), stats, tmp_path, pub.title)
                         if out:
                             try:
                                 data = Path(out).read_bytes()

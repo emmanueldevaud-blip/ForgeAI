@@ -211,6 +211,7 @@ async def get_meta_settings(
         access_token_configured=bool(get_value("meta_access_token")),
         client_business_id=get_value("meta_client_business_id"),
         instagram_user_id=get_value("instagram_user_id"),
+        facebook_page_id=get_value("facebook_page_id"),
     )
 
 
@@ -231,6 +232,7 @@ async def update_meta_settings(
         "meta_config_id": data.config_id or "",
         "meta_client_business_id": data.client_business_id or "",
         "instagram_user_id": data.instagram_user_id or "",
+        "facebook_page_id": data.facebook_page_id or "",
     }
     if data.app_secret is not None and data.app_secret != "":
         values["meta_app_secret"] = data.app_secret

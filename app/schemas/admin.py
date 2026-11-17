@@ -148,6 +148,7 @@ class MetaSettingsResponse(BaseModel):
     access_token_configured: bool = False
     client_business_id: str = ""
     instagram_user_id: str = ""
+    facebook_page_id: str = ""
 
 
 class MetaSettingsUpdate(BaseModel):
@@ -158,6 +159,7 @@ class MetaSettingsUpdate(BaseModel):
     access_token: Optional[str] = Field(None, max_length=4000)
     client_business_id: str = Field("", max_length=100)
     instagram_user_id: str = Field("", max_length=100)
+    facebook_page_id: str = Field("", max_length=100)
 
 
 class MetaTestStep(BaseModel):

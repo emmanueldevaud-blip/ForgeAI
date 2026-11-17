@@ -233,6 +233,14 @@ export class UserSettingsPage {
                   </label>
                 </div>
               </div>
+              <div class="form-row">
+                <div class="form-group">
+                  <label><span>Facebook Page ID</span>
+                    <input name="facebook_page_id" maxlength="100" placeholder="ID de la Page Facebook">
+                    <small class="form-help">Requis pour publier sur Facebook : ID numérique de la Page connectée.</small>
+                  </label>
+                </div>
+              </div>
               <div class="page-subtitle" data-role="meta-connection"></div>
               <div class="form-actions">
                 <button class="btn btn-primary" type="button" data-meta-connect>Se connecter à Meta</button>
@@ -294,6 +302,7 @@ export class UserSettingsPage {
       setValue('redirect_uri', this.metaSettings?.redirect_uri);
       setValue('client_business_id', this.metaSettings?.client_business_id);
       setValue('instagram_user_id', this.metaSettings?.instagram_user_id);
+      setValue('facebook_page_id', this.metaSettings?.facebook_page_id);
       const secretInput = metaForm.elements.app_secret;
       if (secretInput) {
         secretInput.placeholder = this.metaSettings?.app_secret_configured
@@ -341,6 +350,7 @@ export class UserSettingsPage {
             access_token: metaForm.elements.access_token.value,
             client_business_id: metaForm.elements.client_business_id.value.trim(),
             instagram_user_id: metaForm.elements.instagram_user_id.value.trim(),
+            facebook_page_id: metaForm.elements.facebook_page_id.value.trim(),
           });
           metaForm.elements.app_secret.value = '';
           metaForm.elements.access_token.value = '';

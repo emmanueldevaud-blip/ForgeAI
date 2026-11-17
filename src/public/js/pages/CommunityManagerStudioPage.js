@@ -134,10 +134,11 @@ export class CommunityManagerStudioPage {
           ${pub?.error_message ? `<div class="cm-studio-warning">⚠ ${this._escape(pub.error_message)}</div>` : ''}
           ${pub?.photo_locked ? '<div class="cm-studio-warning">Photo verrouillée.</div>' : ''}
           <div class="cm-studio-photo-actions">
+            ${!isSportPublication ? `
             <button class="btn btn-primary btn-small" data-action="open-editor"
                     ${pub?.status === 'shared' ? 'disabled' : ''}>
               ✎ Éditeur graphique
-            </button>
+            </button>` : ''}
             <button class="btn btn-secondary btn-small" data-action="toggle-photo-picker"
                     ${pub?.status === 'shared' || pub?.photo_locked ? 'disabled' : ''}>
               ${this.photoPickerOpen ? 'Fermer' : (photoUrl ? 'Changer la photo' : 'Choisir une photo')}

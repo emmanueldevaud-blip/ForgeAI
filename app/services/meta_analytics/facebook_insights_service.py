@@ -25,7 +25,7 @@ from app.core.config import get_settings
 
 logger = logging.getLogger(__name__)
 
-PAGE_FIELDS = "id,name,access_token,fan_count,website,instagram_business_account,link"
+PAGE_FIELDS = "id,name,username,access_token,fan_count,website,instagram_business_account,link"
 PAGE_INSIGHT_METRICS = [
     "page_video_views",
     "page_post_engagements",
@@ -53,6 +53,7 @@ class FacebookInsightsService:
                 platform="facebook",
                 platform_account_id=page_id,
                 account_name=page.get("name") or "Page Facebook",
+                username=page.get("username"),
                 account_type="page",
                 page_id=page_id,
             )
@@ -60,6 +61,7 @@ class FacebookInsightsService:
             await self.db.flush()
         else:
             account.account_name = page.get("name") or account.account_name
+            account.username = page.get("username") or account.username
             account.page_id = page_id
             account.is_active = True
         await self.db.commit()
@@ -82,6 +84,10 @@ class FacebookInsightsService:
         try:
             try:
                 page_data = await client.get(account.platform_account_id, {"fields": PAGE_FIELDS})
+                if page_data.get("username"):
+                    account.username = page_data.get("username")
+                if page_data.get("name"):
+                    account.account_name = page_data.get("name") or account.account_name
                 basic = {
                     "page_fans": page_data.get("fan_count"),
                     "page_views_total": page_data.get("page_views_total"),

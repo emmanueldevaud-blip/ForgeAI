@@ -198,12 +198,15 @@ export class AnalyticsIntelligencePage {
             </div>
           </div>
           <div style="margin-top:12px;">
-            ${o.comptes.map(c => `
+            ${o.comptes.map(c => {
+              const accountLabel = c.account_name || c.platform_account_id;
+              const handle = c.username ? `@${c.username}` : 'Compte configuré';
+              return `
               <div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid #f0f0f0;">
-                <span>${c.account_name || c.platform_account_id} <span style="opacity:.7;">(${c.platform})</span></span>
-                <span class="status-badge ${c.username ? 'active':'inactive'}">${c.username || 'Non connect\u00e9'}</span>
-              </div>
-            `).join('') || '<div style="color:#999;">Aucun compte Meta configur\u00e9.</div>'}
+                <span>${accountLabel} <span style="opacity:.7;">(${c.platform})</span></span>
+                <span class="status-badge active">${handle}</span>
+              </div>`;
+            }).join('') || '<div style="color:#999;">Aucun compte Meta configur\u00e9.</div>'}
           </div>
           ${o.message ? `<div class="alert alert-error" style="margin-top:12px;">${this._escape(o.message)}</div>` : ''}
         </div>

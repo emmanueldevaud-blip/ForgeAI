@@ -357,6 +357,7 @@ export class EditorPanels {
         <div class="ed-media-item" data-photo-id="${p.id}">
           <img src="${esc(this.deps.photoFileUrl(p.id, 'small'))}" alt="" loading="lazy">
           <div class="ed-media-item-actions">
+            <button type="button" data-media-action="photo" title="Utiliser comme photo principale">📷</button>
             <button type="button" data-media-action="bg" title="Mettre en fond">Fond</button>
             <button type="button" data-media-action="carousel" title="Ajouter au carrousel">＋</button>
             <button type="button" data-media-action="add-video" title="Importer en clip vidéo">🎬</button>
@@ -369,7 +370,8 @@ export class EditorPanels {
         item.querySelectorAll('[data-media-action]').forEach((btn) => {
           btn.addEventListener('click', (ev) => {
             ev.stopPropagation();
-            if (btn.dataset.mediaAction === 'bg') this.onAction('set-bg', { photoId: id });
+            if (btn.dataset.mediaAction === 'photo') this.onAction('set-photo', { photoId: id });
+            else if (btn.dataset.mediaAction === 'bg') this.onAction('set-bg', { photoId: id });
             else if (btn.dataset.mediaAction === 'carousel') this.onAction('add-carousel', { photoId: id });
             else if (btn.dataset.mediaAction === 'add-video') this.onAction('add-video', { photoId: id });
           });

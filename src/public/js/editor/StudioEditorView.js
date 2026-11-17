@@ -885,7 +885,9 @@ export class StudioEditorView {
 
   async _onAction(action, payload) {
     try {
-      if (action === 'set-bg') {
+      if (action === 'set-photo') {
+        await this._setMainPhoto(payload.photoId);
+      } else if (action === 'set-bg') {
         await this._setBackgroundPhoto(payload.photoId);
       } else if (action === 'add-carousel') {
         const cur = (this.state.design.carousel || []).slice();
@@ -1073,6 +1075,55 @@ export class StudioEditorView {
         opacity: 1,
       });
     }
+  }
+
+  /**
+   * Définit la photo principale de la publication et ajoute les sport_stats automatiquement.
+   * L'image couvre tout le format, et les stats sont positionnées verticalement au centre sans chevauchement.
+   */
+  async _setMainPhoto(photoId) {
+    const d = this.state.design;
+    const src = this.deps.photoFileUrl(photoId, 'medium');
+    const img = await this._loadImage(src);
+    const iw = img?.naturalWidth || d.format.width;
+    const ih = img?.naturalHeight || d.format.height;
+    const crop = coverCrop(iw, ih, d.format.width, d.format.height);
+
+    // Ajouter l'image comme élément principal (plein format)
+    const existingMain = d.elements.find((e) => e.type === 'image' && !e.isBackground);
+    if (existingMain) {
+      this.state.updateElement(existingMain.id, { photoId, src, crop, filter: existingMain.filter, isBackground: false });
+    } else {
+      this.state.addElement({
+        type: 'image',
+        photoId,
+        src,
+        isBackground: false,
+        x: d.format.width / 2,
+        y: d.format.height / 2,
+        w: d.format.width,
+        h: d.format.height,
+        crop,
+        filter: 'none',
+        rotation: 0,
+        opacity: 1,
+      });
+    }
+
+    // Mettre à jour le photo_id de la publication
+    if (this.publication && this.deps.updateDraft) {
+      if (!this.publication.photo_locked) {
+        await this.deps.updateDraft(this.publication.id, { photo_id: photoId });
+        this.publication.photo_id = photoId;
+      }
+    }
+
+    // Ajouter les sport_stats si publication sportive avec activité
+    await this._addSportStatsIfNeeded();
+
+    await this.canvas.ensureImages();
+    this._setStatus('Photo principale définie avec stats sportives.', 'ok');
+    this.panels.refreshLayers();
   }
 
   _loadImage(src) {

@@ -376,6 +376,9 @@ class CommunityManagerStudioService:
                 ).options(selectinload(EditorialCalendarEntry.strategy))
             )
             pub.calendar_entry = entry_result.scalar_one_or_none()
+        # Charger l'activité liée pour les publications sportives (données Garmin pour sport_stats)
+        if pub.activity_id:
+            await self.db.refresh(pub, attribute_names=['activity'])
         # Une réponse IA non parsée peut être stockée en JSON brut : afficher le
         # texte lisible (ce qui sera réellement publié). Non commité : la
         # correction durable passe par l'enregistrement du formulaire.

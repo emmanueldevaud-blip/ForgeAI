@@ -980,8 +980,99 @@ export class StudioEditorView {
         opacity: 1,
       });
     }
+
+    // Pour les publications sportives : ajouter les calques sport_stats (distance, dénivelé, temps)
+    // si l'activité Garmin est disponible
+    await this._addSportStatsIfNeeded();
+
     await this.canvas.ensureImages();
     this._setStatus('Photo placée en fond.', 'ok');
+  }
+
+  /**
+   * Ajoute les éléments graphiques sport_stats (distance, dénivelé, durée)
+   * pour les publications sportives quand une photo est sélectionnée.
+   * Utilise les données de l'activité Garmin associée à la publication.
+   */
+  async _addSportStatsIfNeeded() {
+    const pub = this.publication;
+    if (!pub) return;
+
+    // Vérifier si c'est une publication sportive avec activité liée
+    const activity = pub.activity;
+    if (!activity) return;
+
+    const d = this.state.design;
+    const w = d.format.width;
+    const h = d.format.height;
+
+    // Vérifier si les sport_stats existent déjà
+    const hasSportStats = d.elements.some((e) => e.type === 'sport_stats');
+    if (hasSportStats) return;
+
+    const stats = [];
+    if (activity.distance_m != null) {
+      stats.push({
+        stat: 'distance',
+        label: 'DISTANCE',
+        value: (activity.distance_m / 1000).toFixed(1),
+        unit: 'km',
+      });
+    }
+    if (activity.elevation_gain_m != null) {
+      stats.push({
+        stat: 'denivele',
+        label: 'DÉNIVELÉ',
+        value: String(Math.round(activity.elevation_gain_m)),
+        unit: 'm D+',
+      });
+    }
+    if (activity.duration_seconds != null) {
+      const dur = activity.duration_seconds;
+      const h = Math.floor(dur / 3600);
+      const m = Math.floor((dur % 3600) / 60);
+      const s = dur % 60;
+      const timeStr = h > 0 ? `${h}h${m.toString().padStart(2, '0')}` : `${m} min`;
+      stats.push({
+        stat: 'duree',
+        label: 'TEMPS',
+        value: timeStr,
+        unit: '',
+      });
+    }
+
+    if (stats.length === 0) return;
+
+    // Ajouter chaque stat comme élément graphique distinct
+    const centerX = w / 2;
+    const startY = h / 2 - (stats.length - 1) * (h * 0.09);
+    const elHeight = Math.max(40, Math.round(h * 0.14));
+    const fontSize = Math.max(24, Math.round(w * 0.07));
+
+    for (let i = 0; i < stats.length; i++) {
+      const s = stats[i];
+      this.state.addElement({
+        id: `el-stats-${s.stat}-${Date.now()}-${i}`,
+        type: 'sport_stats',
+        stat: s.stat,
+        label: s.label,
+        value: s.value,
+        unit: s.unit,
+        x: centerX,
+        y: startY + i * (elHeight + 10),
+        w: w * 0.6,
+        h: elHeight,
+        size: fontSize,
+        font: 'Arial',
+        color: '#ffffff',
+        bold: true,
+        italic: false,
+        shadow: true,
+        align: 'center',
+        rotation: 0,
+        opacity: 1,
+      });
+    }
   }
 
   _loadImage(src) {

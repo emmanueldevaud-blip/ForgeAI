@@ -307,16 +307,15 @@ export class CommunityManagerPage {
         <td class="text-muted" style="max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${this._escape(entry.notes || '')}</td>
         <td>
           <div class="form-actions" style="gap: 8px;">
-            ${entry.publication_id ? `
-              <div style="display: inline-flex; align-items: center; gap: 8px;">
-                <span class="status-badge ${this._getPubBadgeClass(entry.publication_status)}">${this._formatPubStatus(entry.publication_status)}</span>
-                ${entry.source !== 'garmin' ? `
-                  <button class="btn btn-sm btn-primary" data-cm-open-studio data-publication-id="${entry.publication_id}">
-                    Ouvrir le Studio
-                  </button>
-                ` : ''}
-              </div>
-            ` : (entry.status === 'brouillon' ? `
+            ${entry.publication_id ? (() => {
+              let html = '<div style="display: inline-flex; align-items: center; gap: 8px;">';
+              html += `<span class="status-badge ${this._getPubBadgeClass(entry.publication_status)}">${this._formatPubStatus(entry.publication_status)}</span>`;
+              if (entry.source !== 'garmin') {
+                html += `<button class="btn btn-sm btn-primary" data-cm-open-studio data-publication-id="${entry.publication_id}">Ouvrir le Studio</button>`;
+              }
+              html += '</div>';
+              return html;
+            })() : (entry.status === 'brouillon' ? `
               <button class="btn btn-sm btn-primary" data-cm-validate data-entry-id="${entry.id}" ${!this.canGenerateCMCalendar ? 'disabled' : ''}>
                 Valider
               </button>

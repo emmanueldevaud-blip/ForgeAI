@@ -194,7 +194,7 @@ export class CommunityManagerStudioPage {
             </button>
           ` : ''}
           ${canPublish && !this.captionOverLimit ? `
-            <div class="cm-studio-publish-platform" style="display:flex;align-items:center;gap:8px;margin-right:8px;">
+            <div class="cm-studio-publish-platform" style="display:flex;align-items:center;gap:8px;margin-right:16px;">
               <label style="font-size:12px;color:#666;">Publier sur :</label>
               <select id="cm-publish-platform" class="form-select form-select-sm" style="width:auto;min-width:160px;padding:4px 8px;" ${this.publishing ? 'disabled' : ''}>
                 <option value="both">Instagram + Facebook</option>
@@ -202,7 +202,7 @@ export class CommunityManagerStudioPage {
                 <option value="facebook">Facebook seulement</option>
               </select>
             </div>
-            <button class="btn btn-success" data-action="publish" ${!canPublish || this.publishing ? 'disabled' : ''}>
+            <button class="btn btn-success" data-action="publish" ${!canPublish || this.publishing ? 'disabled' : ''} style="min-width:100px;position:relative;z-index:10;">
               ${this.publishing ? 'Publication…' : 'Publier'}
             </button>
           ` : ''}

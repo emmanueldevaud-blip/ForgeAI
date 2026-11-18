@@ -127,8 +127,8 @@ def _render_sport_stats_panel_html(stats: dict[str, str]) -> str:
     def cell(label: str, value: str) -> str:
         return (
             '<div style="text-align:center;">'
-            f'<div style="font-size:11px; letter-spacing:1px; opacity:.85;">{label}</div>'
-            f'<div style="font-size:20px; font-weight:700; line-height:1.2;">{value}</div>'
+            f'<div style="font-size:9px; letter-spacing:1px; opacity:.85;">{label}</div>'
+            f'<div style="font-size:15px; font-weight:700; line-height:1.2;">{value}</div>'
             "</div>"
         )
 
@@ -141,7 +141,7 @@ def _render_sport_stats_panel_html(stats: dict[str, str]) -> str:
         '<div style="position:absolute; left:50%; bottom:16px; transform:translateX(-50%); '
         "background:rgba(0,0,0,0.72); color:#ffffff; padding:10px 18px; border-radius:12px; "
         f'font-family:Arial, sans-serif; text-align:center; max-width:92%;">{rows}'
-        '<div style="font-size:10px; opacity:.8; margin-top:6px;">Jepepagtrail</div></div>'
+        '<div style="font-size:9px; opacity:.8; margin-top:6px;">#Jepepagtrail</div></div>'
     )
 
 
@@ -381,7 +381,7 @@ def render_sport_overlay_image(photo_path: str, stats: dict[str, str], out_path:
             bottom_heights.append(lh + vh + gap_y)
 
         # Signature
-        sig_text = "Jepepagtrail"
+        sig_text = "#Jepepagtrail"
         sig_w, sig_h = measure_text(sig_text, font_signature)
 
         # Déterminer la position et taille du panneau selon l'orientation

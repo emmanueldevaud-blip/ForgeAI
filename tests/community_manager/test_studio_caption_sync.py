@@ -305,6 +305,9 @@ class TestPreviewStatsAndReadability:
         # Panneau semi-transparent derrière le texte blanc
         assert "rgba(0,0,0,0.72)" in html
         assert "color:#ffffff" in html.replace(" ", "")
+        # Stats en petit + signature avec dièse
+        assert "font-size:15px" in html and "font-size:9px" in html
+        assert "#Jepepagtrail" in html
 
     @pytest.mark.asyncio
     async def test_feed_preview_without_photo_has_no_stats_panel(self, db_session, auth_user):

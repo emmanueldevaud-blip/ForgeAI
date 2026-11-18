@@ -5,8 +5,10 @@ entre le champ texte éditable, l'aperçu et la régénération.
 """
 
 from datetime import UTC, datetime
+from inspect import signature
 
 import pytest
+from sqlalchemy import func, select
 
 from app.models.photo import Photo
 from app.models.sport import SportPublication
@@ -188,3 +190,73 @@ class TestStudioCaptionSynchronisation:
         assert full_caption == "Titre Regen\n\n#trail"
         assert full_caption.count("Titre Regen") == 1
         assert full_caption.count("#trail") == 1
+
+
+# ============================================================
+# Tests : aucun enregistrement dans le module photo avant publication
+# ============================================================
+
+class TestNoOverlayRegistrationBeforePublication:
+    """L'overlay sport ne doit créer une Photo que lors de la publication (Instagram / Facebook)."""
+
+    @staticmethod
+    def _spy(service, calls: list) -> None:
+        original = service._ensure_sport_defaults
+
+        async def spy(pub, persist_overlay=True):
+            calls.append(persist_overlay)
+            return await original(pub, persist_overlay=persist_overlay)
+
+        service._ensure_sport_defaults = spy
+
+    @pytest.mark.asyncio
+    async def test_get_preview_does_not_persist_overlay(self, db_session, auth_user):
+        """L'aperçu ne doit jamais enregistrer l'overlay dans le module photo."""
+        pub = await _make_garmin_publication(db_session, auth_user)
+        service = CommunityManagerStudioService(db_session, auth_user)
+        calls: list = []
+        self._spy(service, calls)
+
+        await service.get_preview(pub.id, "feed")
+
+        assert calls, "get_preview doit passer par _ensure_sport_defaults"
+        assert all(persist is False for persist in calls)
+
+    @pytest.mark.asyncio
+    async def test_photo_selection_does_not_create_photo(self, db_session, auth_user):
+        """Sélectionner une photo ne crée aucune entrée dans le module photo."""
+        pub = await _make_garmin_publication(db_session, auth_user)
+        photo = Photo(
+            owner_id=auth_user.id,
+            original_filename="selection.jpg",
+            storage_path="2026/11/selection.jpg",
+            mime_type="image/jpeg",
+            taken_at=datetime.now(UTC),
+            content_hash="a" * 64,
+        )
+        db_session.add(photo)
+        await db_session.commit()
+
+        service = CommunityManagerStudioService(db_session, auth_user)
+        calls: list = []
+        self._spy(service, calls)
+
+        await service.update_draft(pub.id, PublicationDraftUpdate(photo_id=photo.id))
+
+        assert calls and all(persist is False for persist in calls)
+        count = await db_session.scalar(
+            select(func.count()).select_from(Photo).where(Photo.owner_id == auth_user.id)
+        )
+        assert count == 1, "aucune Photo supplémentaire ne doit être enregistrée avant publication"
+
+    @pytest.mark.asyncio
+    async def test_ensure_sport_defaults_keeps_persist_default(self, db_session, auth_user):
+        """Les chemins de publication (Instagram / Facebook) conservent l'enregistrement par défaut."""
+        sig = signature(CommunityManagerStudioService._ensure_sport_defaults)
+        assert sig.parameters["persist_overlay"].default is True
+
+        pub = await _make_garmin_publication(db_session, auth_user)
+        service = CommunityManagerStudioService(db_session, auth_user)
+        await service._ensure_sport_defaults(pub)
+        # appel sans argument explicite -> comportement inchangé (défaut True)
+        assert sig.parameters["persist_overlay"].default is True

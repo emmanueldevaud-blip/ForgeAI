@@ -589,9 +589,10 @@ class CommunityManagerStudioService:
             if not pub.photo_locked:
                 pub.photo_id = data.photo_id
                 # Déclencher la composition automatique de l'overlay sport
-                # si c'est une publication sportive (Garmin)
+                # si c'est une publication sportive (Garmin) — rendu visuel uniquement,
+                # sans enregistrement dans le module photo (réservé à la publication)
                 if _is_sport_publication(pub):
-                    pub = await self._ensure_sport_defaults(pub)
+                    pub = await self._ensure_sport_defaults(pub, persist_overlay=False)
         if data.visual_type is not None:
             if not pub.photo_locked:
                 pub.visual_type = data.visual_type
@@ -1060,9 +1061,10 @@ class CommunityManagerStudioService:
             )
             pub.calendar_entry = entry_result.scalar_one_or_none()
 
-        # Publications sportives : appliquer overlay stats (durée, dénivelé, km) et choisir audio
+        # Publications sportives : overlay stats (durée, dénivelé, km) et choix audio —
+        # aucun enregistrement dans le module photo avant la publication
         if _is_sport_publication(pub):
-            pub = await self._ensure_sport_defaults(pub)
+            pub = await self._ensure_sport_defaults(pub, persist_overlay=False)
             await self.db.commit()
             await self.db.refresh(pub)
 
@@ -1190,7 +1192,7 @@ class CommunityManagerStudioService:
             return await self.db.get(SportActivity, entry.source_activity_id)
         return None
 
-    async def _ensure_sport_defaults(self, pub: SportPublication) -> SportPublication:
+    async def _ensure_sport_defaults(self, pub: SportPublication, persist_overlay: bool = True) -> SportPublication:
         """Pour les publications sportives : overlay stats sur la photo + choix audio (intelligent/aléatoire)."""
         if not _is_sport_publication(pub):
             return pub
@@ -1214,7 +1216,7 @@ class CommunityManagerStudioService:
                 photo = await photo_service._get_owned(pub.photo_id, include_deleted=True)
                 storage = photo_service.storage
                 src_path = storage.backend_for_photo(photo).original_path(photo.storage_path)
-                if src_path and Path(src_path).is_file():
+                if persist_overlay and src_path and Path(src_path).is_file():
                     # Éviter de ré-appliquer si déjà un overlay sport généré pour cette photo/stats
                     design = pub.design if isinstance(pub.design, dict) else {}
                     sport_meta = design.get("sport_overlay") or {}

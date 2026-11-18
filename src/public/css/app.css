@@ -11434,6 +11434,7 @@
   width: 100%;
   max-width: 560px;
   max-height: 90vh;
+  max-height: 90dvh;
   background: #fff;
   border-radius: 12px;
   box-shadow: 0 20px 50px rgba(0,0,0,0.25);
@@ -11449,14 +11450,21 @@
   padding: 12px 16px;
   border-bottom: 1px solid #e5e7eb;
   font-weight: 600;
+  color: #111827;
 }
 .cm-studio-preview-body {
   padding: 16px;
   overflow: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+  flex: 1;
+  min-height: 0;
   background: #f3f4f6;
   display: flex;
-  justify-content: center;
 }
 .cm-studio-preview-body > div {
   max-width: 100%;
+  /* Centrage sans justify-content : un contenu plus haut que le conteneur
+     resterait inaccessible en haut (bug du centrage flex en scroll). */
+  margin: auto;
 }

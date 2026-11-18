@@ -227,5 +227,17 @@ const hasCall = (n) => calls.some(c => c[0] === n);
   check('G: compteur légende = contenu attendu', p.captionLength === 'Publication V1\n\n#garmin'.length, `len=${p.captionLength}`);
 }
 
+// --- H : modal d'aperçu lisible et scrollable (y compris iPhone)
+{
+  const css = fs.readFileSync(new URL('../../src/public/css/app.css', import.meta.url), 'utf8');
+  const header = css.match(/\.cm-studio-preview-header\s*\{[^}]*\}/);
+  const body = css.match(/\.cm-studio-preview-body\s*\{[^}]*\}/);
+  const modal = css.match(/\.cm-studio-preview-modal\s*\{[^}]*\}/);
+  check('H: en-tête aperçu avec couleur explicite (pas de blanc sur blanc)', !!header && /color:\s*#111827/.test(header[0]));
+  check('H: corps modal scrollable (flex + min-height: 0)', !!body && /min-height:\s*0/.test(body[0]) && /flex:\s*1/.test(body[0]));
+  check('H: scroll tactile iPhone (overflow scrolling)', !!body && /-webkit-overflow-scrolling:\s*touch/.test(body[0]));
+  check('H: hauteur dynamique du viewport (dvh)', !!modal && /max-height:\s*90dvh/.test(modal[0]));
+}
+
 console.log(failures === 0 ? '\nTOUS LES TESTS PASSENT' : `\n${failures} ÉCHEC(S)`);
 process.exit(failures === 0 ? 0 : 1);

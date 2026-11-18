@@ -109,6 +109,42 @@ def _extract_stats_html(content: str) -> str:
     return f'<div style="display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 8px;">{stats_html}</div>'
 
 
+def _render_sport_stats_panel_html(stats: dict[str, str]) -> str:
+    """Panneau semi-transparent de stats pour l'aperçu HTML (miroir de l'overlay publié)."""
+    if not stats:
+        return ""
+    top = []
+    if stats.get("distance"):
+        top.append(("DISTANCE", stats["distance"]))
+    if stats.get("duree"):
+        top.append(("TEMPS", stats["duree"]))
+    bottom = []
+    if stats.get("denivele"):
+        bottom.append(("DÉNIVELÉ", stats["denivele"]))
+    if not top and not bottom:
+        return ""
+
+    def cell(label: str, value: str) -> str:
+        return (
+            '<div style="text-align:center;">'
+            f'<div style="font-size:11px; letter-spacing:1px; opacity:.85;">{label}</div>'
+            f'<div style="font-size:20px; font-weight:700; line-height:1.2;">{value}</div>'
+            "</div>"
+        )
+
+    rows = ""
+    if top:
+        rows += f'<div style="display:flex; gap:24px; justify-content:center;">{"".join(cell(l, v) for l, v in top)}</div>'
+    if bottom:
+        rows += f'<div style="display:flex; gap:24px; justify-content:center; margin-top:6px;">{"".join(cell(l, v) for l, v in bottom)}</div>'
+    return (
+        '<div style="position:absolute; left:50%; bottom:16px; transform:translateX(-50%); '
+        "background:rgba(0,0,0,0.72); color:#ffffff; padding:10px 18px; border-radius:12px; "
+        f'font-family:Arial, sans-serif; text-align:center; max-width:92%;">{rows}'
+        '<div style="font-size:10px; opacity:.8; margin-top:6px;">Jepepagtrail</div></div>'
+    )
+
+
 # --- Publications sportives : overlay stats + audio ---
 
 SPORT_MUSIC_TRACKS = [
@@ -1080,6 +1116,14 @@ class CommunityManagerStudioService:
             # Ne pas utiliser de meta_token ici: les tokens de publication Meta sont à usage unique.
             photo_url = f"/photos/{pub.photo_id}/file?size=large"
 
+        # Stats sportives visibles sur l'image : panneau sombre identique à celui
+        # appliqué sur la photo au moment de la publication (jamais de texte blanc
+        # posé directement sur le fond clair).
+        stats_panel_html = ""
+        if photo_url:
+            activity = await self._get_activity_for_publication(pub)
+            stats_panel_html = _render_sport_stats_panel_html(_sport_stats_from_activity(activity))
+
         # Helper pour extraire les stats de l'activité Garmin si disponible
         stats_html = ""
 
@@ -1099,7 +1143,7 @@ class CommunityManagerStudioService:
         # HTML de prévisualisation (style Instagram)
         if format == "feed":
             html = f"""
-            <div style="max-width: 480px; background: #fff; border-radius: 8px; overflow: hidden; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
+            <div style="max-width: 480px; background: #fff; color: #111827; border-radius: 8px; overflow: hidden; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
                 <div style="padding: 12px 16px; display: flex; align-items: center; gap: 10px; border-bottom: 1px solid #efefef;">
                     <div style="width: 32px; height: 32px; border-radius: 50%; background: linear-gradient(45deg, #f09433 0%,#e6683c 25%,#dc2743 50%,#cc2366 75%,#bc1888 100%);"></div>
                     <div>
@@ -1109,6 +1153,7 @@ class CommunityManagerStudioService:
                 </div>
                 <div style="position: relative; width: 100%; height: 480px;">
                     {f'<img src="{photo_url}" style="width: 100%; height: 100%; object-fit: cover;">' if photo_url else '<div style="width: 100%; height: 100%; background: #fafafa; display: flex; align-items: center; justify-content: center; color: #999;">Aucune image</div>'}
+                    {stats_panel_html}
                 </div>
                 <div style="padding: 12px 16px;">
                     <div style="font-size: 14px; line-height: 1.5; white-space: pre-wrap;">{full_caption}</div>
@@ -1134,7 +1179,7 @@ class CommunityManagerStudioService:
             # Extraire les stats si disponibles dans le contenu
             stats_html = self._extract_stats_html(content)
             html = f"""
-            <div style="max-width: 480px; background: #fff; border-radius: 8px; overflow: hidden; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
+            <div style="max-width: 480px; background: #fff; color: #111827; border-radius: 8px; overflow: hidden; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
                 <div style="padding: 12px 16px; display: flex; align-items: center; gap: 10px; border-bottom: 1px solid #efefef;">
                     <div style="width: 32px; height: 32px; border-radius: 50%; background: linear-gradient(45deg, #f09433 0%,#e6683c 25%,#dc2743 50%,#cc2366 75%,#bc1888 100%);"></div>
                     <div>
@@ -1157,7 +1202,7 @@ class CommunityManagerStudioService:
         else:
             # Fallback reel/other
             html = f"""
-            <div style="max-width: 480px; background: #fff; border-radius: 8px; overflow: hidden; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
+            <div style="max-width: 480px; background: #fff; color: #111827; border-radius: 8px; overflow: hidden; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
                 {f'<img src="{photo_url}" style="width: 100%;">' if photo_url else ''}
                 <div style="padding: 12px 16px; white-space: pre-wrap;">{full_caption}</div>
             </div>

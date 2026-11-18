@@ -260,3 +260,59 @@ class TestNoOverlayRegistrationBeforePublication:
         await service._ensure_sport_defaults(pub)
         # appel sans argument explicite -> comportement inchangé (défaut True)
         assert sig.parameters["persist_overlay"].default is True
+
+
+# ============================================================
+# Tests : aperçu lisible + stats visibles sur l'image
+# ============================================================
+
+class TestPreviewStatsAndReadability:
+    """L'aperçu doit afficher les stats sur l'image et rester lisible en thème sombre."""
+
+    @pytest.mark.asyncio
+    async def test_feed_preview_sets_explicit_dark_text_color(self, db_session, auth_user):
+        """La carte de l'aperçu impose une couleur de texte sombre (sinon texte blanc hérité du thème sombre sur carte blanche)."""
+        pub = await _make_garmin_publication(db_session, auth_user)
+        service = CommunityManagerStudioService(db_session, auth_user)
+
+        preview = await service.get_preview(pub.id, "feed")
+
+        assert "color: #111827" in preview["preview_html"]
+
+    @pytest.mark.asyncio
+    async def test_feed_preview_shows_stats_panel_over_photo(self, db_session, auth_user):
+        """Les stats Garmin apparaissent sur l'image dans un panneau sombre (texte blanc lisible)."""
+        pub = await _make_garmin_publication(db_session, auth_user)
+        photo = Photo(
+            owner_id=auth_user.id,
+            original_filename="paysage.jpg",
+            storage_path="2026/11/paysage.jpg",
+            mime_type="image/jpeg",
+            taken_at=datetime.now(UTC),
+            content_hash="d" * 64,
+        )
+        db_session.add(photo)
+        await db_session.commit()
+
+        service = CommunityManagerStudioService(db_session, auth_user)
+        await service.update_draft(pub.id, PublicationDraftUpdate(photo_id=photo.id))
+        preview = await service.get_preview(pub.id, "feed")
+        html = preview["preview_html"]
+
+        assert "DISTANCE" in html and "10.0 km" in html
+        assert "DÉNIVELÉ" in html and "200 m D+" in html
+        assert "TEMPS" in html and "1h00" in html
+        # Panneau semi-transparent derrière le texte blanc
+        assert "rgba(0,0,0,0.72)" in html
+        assert "color:#ffffff" in html.replace(" ", "")
+
+    @pytest.mark.asyncio
+    async def test_feed_preview_without_photo_has_no_stats_panel(self, db_session, auth_user):
+        """Sans photo sélectionnée, aucun panneau de stats (fidèle à la publication)."""
+        pub = await _make_garmin_publication(db_session, auth_user)
+        service = CommunityManagerStudioService(db_session, auth_user)
+
+        html = (await service.get_preview(pub.id, "feed"))["preview_html"]
+
+        assert "DISTANCE" not in html
+        assert "rgba(0,0,0,0.72)" not in html

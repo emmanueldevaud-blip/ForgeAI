@@ -647,14 +647,35 @@ class SportPublicationService:
         if len(effective_styles) > 1:
             mix_note = " Mode MIX : combiner les tons selectionnes dans une meme proposition quand c'est pertinent."
 
+        # Strategie editoriale : identite de marque et signature de hashtags
+        from app.services.community_manager.hashtags import DEFAULT_BRAND_HASHTAG
+
+        strategy = (
+            await self.db.execute(
+                select(CommunityManagerStrategy).where(
+                    CommunityManagerStrategy.athlete_id == pub.athlete_id
+                )
+            )
+        ).scalar_one_or_none()
+        signature = DEFAULT_BRAND_HASHTAG
+        brand_lines = ""
+        if strategy is not None:
+            brand_lines = f"Identite de marque : {strategy.brand_identity or 'Non definie'}\n"
+            if strategy.signature_hashtag:
+                signature = str(strategy.signature_hashtag).strip() or DEFAULT_BRAND_HASHTAG
+        brand_lines += (
+            f"Hashtag de signature obligatoire dans les hashtags de chaque proposition : {signature}\n\n"
+        )
+
         prompt = (
             f"Activite sportive (donnees reelles uniquement) :\n"
             f"{json.dumps(_activity_stats(activity), ensure_ascii=False, default=str)}\n\n"
+            f"{brand_lines}"
             f"Tons demandes :\n{style_lines}{mix_note}\n\n"
             f"Historique des publications precedentes (a eviter) :\n{prev_ctx}\n\n"
             f"Genere 3 concepts de publication (propositions) distincts et adaptes a ces tons. "
-            f"Pour chaque concept retourne un objet avec : angle, format (Reel/carrousel/photo/story), "
-            f"accroche, publication, hashtags, idee_visuelle, objectif. "
+            f"Pour chaque concept retourne un objet avec : title, format (Reel/carrousel/photo/story), "
+            f"content (texte complet de la publication), hashtags, idee_visuelle, objectif. "
             f"Si plusieurs angles sont interessants, propose jusqu'a trois concepts et selectionne le meilleur. "
             f"Reponds uniquement en JSON avec la cle 'proposals'."
         )

@@ -1124,6 +1124,16 @@ class CommunityManagerStudioService:
             activity = await self._get_activity_for_publication(pub)
             stats_panel_html = _render_sport_stats_panel_html(_sport_stats_from_activity(activity))
 
+        # Ratio de l'image d'aperçu : issu du design (défaut 1080x1350).
+        # Le conteneur s'adapte ainsi à tous les formats (portrait, carré, paysage).
+        preview_design = pub.design if isinstance(pub.design, dict) else {}
+        preview_fmt = preview_design.get("format") if isinstance(preview_design.get("format"), dict) else {}
+        fmt_w = float(preview_fmt.get("width") or 0)
+        fmt_h = float(preview_fmt.get("height") or 0)
+        if not (0 < fmt_w <= 20000 and 0 < fmt_h <= 20000):
+            fmt_w, fmt_h = 1080.0, 1350.0
+        feed_ratio = f"{fmt_w:g}/{fmt_h:g}"
+
         # Helper pour extraire les stats de l'activité Garmin si disponible
         stats_html = ""
 
@@ -1151,7 +1161,7 @@ class CommunityManagerStudioService:
                         <div style="font-size: 12px; color: #8e8e8e;">{datetime.now().strftime('%d/%m/%Y')}</div>
                     </div>
                 </div>
-                <div style="position: relative; width: 100%; height: 480px;">
+                <div style="position: relative; width: 100%; aspect-ratio: {feed_ratio}; background: #111111;">
                     {f'<img src="{photo_url}" style="width: 100%; height: 100%; object-fit: cover;">' if photo_url else '<div style="width: 100%; height: 100%; background: #fafafa; display: flex; align-items: center; justify-content: center; color: #999;">Aucune image</div>'}
                     {stats_panel_html}
                 </div>
@@ -1167,10 +1177,10 @@ class CommunityManagerStudioService:
             """
         elif format == "story":
             html = f"""
-            <div style="width: 1080px; height: 1920px; background: #000; position: relative; color: white; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
+            <div style="width: 100%; max-width: 420px; aspect-ratio: 9/16; margin: 0 auto; background: #000; position: relative; color: white; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
                 {f'<img src="{photo_url}" style="width: 100%; height: 100%; object-fit: cover;">' if photo_url else ''}
-                <div style="position: absolute; bottom: 100px; left: 40px; right: 40px; text-shadow: 0 2px 8px rgba(0,0,0,0.7);">
-                    <div style="font-size: 24px; line-height: 1.4; white-space: pre-wrap;">{full_caption}</div>
+                <div style="position: absolute; bottom: 24px; left: 16px; right: 16px; text-shadow: 0 2px 8px rgba(0,0,0,0.7);">
+                    <div style="font-size: 16px; line-height: 1.4; white-space: pre-wrap;">{full_caption}</div>
                 </div>
             </div>
             """
@@ -1187,7 +1197,7 @@ class CommunityManagerStudioService:
                         <div style="font-size: 12px; color: #8e8e8e;">{datetime.now().strftime('%d/%m/%Y')}</div>
                     </div>
                 </div>
-                {f'<img src="{photo_url}" style="width: 100%; height: 480px; object-fit: cover;">' if photo_url else '<div style="width: 100%; height: 480px; background: #fafafa; display: flex; align-items: center; justify-content: center; color: #999;">Aucune image</div>'}
+                {f'<img src="{photo_url}" style="width: 100%; aspect-ratio: {feed_ratio}; object-fit: cover; display: block;">' if photo_url else f'<div style="width: 100%; aspect-ratio: {feed_ratio}; background: #fafafa; display: flex; align-items: center; justify-content: center; color: #999;">Aucune image</div>'}
                 <div style="padding: 12px 16px;">
                     {stats_html}
                     <div style="font-size: 14px; line-height: 1.5; white-space: pre-wrap; margin-top: 8px;">{full_caption}</div>

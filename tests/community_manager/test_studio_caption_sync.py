@@ -316,3 +316,47 @@ class TestPreviewStatsAndReadability:
 
         assert "DISTANCE" not in html
         assert "rgba(0,0,0,0.72)" not in html
+
+
+# ============================================================
+# Tests : adaptation du cadrage a tous les formats
+# ============================================================
+
+class TestPreviewFormatAdaptation:
+    """L'aperçu doit s'adapter au ratio du design (portrait, carre, paysage, story)."""
+
+    @pytest.mark.asyncio
+    async def test_feed_preview_uses_design_aspect_ratio(self, db_session, auth_user):
+        """Conteneur image en aspect-ratio issu du design (défaut 1080x1350), sans hauteur fixe."""
+        pub = await _make_garmin_publication(db_session, auth_user)
+        service = CommunityManagerStudioService(db_session, auth_user)
+
+        html = (await service.get_preview(pub.id, "feed"))["preview_html"]
+
+        assert "aspect-ratio: 1080/1350" in html
+        assert "height: 480px" not in html
+
+    @pytest.mark.asyncio
+    async def test_feed_preview_adapts_to_custom_format(self, db_session, auth_user):
+        """Un format personnalisé (ici carré) du design est respecté."""
+        pub = await _make_garmin_publication(db_session, auth_user)
+        service = CommunityManagerStudioService(db_session, auth_user)
+        await service.update_draft(
+            pub.id, PublicationDraftUpdate(design={"format": {"width": 1080, "height": 1080}})
+        )
+
+        html = (await service.get_preview(pub.id, "feed"))["preview_html"]
+
+        assert "aspect-ratio: 1080/1080" in html
+
+    @pytest.mark.asyncio
+    async def test_story_preview_is_fluid_not_fixed(self, db_session, auth_user):
+        """L'aperçu story abandonne les dimensions fixes 1080x1920 au profit d'un conteneur fluide 9/16."""
+        pub = await _make_garmin_publication(db_session, auth_user)
+        service = CommunityManagerStudioService(db_session, auth_user)
+
+        html = (await service.get_preview(pub.id, "story"))["preview_html"]
+
+        assert "width: 1080px" not in html
+        assert "height: 1920px" not in html
+        assert "aspect-ratio: 9/16" in html

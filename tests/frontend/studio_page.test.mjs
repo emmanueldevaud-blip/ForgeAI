@@ -218,5 +218,14 @@ const hasCall = (n) => calls.some(c => c[0] === n);
   check('F: retrait envoie photo_id=null', updates[updates.length - 1]?.[2]?.photo_id === null);
 }
 
+// --- G : légende complète éditable (titre + hashtags, hashtags en fin de texte)
+{
+  const p = makePage({ ...V1_PUB, title: 'Publication V1', content: 'Contenu V1.', hashtags: '#garmin' });
+  const html = p.render().innerHTML;
+  const m = html.match(/<textarea[^>]*>([\s\S]*?)<\/textarea>/);
+  check('G: champ texte = Titre + ligne vide + hashtags', m && m[1] === 'Publication V1\n\n#garmin', `val=${JSON.stringify(m && m[1])}`);
+  check('G: compteur légende = contenu attendu', p.captionLength === 'Publication V1\n\n#garmin'.length, `len=${p.captionLength}`);
+}
+
 console.log(failures === 0 ? '\nTOUS LES TESTS PASSENT' : `\n${failures} ÉCHEC(S)`);
 process.exit(failures === 0 ? 0 : 1);

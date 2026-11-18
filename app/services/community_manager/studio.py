@@ -1070,6 +1070,8 @@ class CommunityManagerStudioService:
         content = clean_caption_text(pub.content) or ""
         hashtags = clean_hashtags(pub.hashtags) or ""
         title = pub.title or ""
+        # Légende complète = titre + hashtags (même contenu que le champ éditable)
+        full_caption = build_full_caption(title, content, hashtags)
         photo_url = None
         if pub.photo_id:
             # URL de fichier photo pour l'aperçu côté navigateur (authentification standard).
@@ -1105,15 +1107,9 @@ class CommunityManagerStudioService:
                 </div>
                 <div style="position: relative; width: 100%; height: 480px;">
                     {f'<img src="{photo_url}" style="width: 100%; height: 100%; object-fit: cover;">' if photo_url else '<div style="width: 100%; height: 100%; background: #fafafa; display: flex; align-items: center; justify-content: center; color: #999;">Aucune image</div>'}
-                    {f'''
-                    <div style="position: absolute; top: 16px; left: 16px; right: 16px; text-shadow: 0 2px 8px rgba(0,0,0,0.8); color: white;">
-                        <div style="font-size: 22px; font-weight: 700; line-height: 1.3;">{title}</div>
-                    </div>
-                    ''' if title else ''}
                 </div>
                 <div style="padding: 12px 16px;">
-                    <div style="font-size: 14px; line-height: 1.5; white-space: pre-wrap;">{content}</div>
-                    {f'<div style="margin-top: 12px; font-size: 13px; color: #8e8e8e; line-height: 1.6;">{hashtags}</div>' if hashtags else ''}
+                    <div style="font-size: 14px; line-height: 1.5; white-space: pre-wrap;">{full_caption}</div>
                 </div>
                 <div style="padding: 8px 16px; border-top: 1px solid #efefef; display: flex; gap: 16px; color: #8e8e8e; font-size: 13px;">
                     <span>♥️ 0</span>
@@ -1127,9 +1123,7 @@ class CommunityManagerStudioService:
             <div style="width: 1080px; height: 1920px; background: #000; position: relative; color: white; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
                 {f'<img src="{photo_url}" style="width: 100%; height: 100%; object-fit: cover;">' if photo_url else ''}
                 <div style="position: absolute; bottom: 100px; left: 40px; right: 40px; text-shadow: 0 2px 8px rgba(0,0,0,0.7);">
-                    {f'<div style="font-size: 32px; font-weight: 700; margin-bottom: 16px;">{title}</div>' if title else ''}
-                    <div style="font-size: 24px; line-height: 1.4;">{content}</div>
-                    {f'<div style="margin-top: 24px; font-size: 20px; opacity: 0.9;">{hashtags}</div>' if hashtags else ''}
+                    <div style="font-size: 24px; line-height: 1.4; white-space: pre-wrap;">{full_caption}</div>
                 </div>
             </div>
             """
@@ -1149,8 +1143,7 @@ class CommunityManagerStudioService:
                 {f'<img src="{photo_url}" style="width: 100%; height: 480px; object-fit: cover;">' if photo_url else '<div style="width: 100%; height: 480px; background: #fafafa; display: flex; align-items: center; justify-content: center; color: #999;">Aucune image</div>'}
                 <div style="padding: 12px 16px;">
                     {stats_html}
-                    <div style="font-size: 14px; line-height: 1.5; white-space: pre-wrap; margin-top: 8px;">{content}</div>
-                    {f'<div style="margin-top: 12px; font-size: 13px; color: #8e8e8e; line-height: 1.6;">{hashtags}</div>' if hashtags else ''}
+                    <div style="font-size: 14px; line-height: 1.5; white-space: pre-wrap; margin-top: 8px;">{full_caption}</div>
                 </div>
                 <div style="padding: 8px 16px; border-top: 1px solid #efefef; display: flex; gap: 16px; color: #8e8e8e; font-size: 13px;">
                     <span>♥️ 0</span>
@@ -1163,10 +1156,8 @@ class CommunityManagerStudioService:
             # Fallback reel/other
             html = f"""
             <div style="max-width: 480px; background: #fff; border-radius: 8px; overflow: hidden; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
-                <div style="padding: 12px 16px;">{title}</div>
                 {f'<img src="{photo_url}" style="width: 100%;">' if photo_url else ''}
-                <div style="padding: 12px 16px; white-space: pre-wrap;">{content}</div>
-                {f'<div style="padding: 12px 16px; color: #8e8e8e;">{hashtags}</div>' if hashtags else ''}
+                <div style="padding: 12px 16px; white-space: pre-wrap;">{full_caption}</div>
             </div>
             """
 
@@ -1231,7 +1222,7 @@ class CommunityManagerStudioService:
                     if sport_meta.get("signature") != signature or not sport_meta.get("overlay_photo_id"):
                         with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as tmp:
                             tmp_path = tmp.name
-                        out = render_sport_overlay_image(str(src_path), stats, tmp_path, pub.title)
+                        out = render_sport_overlay_image(str(src_path), stats, tmp_path)
                         if out:
                             try:
                                 data = Path(out).read_bytes()

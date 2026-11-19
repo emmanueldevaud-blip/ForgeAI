@@ -364,7 +364,7 @@ app.add_middleware(
 async def health_check():
     return {"status": "ok", "version": settings.APP_VERSION}
 
-SPA_PREFIXES = ("api/", "auth/", "admin/", "docs", "redoc", "openapi", "health/", "css/", "js/", "images/", "modules/", "dashboard/", "notifications/")
+SPA_PREFIXES = ("api/", "auth/", "admin/", "docs", "redoc", "openapi", "health/", "css/", "js/", "images/", "modules/", "dashboard/", "notifications/", "files/")
 
 
 def _is_spa_navigation(request: Request) -> bool:
@@ -459,6 +459,12 @@ if os.path.exists(frontend_path):
         if os.path.exists(sw_path):
             return FileResponse(sw_path, media_type="application/javascript")
         return JSONResponse(status_code=404, content={"detail": "Not Found"})
+
+
+@app.get("/files/{full_path:path}")
+async def reject_file_path(full_path: str):
+    """Ne jamais laisser le fallback SPA traiter un chemin de fichiers arbitraire."""
+    return JSONResponse(status_code=404, content={"detail": "Not Found"})
 
 
 @app.get("/{full_path:path}")

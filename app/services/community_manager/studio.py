@@ -1501,12 +1501,6 @@ class CommunityManagerStudioService:
         except Exception:
             logger.exception("[CM-STUDIO] Impossible de sélectionner l'audio sport pour publication %s", pub.id)
 
-        # Vidéo musicale compagnon (async, idempotente) : déclenchée si photo + audio prêts
-        try:
-            await self.ensure_companion_video_job(pub, force=False)
-        except Exception:
-            logger.exception("[CM-STUDIO] Impossible de planifier la vidéo compagnon pour publication %s", pub.id)
-
         await self.db.flush()
         return pub
 

@@ -190,6 +190,32 @@ class FinalRenderPlan:
     background_color: str = "#111111"
 
 
+def diaporama_timing(photo_count: int) -> tuple[float, float]:
+    """(durée par photo, durée totale) pour un diaporama Reel 9:16."""
+    n = max(1, int(photo_count or 1))
+    if n <= 1:
+        return 12.0, 12.0
+    seg = max(4.0, min(60.0 / n, 8.0))
+    return seg, seg * n
+
+
+def _diaporama_photo_ids(design: dict[str, Any] | None, photo_id: int | None) -> list[int]:
+    """Photos du diaporama : design["carousel"] (≥2) ou la photo unique."""
+    raw = (design or {}).get("carousel")
+    ids: list[int] = []
+    if isinstance(raw, list):
+        for value in raw:
+            try:
+                pid = int(value)
+            except (TypeError, ValueError):
+                continue
+            if pid not in ids:
+                ids.append(pid)
+    if len(ids) >= 2:
+        return ids
+    return [int(photo_id)] if photo_id else []
+
+
 class StudioRenderService:
     def __init__(self, db: AsyncSession, current_user: User) -> None:
         self.db = db
@@ -954,7 +980,13 @@ class StudioRenderService:
         Échoue explicitement si l'audio est absent ou invalide (jamais de vidéo muette).
         """
         from app.models.sport import SportPublication
-        from app.services.community_manager.studio import _ensure_sport_defaults, _is_sport_publication
+        from app.services.community_manager.studio import (
+            CommunityManagerStudioService,
+            _ensure_sport_defaults,
+            _is_sport_publication,
+            _sport_stats_from_activity,
+            render_sport_overlay_image,
+        )
         from app.services.community_manager.audio import resolve_track_path, normalize_audio_config
 
         pub = await self.db.get(SportPublication, publication_id)
@@ -969,7 +1001,6 @@ class StudioRenderService:
                 entry = await self.db.get(EditorialCalendarEntry, pub.calendar_entry_id)
                 pub.calendar_entry = entry
             # _ensure_sport_defaults a besoin d'un service studio-like (current_user/db)
-            from app.services.community_manager.studio import CommunityManagerStudioService
             studio = CommunityManagerStudioService(self.db, self.current_user)
             pub = await studio._ensure_sport_defaults(pub)
             await self.db.commit()
@@ -991,16 +1022,35 @@ class StudioRenderService:
         if not shutil.which("ffmpeg") and not self._find_binary("ffmpeg"):
             raise StudioRenderError("ffmpeg introuvable")
 
-        # Idempotence : rendu existant et valide
-        if not force and pub.companion_video_status == "ready" and pub.companion_video_path:
+        # Diaporama (≥2 photos) ou photo unique, + signature d'entrée pour
+        # détecter toute changement (photos, stats, titre) et re-rendre.
+        photos = _diaporama_photo_ids(design, pub.photo_id)
+        stats: dict[str, str] = {}
+        if _is_sport_publication(pub):
+            activity = await studio._get_activity_for_publication(pub)
+            stats = _sport_stats_from_activity(activity)
+        signature: dict[str, Any] = {
+            "photos": photos,
+            "stats": stats,
+            "title": pub.title or "",
+        }
+
+        # Idempotence : rendu existant et valide (et entrée inchangée)
+        if (
+            not force
+            and pub.companion_video_status == "ready"
+            and pub.companion_video_path
+            and design.get("companion_input") == signature
+        ):
             existing = Path(pub.companion_video_path)
             if existing.is_file():
-                probe = self._ffprobe(existing)
                 try:
-                    self._assert_companion_probe(probe, duration)
+                    probe = self._ffprobe(existing)
+                    expected = duration if len(photos) < 2 else diaporama_timing(len(photos))[1]
+                    self._assert_companion_probe(probe, expected)
                     audio_cfg["embedded"] = True
                     audio_cfg["audio_status"] = "integrated"
-                    design = {**design, "audio": audio_cfg}
+                    design = {**design, "audio": audio_cfg, "companion_input": signature}
                     pub.design = design
                     await self.db.commit()
                     return existing, {"probe": probe, "audio": audio_cfg, "reused": True}
@@ -1019,12 +1069,15 @@ class StudioRenderService:
 
         ffmpeg = self._find_binary("ffmpeg") or "ffmpeg"
         width, height, fps = 1080, 1920, 30
-        target_dur = max(8.0, min(float(duration or 12.0), 20.0))
+        n_photos = len(photos)
+        seg_dur = 0.0
+        if n_photos >= 2:
+            seg_dur, target_dur = diaporama_timing(n_photos)
+        else:
+            target_dur = max(8.0, min(float(duration or 12.0), 20.0))
         temp_dir = Path(tempfile.mkdtemp(prefix="forgeai-sport-video-"))
         try:
-            # Résoudre la photo (avec overlay stats déjà appliquée par _ensure_sport_defaults)
             photo_service = PhotoService(self.db, self.current_user)
-            photo_path, _fn, _mt = await photo_service.resolve_file(pub.photo_id, "original")
 
             video_tmp = temp_dir / "video.mp4"
             audio_tmp = temp_dir / "audio.m4a"
@@ -1032,27 +1085,69 @@ class StudioRenderService:
 
             # Animation légère : zoom progressif (Ken Burns simple) sur image statique
             # zoompan produit des frames à fps constant sur la durée cible
-            d_frames = int(round(target_dur * fps))
-            zoom_expr = f"min(zoom+0.0008,1.08)"
-            vf = (
-                f"scale=8000:-1,"
-                f"zoompan=z='{zoom_expr}':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d={d_frames}:s={width}x{height}:fps={fps},"
-                f"format=yuv420p"
-            )
-            cmd_v = [
-                ffmpeg, "-y",
-                "-loop", "1",
-                "-t", str(target_dur),
-                "-i", str(photo_path),
-                "-vf", vf,
-                "-c:v", "libx264",
-                "-preset", "medium",
-                "-crf", "20",
-                "-pix_fmt", "yuv420p",
-                "-movflags", "+faststart",
-                str(video_tmp),
-            ]
-            await asyncio.to_thread(self._run_ffmpeg, cmd_v)
+            def _segment_command(input_path: Path, seconds: float, out_path: Path) -> list[str]:
+                d_frames = int(round(seconds * fps))
+                zoom_expr = f"min(zoom+0.0008,1.08)"
+                vf = (
+                    f"scale=8000:-1,"
+                    f"zoompan=z='{zoom_expr}':x='iw/2-(iw/zoom/2)':y='ih/2-(iw/zoom/2)':d={d_frames}:s={width}x{height}:fps={fps},"
+                    f"format=yuv420p"
+                )
+                return [
+                    ffmpeg, "-y",
+                    "-loop", "1",
+                    "-t", str(seconds),
+                    "-i", str(input_path),
+                    "-vf", vf,
+                    "-c:v", "libx264",
+                    "-preset", "medium",
+                    "-crf", "20",
+                    "-pix_fmt", "yuv420p",
+                    "-movflags", "+faststart",
+                    str(out_path),
+                ]
+
+            if n_photos >= 2:
+                # Diaporama : overlay stats par photo (originaux) + segments + concat
+                seg_paths: list[Path] = []
+                for idx, pid in enumerate(photos):
+                    src_path, _fn, _mt = await photo_service.resolve_file(pid, "original")
+                    input_image = Path(str(src_path))
+                    if stats:
+                        ov_path = temp_dir / f"overlay_{idx}.jpg"
+                        rendered = render_sport_overlay_image(str(src_path), stats, str(ov_path))
+                        if rendered and Path(rendered).is_file():
+                            input_image = Path(rendered)
+                    seg_out = temp_dir / f"seg_{idx}.mp4"
+                    await asyncio.to_thread(
+                        self._run_ffmpeg, _segment_command(input_image, seg_dur, seg_out)
+                    )
+                    seg_paths.append(seg_out)
+                concat_list = temp_dir / "segments.txt"
+                concat_list.write_text(
+                    "\n".join(
+                        f"file '{str(p).replace(chr(39), chr(92) + chr(39))}'"
+                        for p in seg_paths
+                    )
+                    + "\n",
+                    encoding="utf-8",
+                )
+                cmd_c = [
+                    ffmpeg, "-y",
+                    "-f", "concat",
+                    "-safe", "0",
+                    "-i", str(concat_list),
+                    "-c", "copy",
+                    str(video_tmp),
+                ]
+                await asyncio.to_thread(self._run_ffmpeg, cmd_c)
+            else:
+                # Photo unique (avec overlay stats déjà appliquée par _ensure_sport_defaults)
+                photo_path, _fn, _mt = await photo_service.resolve_file(pub.photo_id, "original")
+                await asyncio.to_thread(
+                    self._run_ffmpeg,
+                    _segment_command(Path(str(photo_path)), target_dur, video_tmp),
+                )
 
             # Audio : normalisation simple + fades in/out, pad/trim à la durée cible, AAC
             fade_in = float(audio_cfg.get("fade_in") or 0.4)
@@ -1105,7 +1200,11 @@ class StudioRenderService:
 
             audio_cfg["embedded"] = True
             audio_cfg["audio_status"] = "integrated"
-            design = {**(pub.design if isinstance(pub.design, dict) else {}), "audio": audio_cfg}
+            design = {
+                **(pub.design if isinstance(pub.design, dict) else {}),
+                "audio": audio_cfg,
+                "companion_input": signature,
+            }
             pub.design = design
             pub.companion_video_status = "ready"
             pub.companion_video_path = str(out_path)

@@ -164,3 +164,117 @@ async def test_publish_photo_uses_centralized_token(db_session, monkeypatch):
     publish = publish_requests[0]
     assert publish.url.params["creation_id"] == "container_1"
     assert publish.url.params["access_token"] == PLAIN_TOKEN
+
+
+async def test_publish_reel_attaches_audio_configuration(db_session, monkeypatch):
+    """Un Reel publié avec une musique choisie (design.ig_audio) embarque
+    audio_configuration dans la création de conteneur (Audio API Instagram)."""
+    import json as _json
+
+    await _save_config(
+        db_session,
+        meta_access_token=_encrypt_token(PLAIN_TOKEN),
+        instagram_user_id=IG_USER_ID,
+    )
+
+    container_requests = []
+    publish_requests = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        path = request.url.path
+        if request.method == "POST" and path.endswith("/media_publish"):
+            publish_requests.append(request)
+            return httpx.Response(200, json={"id": "media_123"}, request=request)
+        if request.method == "POST" and path.endswith("/media"):
+            container_requests.append(request)
+            return httpx.Response(200, json={"id": "container_1"}, request=request)
+        if request.method == "GET" and path.endswith("/container_1"):
+            return httpx.Response(200, json={"status_code": "FINISHED"}, request=request)
+        return httpx.Response(404, json={"error": {"message": "not_found"}}, request=request)
+
+    real_async_client = httpx.AsyncClient
+
+    def client_factory(*args, **kwargs):
+        kwargs.pop("timeout", None)
+        return real_async_client(transport=httpx.MockTransport(handler))
+
+    monkeypatch.setattr(
+        "app.services.sport_instagram_publish.httpx.AsyncClient",
+        client_factory,
+    )
+
+    service = MetaPublishService(db_session)
+    context = await service.resolve_publish_context()
+
+    media_id = await service.publish_video(
+        context,
+        "https://cdn.example.com/reel.mp4",
+        "Légende du reel",
+        is_reel=True,
+        audio_configuration={
+            "audio_id": "587784541076604",
+            "audio_volume": 100,
+            "video_volume": 1,
+        },
+    )
+
+    assert media_id == "media_123"
+    assert len(container_requests) == 1
+    container = container_requests[0]
+    assert container.url.params["media_type"] == "REELS"
+    assert container.url.params["video_url"] == "https://cdn.example.com/reel.mp4"
+    audio_cfg = _json.loads(container.url.params["audio_configuration"])
+    assert audio_cfg["audio_id"] == "587784541076604"
+    assert audio_cfg["video_volume"] == 1
+    assert len(publish_requests) == 1
+
+
+async def test_publish_video_non_reel_ignores_audio_configuration(db_session, monkeypatch):
+    """La musique Instagram n'est rattachée qu'aux Reels : une vidéo classique
+    ne doit pas recevoir audio_configuration."""
+    await _save_config(
+        db_session,
+        meta_access_token=_encrypt_token(PLAIN_TOKEN),
+        instagram_user_id=IG_USER_ID,
+    )
+
+    container_requests = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        path = request.url.path
+        if request.method == "POST" and path.endswith("/media_publish"):
+            return httpx.Response(200, json={"id": "media_456"}, request=request)
+        if request.method == "POST" and path.endswith("/media"):
+            container_requests.append(request)
+            return httpx.Response(200, json={"id": "container_9"}, request=request)
+        if request.method == "GET" and path.endswith("/container_9"):
+            return httpx.Response(200, json={"status_code": "FINISHED"}, request=request)
+        return httpx.Response(404, json={"error": {"message": "not_found"}}, request=request)
+
+    real_async_client = httpx.AsyncClient
+
+    def client_factory(*args, **kwargs):
+        kwargs.pop("timeout", None)
+        return real_async_client(transport=httpx.MockTransport(handler))
+
+    monkeypatch.setattr(
+        "app.services.sport_instagram_publish.httpx.AsyncClient",
+        client_factory,
+    )
+
+    service = MetaPublishService(db_session)
+    context = await service.resolve_publish_context()
+
+    media_id = await service.publish_video(
+        context,
+        "https://cdn.example.com/video.mp4",
+        "Légende vidéo",
+        is_reel=False,
+        audio_configuration={"audio_id": "587784541076604"},
+    )
+
+    assert media_id == "media_456"
+    assert len(container_requests) == 1
+    container = container_requests[0]
+    assert container.url.params["media_type"] == "VIDEO"
+    assert "audio_configuration" not in container.url.params

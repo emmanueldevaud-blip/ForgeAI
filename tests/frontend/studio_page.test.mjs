@@ -239,5 +239,33 @@ const hasCall = (n) => calls.some(c => c[0] === n);
   check('H: hauteur dynamique du viewport (dvh)', !!modal && /max-height:\s*90dvh/.test(modal[0]));
 }
 
+// --- F2 : sélection multi-photos (sport Garmin -> diaporama Reel + musique)
+{
+  const p = makePage({
+    id: 7,
+    status: 'draft',
+    photo_id: 3,
+    source: 'garmin',
+    calendar_entry: null,
+    title: '',
+    content: '',
+    hashtags: '',
+    design: { carousel: [] },
+  });
+  const html = p.render().innerHTML;
+  check('F2: publication sport Garmin identifiée', p.isSportPublication === true);
+  await p._togglePhotoPicker();
+  p.suggestedPhotos = PHOTOS;
+  const html2 = p.render().innerHTML;
+  check('F2: picker multi rendu (sélecteur de diaporama)', html2.includes('cm-studio-photo-picker') && html2.includes('cm-studio-photo-order') === false);
+  await p._togglePhotoSelection(11);
+  const html3 = p.render().innerHTML;
+  check('F2: badge d ordre affiché', html3.includes('cm-studio-photo-order'));
+  check('F2: photo sélectionnée marquée', html3.includes('cm-studio-photo-thumb--selected'));
+  await p._applyPhotoSelection();
+  const upd = findCall('update');
+  check('F2: appliquer envoie photo_ids', !!upd && Array.isArray(upd[2]?.photo_ids) && upd[2]?.photo_ids[0] === 3 && upd[2]?.photo_ids[1] === 11, JSON.stringify(upd?.[2]));
+}
+
 console.log(failures === 0 ? '\nTOUS LES TESTS PASSENT' : `\n${failures} ÉCHEC(S)`);
 process.exit(failures === 0 ? 0 : 1);

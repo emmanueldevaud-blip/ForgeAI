@@ -1,6 +1,7 @@
 """Service de publication Meta (Instagram Business & Facebook Pages) - Publication effective."""
 
 import asyncio
+import json
 import logging
 import os
 from typing import Optional
@@ -165,6 +166,7 @@ class MetaPublishService:
         is_reel: bool = False,
         mime_type: Optional[str] = None,
         publication_id: Optional[int] = None,
+        audio_configuration: Optional[dict] = None,
     ) -> str:
         """Crée un conteneur média sur Instagram (étape 1 de la publication).
 
@@ -177,6 +179,8 @@ class MetaPublishService:
               au lieu de VIDEO).
             mime_type: Type MIME du média (pour validation et logs).
             publication_id: Identifiant de publication ForgeAI (pour les logs).
+            audio_configuration: Musique Instagram à attacher (Audio API,
+              Reels uniquement) : {"audio_id", "audio_volume", "video_volume"}.
         """
         # Validation de cohérence du type de média
         if mime_type:
@@ -202,6 +206,9 @@ class MetaPublishService:
             params["media_type"] = "REELS"
             params["video_url"] = image_url
             media_type_param = "REELS"
+            if audio_configuration and audio_configuration.get("audio_id"):
+                # Audio API : la musique n'est attachable qu'aux Reels
+                params["audio_configuration"] = json.dumps(audio_configuration)
         elif is_video:
             params["media_type"] = "VIDEO"
             params["video_url"] = image_url
@@ -214,9 +221,11 @@ class MetaPublishService:
         safe_url = image_url.split("?")[0] if "?" in image_url else image_url
         logger.info(
             "Meta create_media_container: publication_id=%s, is_video=%s, is_reel=%s, "
-            "media_type=%s, mime_type=%s, url_base=%s",
+            "media_type=%s, mime_type=%s, audio=%s, url_base=%s",
             publication_id, is_video, is_reel, media_type_param,
-            mime_type or "unknown", safe_url,
+            mime_type or "unknown",
+            (audio_configuration or {}).get("audio_id") if audio_configuration else None,
+            safe_url,
         )
 
         async with httpx.AsyncClient(timeout=60.0) as client:
@@ -387,6 +396,7 @@ class MetaPublishService:
         mime_type: Optional[str] = None,
         is_reel: bool = False,
         publication_id: Optional[int] = None,
+        audio_configuration: Optional[dict] = None,
     ) -> str:
         """Publie une vidéo sur Instagram (workflow complet: container + publish).
 
@@ -397,10 +407,12 @@ class MetaPublishService:
             mime_type: Type MIME de la vidéo.
             is_reel: True si c'est un Reel (utilise media_type=REELS).
             publication_id: Identifiant de publication ForgeAI (pour les logs).
+            audio_configuration: Musique Instagram à attacher (Reels uniquement).
         """
         container_id = await self.create_media_container(
             connection, video_url, caption, is_video=True, mime_type=mime_type,
             is_reel=is_reel, publication_id=publication_id,
+            audio_configuration=audio_configuration,
         )
         media_id = await self.publish_media_container(connection, container_id)
         return media_id

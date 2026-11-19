@@ -113,9 +113,15 @@ class AIGateway:
         tool_executor: Callable[[str, dict], Awaitable[Any]] | None = None,
         max_tool_rounds: int | None = None,
         max_tool_calls: int | None = None,
+        image_b64: str | None = None,
+        image_mime: str = "image/jpeg",
     ) -> AIResponse:
         """Appel IA. Les paramètres d'outils sont optionnels : sans ``tools``,
-        le comportement est strictement identique aux versions précédentes."""
+        le comportement est strictement identique aux versions précédentes.
+
+        ``image_b64`` ajoute une image (base64, sans préfixe data:) au message
+        utilisateur : la requête devient multimodale, réservée aux fournisseurs
+        supportant la vision (task_type recommandé : "vision")."""
         if not self.settings.AI_GATEWAY_ENABLED:
             raise AINoProviderAvailable("AI Gateway désactivée (AI_GATEWAY_ENABLED=false)")
 
@@ -126,13 +132,25 @@ class AIGateway:
         if tools:
             system = f"{system or ''}{build_tool_instructions(tools)}"
 
-        messages: list[dict[str, str]] = []
+        messages: list[dict[str, Any]] = []
         if system:
             messages.append({"role": "system", "content": system})
         if history:
             messages.extend(history)
         elif prompt and prompt.strip():
-            messages.append({"role": "user", "content": prompt})
+            if image_b64:
+                messages.append({
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": prompt},
+                        {
+                            "type": "image_url",
+                            "image_url": {"url": f"data:{image_mime};base64,{image_b64}"},
+                        },
+                    ],
+                })
+            else:
+                messages.append({"role": "user", "content": prompt})
         else:
             raise ValueError("prompt vide")
 
@@ -158,7 +176,7 @@ class AIGateway:
     async def _run_tool_loop(
         self,
         response: AIResponse,
-        messages: list[dict[str, str]],
+        messages: list[dict[str, Any]],
         model: str,
         task_type: str,
         temperature: float | None,
@@ -244,7 +262,7 @@ class AIGateway:
 
     async def _dispatch(
         self,
-        messages: list[dict[str, str]],
+        messages: list[dict[str, Any]],
         model: str,
         task_type: str,
         temperature: float | None,
@@ -255,9 +273,14 @@ class AIGateway:
 
         D'abord, on essaie le ModelCascade (OpenCode Free → Groq → Gemini → OpenRouter)
         si le routage intelligent est activé. Sinon, on utilise le routage classique.
+
+        En présence d'une image (contenu multimodal), la cascade est contournée
+        et seuls les fournisseurs supportant la vision sont candidats.
         """
+        has_image = any(isinstance(m.get("content"), list) for m in messages)
+
         # Essayer le ModelCascade de routage intelligent si activé
-        if self.settings.AI_ROUTER_ENABLED and (not model or model.lower() == "auto"):
+        if not has_image and self.settings.AI_ROUTER_ENABLED and (not model or model.lower() == "auto"):
             cascade = None
             candidates: list[dict[str, str]] = []
             try:
@@ -297,6 +320,12 @@ class AIGateway:
         # --- Routage classique ---
         order = self._resolve_order(preferred_provider)
         candidates = [name for name in order if self._is_candidate(name)]
+        if has_image:
+            candidates = [
+                name
+                for name in candidates
+                if getattr(self._providers[name], "supports_vision", True)
+            ]
         if not candidates:
             logger.warning("[AI-GATEWAY] status=no_provider_available order=%s", ",".join(order))
             raise AINoProviderAvailable(
@@ -366,7 +395,7 @@ class AIGateway:
         self,
         cascade: Any,
         candidates: list[dict[str, str]],
-        messages: list[dict[str, str]],
+        messages: list[dict[str, Any]],
         temperature: float | None,
         max_tokens: int | None,
     ) -> AIResponse | None:
@@ -528,7 +557,7 @@ class AIGateway:
         self,
         provider: BaseAIProvider,
         model: str,
-        messages: list[dict[str, str]],
+        messages: list[dict[str, Any]],
         temperature: float | None,
         max_tokens: int | None,
     ) -> tuple[str, int | None, int | None]:

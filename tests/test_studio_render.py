@@ -10,9 +10,11 @@ from app.services.studio_render import (
     FinalRenderPlan,
     StudioRenderError,
     StudioRenderService,
+    _diaporama_photo_ids,
     _ffmpeg_color,
     cleanup_expired_renders,
     cleanup_orphan_studio_temps,
+    diaporama_timing,
 )
 
 
@@ -484,3 +486,28 @@ class TestProgressPayload:
 
         req = StudioRenderCreateRequest(publication_id=42)
         assert req.publication_id == 42
+
+
+class TestDiaporamaTiming:
+    """Tests du plan de diaporama (N photos -> Reel multi-photos)."""
+
+    def test_single_photo_uses_12s(self):
+        seg, total = diaporama_timing(1)
+        assert seg == 12.0 and total == 12.0
+
+    def test_two_photos_16s(self):
+        seg, total = diaporama_timing(2)
+        assert seg == 8.0 and total == 16.0
+
+    def test_ten_photos_60s(self):
+        seg, total = diaporama_timing(10)
+        assert seg == 6.0 and total == 60.0
+
+    def test_photo_ids_multi_from_carousel(self):
+        assert _diaporama_photo_ids({"carousel": [1, 2, 3]}, 9) == [1, 2, 3]
+
+    def test_photo_ids_single_falls_back_to_photo_id(self):
+        assert _diaporama_photo_ids({}, 42) == [42]
+
+    def test_photo_ids_empty_returns_empty(self):
+        assert _diaporama_photo_ids({}, None) == []

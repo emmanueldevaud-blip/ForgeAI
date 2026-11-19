@@ -31,6 +31,12 @@ MODEL_CATALOG: dict[str, dict[str, str]] = {
         "gemini": "gemini-3.8-flash",
         "openrouter": "qwen/qwen-2.5-coder-32b-instruct",
     },
+    # Modèles multimodales (entrée image) — voir AIGateway.generate(image_b64=...)
+    "vision": {
+        "groq": "meta-llama/llama-4-scout-17b-16e-instruct",
+        "gemini": "gemini-3.8-flash",
+        "openrouter": "openai/gpt-4o-mini",
+    },
 }
 
 # Override fournisseur défini par variable d'environnement

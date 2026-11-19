@@ -47,6 +47,7 @@ export class CommunityManagerStudioPage {
     this.photoPickerOpen = false;
     this.suggestedPhotos = null;
     this.loadingPhotos = false;
+    this.pendingPhotoIds = null;
     this.editorOpen = false;
     this.editorMounted = false;
     this.editorView = null;
@@ -150,6 +151,7 @@ export class CommunityManagerStudioPage {
                 ${pub?.error_message ? 'Régénérer le contenu' : 'Régénérer le visuel'}
               </button>` : ''}
           </div>
+          ${this._renderIgMusic(pub)}
           ${this.photoPickerOpen ? this._renderPhotoPicker() : ''}
         </div>
 
@@ -243,6 +245,29 @@ export class CommunityManagerStudioPage {
     return String(text ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   }
 
+  _renderIgMusic(pub) {
+    const music = this.isSportPublication ? pub?.design?.ig_audio : null;
+    if (!music?.audio_id) return '';
+    const preview = typeof music.preview_link === 'string' && music.preview_link.startsWith('http')
+      ? `<a class="cm-studio-ig-music-link" href="${this._escape(music.preview_link)}" target="_blank" rel="noopener">Écouter</a>`
+      : '';
+    return `
+      <div class="cm-studio-ig-music" title="${this._escape(music.raison || '')}">
+        <span class="cm-studio-ig-music-icon">♪</span>
+        <span class="cm-studio-ig-music-title">${this._escape(music.title || '')}</span>
+        ${music.artist ? `<span class="cm-studio-ig-music-artist">— ${this._escape(music.artist)}</span>` : ''}
+        ${preview}
+        <span class="cm-studio-ig-music-hint">choisie par IA pour cette photo</span>
+      </div>`;
+  }
+
+  _currentPhotoSelection() {
+    const design = this.publication?.design;
+    const carousel = Array.isArray(design?.carousel) ? design.carousel : null;
+    if (carousel && carousel.length) return [...carousel];
+    return this.publication?.photo_id ? [this.publication.photo_id] : [];
+  }
+
   _renderPhotoPicker() {
     if (this.loadingPhotos) {
       return '<div class="cm-studio-photo-picker"><div class="loading">Chargement des photos…</div></div>';
@@ -251,25 +276,46 @@ export class CommunityManagerStudioPage {
     if (!photos.length) {
       return '<div class="cm-studio-photo-picker"><div class="cm-studio-photo-empty">Aucune photo disponible dans votre bibliothèque.</div></div>';
     }
+    if (this.pendingPhotoIds === null) {
+      this.pendingPhotoIds = this._currentPhotoSelection();
+    }
+    const pending = this.pendingPhotoIds;
+    const multi = this.isSportPublication;
     const thumbs = photos.map(p => {
       const date = p.taken_at ? new Date(p.taken_at).toLocaleDateString('fr-FR') : '';
+      const selIdx = pending.indexOf(p.id);
+      const orderBadge = multi && selIdx >= 0
+        ? `<span class="cm-studio-photo-order">${selIdx + 1}</span>`
+        : '';
       return `
-        <button type="button" class="cm-studio-photo-thumb ${p.is_current ? 'cm-studio-photo-thumb--current' : ''}"
+        <button type="button" class="cm-studio-photo-thumb ${p.is_current ? 'cm-studio-photo-thumb--current' : ''} ${selIdx >= 0 ? 'cm-studio-photo-thumb--selected' : ''}"
                 data-photo-id="${p.id}" title="${this._escape(p.title || '')}">
           <img src="${p.thumbnail_url}" alt="${this._escape(p.title || 'Photo')}" loading="lazy">
+          ${orderBadge}
           <span class="cm-photo-badge cm-photo-badge--${this._escape(p.badge_class || 'info')}">${this._escape(p.match_reason || '')}</span>
           <span class="cm-studio-photo-meta">${date}</span>
         </button>`;
     }).join('');
+    const applyRow = multi ? `
+        <div class="cm-studio-photo-picker-actions">
+          <span class="cm-studio-photo-picker-hint">
+            ${pending.length ? `${pending.length} photo(s) sélectionnée(s) — 1re = couverture` : 'Cliquez pour composer le diaporama (1re = couverture)'}
+          </span>
+          <button type="button" class="btn btn-primary btn-small" data-action="apply-photo-selection" ${this.saving ? 'disabled' : ''}>
+            Appliquer le diaporama
+          </button>
+        </div>` : '';
     return `
       <div class="cm-studio-photo-picker">
         <div class="cm-studio-photo-picker-title">Photos suggérées : même jour qu'une activité, jour de la publication, favorites</div>
         <div class="cm-studio-photo-grid">${thumbs}</div>
+        ${applyRow}
       </div>`;
   }
 
   async _togglePhotoPicker() {
     this.photoPickerOpen = !this.photoPickerOpen;
+    this.pendingPhotoIds = null;
     if (this.photoPickerOpen && this.suggestedPhotos === null) {
       this.loadingPhotos = true;
       this.render();
@@ -283,6 +329,43 @@ export class CommunityManagerStudioPage {
       }
     }
     this.render();
+  }
+
+  async _togglePhotoSelection(photoId) {
+    if (this.saving) return;
+    const pending = this.pendingPhotoIds === null
+      ? [...this._currentPhotoSelection()]
+      : [...this.pendingPhotoIds];
+    const idx = pending.indexOf(photoId);
+    if (idx >= 0) {
+      pending.splice(idx, 1);
+    } else {
+      pending.push(photoId);
+    }
+    this.pendingPhotoIds = pending;
+    this.render();
+  }
+
+  async _applyPhotoSelection() {
+    if (this.saving) return;
+    this.saving = true;
+    try {
+      const ids = this.pendingPhotoIds === null ? this._currentPhotoSelection() : this.pendingPhotoIds;
+      await updateStudioDraft(this.publicationId, { photo_ids: ids });
+      const updated = await getStudioDraft(this.publicationId);
+      this.publication = updated;
+      this.photoPickerOpen = false;
+      this.pendingPhotoIds = null;
+      this.success = ids.length
+        ? `Diaporama appliqué (${ids.length} photo${ids.length > 1 ? 's' : ''}).`
+        : 'Sélection vidée.';
+      setTimeout(() => { this.success = null; this.render(); }, 1500);
+    } catch (error) {
+      this.error = error?.data?.detail || error?.message || 'Erreur sélection photos';
+    } finally {
+      this.saving = false;
+      this.render();
+    }
   }
 
   async _selectPhoto(photoId) {
@@ -482,8 +565,18 @@ export class CommunityManagerStudioPage {
     if (removePhotoBtn) removePhotoBtn.addEventListener('click', () => this._removePhoto());
 
     this.element.querySelectorAll('[data-photo-id]').forEach(thumb => {
-      thumb.addEventListener('click', () => this._selectPhoto(parseInt(thumb.dataset.photoId, 10)));
+      thumb.addEventListener('click', () => {
+        const id = parseInt(thumb.dataset.photoId, 10);
+        if (this.isSportPublication) {
+          this._togglePhotoSelection(id);
+        } else {
+          this._selectPhoto(id);
+        }
+      });
     });
+
+    const applySelectionBtn = this.element.querySelector('[data-action="apply-photo-selection"]');
+    if (applySelectionBtn) applySelectionBtn.addEventListener('click', () => this._applyPhotoSelection());
 
     const saveBtn = this.element.querySelector('[data-action="save"]');
     if (saveBtn) {

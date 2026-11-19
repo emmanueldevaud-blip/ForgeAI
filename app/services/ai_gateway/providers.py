@@ -26,6 +26,8 @@ class BaseAIProvider:
     enabled_setting: str = ""
     api_key_setting: str = ""
     base_url_setting: str = ""
+    # Certains fournisseurs (OpenCode, CLI texte) n'acceptent pas l'entrée image.
+    supports_vision: bool = True
 
     def __init__(self, settings: Settings | None = None, client: httpx.AsyncClient | None = None):
         self.settings = settings or get_settings()
@@ -145,6 +147,7 @@ class OpenCodeProvider(BaseAIProvider):
     """
 
     name = "opencode"
+    supports_vision = False
 
     @property
     def enabled(self) -> bool:
@@ -164,11 +167,19 @@ class OpenCodeProvider(BaseAIProvider):
         return self._opencode_client
 
     @staticmethod
-    def _prompt_from_messages(messages: list[dict[str, str]]) -> str:
+    def _prompt_from_messages(messages: list[dict]) -> str:
         parts: list[str] = []
         for message in messages:
             role = (message.get("role") or "user").lower()
             content = message.get("content") or ""
+            # Contenu multimodal (blocs de contenu) : seule la partie texte
+            # est conservée — OpenCode n'accepte pas l'image.
+            if isinstance(content, list):
+                content = "\n".join(
+                    part.get("text", "")
+                    for part in content
+                    if isinstance(part, dict) and part.get("type") == "text" and part.get("text")
+                )
             if not content:
                 continue
             if role == "system":

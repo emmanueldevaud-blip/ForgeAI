@@ -2411,5 +2411,65 @@ class TestCreateMediaContainerPayload:
         assert "image_url" not in params, f"image_url présent pour Reel: {params}"
 
 
+class TestCommunityManagerStudioServicePublishReel:
+    """Les publications sportives (Garmin) sont publiées en Reel via la vidéo compagnon."""
+
+    @pytest.mark.asyncio
+    async def test_publish_media_photo_id_sport_forces_reel_and_uses_companion_video(self, service, mock_db, tmp_path):
+        video_path = tmp_path / "companion.mp4"
+        video_path.write_bytes(b"fake-mp4")
+        pub = MagicMock(spec=SportPublication)
+        pub.id = 1
+        pub.source = "garmin"
+        pub.content_type = "publication_sportive"
+        pub.activity_id = None
+        pub.calendar_entry = None
+        pub.photo_id = 123
+        pub.visual_type = "photo"
+        pub.design = {"companion_video_media": {"path": str(video_path), "photo_id": 555}}
+        pub.companion_video_status = "ready"
+        pub.companion_video_path = str(video_path)
+
+        companion_photo = MagicMock(spec=Photo)
+        companion_photo.id = 555
+        companion_photo.is_deleted = False
+        companion_photo.mime_type = "video/mp4"
+        service.db.get = AsyncMock(return_value=companion_photo)
+
+        video_photo_id = await service._publish_media_photo_id(pub)
+
+        assert video_photo_id == 555
+        assert pub.visual_type == "reel"
+
+    @pytest.mark.asyncio
+    async def test_publish_media_photo_id_sport_video_failed_raises(self, service):
+        pub = MagicMock(spec=SportPublication)
+        pub.id = 1
+        pub.source = "garmin"
+        pub.content_type = "publication_sportive"
+        pub.activity_id = None
+        pub.calendar_entry = None
+        pub.photo_id = 123
+        pub.visual_type = "photo"
+        pub.design = {}
+        pub.companion_video_status = "failed"
+        pub.companion_video_error = "ffmpeg introuvable"
+
+        with pytest.raises(ValueError, match="vidéo Reel"):
+            await service._publish_media_photo_id(pub)
+
+    @pytest.mark.asyncio
+    async def test_publish_media_photo_id_non_sport_returns_photo(self, service):
+        pub = MagicMock(spec=SportPublication)
+        pub.id = 1
+        pub.source = "instagram"
+        pub.content_type = "post"
+        pub.activity_id = None
+        pub.calendar_entry = None
+        pub.photo_id = 77
+        pub.visual_type = "photo"
+        assert await service._publish_media_photo_id(pub) == 77
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

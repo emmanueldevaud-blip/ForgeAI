@@ -1,5 +1,6 @@
 """Service Studio Community Manager V2 - Création intelligente de publications."""
 
+import asyncio
 import json
 import logging
 import os
@@ -509,6 +510,8 @@ class CommunityManagerStudioService:
 
     # Instagram autorise au maximum 2 200 caractères dans une légende.
     INSTAGRAM_CAPTION_MAX_LENGTH: int = 2200
+    # Attente max (s) du rendu vidéo compagnon pendant une publication.
+    COMPANION_READY_WAIT_SECONDS: float = 90.0
 
     def __init__(self, db: AsyncSession, current_user: User):
         self.db = db
@@ -621,14 +624,38 @@ class CommunityManagerStudioService:
             pub.content = data.content
         if data.hashtags is not None:
             pub.hashtags = data.hashtags
+        if "photo_ids" in data.model_fields_set and not pub.photo_locked:
+            ids = await self._validate_photo_ids(data.photo_ids or [])
+            design = dict(pub.design) if isinstance(pub.design, dict) else {}
+            if ids:
+                design["carousel"] = ids
+                pub.photo_id = ids[0]
+            else:
+                design.pop("carousel", None)
+                pub.photo_id = None
+            pub.design = design
+            if _is_sport_publication(pub):
+                pub = await self._ensure_sport_defaults(pub, persist_overlay=False)
+                # Musique Instagram : (re)choix par IA (vision) sur la couverture
+                pub = await self._refresh_ig_music(pub)
         if "photo_id" in data.model_fields_set:
-            if not pub.photo_locked:
+            if not pub.photo_locked and "photo_ids" not in data.model_fields_set:
                 pub.photo_id = data.photo_id
+                # Sélection mono-photo : le carrousel reflète la sélection unique
+                design = dict(pub.design) if isinstance(pub.design, dict) else {}
+                if data.photo_id is None:
+                    design.pop("carousel", None)
+                else:
+                    design["carousel"] = [data.photo_id]
+                pub.design = design
                 # Déclencher la composition automatique de l'overlay sport
                 # si c'est une publication sportive (Garmin) — rendu visuel uniquement,
                 # sans enregistrement dans le module photo (réservé à la publication)
                 if _is_sport_publication(pub):
                     pub = await self._ensure_sport_defaults(pub, persist_overlay=False)
+                    # Musique Instagram : (re)choix par IA (vision) à chaque
+                    # changement de photo ; nettoyage si la photo est retirée.
+                    pub = await self._refresh_ig_music(pub)
         if data.visual_type is not None:
             if not pub.photo_locked:
                 pub.visual_type = data.visual_type
@@ -680,6 +707,64 @@ class CommunityManagerStudioService:
         await self.db.commit()
         await self.db.refresh(pub)
         return pub
+
+    async def _refresh_ig_music(self, pub: SportPublication) -> SportPublication:
+        """(Re)choisit la musique Instagram à partir de la photo sélectionnée.
+
+        Analyse vision de la photo + titre -> recherche dans le catalogue
+        Instagram (ig_audio) -> persistance dans design["ig_audio"].
+        Échec non bloquant : le choix précédent est conservé.
+        """
+        if not _is_sport_publication(pub):
+            return pub
+
+        design = pub.design if isinstance(pub.design, dict) else {}
+        if not pub.photo_id:
+            # Photo retirée : la musique associée n'a plus de sens
+            if "ig_audio" in design:
+                design = dict(design)
+                design.pop("ig_audio", None)
+                pub.design = design
+            return pub
+
+        from app.services.community_manager.ig_music import pick_audio_for_photo_bounded
+
+        try:
+            entry = await pick_audio_for_photo_bounded(
+                self.db,
+                self.current_user,
+                pub.photo_id,
+                title=pub.title,
+                hashtags=pub.hashtags,
+            )
+        except Exception:
+            logger.exception(
+                "[CM-STUDIO] Choix musique IG impossible pour la publication %s", pub.id
+            )
+            return pub
+        if entry:
+            design = dict(pub.design) if isinstance(pub.design, dict) else {}
+            design["ig_audio"] = entry
+            pub.design = design
+        return pub
+
+    async def _validate_photo_ids(self, ids: list[int]) -> list[int]:
+        """Filtre la sélection multi-photos : max 10, sans doublons, accessibles."""
+        cleaned: list[int] = []
+        for raw in ids or []:
+            try:
+                pid = int(raw)
+            except (TypeError, ValueError):
+                continue
+            if pid in cleaned or len(cleaned) >= 10:
+                continue
+            photo = await self.db.get(Photo, pid)
+            if photo is None or photo.is_deleted:
+                continue
+            if photo.owner_id != self.current_user.id and not photo.is_public:
+                continue
+            cleaned.append(pid)
+        return cleaned
 
     async def generate_text_variants(
         self,
@@ -1447,6 +1532,114 @@ class CommunityManagerStudioService:
 
         return job
 
+    @staticmethod
+    def _ig_audio_configuration(pub: SportPublication) -> Optional[dict]:
+        """Paramètre audio_configuration (Audio API Instagram) pour un Reel.
+
+        Construit depuis design["ig_audio"] (choisi au choix de la photo).
+        video_volume=1 : la musique Instagram remplace quasi totalement la
+        piste CC0 embarquée dans la vidéo compagnon (minimum Meta = 1).
+        """
+        design = pub.design if isinstance(pub.design, dict) else {}
+        ig_audio = design.get("ig_audio") if isinstance(design, dict) else None
+        if not isinstance(ig_audio, dict) or not ig_audio.get("audio_id"):
+            return None
+        return {
+            "audio_id": str(ig_audio["audio_id"]),
+            "audio_volume": 100,
+            "video_volume": 1,
+        }
+
+    async def _ensure_companion_video_photo(self, pub: SportPublication) -> int:
+        """Retourne l'ID Photo du MP4 compagnon (vidéo Reel), en attendant son rendu.
+
+        - Video prête + fichier présent -> (re)importe le MP4 comme média Photo
+          et retourne son ID.
+        - En attente -> déclenche le job et réessaie (max COMPANION_READY_WAIT_SECONDS).
+        - Échec -> lève une erreur lisible avec l'erreur de rendu.
+        """
+        from app.services.photo.jobs import run_pending_jobs_now
+
+        deadline = asyncio.get_running_loop().time() + self.COMPANION_READY_WAIT_SECONDS
+        while True:
+            design = pub.design if isinstance(pub.design, dict) else {}
+            if pub.companion_video_status == "ready" and pub.companion_video_path:
+                video_path = Path(pub.companion_video_path)
+                if video_path.is_file():
+                    media = design.get("companion_video_media") if isinstance(design.get("companion_video_media"), dict) else None
+                    if media and media.get("path") == str(video_path) and media.get("photo_id"):
+                        photo = await self.db.get(Photo, int(media["photo_id"]))
+                        if photo is not None and not photo.is_deleted and photo.mime_type == "video/mp4":
+                            return photo.id
+                    return await self._import_companion_video(pub, video_path)
+                # Fichier perdu : forcer un nouveau rendu
+                pub.companion_video_status = "none"
+                pub.companion_video_path = None
+                await self.db.commit()
+            if pub.companion_video_status == "failed":
+                raise ValueError(
+                    f"La vidéo Reel n'a pas pu être générée : {pub.companion_video_error or 'erreur inconnue'}"
+                )
+            if pub.companion_video_status not in ("pending", "running"):
+                await self.ensure_companion_video_job(pub, force=False)
+                await self.db.commit()
+            try:
+                await run_pending_jobs_now()
+            except Exception:
+                logger.exception("[CM-STUDIO] Impossible d'exécuter le job de la vidéo compagnon")
+            if asyncio.get_running_loop().time() >= deadline:
+                raise ValueError(
+                    "La vidéo Reel n'est pas encore prête. Veuillez réessayer dans un instant."
+                )
+            await asyncio.sleep(1)
+            await self.db.refresh(pub)
+
+    async def _import_companion_video(self, pub: SportPublication, video_path: Path) -> int:
+        """Importe le MP4 compagnon comme média photo (URL signée meta_token)."""
+        from uuid import uuid4
+
+        from app.services.photo.storage import get_photo_storage
+
+        data = video_path.read_bytes()
+        photo_storage = get_photo_storage()
+        backend = photo_storage.backend()
+        rel = photo_storage.save_original(
+            self.current_user.id, uuid4().hex, ".mp4", data, backend.name
+        )
+        video_photo = Photo(
+            owner_id=self.current_user.id,
+            title=f"Reel #{pub.id}",
+            original_filename=f"companion_{pub.id}.mp4",
+            storage_path=rel,
+            storage_backend=backend.name,
+            mime_type="video/mp4",
+            byte_size=len(data),
+            taken_at=datetime.now(timezone.utc),
+            content_hash=photo_storage.hash_bytes(data),
+            status="ready",
+            analysis_status="pending",
+        )
+        self.db.add(video_photo)
+        await self.db.flush()
+        design = dict(pub.design) if isinstance(pub.design, dict) else {}
+        design["companion_video_media"] = {"path": str(video_path), "photo_id": video_photo.id}
+        pub.design = design
+        await self.db.commit()
+        return video_photo.id
+
+    async def _publish_media_photo_id(self, pub: SportPublication) -> int:
+        """Source du média de publication : vidéo compagnon Reel (Garmin) ou photo.
+
+        Les publications sportives (Garmin) sont systématiquement publiées
+        en Reel (vidéo compagnon + musique IG choisie par IA).
+        """
+        if not _is_sport_publication(pub):
+            return pub.photo_id
+        if pub.visual_type != "reel":
+            pub.visual_type = "reel"
+        await self.db.commit()
+        return await self._ensure_companion_video_photo(pub)
+
     async def publish_to_instagram(
         self, publication_id: int, data: Any
     ) -> SportPublication:
@@ -1530,13 +1723,12 @@ class CommunityManagerStudioService:
             media_publish_service = MediaPublishService(self.db)
             media_url = None
             media_info = None
+            media_photo_id = await self._publish_media_photo_id(pub)
             is_video = pub.visual_type in ("reel", "video")
 
-            if pub.photo_id:
-                # Préparer l'URL publique du média (taille originale pour Meta)
-                media_service = MediaPublishService(self.db)
-                media_info = await media_service.prepare_media_for_publish(
-                    pub.photo_id, self.current_user.id, size="original"
+            if media_photo_id:
+                media_info = await media_publish_service.prepare_media_for_publish(
+                    media_photo_id, self.current_user.id, size="original"
                 )
                 media_url = media_info.url
                 # Valider la cohérence entre le type visuel déclaré et le type MIME réel
@@ -1556,12 +1748,14 @@ class CommunityManagerStudioService:
             # Publier via Meta (contexte déjà résolu plus haut)
             try:
                 is_reel = pub.visual_type == "reel"
+                audio_configuration = self._ig_audio_configuration(pub) if is_reel else None
                 if pub.visual_type == "reel" or is_video:
                     instagram_media_id = await meta_service.publish_video(
                         connection, media_url, caption,
                         mime_type=media_info.mime_type if media_info else None,
                         is_reel=is_reel,
                         publication_id=publication_id,
+                        audio_configuration=audio_configuration,
                     )
                 else:
                     instagram_media_id = await meta_service.publish_photo(
@@ -1703,13 +1897,12 @@ class CommunityManagerStudioService:
             media_publish_service = MediaPublishService(self.db)
             media_url = None
             media_info = None
+            media_photo_id = await self._publish_media_photo_id(pub)
             is_video = pub.visual_type in ("reel", "video")
 
-            if pub.photo_id:
-                # Préparer l'URL publique du média (taille originale pour Meta)
-                media_service = MediaPublishService(self.db)
-                media_info = await media_service.prepare_media_for_publish(
-                    pub.photo_id, self.current_user.id, size="original"
+            if media_photo_id:
+                media_info = await media_publish_service.prepare_media_for_publish(
+                    media_photo_id, self.current_user.id, size="original"
                 )
                 media_url = media_info.url
                 # Valider la cohérence entre le type visuel déclaré et le type MIME réel
@@ -1873,15 +2066,16 @@ class CommunityManagerStudioService:
             media_url = None
             media_info = None
             media_infos: dict = {}
+            media_photo_id = await self._publish_media_photo_id(pub)
             is_video = pub.visual_type in ("reel", "video")
 
-            if pub.photo_id:
+            if media_photo_id:
                 media_service = MediaPublishService(self.db)
                 media_infos["instagram"] = await media_service.prepare_media_for_publish(
-                    pub.photo_id, self.current_user.id, size="original"
+                    media_photo_id, self.current_user.id, size="original"
                 )
                 media_infos["facebook"] = await media_service.prepare_media_for_publish(
-                    pub.photo_id, self.current_user.id, size="original"
+                    media_photo_id, self.current_user.id, size="original"
                 )
             elif pub.visual_generation_prompt:
                 raise ValueError("La génération d'images IA n'est pas encore disponible. Sélectionnez une photo.")
@@ -1912,6 +2106,7 @@ class CommunityManagerStudioService:
                             mime_type=media_info.mime_type if media_info else None,
                             is_reel=is_reel,
                             publication_id=publication_id,
+                            audio_configuration=self._ig_audio_configuration(pub) if is_reel else None,
                         )
                     else:
                         ig_media_id = await meta_service.publish_photo(

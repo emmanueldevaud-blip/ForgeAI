@@ -345,6 +345,11 @@ class PublicationDraftUpdate(BaseModel):
     content: Optional[str] = None
     hashtags: Optional[str] = None
     photo_id: Optional[int] = None
+    photo_ids: Optional[list[int]] = Field(
+        None,
+        max_length=10,
+        description="Sélection multi-photos ordonnée (première = couverture)",
+    )
     visual_type: Optional[str] = Field(None, pattern="^(photo|generated|carousel|reel)$")
     tone_used: Optional[str] = Field(None, max_length=50)
     visual_generation_prompt: Optional[str] = None

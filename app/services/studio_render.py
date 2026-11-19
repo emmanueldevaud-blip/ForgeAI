@@ -841,7 +841,13 @@ class StudioRenderService:
 
     @staticmethod
     def _run_ffmpeg(command: list[str]) -> None:
-        result = subprocess.run(command, capture_output=True, check=False, timeout=3600)
+        # Un rendu compagnon doit échouer proprement plutôt que monopoliser
+        # un worker pendant une heure si FFmpeg boucle ou si une image est
+        # problématique.
+        try:
+            result = subprocess.run(command, capture_output=True, check=False, timeout=300)
+        except subprocess.TimeoutExpired as exc:
+            raise StudioRenderError("FFmpeg a dépassé le délai maximal de 5 minutes") from exc
         if result.returncode != 0:
             stderr = (result.stderr or b"").decode(errors="ignore") if isinstance(result.stderr, (bytes, bytearray)) else (result.stderr or "")
             raise StudioRenderError(f"FFmpeg impossible : {stderr[-800:]}")
@@ -1088,7 +1094,10 @@ class StudioRenderService:
                 d_frames = int(round(seconds * fps))
                 zoom_expr = f"min(zoom+0.0008,1.08)"
                 vf = (
-                    f"scale=8000:-1,"
+                    # 1920 px suffisent pour produire un Reel 1080x1920. La
+                    # valeur précédente 8000 générait inutilement des images
+                    # gigantesques et faisait expirer FFmpeg.
+                    f"scale=1920:-2:force_original_aspect_ratio=increase,"
                     f"zoompan=z='{zoom_expr}':x='iw/2-(iw/zoom/2)':y='ih/2-(iw/zoom/2)':d={d_frames}:s={width}x{height}:fps={fps},"
                     f"format=yuv420p"
                 )
@@ -1099,8 +1108,9 @@ class StudioRenderService:
                     "-i", str(input_path),
                     "-vf", vf,
                     "-c:v", "libx264",
-                    "-preset", "medium",
-                    "-crf", "20",
+                    "-preset", "ultrafast",
+                    "-tune", "stillimage",
+                    "-crf", "23",
                     "-pix_fmt", "yuv420p",
                     "-movflags", "+faststart",
                     str(out_path),

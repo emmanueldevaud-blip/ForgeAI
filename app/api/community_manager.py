@@ -356,7 +356,15 @@ async def get_companion_video(
     path = Path(publication.companion_video_path or "")
     if not path.is_file():
         raise HTTPException(status_code=404, detail="Fichier vidéo indisponible")
-    return FileResponse(path, media_type="video/mp4", headers={"Cache-Control": "private, max-age=3600"})
+    return FileResponse(
+        path,
+        media_type="video/mp4",
+        headers={
+            "Cache-Control": "private, max-age=3600",
+            "Accept-Ranges": "bytes",
+            "Content-Disposition": "inline",
+        },
+    )
 
 
 @router.patch("/studio/draft/{publication_id}/lock/title", response_model=PublicationDraftResponse)

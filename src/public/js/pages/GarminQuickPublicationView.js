@@ -20,6 +20,8 @@ export class GarminQuickPublicationView {
     this.generating = false;
     this.error = null;
     this.videoReady = false;
+    this.editedTitle = '';
+    this.editedHashtags = '';
     this.pollTimer = null;
   }
 
@@ -30,6 +32,8 @@ export class GarminQuickPublicationView {
       const carousel = this.publication?.design?.carousel;
       this.selected = Array.isArray(carousel) && carousel.length
         ? [...carousel] : (this.publication?.photo_id ? [this.publication.photo_id] : []);
+      this.editedTitle = this.publication?.title || '';
+      this.editedHashtags = this.publication?.hashtags || '';
     } catch (error) {
       this.error = error?.data?.detail || error?.message || 'Impossible de charger les photos.';
     }
@@ -42,7 +46,9 @@ export class GarminQuickPublicationView {
     const pub = this.publication || {};
     const status = pub.companion_video_status || 'none';
     const ready = this.videoReady || status === 'ready';
-    const caption = [pub.title, pub.hashtags].filter(Boolean).join('\n\n');
+    const title = this.editedTitle || pub.title || '';
+    const hashtags = this.editedHashtags || pub.hashtags || '';
+    const caption = [title, hashtags].filter(Boolean).join('\n\n');
     this.element.innerHTML = `
       <div class="page-header"><div><h1>${this._escape(pub.title || 'Publication Garmin')}</h1>
         <p class="page-subtitle">${ready ? 'Aperçu et publication' : 'Choisissez vos photos'}</p></div></div>
@@ -55,7 +61,11 @@ export class GarminQuickPublicationView {
           ${this.busy ? 'Mise en file…' : 'Créer ma vidéo'}
         </button>
       </section>` : `<section class="garmin-quick-result">
-        <video controls playsinline class="garmin-quick-video" src="${companionVideoUrl(this.publicationId)}"></video>
+        <video controls playsinline preload="metadata" class="garmin-quick-video" src="${this._escape(`${companionVideoUrl(this.publicationId)}?v=${encodeURIComponent(pub.companion_video_generated_at || '')}`)}"></video>
+        <label for="garmin-quick-title">Titre</label>
+        <input id="garmin-quick-title" class="form-control" data-field="title" value="${this._escape(title)}">
+        <label for="garmin-quick-hashtags">Hashtags</label>
+        <textarea id="garmin-quick-hashtags" class="form-control" rows="2" data-field="hashtags">${this._escape(hashtags)}</textarea>
         <label>Légende Instagram</label>
         <pre class="garmin-quick-caption">${this._escape(caption)}</pre>
         <div class="cm-studio-actions">
@@ -88,6 +98,12 @@ export class GarminQuickPublicationView {
     }));
     this.element.querySelector('[data-action="create"]')?.addEventListener('click', () => this._create());
     this.element.querySelector('[data-action="publish"]')?.addEventListener('click', () => this._publish());
+    this.element.querySelector('[data-field="title"]')?.addEventListener('input', event => {
+      this.editedTitle = event.target.value;
+    });
+    this.element.querySelector('[data-field="hashtags"]')?.addEventListener('input', event => {
+      this.editedHashtags = event.target.value;
+    });
     this.element.querySelector('[data-action="back-photos"]')?.addEventListener('click', () => {
       this.videoReady = false; this.error = null; this.render();
     });
@@ -134,6 +150,10 @@ export class GarminQuickPublicationView {
     if (this.busy) return;
     this.busy = true; this.error = null; this.render();
     try {
+      this.publication = await updateStudioDraft(this.publicationId, {
+        title: this.editedTitle,
+        hashtags: this.editedHashtags,
+      });
       await validateStudioDraft(this.publicationId, { confirm: true });
       await publishStudioDraft(this.publicationId, { confirm: true });
       this.publication = await getStudioDraft(this.publicationId);

@@ -982,7 +982,6 @@ class StudioRenderService:
         from app.models.sport import SportPublication
         from app.services.community_manager.studio import (
             CommunityManagerStudioService,
-            _ensure_sport_defaults,
             _is_sport_publication,
             _sport_stats_from_activity,
             render_sport_overlay_image,

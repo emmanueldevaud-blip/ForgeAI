@@ -692,7 +692,8 @@ class CommunityManagerStudioService:
             if _is_sport_publication(pub):
                 pub = await self._ensure_sport_defaults(pub, persist_overlay=False)
                 # Musique Instagram : (re)choix par IA (vision) sur la couverture
-                pub = await self._refresh_ig_music(pub)
+                if not data.quick_generation:
+                    pub = await self._refresh_ig_music(pub)
         if "photo_id" in data.model_fields_set:
             if not pub.photo_locked and "photo_ids" not in data.model_fields_set:
                 pub.photo_id = data.photo_id
@@ -710,7 +711,8 @@ class CommunityManagerStudioService:
                     pub = await self._ensure_sport_defaults(pub, persist_overlay=False)
                     # Musique Instagram : (re)choix par IA (vision) à chaque
                     # changement de photo ; nettoyage si la photo est retirée.
-                    pub = await self._refresh_ig_music(pub)
+                    if not data.quick_generation:
+                        pub = await self._refresh_ig_music(pub)
         if data.visual_type is not None:
             if not pub.photo_locked:
                 pub.visual_type = data.visual_type

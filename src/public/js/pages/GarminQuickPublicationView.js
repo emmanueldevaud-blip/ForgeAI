@@ -17,6 +17,7 @@ export class GarminQuickPublicationView {
     this.photos = [];
     this.selected = [];
     this.busy = false;
+    this.generating = false;
     this.error = null;
     this.videoReady = false;
     this.pollTimer = null;
@@ -49,8 +50,9 @@ export class GarminQuickPublicationView {
       ${!ready ? `<section class="cm-studio-photo-picker garmin-quick-photos">
         <p>Sélectionnez une ou plusieurs photos. La première sera la couverture.</p>
         <div class="cm-studio-photo-grid">${this.photos.map(p => this._photo(p)).join('')}</div>
-        <button class="btn btn-primary" data-action="create" ${!this.selected.length || this.busy ? 'disabled' : ''}>
-          ${this.busy ? 'Création de la vidéo…' : 'Créer ma vidéo'}
+        ${this.generating ? '<p class="garmin-quick-progress">Vidéo en cours de génération… Vous pouvez rester sur cette page.</p>' : ''}
+        <button class="btn btn-primary" data-action="create" ${!this.selected.length || this.busy || this.generating ? 'disabled' : ''}>
+          ${this.busy ? 'Mise en file…' : 'Créer ma vidéo'}
         </button>
       </section>` : `<section class="garmin-quick-result">
         <video controls playsinline class="garmin-quick-video" src="${companionVideoUrl(this.publicationId)}"></video>
@@ -96,19 +98,31 @@ export class GarminQuickPublicationView {
     if (this.busy || !this.selected.length) return;
     this.busy = true; this.error = null; this.render();
     try {
-      this.publication = await updateStudioDraft(this.publicationId, { photo_ids: this.selected });
-      await this._waitForVideo();
+      this.publication = await updateStudioDraft(this.publicationId, {
+        photo_ids: this.selected,
+        quick_generation: true,
+      });
+      // La requête ne doit pas attendre l'encodage FFmpeg : le job est déjà
+      // planifié par le backend lors de la mise à jour des photos.
+      this.busy = false;
+      this.generating = true;
+      this.render();
+      this._pollVideo().catch(error => {
+        this.error = error?.message || 'La génération vidéo a échoué.';
+        this.generating = false;
+        this.render();
+      });
     } catch (error) {
       this.error = error?.data?.detail || error?.message || 'La génération vidéo a échoué.';
       this.busy = false; this.render();
     }
   }
 
-  async _waitForVideo() {
+  async _pollVideo() {
     for (let attempt = 0; attempt < 180; attempt += 1) {
       this.publication = await getStudioDraft(this.publicationId);
       const status = this.publication.companion_video_status;
-      if (status === 'ready') { this.videoReady = true; this.busy = false; this.render(); return; }
+      if (status === 'ready') { this.videoReady = true; this.generating = false; this.render(); return; }
       if (status === 'failed') throw new Error(this.publication.companion_video_error || 'Rendu vidéo impossible.');
       this.render();
       await new Promise(resolve => { this.pollTimer = setTimeout(resolve, 1000); });

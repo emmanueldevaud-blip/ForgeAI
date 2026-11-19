@@ -362,6 +362,9 @@ class PublicationDraftUpdate(BaseModel):
     title_locked: Optional[bool] = None
     content_locked: Optional[bool] = None
     photo_locked: Optional[bool] = None
+    # Parcours Garmin rapide : évite l'analyse IA optionnelle de la photo
+    # avant la mise en file du rendu FFmpeg.
+    quick_generation: bool = False
 
 
 class PublicationDraftResponse(SportPublicationResponse):

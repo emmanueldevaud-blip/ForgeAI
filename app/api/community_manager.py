@@ -256,6 +256,20 @@ async def update_studio_draft(
     return PublicationDraftResponse.model_validate(publication)
 
 
+@router.get("/studio/draft/{publication_id}/music")
+async def search_studio_music(
+    publication_id: int,
+    query: str = Query("trail running", min_length=2, max_length=80),
+    service: CommunityManagerStudioService = Depends(get_cm_studio_service),
+):
+    """Retourne les musiques Instagram disponibles, notamment avec paroles."""
+    publication = await service.get_draft(publication_id)
+    if not publication:
+        raise HTTPException(status_code=404, detail="Brouillon introuvable")
+    from app.services.community_manager.ig_music import search_ig_audio
+    return {"items": await search_ig_audio(service.db, query, limit=10)}
+
+
 @router.post("/studio/draft/{publication_id}/variants", response_model=PublicationVariantsResponse)
 async def generate_text_variants(
     publication_id: int,

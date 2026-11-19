@@ -303,6 +303,10 @@ export function companionVideoUrl(publicationId) {
   return `/community-manager/studio/draft/${encodeURIComponent(publicationId)}/companion-video`;
 }
 
+export async function searchStudioMusic(publicationId, query) {
+  return cmApi.get(`/community-manager/studio/draft/${encodeURIComponent(publicationId)}/music`, { params: { query } });
+}
+
 // --------------------------------------------------------------------------- #
 // Community Manager V4 - Calendrier mensuel/hebdomadaire + Suggestions
 // --------------------------------------------------------------------------- #

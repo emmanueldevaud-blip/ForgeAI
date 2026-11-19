@@ -1038,6 +1038,9 @@ class StudioRenderService:
             "photos": photos,
             "stats": stats,
             "title": pub.title or "",
+            # Style léger et déterministe : transitions visibles sans zoompan
+            # (qui surcharge fortement le VPS).
+            "montage_style": "trail-fade-v1",
         }
 
         # Idempotence : rendu existant et valide (et entrée inchangée)
@@ -1092,9 +1095,12 @@ class StudioRenderService:
             # recalculait chaque frame en haute résolution et pouvait monopoliser
             # plusieurs minutes de CPU sur le VPS.
             def _segment_command(input_path: Path, seconds: float, out_path: Path) -> list[str]:
+                fade = min(0.28, max(0.05, seconds / 4))
+                fade_start = max(0.0, seconds - fade)
                 vf = (
                     f"scale={width}:{height}:force_original_aspect_ratio=increase,"
                     f"crop={width}:{height},"
+                    f"fade=t=in:st=0:d={fade},fade=t=out:st={fade_start}:d={fade},"
                     f"format=yuv420p"
                 )
                 return [

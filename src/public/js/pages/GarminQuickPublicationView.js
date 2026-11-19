@@ -5,6 +5,7 @@ import {
   publishStudioDraft,
   updateStudioDraft,
   validateStudioDraft,
+  searchStudioMusic,
 } from '../services/sportApi.js?v=14';
 
 /** Parcours Garmin sans timeline ni Studio graphique. */
@@ -23,6 +24,7 @@ export class GarminQuickPublicationView {
     this.editedTitle = '';
     this.editedHashtags = '';
     this.videoUrl = null;
+    this.previewOpen = false;
     this.pollTimer = null;
   }
 
@@ -67,16 +69,18 @@ export class GarminQuickPublicationView {
         </button>
       </section>` : `<section class="garmin-quick-result">
         ${this.videoUrl ? `<video controls playsinline preload="metadata" class="garmin-quick-video" src="${this._escape(this.videoUrl)}"></video>` : '<div class="garmin-quick-video garmin-quick-video--loading">Chargement de l’aperçu vidéo…</div>'}
-        <label for="garmin-quick-caption">Légende Instagram</label>
-        <textarea id="garmin-quick-caption" class="form-control garmin-quick-caption-editor" rows="5" data-field="caption">${this._escape(caption)}</textarea>
+        <div class="garmin-quick-caption-card"><strong>${this._escape(title)}</strong><span>${this._escape(hashtags)}</span><button class="btn btn-link" data-action="edit-caption">Modifier la légende</button></div>
+        <div class="garmin-quick-music">🎵 ${this._escape(pub.design?.ig_audio?.title || 'Musique Instagram sélectionnée automatiquement')} ${pub.design?.ig_audio?.artist ? `— ${this._escape(pub.design.ig_audio.artist)}` : ''} <button class="btn btn-link" data-action="music">Choisir</button></div>
         <div class="cm-studio-actions">
           <button class="btn btn-secondary" data-action="back-photos">Modifier les photos</button>
+          <button class="btn btn-secondary" data-action="preview">Aperçu Instagram / Facebook</button>
           <button class="btn btn-success" data-action="publish" ${this.busy ? 'disabled' : ''}>
             ${this.busy ? 'Publication…' : 'Valider et publier'}
           </button>
         </div>
       </section>`}
       <button class="btn btn-secondary" data-action="back">Retour au calendrier</button>`;
+    if (ready && this.previewOpen) this.element.insertAdjacentHTML('beforeend', `<div class="garmin-preview-overlay" data-action="close-preview"><div class="garmin-preview-modal" role="dialog" aria-label="Aperçu publication" data-preview-panel><button class="garmin-preview-close" data-action="close-preview">×</button><div class="garmin-preview-account">ForgeAI · Instagram / Facebook</div>${this.videoUrl ? `<video controls autoplay muted playsinline class="garmin-preview-video" src="${this._escape(this.videoUrl)}"></video>` : ''}<div class="garmin-preview-caption"><strong>${this._escape(title)}</strong><br>${this._escape(hashtags)}</div></div></div>`);
     this._bind();
     return this.element;
   }
@@ -99,11 +103,10 @@ export class GarminQuickPublicationView {
     }));
     this.element.querySelector('[data-action="create"]')?.addEventListener('click', () => this._create());
     this.element.querySelector('[data-action="publish"]')?.addEventListener('click', () => this._publish());
-    this.element.querySelector('[data-field="caption"]')?.addEventListener('input', event => {
-      const parts = event.target.value.split(/\n\s*\n/).map(value => value.trim()).filter(Boolean);
-      this.editedTitle = parts[0] || '';
-      this.editedHashtags = parts.length > 1 ? parts[parts.length - 1] : '';
-    });
+    this.element.querySelector('[data-action="preview"]')?.addEventListener('click', () => { this.previewOpen = true; this.render(); });
+    this.element.querySelector('[data-action="music"]')?.addEventListener('click', () => this._chooseMusic());
+    this.element.querySelector('[data-action="edit-caption"]')?.addEventListener('click', () => this._editCaption());
+    this.element.querySelectorAll('[data-action="close-preview"]').forEach(el => el.addEventListener('click', event => { if (event.target === el || event.target.dataset.action === 'close-preview') { this.previewOpen = false; this.render(); } }));
     this.element.querySelector('[data-action="back-photos"]')?.addEventListener('click', () => {
       this.videoReady = false; this.error = null;
       if (this.videoUrl?.startsWith('blob:')) URL.revokeObjectURL(this.videoUrl);
@@ -171,6 +174,33 @@ export class GarminQuickPublicationView {
       this.error = error?.data?.detail || error?.message || 'Publication impossible.';
       this.busy = false; this.render();
     }
+  }
+
+  async _chooseMusic() {
+    const query = window.prompt('Rechercher une musique Instagram (paroles, artiste ou ambiance) :', 'trail running motivation');
+    if (!query) return;
+    try {
+      const result = await searchStudioMusic(this.publicationId, query);
+      const items = result?.items || [];
+      if (!items.length) { window.alert('Aucune musique Instagram trouvée.'); return; }
+      const labels = items.map((item, index) => `${index + 1}. ${item.title || 'Sans titre'} — ${item.display_artist || 'Artiste'}`).join('\n');
+      const choice = Number(window.prompt(`Choisissez une musique :\n${labels}`, '1')) - 1;
+      const item = items[choice];
+      if (!item?.audio_id) return;
+      this.publication = await updateStudioDraft(this.publicationId, { design: { ig_audio: { source: 'instagram', status: 'selected', audio_id: String(item.audio_id), title: item.title || '', artist: item.display_artist || '', duration_in_ms: item.duration_in_ms, preview_link: item.on_platform_audio_preview_link || item.download_url } } });
+      this.render();
+    } catch (error) { this.error = error?.data?.detail || error?.message || 'Choix musical impossible.'; this.render(); }
+  }
+
+  async _editCaption() {
+    const title = window.prompt('Titre de la publication :', this.editedTitle);
+    if (title === null) return;
+    const hashtags = window.prompt('Hashtags :', this.editedHashtags);
+    if (hashtags === null) return;
+    try {
+      this.publication = await updateStudioDraft(this.publicationId, { title: title.trim(), hashtags: hashtags.trim() });
+      this.editedTitle = title.trim(); this.editedHashtags = hashtags.trim(); this.render();
+    } catch (error) { this.error = error?.data?.detail || error?.message || 'Modification impossible.'; this.render(); }
   }
 
   async _loadVideoPreview() {

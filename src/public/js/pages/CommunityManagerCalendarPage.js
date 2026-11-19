@@ -20,7 +20,7 @@ import {
   regeneratePublicationContent,
 } from '../services/sportApi.js?v=14';
 import { createCommunityManagerStudioPage } from './CommunityManagerStudioPage.js?v=12';
-import { createGarminQuickPublicationView } from './GarminQuickPublicationView.js?v=1';
+import { createGarminQuickPublicationView } from './GarminQuickPublicationView.js?v=2';
 
 const MONTHS = [
   'Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin',

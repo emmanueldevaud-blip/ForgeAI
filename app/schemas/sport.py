@@ -446,7 +446,7 @@ class PublicationPublishResponse(BaseModel):
     """Réponse après publication (Instagram, Facebook, ou les deux)."""
     publication_id: int
     status: str
-    job_id: Optional[int] = None
+    job_id: Optional[str] = None
     instagram_media_id: Optional[str] = None
     instagram_permalink: Optional[str] = None
     facebook_media_id: Optional[str] = None

@@ -497,7 +497,7 @@ async def publish_draft(
 
 @router.get("/studio/publish-job/{job_id}")
 async def get_publish_job(
-    job_id: int,
+    job_id: str,
     service: CommunityManagerStudioService = Depends(get_cm_studio_service),
 ):
     from app.models.photo import PhotoJob

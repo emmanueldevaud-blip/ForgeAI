@@ -1076,7 +1076,9 @@ class StudioRenderService:
         await self.db.commit()
 
         ffmpeg = self._find_binary("ffmpeg") or "ffmpeg"
-        width, height, fps = 1080, 1920, 30
+        # Qualité suffisante pour un Reel Instagram, avec un encodage nettement
+        # plus rapide et un fichier plus léger à transférer vers Meta.
+        width, height, fps = 720, 1280, 30
         n_photos = len(photos)
         seg_dur = 0.0
         if n_photos >= 2:
@@ -1112,7 +1114,7 @@ class StudioRenderService:
                     "-c:v", "libx264",
                     "-preset", "ultrafast",
                     "-tune", "stillimage",
-                    "-crf", "23",
+                    "-crf", "26",
                     "-pix_fmt", "yuv420p",
                     "-movflags", "+faststart",
                     str(out_path),
@@ -1180,7 +1182,7 @@ class StudioRenderService:
                 "-vn",
                 "-af", af,
                 "-c:a", "aac",
-                "-b:a", "192k",
+                "-b:a", "128k",
                 str(audio_tmp),
             ]
             await asyncio.to_thread(self._run_ffmpeg, cmd_a)

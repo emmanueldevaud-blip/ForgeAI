@@ -1686,6 +1686,29 @@ class CommunityManagerStudioService:
         await self.db.commit()
         return video_photo.id
 
+    async def _cleanup_companion_video_media(self, pub: SportPublication) -> None:
+        """Supprime le média technique temporaire créé pour l'URL Meta."""
+        from app.services.photo.service import PhotoService
+
+        design = pub.design if isinstance(pub.design, dict) else {}
+        media = design.get("companion_video_media") if isinstance(design.get("companion_video_media"), dict) else None
+        photo_id = media.get("photo_id") if media else None
+        if not photo_id:
+            return
+        photo = await self.db.get(Photo, int(photo_id))
+        if photo is not None:
+            try:
+                storage = PhotoService(self.db, self.current_user).storage
+                path = storage.backend_for_photo(photo).original_path(photo.storage_path)
+                if path and Path(path).is_file():
+                    Path(path).unlink()
+            except Exception:
+                logger.warning("[CM-STUDIO] Nettoyage du média compagnon impossible: %s", photo_id, exc_info=True)
+            await self.db.delete(photo)
+        design = dict(design)
+        design.pop("companion_video_media", None)
+        pub.design = design
+
     async def _publish_media_photo_id(self, pub: SportPublication) -> int:
         """Source du média de publication : vidéo compagnon Reel (Garmin) ou photo.
 
@@ -1832,6 +1855,10 @@ class CommunityManagerStudioService:
                 pub.instagram_media_id = instagram_media_id
                 pub.instagram_permalink = permalink
                 pub.error_message = None
+
+                # Le MP4 importé comme Photo n'est qu'un support technique pour
+                # l'URL Meta : il ne doit pas rester dans le module Photos.
+                await self._cleanup_companion_video_media(pub)
 
                 # Mettre à jour le statut de l'entrée de calendrier après publication réussie
                 entry = getattr(pub, "calendar_entry", None)

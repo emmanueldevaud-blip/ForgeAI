@@ -16,6 +16,7 @@ export class GarminQuickPublicationView {
     this.element = null;
     this.publication = null;
     this.photos = [];
+    this.photosLimit = 20;
     this.selected = [];
     this.busy = false;
     this.generating = false;
@@ -29,13 +30,14 @@ export class GarminQuickPublicationView {
     this.musicItems = [];
     this.musicQueryIndex = 0;
     this.captionSaveTimer = null;
+    this.musicMuted = true;
     this.musicQueries = ['trail running motivation', 'running energy songs', 'mountain adventure music', 'happy workout music', 'freedom running songs'];
   }
 
   async initialize() {
     try {
       this.publication = await getStudioDraft(this.publicationId);
-      this.photos = await getSuggestedPhotos(this.publicationId, 20);
+      this.photos = await getSuggestedPhotos(this.publicationId, this.photosLimit);
       const carousel = this.publication?.design?.carousel;
       this.selected = Array.isArray(carousel) && carousel.length
         ? [...carousel] : (this.publication?.photo_id ? [this.publication.photo_id] : []);
@@ -64,9 +66,10 @@ export class GarminQuickPublicationView {
       ${!ready ? `<section class="cm-studio-photo-picker garmin-quick-photos">
         <p>Sélectionnez une ou plusieurs photos. La première sera la couverture.</p>
         <div class="cm-studio-photo-grid">${this.photos.map(p => this._photo(p)).join('')}</div>
+        ${this.photos.length >= this.photosLimit ? '<button class="btn btn-secondary" data-action="more-photos">Voir plus</button>' : ''}
         ${this.generating ? '<p class="garmin-quick-progress">Préparation de la vidéo et publication en cours…</p>' : ''}
-        <div class="garmin-quick-caption-card"><label for="garmin-title">Légende</label><input id="garmin-title" class="form-control" data-field="title" value="${this._escape(title)}"><label for="garmin-hashtags">Hashtags</label><textarea id="garmin-hashtags" class="form-control" data-field="hashtags" rows="2">${this._escape(hashtags)}</textarea><small data-caption-status>Enregistrement automatique</small></div>
-        <div class="garmin-quick-music">🎵 <label for="garmin-music-select">Musique Instagram</label><select id="garmin-music-select" data-action="music-select"><option value="">${this._escape(pub.design?.ig_audio?.title || 'Choisir une musique')}</option>${this.musicItems.map((item, index) => `<option value="${index}" ${String(item.audio_id) === String(pub.design?.ig_audio?.audio_id) ? 'selected' : ''}>${this._escape(item.title || 'Sans titre')} — ${this._escape(item.display_artist || 'Artiste')}</option>`).join('')}</select><button class="btn btn-link" data-action="music-refresh">10 autres titres</button>${pub.design?.ig_audio?.preview_link ? `<div class="garmin-music-preview"><audio data-music-audio src="${this._escape(pub.design.ig_audio.preview_link)}" autoplay loop muted controls></audio><button type="button" class="btn btn-link" data-action="music-mute">🔇 Son coupé</button></div>` : '<small>Choisissez une musique pour l’écouter.</small>'}</div>
+        <div class="garmin-quick-caption-card"><label for="garmin-title">Légende</label><input id="garmin-title" class="form-control" data-field="title" value="${this._escape(title)}"><label for="garmin-hashtags">Hashtags</label><textarea id="garmin-hashtags" class="form-control" data-field="hashtags" rows="2">${this._escape(hashtags)}</textarea><small data-caption-status></small></div>
+        <div class="garmin-quick-music">🎵 <select id="garmin-music-select" data-action="music-select"><option value="">${this._escape(pub.design?.ig_audio?.title || 'Choisir un titre')}</option>${this.musicItems.map((item, index) => `<option value="${index}" ${String(item.audio_id) === String(pub.design?.ig_audio?.audio_id) ? 'selected' : ''}>${this._escape(item.title || 'Sans titre')} — ${this._escape(item.display_artist || 'Artiste')}</option>`).join('')}</select><button class="btn btn-link" data-action="music-refresh">10 autres titres</button>${pub.design?.ig_audio?.preview_link ? `<div class="garmin-music-preview"><audio data-music-audio src="${this._escape(pub.design.ig_audio.preview_link)}" autoplay loop ${this.musicMuted ? 'muted' : ''} controls></audio><button type="button" class="btn btn-link" data-action="music-mute">${this.musicMuted ? '🔇' : '🔊'}</button></div>` : ''}</div>
         <button class="btn btn-secondary" data-action="preview">Aperçu Instagram / Facebook</button>
         <button class="btn btn-primary" data-action="publish" ${!this.selected.length || this.busy || this.generating ? 'disabled' : ''}>
           ${this.busy ? 'Publication…' : 'Valider et publier'}
@@ -109,12 +112,14 @@ export class GarminQuickPublicationView {
     this.element.querySelector('[data-action="preview"]')?.addEventListener('click', () => { this.previewOpen = true; this.render(); });
     this.element.querySelector('[data-action="music"]')?.addEventListener('click', () => this._chooseMusic());
     this.element.querySelector('[data-action="music-refresh"]')?.addEventListener('click', () => this._loadMusic(true));
+    this.element.querySelector('[data-action="more-photos"]')?.addEventListener('click', async () => { this.photosLimit += 20; this.photos = await getSuggestedPhotos(this.publicationId, this.photosLimit); this.render(); });
     this.element.querySelector('[data-action="music-select"]')?.addEventListener('change', event => this._selectMusic(Number(event.target.value)));
     this.element.querySelector('[data-action="music-mute"]')?.addEventListener('click', event => {
       const audio = this.element.querySelector('[data-music-audio]');
       if (!audio) return;
       audio.muted = !audio.muted;
-      event.currentTarget.textContent = audio.muted ? '🔇 Son coupé' : '🔊 Son activé';
+      this.musicMuted = audio.muted;
+      event.currentTarget.textContent = audio.muted ? '🔇' : '🔊';
     });
     this.element.querySelector('[data-field="title"]')?.addEventListener('input', event => this._queueCaptionSave('title', event.target.value));
     this.element.querySelector('[data-field="hashtags"]')?.addEventListener('input', event => this._queueCaptionSave('hashtags', event.target.value));
@@ -186,6 +191,7 @@ export class GarminQuickPublicationView {
       await publishStudioDraft(this.publicationId, { confirm: true });
       this.publication = await getStudioDraft(this.publicationId);
       this.busy = false; this.generating = false; this.videoReady = false; this.render();
+      setTimeout(() => this.onBack?.(), 500);
     } catch (error) {
       this.error = error?.data?.detail || error?.message || 'Publication impossible.';
       this.busy = false; this.generating = false; this.render();

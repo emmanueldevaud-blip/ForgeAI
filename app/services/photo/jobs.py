@@ -553,6 +553,19 @@ async def _studio_render(db: AsyncSession, photo: Photo | None, payload: dict) -
     )
 
 
+async def _community_publish(db: AsyncSession, photo: Photo | None, payload: dict) -> None:
+    """Publication Community Manager hors requête HTTP (rendu + Meta)."""
+    from app.services.community_manager.studio import CommunityManagerStudioService
+    from app.schemas.sport import PublicationPublishRequest
+
+    user = await db.get(User, payload.get("user_id"))
+    if user is None:
+        raise PhotoJobError("Utilisateur introuvable")
+    service = CommunityManagerStudioService(db, user)
+    data = PublicationPublishRequest.model_validate(payload.get("data") or {})
+    await service.publish_to_instagram(int(payload["publication_id"]), data)
+
+
 HANDLERS: dict[str, JobHandler] = {
     "ingest": _ingest,
     "analyze": _analyze,
@@ -562,6 +575,7 @@ HANDLERS: dict[str, JobHandler] = {
     "scan_import": _scan_import,
     "place_geocode": _place_geocode,
     "studio_render": _studio_render,
+    "community_publish": _community_publish,
 }
 
 

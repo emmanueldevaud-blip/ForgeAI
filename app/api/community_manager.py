@@ -5,7 +5,7 @@ from datetime import datetime, date, timedelta
 from pathlib import Path
 from typing import Any, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
 from fastapi.responses import FileResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -450,16 +450,37 @@ async def generate_text(
 async def publish_draft(
     publication_id: int,
     data: PublicationPublishRequest,
+    background_tasks: BackgroundTasks,
     service: CommunityManagerStudioService = Depends(get_cm_studio_write_service),
 ):
-    """Publier une publication validée sur Instagram."""
+    """Mettre la publication Instagram en file (rendu et Meta hors requête)."""
     try:
-        publication = await service.publish_to_instagram(publication_id, data)
+        from app.services.photo.jobs import enqueue_job, run_pending_jobs_now
+        from app.models.photo import PhotoJob
+
+        publication = await service.pub_service.get_publication(publication_id)
         if not publication:
             raise HTTPException(status_code=404, detail="Publication introuvable")
+        active = await service.db.execute(
+            select(PhotoJob).where(
+                PhotoJob.type == "community_publish",
+                PhotoJob.status.in_(("pending", "running")),
+            )
+        )
+        for job in active.scalars():
+            if (job.payload_json or {}).get("publication_id") == publication_id:
+                return {"publication_id": publication_id, "job_id": job.id, "status": job.status}
+        job = await enqueue_job(
+            service.db,
+            type="community_publish",
+            photo_id=None,
+            payload={"publication_id": publication_id, "user_id": service.current_user.id, "data": data.model_dump()},
+        )
+        background_tasks.add_task(run_pending_jobs_now)
         return PublicationPublishResponse(
             publication_id=publication.id,
-            status=publication.status,
+            status="queued",
+            job_id=job.id,
             instagram_media_id=getattr(publication, 'instagram_media_id', None),
             instagram_permalink=getattr(publication, 'instagram_permalink', None),
             facebook_media_id=getattr(publication, 'facebook_media_id', None),
@@ -472,6 +493,19 @@ async def publish_draft(
     except Exception as exc:
         logger.exception("[CM-STUDIO] Erreur publication Instagram")
         raise HTTPException(status_code=503, detail="Publication impossible") from exc
+
+
+@router.get("/studio/publish-job/{job_id}")
+async def get_publish_job(
+    job_id: int,
+    service: CommunityManagerStudioService = Depends(get_cm_studio_service),
+):
+    from app.models.photo import PhotoJob
+    job = await service.db.get(PhotoJob, job_id)
+    if not job or (job.payload_json or {}).get("user_id") != service.current_user.id:
+        raise HTTPException(status_code=404, detail="Job introuvable")
+    publication = await service.pub_service.get_publication(int((job.payload_json or {}).get("publication_id")))
+    return {"job_id": job.id, "status": job.status, "error": job.error, "publication_status": getattr(publication, "status", None)}
 
 
 @router.post("/studio/draft/{publication_id}/publish-facebook", response_model=PublicationPublishResponse)

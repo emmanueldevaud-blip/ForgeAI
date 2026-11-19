@@ -11538,3 +11538,70 @@
      resterait inaccessible en haut (bug du centrage flex en scroll). */
   margin: auto;
 }
+
+/* Parcours Garmin rapide : responsive, sans Studio graphique. */
+.garmin-quick-publication {
+  width: 100%;
+  max-width: 980px;
+  margin: 0 auto;
+  padding: 16px;
+  box-sizing: border-box;
+}
+.garmin-quick-photos,
+.garmin-quick-result {
+  width: 100%;
+  max-width: 760px;
+  margin: 0 auto 16px;
+  padding: 16px;
+  box-sizing: border-box;
+  background: var(--surface-primary, #fff);
+  border: 1px solid var(--border-color, #e5e7eb);
+  border-radius: 12px;
+  box-shadow: 0 2px 8px rgba(15, 23, 42, .06);
+}
+.garmin-quick-video {
+  display: block;
+  width: min(100%, 360px);
+  max-height: 70vh;
+  max-height: 70dvh;
+  aspect-ratio: 9 / 16;
+  object-fit: contain;
+  margin: 0 auto 20px;
+  border-radius: 10px;
+  background: #111827;
+}
+.garmin-quick-video--loading {
+  display: grid;
+  place-items: center;
+  color: #fff;
+  padding: 24px;
+  box-sizing: border-box;
+  text-align: center;
+}
+.garmin-quick-caption-editor {
+  width: 100%;
+  min-height: 120px;
+  resize: vertical;
+  box-sizing: border-box;
+  margin: 6px 0 16px;
+  font: inherit;
+  line-height: 1.45;
+}
+.garmin-quick-progress {
+  margin: 12px 0;
+  color: var(--text-secondary, #64748b);
+}
+.garmin-quick-result .cm-studio-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: space-between;
+}
+@media (max-width: 600px) {
+  .garmin-quick-publication { padding: 10px; }
+  .garmin-quick-photos,
+  .garmin-quick-result { padding: 12px; border-radius: 9px; }
+  .garmin-quick-video { width: min(100%, 300px); max-height: 62dvh; }
+  .garmin-quick-result .cm-studio-actions { flex-direction: column; }
+  .garmin-quick-result .cm-studio-actions .btn { width: 100%; }
+}

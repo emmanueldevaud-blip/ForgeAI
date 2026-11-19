@@ -22,6 +22,7 @@ export class GarminQuickPublicationView {
     this.videoReady = false;
     this.editedTitle = '';
     this.editedHashtags = '';
+    this.videoUrl = null;
     this.pollTimer = null;
   }
 
@@ -34,6 +35,10 @@ export class GarminQuickPublicationView {
         ? [...carousel] : (this.publication?.photo_id ? [this.publication.photo_id] : []);
       this.editedTitle = this.publication?.title || '';
       this.editedHashtags = this.publication?.hashtags || '';
+      if (this.publication?.companion_video_status === 'ready') {
+        await this._loadVideoPreview();
+        this.videoReady = true;
+      }
     } catch (error) {
       this.error = error?.data?.detail || error?.message || 'Impossible de charger les photos.';
     }
@@ -61,13 +66,9 @@ export class GarminQuickPublicationView {
           ${this.busy ? 'Mise en file…' : 'Créer ma vidéo'}
         </button>
       </section>` : `<section class="garmin-quick-result">
-        <video controls playsinline preload="metadata" class="garmin-quick-video" src="${this._escape(`${companionVideoUrl(this.publicationId)}?v=${encodeURIComponent(pub.companion_video_generated_at || '')}`)}"></video>
-        <label for="garmin-quick-title">Titre</label>
-        <input id="garmin-quick-title" class="form-control" data-field="title" value="${this._escape(title)}">
-        <label for="garmin-quick-hashtags">Hashtags</label>
-        <textarea id="garmin-quick-hashtags" class="form-control" rows="2" data-field="hashtags">${this._escape(hashtags)}</textarea>
-        <label>Légende Instagram</label>
-        <pre class="garmin-quick-caption">${this._escape(caption)}</pre>
+        ${this.videoUrl ? `<video controls playsinline preload="metadata" class="garmin-quick-video" src="${this._escape(this.videoUrl)}"></video>` : '<div class="garmin-quick-video garmin-quick-video--loading">Chargement de l’aperçu vidéo…</div>'}
+        <label for="garmin-quick-caption">Légende Instagram</label>
+        <textarea id="garmin-quick-caption" class="form-control garmin-quick-caption-editor" rows="5" data-field="caption">${this._escape(caption)}</textarea>
         <div class="cm-studio-actions">
           <button class="btn btn-secondary" data-action="back-photos">Modifier les photos</button>
           <button class="btn btn-success" data-action="publish" ${this.busy ? 'disabled' : ''}>
@@ -98,14 +99,16 @@ export class GarminQuickPublicationView {
     }));
     this.element.querySelector('[data-action="create"]')?.addEventListener('click', () => this._create());
     this.element.querySelector('[data-action="publish"]')?.addEventListener('click', () => this._publish());
-    this.element.querySelector('[data-field="title"]')?.addEventListener('input', event => {
-      this.editedTitle = event.target.value;
-    });
-    this.element.querySelector('[data-field="hashtags"]')?.addEventListener('input', event => {
-      this.editedHashtags = event.target.value;
+    this.element.querySelector('[data-field="caption"]')?.addEventListener('input', event => {
+      const parts = event.target.value.split(/\n\s*\n/).map(value => value.trim()).filter(Boolean);
+      this.editedTitle = parts[0] || '';
+      this.editedHashtags = parts.length > 1 ? parts[parts.length - 1] : '';
     });
     this.element.querySelector('[data-action="back-photos"]')?.addEventListener('click', () => {
-      this.videoReady = false; this.error = null; this.render();
+      this.videoReady = false; this.error = null;
+      if (this.videoUrl?.startsWith('blob:')) URL.revokeObjectURL(this.videoUrl);
+      this.videoUrl = null;
+      this.render();
     });
     this.element.querySelector('[data-action="back"]')?.addEventListener('click', () => this.onBack?.());
   }
@@ -138,7 +141,13 @@ export class GarminQuickPublicationView {
     for (let attempt = 0; attempt < 180; attempt += 1) {
       this.publication = await getStudioDraft(this.publicationId);
       const status = this.publication.companion_video_status;
-      if (status === 'ready') { this.videoReady = true; this.generating = false; this.render(); return; }
+      if (status === 'ready') {
+        this.videoReady = true;
+        this.generating = false;
+        await this._loadVideoPreview();
+        this.render();
+        return;
+      }
       if (status === 'failed') throw new Error(this.publication.companion_video_error || 'Rendu vidéo impossible.');
       this.render();
       await new Promise(resolve => { this.pollTimer = setTimeout(resolve, 1000); });
@@ -164,11 +173,23 @@ export class GarminQuickPublicationView {
     }
   }
 
+  async _loadVideoPreview() {
+    const url = `${companionVideoUrl(this.publicationId)}?v=${encodeURIComponent(this.publication?.companion_video_generated_at || '')}`;
+    const response = await fetch(url, { credentials: 'include', headers: { Accept: 'video/mp4' } });
+    if (!response.ok) throw new Error(`Aperçu vidéo indisponible (${response.status}).`);
+    const blob = await response.blob();
+    if (this.videoUrl?.startsWith('blob:')) URL.revokeObjectURL(this.videoUrl);
+    this.videoUrl = URL.createObjectURL(blob);
+  }
+
   _escape(value) {
     return String(value ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   }
 
-  destroy() { if (this.pollTimer) clearTimeout(this.pollTimer); }
+  destroy() {
+    if (this.pollTimer) clearTimeout(this.pollTimer);
+    if (this.videoUrl?.startsWith('blob:')) URL.revokeObjectURL(this.videoUrl);
+  }
 }
 
 export function createGarminQuickPublicationView(publicationId, onBack) {

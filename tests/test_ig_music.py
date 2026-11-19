@@ -299,6 +299,52 @@ class TestPickAudioForPhoto:
         assert entry is not None
         assert entry["audio_id"] == "777"
 
+
+@pytest.mark.asyncio
+async def test_pick_track_fallback_avoids_previous_audio(monkeypatch):
+    async def failing_generate(**kwargs):
+        raise RuntimeError("provider unavailable")
+
+    monkeypatch.setattr(ig_music.ai_gateway, "generate", failing_generate)
+    result = await ig_music._pick_track(
+        [{"audio_id": "old"}, {"audio_id": "new"}],
+        {"scene": "mountain"},
+        avoid_audio_id="old",
+    )
+    assert result["audio_id"] == "new"
+
+
+@pytest.mark.asyncio
+async def test_pick_audio_for_photos_uses_all_selected_images(monkeypatch):
+    async def fake_image(db, user, photo_id):
+        return f"image-{photo_id}"
+
+    async def fake_analysis(image, title, hashtags):
+        return {"scene": image, "ambiance": "aventure", "recherche": "trail lyrics"}
+
+    async def fake_search(db, query, limit=10):
+        return [
+            {"audio_id": "a", "title": "A", "display_artist": "Singer A"},
+            {"audio_id": "b", "title": "B", "display_artist": "Singer B"},
+        ]
+
+    class Response:
+        text = '{"index": 2, "start_time_ms": 1200, "raison": "photos"}'
+
+    async def fake_generate(**kwargs):
+        return Response()
+
+    monkeypatch.setattr(ig_music, "photo_image_b64", fake_image)
+    monkeypatch.setattr(ig_music, "_analyze_photo", fake_analysis)
+    monkeypatch.setattr(ig_music, "search_ig_audio", fake_search)
+    monkeypatch.setattr(ig_music.ai_gateway, "generate", fake_generate)
+
+    result = await ig_music.pick_audio_for_photos_bounded(None, None, [1, 2, 3], title="trail")
+    assert result["audio_id"] == "b"
+    assert result["photo_ids"] == [1, 2, 3]
+    assert "image-1" in result["scene"] and "image-3" in result["scene"]
+    assert result["start_time_ms"] == 1200
+
     @pytest.mark.asyncio
     async def test_missing_image_returns_none_without_analysis(self, monkeypatch):
         called = {"analyze": False}

@@ -358,6 +358,18 @@ async def get_suggested_photos(
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
+@router.get("/studio/draft/{publication_id}/editorial-brief")
+async def get_editorial_brief(
+    publication_id: int,
+    service: CommunityManagerStudioService = Depends(get_cm_studio_service),
+):
+    """Analyse éditoriale V2 de la sortie Garmin, sans effet de bord."""
+    try:
+        return await service.get_editorial_brief(publication_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
 @router.get("/studio/draft/{publication_id}/companion-video")
 async def get_companion_video(
     publication_id: int,

@@ -146,7 +146,9 @@ async def _analyze_photo(image_b64: str, title: Optional[str], hashtags: Optiona
     return data
 
 
-async def _pick_track(results: list[dict], analysis: Optional[dict]) -> Optional[dict]:
+async def _pick_track(
+    results: list[dict], analysis: Optional[dict], avoid_audio_id: str | None = None
+) -> Optional[dict]:
     """Choisit une piste parmi les résultats de recherche (IA texte, sinon la première)."""
     if not results:
         return None
@@ -163,7 +165,8 @@ async def _pick_track(results: list[dict], analysis: Optional[dict]) -> Optional
         f"Photo : {scene}\nAmbiance : {ambiance}\n\n"
         "Parmi ces musiques Instagram, choisis celle dont le thème / les paroles "
         "collent le mieux à la photo et au titre :\n" + "\n".join(lines) +
-        '\nRéponds uniquement en JSON : {"index": <numéro>, "raison": "..."}'
+            '\nRéponds uniquement en JSON : {"index": <numéro>, "start_time_ms": <millisecondes>, "raison": "..."}. '
+            "Choisis un passage compris dans la durée du morceau qui sert le mieux le titre et l'ambiance."
     )
     try:
         response = await ai_gateway.generate(
@@ -178,12 +181,29 @@ async def _pick_track(results: list[dict], analysis: Optional[dict]) -> Optional
             index = data.get("index")
             if isinstance(index, int) and 1 <= index <= len(results):
                 chosen = results[index - 1]
+                if avoid_audio_id and str(chosen.get("audio_id")) == str(avoid_audio_id):
+                    alternatives = [item for item in results if str(item.get("audio_id")) != str(avoid_audio_id)]
+                    if alternatives:
+                        chosen = alternatives[0]
                 chosen = dict(chosen)
                 chosen["_raison"] = str(data.get("raison") or "")
+                duration = chosen.get("duration_in_ms")
+                try:
+                    requested = max(0, int(data.get("start_time_ms") or 0))
+                    if duration is not None:
+                        requested = min(requested, max(0, int(duration) - 1000))
+                    chosen["_start_time_ms"] = requested
+                except (TypeError, ValueError):
+                    chosen["_start_time_ms"] = 0
                 return chosen
     except Exception as exc:
         logger.warning("[IG-MUSIC] Choix IA de la piste impossible: %s", exc)
-    # Repli : meilleur résultat de la recherche
+    # Repli : conserver la cohérence avec une nouvelle photo en évitant la
+    # piste précédente lorsque le catalogue fournit une alternative.
+    if avoid_audio_id:
+        for item in results:
+            if str(item.get("audio_id")) != str(avoid_audio_id):
+                return item
     return results[0]
 
 
@@ -193,6 +213,7 @@ async def pick_audio_for_photo(
     photo_id: int,
     title: Optional[str] = None,
     hashtags: Optional[str] = None,
+    avoid_audio_id: str | None = None,
 ) -> Optional[dict]:
     """Analyse la photo, cherche et choisit une musique Instagram.
 
@@ -217,7 +238,7 @@ async def pick_audio_for_photo(
         logger.info("[IG-MUSIC] Aucune musique trouvée pour '%s'", query)
         return None
 
-    chosen = await _pick_track(results, analysis)
+    chosen = await _pick_track(results, analysis, avoid_audio_id=avoid_audio_id)
     if not chosen or not chosen.get("audio_id"):
         return None
 
@@ -248,7 +269,7 @@ async def pick_audio_for_photo(
             for item in results[:10]
             if item.get("audio_id")
         ],
-        "start_time_ms": chosen.get("start_time_ms") or chosen.get("start_offset_ms") or 0,
+        "start_time_ms": chosen.get("_start_time_ms") or chosen.get("start_time_ms") or chosen.get("start_offset_ms") or 0,
         "picked_at": datetime.now(timezone.utc).isoformat(),
     }
     logger.info(
@@ -258,10 +279,108 @@ async def pick_audio_for_photo(
     return entry
 
 
+async def pick_audio_for_photos(
+    db,
+    current_user,
+    photo_ids: list[int],
+    title: Optional[str] = None,
+    hashtags: Optional[str] = None,
+    avoid_audio_id: str | None = None,
+) -> Optional[dict]:
+    """Choisit une piste à partir de plusieurs photos sélectionnées.
+
+    Les analyses visuelles sont fusionnées dans une seule recherche afin que
+    l'ajout ou le remplacement d'une photo puisse réellement modifier le
+    contexte musical sans créer plusieurs pistes concurrentes.
+    """
+    ids = []
+    for raw_id in photo_ids or []:
+        try:
+            photo_id = int(raw_id)
+        except (TypeError, ValueError):
+            continue
+        if photo_id not in ids and len(ids) < 5:
+            ids.append(photo_id)
+    if not ids:
+        return None
+
+    analyses: list[dict] = []
+    for photo_id in ids:
+        image_b64 = await photo_image_b64(db, current_user, photo_id)
+        if not image_b64:
+            continue
+        analysis = await _analyze_photo(image_b64, title, hashtags)
+        if isinstance(analysis, dict):
+            analyses.append(analysis)
+    if not analyses:
+        return None
+
+    merged = {
+        "scene": ", ".join(str(item.get("scene") or "") for item in analyses if item.get("scene")),
+        "ambiance": ", ".join(str(item.get("ambiance") or "") for item in analyses if item.get("ambiance")),
+        "recherche": " ".join(str(item.get("recherche") or "") for item in analyses if item.get("recherche")),
+    }
+    query = merged["recherche"].strip() or _fallback_query(title)
+    results = await search_ig_audio(db, query)
+    if not results:
+        return None
+    chosen = await _pick_track(results, merged, avoid_audio_id=avoid_audio_id)
+    if not chosen or not chosen.get("audio_id"):
+        return None
+    duration = chosen.get("duration_in_ms")
+    start_time = 0
+    # Le passage est choisi par la même logique IA que pour une photo unique.
+    # Ici, _pick_track porte déjà la sélection de l'index ; l'offset éventuel
+    # est conservé lorsqu'il a été renvoyé par le catalogue.
+    if chosen.get("start_time_ms") is not None:
+        try:
+            start_time = max(0, int(chosen.get("start_time_ms") or 0))
+            if duration is not None:
+                start_time = min(start_time, max(0, int(duration) - 1000))
+        except (TypeError, ValueError):
+            start_time = 0
+    return {
+        "source": "instagram",
+        "status": "selected",
+        "audio_id": str(chosen.get("audio_id")),
+        "title": chosen.get("title") or "",
+        "artist": chosen.get("display_artist") or "",
+        "duration_in_ms": duration,
+        "preview_link": chosen.get("on_platform_audio_preview_link") or chosen.get("download_url"),
+        "query": query,
+        "scene": merged["scene"],
+        "ambiance": merged["ambiance"],
+        "raison": chosen.get("_raison"),
+        "suggestions": [
+            {
+                "audio_id": str(item.get("audio_id")),
+                "title": item.get("title") or "",
+                "artist": item.get("display_artist") or "",
+                "duration_in_ms": item.get("duration_in_ms"),
+                "preview_link": item.get("on_platform_audio_preview_link") or item.get("download_url"),
+                "start_time_ms": item.get("start_time_ms") or item.get("start_offset_ms") or 0,
+            }
+            for item in results[:10] if item.get("audio_id")
+        ],
+        "start_time_ms": chosen.get("_start_time_ms") or start_time,
+        "photo_ids": ids,
+        "picked_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+
 async def pick_audio_for_photo_bounded(*args, timeout_seconds: float = 15.0, **kwargs) -> Optional[dict]:
     """Variante bornée dans le temps (usage Studio : ne jamais bloquer un PATCH)."""
     try:
         return await asyncio.wait_for(pick_audio_for_photo(*args, **kwargs), timeout=timeout_seconds)
     except asyncio.TimeoutError:
         logger.warning("[IG-MUSIC] Choix musique dépassé (%ss)", timeout_seconds)
+        return None
+
+
+async def pick_audio_for_photos_bounded(*args, timeout_seconds: float = 20.0, **kwargs) -> Optional[dict]:
+    """Version bornée de l'analyse multi-photos utilisée par le Studio."""
+    try:
+        return await asyncio.wait_for(pick_audio_for_photos(*args, **kwargs), timeout=timeout_seconds)
+    except asyncio.TimeoutError:
+        logger.warning("[IG-MUSIC] Choix multi-photos dépassé (%ss)", timeout_seconds)
         return None

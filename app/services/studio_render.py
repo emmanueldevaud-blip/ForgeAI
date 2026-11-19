@@ -1038,6 +1038,7 @@ class StudioRenderService:
             "photos": photos,
             "stats": stats,
             "title": pub.title or "",
+            "style": (design.get("editorial_engine") or {}).get("style", "performance"),
             # Style léger et déterministe : transitions visibles sans zoompan
             # (qui surcharge fortement le VPS).
             "montage_style": "trail-fade-v1",
@@ -1097,12 +1098,9 @@ class StudioRenderService:
             # recalculait chaque frame en haute résolution et pouvait monopoliser
             # plusieurs minutes de CPU sur le VPS.
             def _segment_command(input_path: Path, seconds: float, out_path: Path) -> list[str]:
-                fade = min(0.28, max(0.05, seconds / 4))
-                fade_start = max(0.0, seconds - fade)
                 vf = (
                     f"scale={width}:{height}:force_original_aspect_ratio=increase,"
                     f"crop={width}:{height},"
-                    f"fade=t=in:st=0:d={fade},fade=t=out:st={fade_start}:d={fade},"
                     f"format=yuv420p"
                 )
                 return [
@@ -1128,7 +1126,10 @@ class StudioRenderService:
                     input_image = Path(str(src_path))
                     if stats:
                         ov_path = temp_dir / f"overlay_{idx}.jpg"
-                        rendered = render_sport_overlay_image(str(src_path), stats, str(ov_path))
+                        rendered = render_sport_overlay_image(
+                            str(src_path), stats, str(ov_path), pub.title,
+                            (design.get("editorial_engine") or {}).get("style"),
+                        )
                         if rendered and Path(rendered).is_file():
                             input_image = Path(rendered)
                     seg_out = temp_dir / f"seg_{idx}.mp4"
@@ -1163,7 +1164,8 @@ class StudioRenderService:
                 if stats:
                     overlay_path = temp_dir / "overlay.jpg"
                     rendered = render_sport_overlay_image(
-                        str(photo_path), stats, str(overlay_path), pub.title
+                        str(photo_path), stats, str(overlay_path), pub.title,
+                        (design.get("editorial_engine") or {}).get("style"),
                     )
                     if rendered and Path(rendered).is_file():
                         input_image = Path(rendered)

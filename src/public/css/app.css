@@ -11565,6 +11565,8 @@
 .garmin-quick-intro strong { color:var(--text-primary,#0f172a); font-size:.98rem; }
 .garmin-quick-intro small { margin-top:2px; font-size:.82rem; }
 .garmin-quick-actions { display:flex; flex-wrap:wrap; gap:10px; margin-top:14px; }
+.garmin-editorial-brief { display:flex; align-items:center; gap:8px; width:max-content; max-width:100%; margin:0 0 14px; padding:7px 10px; border-radius:999px; background:#eff6ff; color:#1d4ed8; font-size:.82rem; }
+.garmin-editorial-brief small { color:#475569; }
 .garmin-quick-result {
   display: grid;
   grid-template-columns: minmax(220px, 360px) minmax(0, 1fr);

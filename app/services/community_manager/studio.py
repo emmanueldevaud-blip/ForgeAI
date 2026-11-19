@@ -110,7 +110,7 @@ def _extract_stats_html(content: str) -> str:
     return f'<div style="display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 8px;">{stats_html}</div>'
 
 
-def _render_sport_stats_panel_html(stats: dict[str, str]) -> str:
+def _render_sport_stats_panel_html(stats: dict[str, str], style: str | None = None) -> str:
     """Panneau semi-transparent de stats pour l'aperçu HTML (miroir de l'overlay publié)."""
     if not stats:
         return ""
@@ -138,9 +138,16 @@ def _render_sport_stats_panel_html(stats: dict[str, str]) -> str:
         rows += f'<div style="display:flex; gap:24px; justify-content:center;">{"".join(cell(l, v) for l, v in top)}</div>'
     if bottom:
         rows += f'<div style="display:flex; gap:24px; justify-content:center; margin-top:6px;">{"".join(cell(l, v) for l, v in bottom)}</div>'
+    backgrounds = {
+        "humour": "rgba(124,58,237,.86)",
+        "aventure": "rgba(3,105,161,.86)",
+        "performance": "rgba(0,0,0,0.72)",
+        "souvenir": "rgba(120,53,15,.84)",
+    }
+    background = backgrounds.get(str(style).lower()) if style else "rgba(0,0,0,0.72)"
     return (
         '<div style="position:absolute; left:50%; bottom:16px; transform:translateX(-50%); '
-        "background:rgba(0,0,0,0.72); color:#ffffff; padding:10px 18px; border-radius:12px; "
+        f"background:{background}; color:#ffffff; padding:10px 18px; border-radius:12px; "
         f'font-family:Arial, sans-serif; text-align:center; max-width:92%;">{rows}'
         '<div style="font-size:9px; opacity:.8; margin-top:6px;">#Jepepagtrail</div></div>'
     )
@@ -250,6 +257,14 @@ def _garmin_caption(activity: SportActivity | None, title: str | None) -> tuple[
     return caption_title, hashtags
 
 
+def _ensure_garmin_hashtag(value: str | None) -> str:
+    """Ajoute le hashtag de marque aux hashtags d'une publication Garmin."""
+    text = (value or "").strip()
+    if not re.search(r"(?<!\w)#jepepagtrail\b", text, re.IGNORECASE):
+        text = f"{text} #jepepagtrail".strip()
+    return text
+
+
 def _sport_stats_from_activity(activity: SportActivity | None) -> dict[str, str]:
     if activity is None:
         return {}
@@ -340,7 +355,7 @@ def pick_sport_music(activity: SportActivity | None) -> str:
     return random.choice(pool)
 
 
-def render_sport_overlay_image(photo_path: str, stats: dict[str, str], out_path: str, title: str | None = None) -> str | None:
+def render_sport_overlay_image(photo_path: str, stats: dict[str, str], out_path: str, title: str | None = None, style: str | None = None) -> str | None:
     """Compose les statistiques sportives (distance, temps, dénivelé) sur la photo.
     
     Layout adaptatif selon l'orientation :
@@ -495,12 +510,20 @@ def render_sport_overlay_image(photo_path: str, stats: dict[str, str], out_path:
                 draw.text((title_x, title_y), line, fill=(255, 255, 255, 255), font=font_title)
                 title_y += th + 4
 
+        palette = {
+            "humour": ((124, 58, 237, 218), (255, 255, 255, 255), (237, 233, 254, 255)),
+            "aventure": ((3, 105, 161, 218), (255, 255, 255, 255), (186, 230, 253, 255)),
+            "performance": ((0, 0, 0, 180), (255, 255, 255, 255), (200, 200, 200, 255)),
+            "souvenir": ((120, 53, 15, 210), (255, 255, 255, 255), (254, 215, 170, 255)),
+        }
+        panel_color, value_color, label_color = palette.get(str(style or "performance").lower(), palette["performance"])
+
         # Dessiner le fond semi-transparent du panneau
         corner_radius = max(int(min(w, h) * 0.015), 12)
         draw.rounded_rectangle(
             [(panel_x, panel_y), (panel_x + panel_w, panel_y + panel_h)],
             radius=corner_radius,
-            fill=(0, 0, 0, 180)
+            fill=panel_color
         )
 
         # Position de départ pour le contenu
@@ -522,8 +545,8 @@ def render_sport_overlay_image(photo_path: str, stats: dict[str, str], out_path:
                 label_x = item_x + (item_w - lw) // 2
                 value_x = item_x + (item_w - vw) // 2
                 
-                draw.text((label_x, current_y), label, fill=(200, 200, 200, 255), font=font_label)
-                draw.text((value_x, current_y + lh + 2), value, fill=(255, 255, 255, 255), font=font_value)
+                draw.text((label_x, current_y), label, fill=label_color, font=font_label)
+                draw.text((value_x, current_y + lh + 2), value, fill=value_color, font=font_value)
             
             current_y += max(top_heights) + gap_y
 
@@ -536,14 +559,14 @@ def render_sport_overlay_image(photo_path: str, stats: dict[str, str], out_path:
                 label_x = panel_x + (panel_w - lw) // 2
                 value_x = panel_x + (panel_w - vw) // 2
                 
-                draw.text((label_x, current_y), label, fill=(200, 200, 200, 255), font=font_label)
-                draw.text((value_x, current_y + lh + 2), value, fill=(255, 255, 255, 255), font=font_value)
+                draw.text((label_x, current_y), label, fill=label_color, font=font_label)
+                draw.text((value_x, current_y + lh + 2), value, fill=value_color, font=font_value)
             
             current_y += max(bottom_heights) + gap_y
 
         # Dessiner la signature
         sig_x = panel_x + (panel_w - sig_w) // 2
-        draw.text((sig_x, current_y), sig_text, fill=(180, 180, 180, 255), font=font_signature)
+        draw.text((sig_x, current_y), sig_text, fill=label_color, font=font_signature)
 
         # Composer l'image finale
         out = Image.alpha_composite(img, overlay).convert("RGB")
@@ -783,14 +806,25 @@ class CommunityManagerStudioService:
             return pub
 
         from app.services.community_manager.ig_music import pick_audio_for_photo_bounded
+        import inspect
+        previous_audio_id = design.get("ig_audio", {}).get("audio_id") if isinstance(design.get("ig_audio"), dict) else None
+        audio_kwargs = {"title": pub.title, "hashtags": pub.hashtags}
+        if previous_audio_id:
+            try:
+                sig = inspect.signature(pick_audio_for_photo_bounded)
+                if "avoid_audio_id" in sig.parameters or any(
+                    p.kind == inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values()
+                ):
+                    audio_kwargs["avoid_audio_id"] = str(previous_audio_id)
+            except (ValueError, TypeError):
+                pass
 
         try:
             entry = await pick_audio_for_photo_bounded(
                 self.db,
                 self.current_user,
                 pub.photo_id,
-                title=pub.title,
-                hashtags=pub.hashtags,
+                **audio_kwargs,
             )
         except Exception:
             logger.exception(
@@ -1268,7 +1302,11 @@ class CommunityManagerStudioService:
         stats_panel_html = ""
         if photo_url:
             activity = await self._get_activity_for_publication(pub)
-            stats_panel_html = _render_sport_stats_panel_html(_sport_stats_from_activity(activity))
+            editorial = pub.design.get("editorial_engine") if isinstance(pub.design, dict) else {}
+            stats_panel_html = _render_sport_stats_panel_html(
+                _sport_stats_from_activity(activity),
+                editorial.get("style") if isinstance(editorial, dict) else None,
+            )
 
         # Ratio de l'image d'aperçu : issu du design (défaut 1080x1350).
         # Le conteneur s'adapte ainsi à tous les formats (portrait, carré, paysage).
@@ -1390,9 +1428,35 @@ class CommunityManagerStudioService:
         if pub.activity_id:
             return await self.db.get(SportActivity, pub.activity_id)
         entry = getattr(pub, "calendar_entry", None)
+        # Le parcours Garmin rapide récupère la publication sans charger la
+        # relation calendrier. Charger ici l'entrée permet de retrouver
+        # l'activité Garmin source au moment du rendu des stats et du visuel.
+        if entry is None and pub.calendar_entry_id:
+            entry = await self.db.get(EditorialCalendarEntry, pub.calendar_entry_id)
         if entry and getattr(entry, "source_activity_id", None):
             return await self.db.get(SportActivity, entry.source_activity_id)
         return None
+
+    async def get_editorial_brief(self, publication_id: int) -> dict[str, Any]:
+        """Retourne le brief V2 sans déclencher de génération ni de publication."""
+        from app.services.sport_editorial_engine import build_editorial_brief
+
+        pub = await self.pub_service.get_publication(publication_id)
+        if not pub:
+            raise ValueError("Publication introuvable")
+        activity = await self._get_activity_for_publication(pub)
+        if activity is None:
+            raise ValueError("Activité Garmin introuvable pour cette publication")
+        design = pub.design if isinstance(pub.design, dict) else {}
+        photos = design.get("carousel") if isinstance(design.get("carousel"), list) else []
+        previous = (
+            await self.db.execute(
+                select(SportPublication)
+                .where(SportPublication.athlete_id == pub.athlete_id, SportPublication.id != pub.id)
+                .order_by(SportPublication.created_at.desc()).limit(12)
+            )
+        ).scalars().all()
+        return build_editorial_brief(activity, len(photos) or (1 if pub.photo_id else 0), previous)
 
     async def _ensure_sport_defaults(self, pub: SportPublication, persist_overlay: bool = True) -> SportPublication:
         """Pour les publications sportives : overlay stats sur la photo + choix audio (intelligent/aléatoire)."""
@@ -1407,18 +1471,34 @@ class CommunityManagerStudioService:
         if activity is not None:
             caption_title, caption_hashtags = _garmin_caption(activity, pub.title)
             pub.title = caption_title
-            pub.content = None
-            pub.hashtags = caption_hashtags
+            # Le contenu IA ou sa version éditée par l'utilisateur doit rester
+            # disponible pour Instagram et Facebook. Ne pas écraser les hashtags existants.
+            if not pub.hashtags:
+                pub.hashtags = _ensure_garmin_hashtag(caption_hashtags)
 
         # Injection des elements graphiques sport_stats (distance / denivele / duree) depuis l'activite Garmin
         design0 = pub.design if isinstance(pub.design, dict) else {}
         design = dict(design0)
+        if activity is not None:
+            from app.services.sport_editorial_engine import build_editorial_brief
+            carousel = design.get("carousel") if isinstance(design.get("carousel"), list) else []
+            brief = build_editorial_brief(
+                activity,
+                len(carousel) or (1 if pub.photo_id else 0),
+            )
+            # Le style choisi manuellement reste prioritaire.
+            existing_engine = design.get("editorial_engine") if isinstance(design.get("editorial_engine"), dict) else {}
+            if existing_engine.get("style"):
+                brief["style"] = existing_engine["style"]
+                brief["direction"]["primary"] = brief["style"]
+            design["editorial_engine"] = brief
         new_stats = _sport_stats_elements_to_add(design, activity)
         if new_stats:
             design["elements"] = [
                 element for element in (design.get("elements") or [])
                 if not (isinstance(element, dict) and element.get("type") == "sport_stats")
             ] + new_stats
+        if activity is not None:
             pub.design = design
 
         # Overlay stats sur la photo (durée, dénivelé, km) - appliqué systématiquement
@@ -1437,7 +1517,10 @@ class CommunityManagerStudioService:
                     if sport_meta.get("signature") != signature or not sport_meta.get("overlay_photo_id"):
                         with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as tmp:
                             tmp_path = tmp.name
-                        out = render_sport_overlay_image(str(src_path), stats, tmp_path)
+                        out = render_sport_overlay_image(
+                            str(src_path), stats, tmp_path, pub.title,
+                            (design.get("editorial_engine") or {}).get("style"),
+                        )
                         if out:
                             try:
                                 data = Path(out).read_bytes()
@@ -1947,7 +2030,7 @@ class CommunityManagerStudioService:
         if pub.status not in ("validated", "draft"):
             raise ValueError("Seules les publications validées peuvent être publiées")
 
-        if not (pub.content or "").strip():
+        if not (pub.content or "").strip() and not (_is_sport_publication(pub) and (pub.title or pub.hashtags)):
             raise ValueError("Le contenu de la publication est vide")
 
         # Construire le caption complet (titre + accroche + hashtags)
@@ -2109,7 +2192,7 @@ class CommunityManagerStudioService:
         if pub.status not in ("validated", "draft"):
             raise ValueError("Seules les publications validées peuvent être publiées")
 
-        if not (pub.content or "").strip():
+        if not (pub.content or "").strip() and not (_is_sport_publication(pub) and (pub.title or pub.hashtags)):
             raise ValueError("Le contenu de la publication est vide")
 
         # Construire le caption complet (titre + accroche + hashtags)

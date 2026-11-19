@@ -915,6 +915,19 @@ class SportPublicationService:
             styles = ["stats"]
 
         # Construire le prompt pour la génération V2
+        editorial_brief = None
+        if entry.source_activity_id:
+            source_activity = await self.db.get(SportActivity, entry.source_activity_id)
+            if source_activity is not None:
+                from app.services.sport_editorial_engine import build_editorial_brief
+                existing_design = pub.design if isinstance(pub.design, dict) else {}
+                existing_engine = existing_design.get("editorial_engine") if isinstance(existing_design.get("editorial_engine"), dict) else {}
+                carousel = existing_design.get("carousel") if isinstance(existing_design.get("carousel"), list) else []
+                editorial_brief = build_editorial_brief(source_activity, len(carousel) or (1 if pub.photo_id else 0))
+                selected_style = existing_engine.get("style")
+                if selected_style:
+                    editorial_brief["style"] = selected_style
+                    editorial_brief["direction"]["primary"] = selected_style
         prompt = await self._build_v2_generation_prompt(
             pub=pub,
             entry=entry,
@@ -925,6 +938,11 @@ class SportPublicationService:
             tone=tone,
             visual_type=visual_type,
         )
+        if editorial_brief:
+            prompt += (
+                "\n\nBrief du Sport Editorial Engine V2 (source de vérité, ne rien inventer) :\n"
+                f"{json.dumps(editorial_brief, ensure_ascii=False)}\n"
+            )
 
         started = datetime.now(timezone.utc)
         try:
@@ -989,6 +1007,10 @@ class SportPublicationService:
         pub.visual_type = visual_type
         pub.photo_id = photo_id
         pub.proposals = proposals_raw
+        if editorial_brief:
+            design = dict(pub.design) if isinstance(pub.design, dict) else {}
+            design["editorial_engine"] = editorial_brief
+            pub.design = design
         pub.selected_proposal = 0
 
         # Publications sportives Garmin : le titre doit rester celui de l'activité Garmin.
@@ -1000,6 +1022,8 @@ class SportPublicationService:
         )
         if is_garmin_sport:
             pub.title = entry.topic or pub.title
+            if editorial_brief:
+                proposals_raw[0]["hashtags"] = " ".join(editorial_brief["hashtags"])
         else:
             pub.title = proposals_raw[0].get("title") or entry.topic or pub.title
         pub.content = proposals_raw[0].get("content")

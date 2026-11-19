@@ -266,6 +266,8 @@ class SportGarminConnectService:
 
         try:
             pub_service = SportPublicationService(self.db, current_user)
+            previous_design = dict(pub.design) if isinstance(pub.design, dict) else {}
+            previous_carousel = list(previous_design.get("carousel") or [])
             gen_request = type("GenRequest", (), {
                 "styles": pub.styles or None,
                 "custom_instructions": pub.custom_instructions,
@@ -276,6 +278,13 @@ class SportGarminConnectService:
             await pub_service.generate_from_calendar_entry(
                 pub.calendar_entry_id, gen_request
             )
+            # Une nouvelle proposition ne doit pas effacer la composition
+            # photo ni la direction choisies dans le parcours Garmin.
+            if previous_carousel:
+                design = dict(pub.design) if isinstance(pub.design, dict) else {}
+                design["carousel"] = previous_carousel
+                pub.design = design
+                pub.photo_id = previous_carousel[0]
             pub.error_message = None
             pub.failed_at = None
             await self.db.commit()

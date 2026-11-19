@@ -1337,22 +1337,22 @@ class CommunityManagerStudioService:
         # HTML de prévisualisation (style Instagram)
         if format == "feed":
             html = f"""
-            <div style="max-width: 480px; background: #fff; color: #111827; border-radius: 8px; overflow: hidden; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
-                <div style="padding: 12px 16px; display: flex; align-items: center; gap: 10px; border-bottom: 1px solid #efefef;">
+            <div style="max-width: 480px; background: var(--color-bg-primary, #fff); color: var(--color-text-primary, #111827); border-radius: 8px; overflow: hidden; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
+                <div style="padding: 12px 16px; display: flex; align-items: center; gap: 10px; border-bottom: 1px solid var(--color-border-light, #efefef);">
                     <div style="width: 32px; height: 32px; border-radius: 50%; background: linear-gradient(45deg, #f09433 0%,#e6683c 25%,#dc2743 50%,#cc2366 75%,#bc1888 100%);"></div>
                     <div>
                         <div style="font-weight: 600; font-size: 14px;">{self.current_user.username or 'Utilisateur'}</div>
-                        <div style="font-size: 12px; color: #8e8e8e;">{datetime.now().strftime('%d/%m/%Y')}</div>
+                        <div style="font-size: 12px; color: var(--color-text-muted, #8e8e8e);">{datetime.now().strftime('%d/%m/%Y')}</div>
                     </div>
                 </div>
                 <div style="position: relative; width: 100%; aspect-ratio: {feed_ratio}; background: #111111;">
-                    {f'<img src="{photo_url}" style="width: 100%; height: 100%; object-fit: cover;">' if photo_url else '<div style="width: 100%; height: 100%; background: #fafafa; display: flex; align-items: center; justify-content: center; color: #999;">Aucune image</div>'}
+                    {f'<img src="{photo_url}" style="width: 100%; height: 100%; object-fit: cover;">' if photo_url else '<div style="width: 100%; height: 100%; background: var(--color-bg-tertiary, #fafafa); display: flex; align-items: center; justify-content: center; color: var(--color-text-muted, #999);">Aucune image</div>'}
                     {stats_panel_html}
                 </div>
                 <div style="padding: 12px 16px;">
                     <div style="font-size: 14px; line-height: 1.5; white-space: pre-wrap;">{full_caption}</div>
                 </div>
-                <div style="padding: 8px 16px; border-top: 1px solid #efefef; display: flex; gap: 16px; color: #8e8e8e; font-size: 13px;">
+                <div style="padding: 8px 16px; border-top: 1px solid var(--color-border-light, #efefef); display: flex; gap: 16px; color: var(--color-text-muted, #8e8e8e); font-size: 13px;">
                     <span>♥️ 0</span>
                     <span>💬 0</span>
                     <span>📤 0</span>
@@ -1374,20 +1374,20 @@ class CommunityManagerStudioService:
             # Extraire les stats si disponibles dans le contenu
             stats_html = self._extract_stats_html(content)
             html = f"""
-            <div style="max-width: 480px; background: #fff; color: #111827; border-radius: 8px; overflow: hidden; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
-                <div style="padding: 12px 16px; display: flex; align-items: center; gap: 10px; border-bottom: 1px solid #efefef;">
+            <div style="max-width: 480px; background: var(--color-bg-primary, #fff); color: var(--color-text-primary, #111827); border-radius: 8px; overflow: hidden; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
+                <div style="padding: 12px 16px; display: flex; align-items: center; gap: 10px; border-bottom: 1px solid var(--color-border-light, #efefef);">
                     <div style="width: 32px; height: 32px; border-radius: 50%; background: linear-gradient(45deg, #f09433 0%,#e6683c 25%,#dc2743 50%,#cc2366 75%,#bc1888 100%);"></div>
                     <div>
                         <div style="font-weight: 600; font-size: 14px;">{self.current_user.username or 'Utilisateur'}</div>
-                        <div style="font-size: 12px; color: #8e8e8e;">{datetime.now().strftime('%d/%m/%Y')}</div>
+                        <div style="font-size: 12px; color: var(--color-text-muted, #8e8e8e);">{datetime.now().strftime('%d/%m/%Y')}</div>
                     </div>
                 </div>
-                {f'<img src="{photo_url}" style="width: 100%; aspect-ratio: {feed_ratio}; object-fit: cover; display: block;">' if photo_url else f'<div style="width: 100%; aspect-ratio: {feed_ratio}; background: #fafafa; display: flex; align-items: center; justify-content: center; color: #999;">Aucune image</div>'}
+                {f'<img src="{photo_url}" style="width: 100%; aspect-ratio: {feed_ratio}; object-fit: cover; display: block;">' if photo_url else f'<div style="width: 100%; aspect-ratio: {feed_ratio}; background: var(--color-bg-tertiary, #fafafa); display: flex; align-items: center; justify-content: center; color: var(--color-text-muted, #999);">Aucune image</div>'}
                 <div style="padding: 12px 16px;">
                     {stats_html}
                     <div style="font-size: 14px; line-height: 1.5; white-space: pre-wrap; margin-top: 8px;">{full_caption}</div>
                 </div>
-                <div style="padding: 8px 16px; border-top: 1px solid #efefef; display: flex; gap: 16px; color: #8e8e8e; font-size: 13px;">
+                <div style="padding: 8px 16px; border-top: 1px solid var(--color-border-light, #efefef); display: flex; gap: 16px; color: var(--color-text-muted, #8e8e8e); font-size: 13px;">
                     <span>♥️ 0</span>
                     <span>💬 0</span>
                     <span>📤 0</span>
@@ -1397,7 +1397,7 @@ class CommunityManagerStudioService:
         else:
             # Fallback reel/other
             html = f"""
-            <div style="max-width: 480px; background: #fff; color: #111827; border-radius: 8px; overflow: hidden; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
+            <div style="max-width: 480px; background: var(--color-bg-primary, #fff); color: var(--color-text-primary, #111827); border-radius: 8px; overflow: hidden; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
                 {f'<img src="{photo_url}" style="width: 100%;">' if photo_url else ''}
                 <div style="padding: 12px 16px; white-space: pre-wrap;">{full_caption}</div>
             </div>

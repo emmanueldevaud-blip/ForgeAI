@@ -11505,7 +11505,7 @@
   max-width: 560px;
   max-height: 90vh;
   max-height: 90dvh;
-  background: #fff;
+  background: var(--color-modal-bg, #fff);
   border-radius: 12px;
   box-shadow: 0 20px 50px rgba(0,0,0,0.25);
   display: flex;
@@ -11518,9 +11518,9 @@
   justify-content: space-between;
   gap: 12px;
   padding: 12px 16px;
-  border-bottom: 1px solid #e5e7eb;
+  border-bottom: 1px solid var(--color-border-light, #e5e7eb);
   font-weight: 600;
-  color: #111827;
+  color: var(--color-text-primary, #111827);
 }
 .cm-studio-preview-body {
   padding: 16px;
@@ -11529,7 +11529,7 @@
   overscroll-behavior: contain;
   flex: 1;
   min-height: 0;
-  background: #f3f4f6;
+  background: var(--color-bg-tertiary, #f3f4f6);
   display: flex;
 }
 .cm-studio-preview-body > div {
@@ -11588,9 +11588,9 @@
 .garmin-music-preview { display:flex; align-items:center; gap:8px; margin-top:8px; }
 .garmin-music-preview audio { width:min(100%,320px); height:32px; }
 .garmin-preview-overlay { position:fixed; inset:0; z-index:2500; background:rgba(15,23,42,.72); display:grid; place-items:center; padding:16px; }
-.garmin-preview-modal { position:relative; width:min(420px,100%); max-height:94dvh; overflow:auto; border-radius:18px; background:#fff; box-shadow:0 20px 60px #0006; padding:14px; }
+.garmin-preview-modal { position:relative; width:min(420px,100%); max-height:94dvh; overflow:auto; border-radius:18px; background:var(--color-modal-bg, #fff); box-shadow:0 20px 60px #0006; padding:14px; }
 .garmin-preview-close { position:absolute; right:8px; top:5px; z-index:1; border:0; background:#0008; color:#fff; border-radius:50%; width:30px; height:30px; font-size:22px; }
-.garmin-preview-account { font-weight:600; padding:4px 30px 12px 4px; }
+.garmin-preview-account { font-weight:600; padding:4px 30px 12px 4px; color:var(--color-text-primary, #111827); }
 .garmin-preview-video { display:block; width:100%; aspect-ratio:9/16; object-fit:cover; border-radius:12px; background:#111; }
 .garmin-preview-slideshow { position:relative; width:100%; aspect-ratio:9/16; overflow:hidden; border-radius:12px; background:#111; }
 .garmin-preview-slideshow img { position:absolute; inset:0; width:100%; height:100%; object-fit:cover; opacity:0; transform:scale(1.08) translateX(2%); animation:garmin-preview-slide var(--preview-duration) ease-in-out infinite; animation-delay:var(--slide-delay); }
@@ -11601,8 +11601,8 @@
 .garmin-preview-stat strong { font-size:14px; white-space:nowrap; }
 .garmin-preview-stat--empty { font-size:12px; }
 @keyframes garmin-preview-slide { 0%, 8% { opacity:0; transform:scale(1.08) translateX(2%); } 15%, 78% { opacity:1; transform:scale(1) translateX(0); } 88%, 100% { opacity:0; transform:scale(1.04) translateX(-2%); } }
-.garmin-preview-audio { padding:10px 4px 0; color:#475569; font-size:.9rem; }
-.garmin-preview-caption { padding:12px 4px 4px; white-space:pre-wrap; line-height:1.45; }
+.garmin-preview-audio { padding:10px 4px 0; color:var(--color-text-secondary, #475569); font-size:.9rem; }
+.garmin-preview-caption { padding:12px 4px 4px; white-space:pre-wrap; line-height:1.45; color:var(--color-text-primary, #111827); }
 .garmin-quick-video {
   display: block;
   width: min(100%, 360px);

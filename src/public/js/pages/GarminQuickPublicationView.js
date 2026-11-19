@@ -26,6 +26,9 @@ export class GarminQuickPublicationView {
     this.videoUrl = null;
     this.previewOpen = false;
     this.pollTimer = null;
+    this.musicItems = [];
+    this.musicQueryIndex = 0;
+    this.musicQueries = ['trail running motivation', 'running energy songs', 'mountain adventure music', 'happy workout music', 'freedom running songs'];
   }
 
   async initialize() {
@@ -40,6 +43,7 @@ export class GarminQuickPublicationView {
       if (this.publication?.companion_video_status === 'ready') {
         await this._loadVideoPreview();
         this.videoReady = true;
+        await this._loadMusic(false);
       }
     } catch (error) {
       this.error = error?.data?.detail || error?.message || 'Impossible de charger les photos.';
@@ -70,7 +74,7 @@ export class GarminQuickPublicationView {
       </section>` : `<section class="garmin-quick-result">
         ${this.videoUrl ? `<video controls playsinline preload="metadata" class="garmin-quick-video" src="${this._escape(this.videoUrl)}"></video>` : '<div class="garmin-quick-video garmin-quick-video--loading">Chargement de l’aperçu vidéo…</div>'}
         <div class="garmin-quick-caption-card"><strong>${this._escape(title)}</strong><span>${this._escape(hashtags)}</span><button class="btn btn-link" data-action="edit-caption">Modifier la légende</button></div>
-        <div class="garmin-quick-music">🎵 ${this._escape(pub.design?.ig_audio?.title || 'Musique Instagram sélectionnée automatiquement')} ${pub.design?.ig_audio?.artist ? `— ${this._escape(pub.design.ig_audio.artist)}` : ''} <button class="btn btn-link" data-action="music">Choisir</button></div>
+        <div class="garmin-quick-music">🎵 <label for="garmin-music-select">Musique Instagram</label><select id="garmin-music-select" data-action="music-select"><option value="">${this._escape(pub.design?.ig_audio?.title || 'Choisir une musique')}</option>${this.musicItems.map((item, index) => `<option value="${index}">${this._escape(item.title || 'Sans titre')} — ${this._escape(item.display_artist || 'Artiste')}</option>`).join('')}</select><button class="btn btn-link" data-action="music-refresh">10 autres titres</button></div>
         <div class="cm-studio-actions">
           <button class="btn btn-secondary" data-action="back-photos">Modifier les photos</button>
           <button class="btn btn-secondary" data-action="preview">Aperçu Instagram / Facebook</button>
@@ -105,10 +109,13 @@ export class GarminQuickPublicationView {
     this.element.querySelector('[data-action="publish"]')?.addEventListener('click', () => this._publish());
     this.element.querySelector('[data-action="preview"]')?.addEventListener('click', () => { this.previewOpen = true; this.render(); });
     this.element.querySelector('[data-action="music"]')?.addEventListener('click', () => this._chooseMusic());
+    this.element.querySelector('[data-action="music-refresh"]')?.addEventListener('click', () => this._loadMusic(true));
+    this.element.querySelector('[data-action="music-select"]')?.addEventListener('change', event => this._selectMusic(Number(event.target.value)));
     this.element.querySelector('[data-action="edit-caption"]')?.addEventListener('click', () => this._editCaption());
     this.element.querySelectorAll('[data-action="close-preview"]').forEach(el => el.addEventListener('click', event => { if (event.target === el || event.target.dataset.action === 'close-preview') { this.previewOpen = false; this.render(); } }));
     this.element.querySelector('[data-action="back-photos"]')?.addEventListener('click', () => {
-      this.videoReady = false; this.error = null;
+      this.videoReady = false; this.error = null; this.previewOpen = false;
+      this.publication = { ...(this.publication || {}), companion_video_status: 'none', companion_video_path: null };
       if (this.videoUrl?.startsWith('blob:')) URL.revokeObjectURL(this.videoUrl);
       this.videoUrl = null;
       this.render();
@@ -190,6 +197,27 @@ export class GarminQuickPublicationView {
       this.publication = await updateStudioDraft(this.publicationId, { design: { ig_audio: { source: 'instagram', status: 'selected', audio_id: String(item.audio_id), title: item.title || '', artist: item.display_artist || '', duration_in_ms: item.duration_in_ms, preview_link: item.on_platform_audio_preview_link || item.download_url } } });
       this.render();
     } catch (error) { this.error = error?.data?.detail || error?.message || 'Choix musical impossible.'; this.render(); }
+  }
+
+  async _loadMusic(refresh) {
+    try {
+      if (refresh) this.musicQueryIndex = (this.musicQueryIndex + 1) % this.musicQueries.length;
+      const result = await searchStudioMusic(this.publicationId, this.musicQueries[this.musicQueryIndex]);
+      this.musicItems = (result?.items || []).slice(0, 10);
+      this.render();
+    } catch (error) {
+      this.error = error?.data?.detail || error?.message || 'Musiques Instagram indisponibles.';
+      this.render();
+    }
+  }
+
+  async _selectMusic(index) {
+    const item = this.musicItems[index];
+    if (!item?.audio_id) return;
+    try {
+      this.publication = await updateStudioDraft(this.publicationId, { design: { ig_audio: { source: 'instagram', status: 'selected', audio_id: String(item.audio_id), title: item.title || '', artist: item.display_artist || '', duration_in_ms: item.duration_in_ms, preview_link: item.on_platform_audio_preview_link || item.download_url } } });
+      this.render();
+    } catch (error) { this.error = error?.data?.detail || error?.message || 'Sélection musicale impossible.'; this.render(); }
   }
 
   async _editCaption() {

@@ -251,13 +251,21 @@ export class CommunityManagerStudioPage {
     const preview = typeof music.preview_link === 'string' && music.preview_link.startsWith('http')
       ? `<a class="cm-studio-ig-music-link" href="${this._escape(music.preview_link)}" target="_blank" rel="noopener">Écouter</a>`
       : '';
+    const suggestions = Array.isArray(music.suggestions) ? music.suggestions : [];
+    const options = suggestions.length ? suggestions.map((item, index) => `
+      <option value="${this._escape(item.audio_id)}" ${String(item.audio_id) === String(music.audio_id) ? 'selected' : ''}>
+        ${index + 1}. ${this._escape(item.title || 'Musique')} — ${this._escape(item.artist || 'Artiste')}
+      </option>`).join('') : '';
     return `
       <div class="cm-studio-ig-music" title="${this._escape(music.raison || '')}">
         <span class="cm-studio-ig-music-icon">♪</span>
         <span class="cm-studio-ig-music-title">${this._escape(music.title || '')}</span>
         ${music.artist ? `<span class="cm-studio-ig-music-artist">— ${this._escape(music.artist)}</span>` : ''}
         ${preview}
-        <span class="cm-studio-ig-music-hint">choisie par IA pour cette photo</span>
+        ${options ? `<label class="cm-studio-ig-music-select-label">Suggestions IA
+          <select data-action="select-ig-music" class="cm-studio-ig-music-select">${options}</select>
+        </label>` : ''}
+        <span class="cm-studio-ig-music-hint">10 titres avec paroles privilégiés selon la photo et le titre de sortie</span>
       </div>`;
   }
 
@@ -563,6 +571,24 @@ export class CommunityManagerStudioPage {
 
     const removePhotoBtn = this.element.querySelector('[data-action="remove-photo"]');
     if (removePhotoBtn) removePhotoBtn.addEventListener('click', () => this._removePhoto());
+
+    const musicSelect = this.element.querySelector('[data-action="select-ig-music"]');
+    if (musicSelect) musicSelect.addEventListener('change', async (event) => {
+      const current = this.publication?.design?.ig_audio;
+      const selected = current?.suggestions?.find((item) => String(item.audio_id) === String(event.target.value));
+      if (!selected) return;
+      try {
+        this.saving = true;
+        const igAudio = { ...current, ...selected, status: 'selected', raison: current.raison || 'Sélection IA selon la photo et le titre' };
+        this.publication = await updateStudioDraft(this.publicationId, { design: { ig_audio: igAudio } });
+        this.success = 'Musique sélectionnée.';
+      } catch (error) {
+        this.error = error?.data?.detail || error?.message || 'Impossible de sélectionner la musique';
+      } finally {
+        this.saving = false;
+        this.render();
+      }
+    });
 
     this.element.querySelectorAll('[data-photo-id]').forEach(thumb => {
       thumb.addEventListener('click', () => {

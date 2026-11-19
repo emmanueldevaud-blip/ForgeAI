@@ -11559,6 +11559,12 @@
   border-radius: 12px;
   box-shadow: 0 2px 8px rgba(15, 23, 42, .06);
 }
+.garmin-quick-intro { display:flex; align-items:center; gap:10px; margin:0 0 14px; color:var(--text-secondary,#64748b); }
+.garmin-quick-intro-icon { display:grid; place-items:center; width:34px; height:34px; border-radius:10px; background:#eff6ff; font-size:19px; }
+.garmin-quick-intro strong, .garmin-quick-intro small { display:block; }
+.garmin-quick-intro strong { color:var(--text-primary,#0f172a); font-size:.98rem; }
+.garmin-quick-intro small { margin-top:2px; font-size:.82rem; }
+.garmin-quick-actions { display:flex; flex-wrap:wrap; gap:10px; margin-top:14px; }
 .garmin-quick-result {
   display: grid;
   grid-template-columns: minmax(220px, 360px) minmax(0, 1fr);
@@ -11574,6 +11580,9 @@
 .garmin-quick-caption-card small { color:#64748b; }
 .garmin-quick-music { color: var(--text-secondary,#64748b); font-size: .92rem; }
 .garmin-quick-music select { max-width:100%; margin:4px 6px; }
+.garmin-quick-music { display:flex; align-items:center; flex-wrap:wrap; gap:6px; padding:10px 12px; border:1px solid var(--border-color,#e5e7eb); border-radius:10px; background:var(--surface-secondary,#f8fafc); }
+.garmin-quick-music select { flex:1 1 220px; min-width:0; margin:0; }
+.garmin-quick-music .btn-link { white-space:nowrap; }
 .garmin-music-preview { display:flex; align-items:center; gap:8px; margin-top:8px; }
 .garmin-music-preview audio { width:min(100%,320px); height:32px; }
 .garmin-preview-overlay { position:fixed; inset:0; z-index:2500; background:rgba(15,23,42,.72); display:grid; place-items:center; padding:16px; }
@@ -11584,7 +11593,11 @@
 .garmin-preview-slideshow { position:relative; width:100%; aspect-ratio:9/16; overflow:hidden; border-radius:12px; background:#111; }
 .garmin-preview-slideshow img { position:absolute; inset:0; width:100%; height:100%; object-fit:cover; opacity:0; transform:scale(1.08) translateX(2%); animation:garmin-preview-slide var(--preview-duration) ease-in-out infinite; animation-delay:var(--slide-delay); }
 .garmin-preview-slideshow img:first-child { opacity:1; }
-.garmin-preview-stats { position:absolute; left:14px; right:14px; bottom:14px; z-index:2; color:#fff; font-weight:700; text-shadow:0 2px 5px #000; }
+.garmin-preview-stats { position:absolute; left:12px; right:12px; bottom:12px; z-index:2; display:flex; justify-content:center; gap:8px; flex-wrap:wrap; padding:10px; border-radius:12px; background:rgba(15,23,42,.78); color:#fff; text-shadow:0 1px 3px #000; }
+.garmin-preview-stat { display:flex; flex-direction:column; align-items:center; min-width:70px; }
+.garmin-preview-stat small { font-size:9px; letter-spacing:.08em; opacity:.8; }
+.garmin-preview-stat strong { font-size:14px; white-space:nowrap; }
+.garmin-preview-stat--empty { font-size:12px; }
 @keyframes garmin-preview-slide { 0%, 8% { opacity:0; transform:scale(1.08) translateX(2%); } 15%, 78% { opacity:1; transform:scale(1) translateX(0); } 88%, 100% { opacity:0; transform:scale(1.04) translateX(-2%); } }
 .garmin-preview-audio { padding:10px 4px 0; color:#475569; font-size:.9rem; }
 .garmin-preview-caption { padding:12px 4px 4px; white-space:pre-wrap; line-height:1.45; }
@@ -11633,7 +11646,12 @@
   .garmin-quick-video { width: min(100%, 300px); max-height: 62dvh; }
   .garmin-quick-result .cm-studio-actions { flex-direction: column; }
   .garmin-quick-result .cm-studio-actions .btn { width: 100%; }
+  .garmin-quick-actions { display:grid; grid-template-columns:1fr 1fr; }
+  .garmin-quick-actions .btn { min-height:44px; }
   .garmin-quick-result { display:flex; flex-direction:column; align-items:stretch; gap:10px; }
   .garmin-quick-result .garmin-quick-video { width:min(100%,300px); max-height:58dvh; margin:0 auto; }
   .garmin-quick-result .cm-studio-actions { position:sticky; bottom:0; padding:8px 0; background:var(--surface-primary,#fff); z-index:2; }
+  .garmin-quick-music { align-items:stretch; }
+  .garmin-quick-music select { flex-basis:100%; min-height:42px; }
+  .garmin-quick-music .btn-link { padding-left:0; }
 }

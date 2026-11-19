@@ -119,8 +119,9 @@ async def _analyze_photo(image_b64: str, title: Optional[str], hashtags: Optiona
         f"Titre de la publication : {title or '(sans titre)'}\n"
         f"Hashtags : {hashtags or '-'}\n\n"
         "Décris brièvement la scène et l'ambiance, puis propose une RECHERCHE "
-        "de musique Instagram (3 à 5 mots, en anglais) qui correspond à la photo "
-        "ET au titre de la publication.\n"
+        "de musique Instagram (3 à 5 mots, en anglais) qui correspond à la photo, "
+        "au titre et à ses mots-clés. Privilégie une chanson avec paroles plutôt "
+        "qu'une musique instrumentale.\n"
         'Réponds uniquement en JSON : {"scene": "...", "ambiance": "...", '
         '"mots_cles": ["...", "..."], "recherche": "running motivation"}'
     )
@@ -232,6 +233,22 @@ async def pick_audio_for_photo(
         "scene": (analysis or {}).get("scene"),
         "ambiance": (analysis or {}).get("ambiance"),
         "raison": chosen.get("_raison"),
+        # La liste est conservée pour permettre un choix explicite dans le Studio.
+        # L'offset est fourni par Meta quand il est disponible ; sinon Instagram
+        # démarre naturellement au début du morceau.
+        "suggestions": [
+            {
+                "audio_id": str(item.get("audio_id")),
+                "title": item.get("title") or "",
+                "artist": item.get("display_artist") or "",
+                "duration_in_ms": item.get("duration_in_ms"),
+                "preview_link": item.get("on_platform_audio_preview_link") or item.get("download_url"),
+                "start_time_ms": item.get("start_time_ms") or item.get("start_offset_ms") or 0,
+            }
+            for item in results[:10]
+            if item.get("audio_id")
+        ],
+        "start_time_ms": chosen.get("start_time_ms") or chosen.get("start_offset_ms") or 0,
         "picked_at": datetime.now(timezone.utc).isoformat(),
     }
     logger.info(

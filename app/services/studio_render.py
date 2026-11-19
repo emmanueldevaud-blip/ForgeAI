@@ -1155,11 +1155,21 @@ class StudioRenderService:
                 ]
                 await asyncio.to_thread(self._run_ffmpeg, cmd_c)
             else:
-                # Photo unique (avec overlay stats déjà appliquée par _ensure_sport_defaults)
+                # Photo unique : _ensure_sport_defaults est appelé sans persister
+                # l'overlay pendant la génération vidéo. Il faut donc composer
+                # ici l'image réellement encodée, comme pour un diaporama.
                 photo_path, _fn, _mt = await photo_service.resolve_file(pub.photo_id, "original")
+                input_image = Path(str(photo_path))
+                if stats:
+                    overlay_path = temp_dir / "overlay.jpg"
+                    rendered = render_sport_overlay_image(
+                        str(photo_path), stats, str(overlay_path), pub.title
+                    )
+                    if rendered and Path(rendered).is_file():
+                        input_image = Path(rendered)
                 await asyncio.to_thread(
                     self._run_ffmpeg,
-                    _segment_command(Path(str(photo_path)), target_dur, video_tmp),
+                    _segment_command(input_image, target_dur, video_tmp),
                 )
 
             # Audio : normalisation simple + fades in/out, pad/trim à la durée cible, AAC

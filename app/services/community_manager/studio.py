@@ -691,9 +691,10 @@ class CommunityManagerStudioService:
             pub.design = design
             if _is_sport_publication(pub):
                 pub = await self._ensure_sport_defaults(pub, persist_overlay=False)
-                # Musique Instagram : (re)choix par IA (vision) sur la couverture
-                if not data.quick_generation:
-                    pub = await self._refresh_ig_music(pub)
+                # La musique doit suivre la couverture choisie, y compris dans
+                # le parcours Garmin rapide. Le mode quick_generation ne doit
+                # pas conserver une musique liée à une ancienne photo.
+                pub = await self._refresh_ig_music(pub)
         if "photo_id" in data.model_fields_set:
             if not pub.photo_locked and "photo_ids" not in data.model_fields_set:
                 pub.photo_id = data.photo_id
@@ -711,8 +712,7 @@ class CommunityManagerStudioService:
                     pub = await self._ensure_sport_defaults(pub, persist_overlay=False)
                     # Musique Instagram : (re)choix par IA (vision) à chaque
                     # changement de photo ; nettoyage si la photo est retirée.
-                    if not data.quick_generation:
-                        pub = await self._refresh_ig_music(pub)
+                    pub = await self._refresh_ig_music(pub)
         if data.visual_type is not None:
             if not pub.photo_locked:
                 pub.visual_type = data.visual_type
@@ -1321,6 +1321,7 @@ class CommunityManagerStudioService:
             html = f"""
             <div style="width: 100%; max-width: 420px; aspect-ratio: 9/16; margin: 0 auto; background: #000; position: relative; color: white; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
                 {f'<img src="{photo_url}" style="width: 100%; height: 100%; object-fit: cover;">' if photo_url else ''}
+                {stats_panel_html}
                 <div style="position: absolute; bottom: 24px; left: 16px; right: 16px; text-shadow: 0 2px 8px rgba(0,0,0,0.7);">
                     <div style="font-size: 16px; line-height: 1.4; white-space: pre-wrap;">{full_caption}</div>
                 </div>

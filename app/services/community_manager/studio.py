@@ -282,11 +282,6 @@ def _merge_design(base: dict | None, patch: dict | None) -> dict:
 
 def _sport_stats_elements_to_add(design: dict, activity: SportActivity | None) -> list[dict]:
     """Construit les elements graphiques `sport_stats` (distance / denivele / duree) pour une activite."""
-    elements = design.get("elements") if isinstance(design, dict) else None
-    if isinstance(elements, list) and any(
-        isinstance(e, dict) and e.get("type") == "sport_stats" for e in elements
-    ):
-        return []
     if activity is None:
         return []
     fmt = design.get("format") if isinstance(design, dict) else None
@@ -651,7 +646,10 @@ class CommunityManagerStudioService:
                 activity = await self._get_activity_for_publication(pub)
                 new_stats = _sport_stats_elements_to_add(design, activity)
                 if new_stats:
-                    design["elements"] = list(design.get("elements") or []) + new_stats
+                    design["elements"] = [
+                        element for element in (design.get("elements") or [])
+                        if not (isinstance(element, dict) and element.get("type") == "sport_stats")
+                    ] + new_stats
                     pub.design = design
         cleaned_content = clean_caption_text(pub.content)
         if cleaned_content and cleaned_content != pub.content:
@@ -802,6 +800,12 @@ class CommunityManagerStudioService:
         if entry:
             design = dict(pub.design) if isinstance(pub.design, dict) else {}
             design["ig_audio"] = entry
+            pub.design = design
+        else:
+            # Ne jamais laisser croire que l'ancienne musique correspond encore
+            # à la nouvelle photo si l'analyse IA n'a pas abouti.
+            design = dict(pub.design) if isinstance(pub.design, dict) else {}
+            design.pop("ig_audio", None)
             pub.design = design
         return pub
 
@@ -1411,7 +1415,10 @@ class CommunityManagerStudioService:
         design = dict(design0)
         new_stats = _sport_stats_elements_to_add(design, activity)
         if new_stats:
-            design["elements"] = list(design.get("elements") or []) + new_stats
+            design["elements"] = [
+                element for element in (design.get("elements") or [])
+                if not (isinstance(element, dict) and element.get("type") == "sport_stats")
+            ] + new_stats
             pub.design = design
 
         # Overlay stats sur la photo (durée, dénivelé, km) - appliqué systématiquement

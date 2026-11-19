@@ -350,7 +350,7 @@ async def get_companion_video(
     service: CommunityManagerStudioService = Depends(get_cm_studio_service),
 ):
     """Diffuse le Reel Garmin généré, sans exposer son chemin serveur."""
-    publication = await service.get_publication(publication_id)
+    publication = await service.pub_service.get_publication(publication_id)
     if not publication or publication.companion_video_status != "ready":
         raise HTTPException(status_code=404, detail="Vidéo compagnon indisponible")
     path = Path(publication.companion_video_path or "")

@@ -66,6 +66,7 @@ export class GarminQuickPublicationView {
         ${this.generating ? '<p class="garmin-quick-progress">Préparation de la vidéo et publication en cours…</p>' : ''}
         <div class="garmin-quick-caption-card"><strong>${this._escape(title)}</strong><span>${this._escape(hashtags)}</span><button class="btn btn-link" data-action="edit-caption">Modifier la légende</button></div>
         <div class="garmin-quick-music">🎵 <label for="garmin-music-select">Musique Instagram</label><select id="garmin-music-select" data-action="music-select"><option value="">${this._escape(pub.design?.ig_audio?.title || 'Choisir une musique')}</option>${this.musicItems.map((item, index) => `<option value="${index}" ${String(item.audio_id) === String(pub.design?.ig_audio?.audio_id) ? 'selected' : ''}>${this._escape(item.title || 'Sans titre')} — ${this._escape(item.display_artist || 'Artiste')}</option>`).join('')}</select><button class="btn btn-link" data-action="music-refresh">10 autres titres</button></div>
+        <button class="btn btn-secondary" data-action="preview">Aperçu Instagram / Facebook</button>
         <button class="btn btn-primary" data-action="publish" ${!this.selected.length || this.busy || this.generating ? 'disabled' : ''}>
           ${this.busy ? 'Publication…' : 'Valider et publier'}
         </button>
@@ -82,7 +83,7 @@ export class GarminQuickPublicationView {
         </div>
       </section>`}
       <button class="btn btn-secondary" data-action="back">Retour au calendrier</button>`;
-    if (ready && this.previewOpen) this.element.insertAdjacentHTML('beforeend', `<div class="garmin-preview-overlay" data-action="close-preview"><div class="garmin-preview-modal" role="dialog" aria-label="Aperçu publication" data-preview-panel><button class="garmin-preview-close" data-action="close-preview">×</button><div class="garmin-preview-account">ForgeAI · Instagram / Facebook</div>${this.videoUrl ? `<video controls autoplay muted playsinline class="garmin-preview-video" src="${this._escape(this.videoUrl)}"></video>` : ''}<div class="garmin-preview-caption"><strong>${this._escape(title)}</strong><br>${this._escape(hashtags)}</div></div></div>`);
+    if (this.previewOpen) this.element.insertAdjacentHTML('beforeend', `<div class="garmin-preview-overlay" data-action="close-preview"><div class="garmin-preview-modal" role="dialog" aria-label="Aperçu publication" data-preview-panel><button class="garmin-preview-close" data-action="close-preview">×</button><div class="garmin-preview-account">ForgeAI · Instagram / Facebook</div><div class="garmin-preview-gallery">${this.selected.map(id => `<img src="/photos/${id}/file?size=medium" alt="Photo sélectionnée" loading="lazy">`).join('')}</div><div class="garmin-preview-audio">🎵 ${this._escape(pub.design?.ig_audio?.title || 'Musique Instagram')}</div><div class="garmin-preview-caption"><strong>${this._escape(title)}</strong><br>${this._escape(hashtags)}</div></div></div>`);
     this._bind();
     return this.element;
   }

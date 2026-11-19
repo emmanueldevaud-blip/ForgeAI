@@ -299,6 +299,10 @@ export async function getSuggestedPhotos(publicationId, limit = 15) {
   return cmApi.get(`/community-manager/studio/draft/${encodeURIComponent(publicationId)}/suggested-photos`, { params: { limit } });
 }
 
+export function companionVideoUrl(publicationId) {
+  return `/community-manager/studio/draft/${encodeURIComponent(publicationId)}/companion-video`;
+}
+
 // --------------------------------------------------------------------------- #
 // Community Manager V4 - Calendrier mensuel/hebdomadaire + Suggestions
 // --------------------------------------------------------------------------- #

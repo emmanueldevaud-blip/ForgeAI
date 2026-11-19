@@ -188,7 +188,10 @@ class SportGarminConnectService:
                 objective=None,
                 notes=f"Générée automatiquement depuis l'activité Garmin {activity.external_id}.",
                 hashtags=None,
-                status="brouillon",
+                # Une sortie Garmin est immédiatement exploitable depuis le
+                # calendrier : aucune validation éditoriale intermédiaire n'est
+                # nécessaire avant le choix des photos.
+                status="planifié",
                 content_type="publication_sportive",
                 source="garmin",
                 source_activity_id=activity.id,

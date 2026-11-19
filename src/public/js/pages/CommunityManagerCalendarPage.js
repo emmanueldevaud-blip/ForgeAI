@@ -20,6 +20,7 @@ import {
   regeneratePublicationContent,
 } from '../services/sportApi.js?v=14';
 import { createCommunityManagerStudioPage } from './CommunityManagerStudioPage.js?v=12';
+import { createGarminQuickPublicationView } from './GarminQuickPublicationView.js?v=1';
 
 const MONTHS = [
   'Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin',
@@ -55,6 +56,8 @@ export class CommunityManagerCalendarPage {
     this.currentDate = new Date();
     this.selectedEntry = null;
     this.studioPage = null;
+    this.quickPublicationPage = null;
+    this.showQuickPublication = false;
     this.showStudio = false;
     this.loading = false;
     this.error = null;
@@ -223,6 +226,20 @@ export class CommunityManagerCalendarPage {
     this.render();
   }
 
+  _openGarminQuick(publicationId) {
+    this.selectedEntry = publicationId;
+    this.showQuickPublication = true;
+    this.quickPublicationPage = createGarminQuickPublicationView(publicationId, () => {
+      this.showQuickPublication = false;
+      this.quickPublicationPage?.destroy();
+      this.quickPublicationPage = null;
+      this.selectedEntry = null;
+      this.render();
+    });
+    this.quickPublicationPage.initialize().catch(() => {});
+    this.render();
+  }
+
   _notifyError(message) {
     this.error = message;
     this.render();
@@ -241,7 +258,8 @@ export class CommunityManagerCalendarPage {
     const source = entryEl.dataset.entrySource || '';
 
     if (pubId) {
-      this._openStudio(pubId);
+      if (source === 'garmin') this._openGarminQuick(pubId);
+      else this._openStudio(pubId);
       return;
     }
     if (source === 'suggestion' && status === 'refused') {
@@ -271,7 +289,8 @@ export class CommunityManagerCalendarPage {
       if (!res?.publication_id) {
         throw new Error(res?.detail || 'Création du brouillon impossible.');
       }
-      this._openStudio(res.publication_id);
+      if (source === 'garmin') this._openGarminQuick(res.publication_id);
+      else this._openStudio(res.publication_id);
       this._loadMonth();
     } catch (error) {
       this.loading = false;
@@ -287,6 +306,10 @@ export class CommunityManagerCalendarPage {
 
     if (this.showStudio && this.studioPage) {
       this.element.replaceChildren(this.studioPage.render());
+      return this.element;
+    }
+    if (this.showQuickPublication && this.quickPublicationPage) {
+      this.element.replaceChildren(this.quickPublicationPage.render());
       return this.element;
     }
 

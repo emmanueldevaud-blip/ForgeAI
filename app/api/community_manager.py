@@ -2,9 +2,11 @@
 
 import logging
 from datetime import datetime, date, timedelta
+from pathlib import Path
 from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi.responses import FileResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -340,6 +342,21 @@ async def get_suggested_photos(
         return await service.get_suggested_photos(publication_id, limit=limit)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@router.get("/studio/draft/{publication_id}/companion-video")
+async def get_companion_video(
+    publication_id: int,
+    service: CommunityManagerStudioService = Depends(get_cm_studio_service),
+):
+    """Diffuse le Reel Garmin généré, sans exposer son chemin serveur."""
+    publication = await service.get_publication(publication_id)
+    if not publication or publication.companion_video_status != "ready":
+        raise HTTPException(status_code=404, detail="Vidéo compagnon indisponible")
+    path = Path(publication.companion_video_path or "")
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail="Fichier vidéo indisponible")
+    return FileResponse(path, media_type="video/mp4", headers={"Cache-Control": "private, max-age=3600"})
 
 
 @router.patch("/studio/draft/{publication_id}/lock/title", response_model=PublicationDraftResponse)

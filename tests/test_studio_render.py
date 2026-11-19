@@ -16,10 +16,26 @@ from app.services.studio_render import (
     cleanup_orphan_studio_temps,
     diaporama_timing,
 )
+from app.models.sport import SportActivity
+from app.services.community_manager.studio import _garmin_caption, _sport_stats_from_activity
 
 
 def _service() -> StudioRenderService:
     return StudioRenderService(db=None, current_user=None)
+
+
+def test_garmin_stats_use_moving_time_and_minimal_caption():
+    activity = SportActivity(
+        activity_name="Trail des Roches",
+        duration_seconds=3600,
+        distance_m=12300,
+        elevation_gain_m=540,
+        metadata_json={"garmin_summary": {"movingDuration": 3123, "locationName": "Mâcon"}},
+    )
+
+    stats = _sport_stats_from_activity(activity)
+    assert stats["duree"] == "52 min"
+    assert _garmin_caption(activity, activity.activity_name) == ("Trail des Roches", "#Mâcon #trailrunning")
 
 
 def _clip(

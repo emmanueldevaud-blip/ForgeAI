@@ -195,6 +195,61 @@ def _format_duration(seconds: int | None) -> str | None:
     return f"{m} min"
 
 
+def _moving_time_seconds(activity: SportActivity | None) -> int | None:
+    """Retourne le temps Garmin en mouvement, avec repli explicite.
+
+    Garmin expose généralement ``movingDuration`` dans le résumé. Les
+    anciennes importations conservent le résumé complet dans metadata_json.
+    ``duration_seconds`` reste le repli des activités historiques dépourvues
+    de cette information.
+    """
+    if activity is None:
+        return None
+    metadata = getattr(activity, "metadata_json", None) or {}
+    summary = metadata.get("garmin_summary") if isinstance(metadata, dict) else None
+    if not isinstance(summary, dict):
+        summary = metadata if isinstance(metadata, dict) else {}
+    for key in ("movingDuration", "movingTimeSeconds", "moving_time_seconds", "moving_time"):
+        value = summary.get(key)
+        if value is not None:
+            try:
+                value = int(float(value))
+                if value > 0:
+                    return value
+            except (TypeError, ValueError):
+                pass
+    return int(activity.duration_seconds) if activity.duration_seconds else None
+
+
+def _sport_location_hashtag(activity: SportActivity | None) -> str | None:
+    """Construit le hashtag du lieu depuis les métadonnées Garmin disponibles."""
+    if activity is None:
+        return None
+    metadata = getattr(activity, "metadata_json", None) or {}
+    summary = metadata.get("garmin_summary") if isinstance(metadata, dict) else None
+    if not isinstance(summary, dict):
+        summary = metadata if isinstance(metadata, dict) else {}
+    candidates = [
+        summary.get("locationName"), summary.get("location"), summary.get("city"),
+        (summary.get("startLocation") or {}).get("city") if isinstance(summary.get("startLocation"), dict) else None,
+        (summary.get("endLocation") or {}).get("city") if isinstance(summary.get("endLocation"), dict) else None,
+    ]
+    for value in candidates:
+        if isinstance(value, str) and value.strip():
+            slug = re.sub(r"[^\wÀ-ÿ]+", "", value.strip(), flags=re.UNICODE)
+            if slug:
+                return f"#{slug}"
+    return None
+
+
+def _garmin_caption(activity: SportActivity | None, title: str | None) -> tuple[str, str]:
+    """Légende Garmin minimale : titre exact, lieu, trailrunning."""
+    caption_title = (title or getattr(activity, "activity_name", None) or "Sortie trail").strip()
+    location = _sport_location_hashtag(activity)
+    hashtags = " ".join(item for item in (location, "#trailrunning") if item)
+    return caption_title, hashtags
+
+
 def _sport_stats_from_activity(activity: SportActivity | None) -> dict[str, str]:
     if activity is None:
         return {}
@@ -203,7 +258,7 @@ def _sport_stats_from_activity(activity: SportActivity | None) -> dict[str, str]
         stats["distance"] = f"{activity.distance_m / 1000:.1f} km"
     if getattr(activity, "elevation_gain_m", None) is not None:
         stats["denivele"] = f"{int(activity.elevation_gain_m)} m D+"
-    dur = _format_duration(getattr(activity, "duration_seconds", None))
+    dur = _format_duration(_moving_time_seconds(activity))
     if dur:
         stats["duree"] = dur
     return stats
@@ -1135,7 +1190,7 @@ class CommunityManagerStudioService:
         if not pub:
             return None
 
-        if not (pub.content or "").strip():
+        if not (pub.content or "").strip() and not (_is_sport_publication(pub) and (pub.title or pub.hashtags)):
             raise ValueError("Le texte de la publication est vide")
 
         # Pour V2, vérifier aussi qu'il y a un visuel ou au moins une idée visuelle
@@ -1339,6 +1394,14 @@ class CommunityManagerStudioService:
 
         activity = await self._get_activity_for_publication(pub)
         stats = _sport_stats_from_activity(activity)
+
+        # Les publications Garmin suivent une règle éditoriale déterministe :
+        # le titre Garmin, puis uniquement le lieu connu et #trailrunning.
+        if activity is not None:
+            caption_title, caption_hashtags = _garmin_caption(activity, pub.title)
+            pub.title = caption_title
+            pub.content = None
+            pub.hashtags = caption_hashtags
 
         # Injection des elements graphiques sport_stats (distance / denivele / duree) depuis l'activite Garmin
         design0 = pub.design if isinstance(pub.design, dict) else {}
@@ -1679,7 +1742,7 @@ class CommunityManagerStudioService:
         if pub.status not in ("validated", "draft"):
             raise ValueError("Seules les publications validées peuvent être publiées")
 
-        if not (pub.content or "").strip():
+        if not (pub.content or "").strip() and not (_is_sport_publication(pub) and (pub.title or pub.hashtags)):
             raise ValueError("Le contenu de la publication est vide")
 
         # Construire le caption complet (titre + accroche + hashtags)

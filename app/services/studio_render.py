@@ -1088,17 +1088,13 @@ class StudioRenderService:
             audio_tmp = temp_dir / "audio.m4a"
             final_tmp = temp_dir / "final.mp4"
 
-            # Animation légère : zoom progressif (Ken Burns simple) sur image statique
-            # zoompan produit des frames à fps constant sur la durée cible
+            # Rendu rapide d'une image fixe en 9:16. L'ancien zoompan
+            # recalculait chaque frame en haute résolution et pouvait monopoliser
+            # plusieurs minutes de CPU sur le VPS.
             def _segment_command(input_path: Path, seconds: float, out_path: Path) -> list[str]:
-                d_frames = int(round(seconds * fps))
-                zoom_expr = f"min(zoom+0.0008,1.08)"
                 vf = (
-                    # 1920 px suffisent pour produire un Reel 1080x1920. La
-                    # valeur précédente 8000 générait inutilement des images
-                    # gigantesques et faisait expirer FFmpeg.
-                    f"scale=1920:-2:force_original_aspect_ratio=increase,"
-                    f"zoompan=z='{zoom_expr}':x='iw/2-(iw/zoom/2)':y='ih/2-(iw/zoom/2)':d={d_frames}:s={width}x{height}:fps={fps},"
+                    f"scale={width}:{height}:force_original_aspect_ratio=increase,"
+                    f"crop={width}:{height},"
                     f"format=yuv420p"
                 )
                 return [

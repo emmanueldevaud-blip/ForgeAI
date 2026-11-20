@@ -11735,6 +11735,11 @@
     box-sizing: border-box;
   }
 
+  .garmin-quick-publication {
+    max-width: 100vw;
+    overflow-x: hidden;
+  }
+
   .garmin-quick-step,
   .garmin-step-heading,
   .garmin-step-heading > div,
@@ -11777,6 +11782,9 @@
 
   .garmin-audio-proposal > span:last-child {
     flex: 0 0 auto;
+    max-width: 30%;
+    overflow-wrap: anywhere;
+    text-align: right;
   }
 
   .garmin-quick-header { align-items:stretch; flex-direction:column; gap:12px; }

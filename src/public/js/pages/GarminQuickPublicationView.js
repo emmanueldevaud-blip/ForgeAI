@@ -228,7 +228,7 @@ export class GarminQuickPublicationView {
   _appendPreviewModal() {
     const modalContent = this.generating
       ? '<div class="garmin-preview-loading">Génération de l’aperçu vidéo…</div>'
-      : (this.videoUrl ? `<video controls playsinline preload="metadata" class="garmin-modal-video" src="${this._escape(this.videoUrl)}"></video>` : '<div class="garmin-preview-loading">Préparation de l’aperçu…</div>');
+      : (this.videoUrl ? `<video controls playsinline preload="metadata" class="garmin-modal-video" src="${this._escape(this.videoUrl)}"></video>${this.publication?.design?.ig_audio?.preview_link ? `<audio controls preload="metadata" class="garmin-preview-audio-player" data-preview-audio src="${this._escape(this.publication.design.ig_audio.preview_link)}"></audio>` : ''}` : '<div class="garmin-preview-loading">Préparation de l’aperçu…</div>');
     this.element.insertAdjacentHTML('beforeend', `<div class="garmin-preview-overlay" data-action="close-preview"><div class="garmin-preview-modal garmin-preview-modal--video" role="dialog" aria-modal="true" aria-label="Aperçu du Reel" data-preview-panel><button class="garmin-preview-close" data-action="close-preview" aria-label="Fermer">×</button><div class="garmin-preview-account">Aperçu du Reel</div>${modalContent}<div class="garmin-modal-caption"><strong>${this._escape(this.editedTitle || this.publication?.title || '')}</strong><span>${this._escape(this.editedHashtags || this.publication?.hashtags || '')}</span></div><button class="btn btn-success garmin-modal-publish" data-action="publish" ${this.busy || this.generating || !this.videoReady ? 'disabled' : ''}>${this.busy ? 'Publication…' : 'Publier sur Instagram et Facebook'}</button></div></div>`);
   }
 
@@ -315,6 +315,20 @@ export class GarminQuickPublicationView {
         if (publishedAudio.paused || !publishedAudio.duration || !Number.isFinite(Number(publishedAudio.duration))) return;
         const target = Number(publishedVideo.currentTime) || 0;
         if (Math.abs((Number(publishedAudio.currentTime) || 0) - target) > 0.25) publishedAudio.currentTime = target;
+      });
+    }
+    const previewVideo = this.element.querySelector('.garmin-modal-video');
+    const previewAudio = this.element.querySelector('[data-preview-audio]');
+    if (previewVideo && previewAudio) {
+      previewAudio.volume = 1;
+      previewVideo.addEventListener('play', () => {
+        previewAudio.currentTime = previewVideo.currentTime;
+        previewAudio.play().catch(() => {});
+      });
+      previewVideo.addEventListener('pause', () => previewAudio.pause());
+      previewVideo.addEventListener('ended', () => previewAudio.pause());
+      previewVideo.addEventListener('timeupdate', () => {
+        if (Math.abs(previewAudio.currentTime - previewVideo.currentTime) > 0.3) previewAudio.currentTime = previewVideo.currentTime;
       });
     }
     this.element.querySelector('[data-field="title"]')?.addEventListener('input', event => this._queueCaptionSave('title', event.target.value));

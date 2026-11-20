@@ -812,6 +812,9 @@ class CommunityManagerStudioService:
             pub.status = "draft"
             pub.validated_at = None
 
+        if data.quick_generation and _is_sport_publication(pub):
+            await self.ensure_companion_video_job(pub, force=True)
+
         await self.db.commit()
         await self.db.refresh(pub)
         return pub

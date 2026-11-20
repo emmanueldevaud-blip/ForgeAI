@@ -11726,13 +11726,47 @@
 .garmin-modal-publish { width:100%; min-height:46px; }
 .garmin-render-status { margin:12px 0 0; color:#2563eb; font-size:.86rem; }
 @media (max-width:680px) {
+  .garmin-quick-publication,
+  .garmin-quick-header,
+  .garmin-quick-flow,
+  .garmin-quick-step {
+    width: 100%;
+    min-width: 0;
+    box-sizing: border-box;
+  }
+
+  .garmin-quick-step,
+  .garmin-step-heading,
+  .garmin-step-heading > div,
+  .garmin-music-row,
+  .garmin-music-main,
+  .garmin-output-actions {
+    min-width: 0;
+  }
+
+  .garmin-quick-step h2,
+  .garmin-quick-step p,
+  .garmin-quick-step small,
+  .garmin-quick-step strong {
+    overflow-wrap: anywhere;
+  }
+
+  .garmin-quick-step input,
+  .garmin-quick-step textarea,
+  .garmin-quick-step select,
+  .garmin-quick-step audio,
+  .garmin-quick-step video {
+    max-width: 100%;
+    box-sizing: border-box;
+  }
+
   .garmin-quick-header { align-items:stretch; flex-direction:column; gap:12px; }
   .garmin-quick-header .btn { align-self:flex-start; }
   .garmin-quick-step { padding:16px; border-radius:15px; }
   .garmin-style-grid { grid-template-columns:repeat(2,1fr); }
   .garmin-music-row { align-items:flex-start; flex-wrap:wrap; }
   .garmin-music-main { flex-basis:calc(100% - 58px); }
-  .garmin-music-row > .btn { margin-left:56px; }
+  .garmin-music-row > .btn { margin-left:56px; max-width:calc(100% - 56px); }
   .garmin-output-actions { display:grid; grid-template-columns:1fr; }
   .garmin-output-actions .btn { width:100%; min-height:44px; }
 }

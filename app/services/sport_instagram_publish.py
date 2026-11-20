@@ -20,10 +20,46 @@ logger = logging.getLogger(__name__)
 class MetaPublishError(Exception):
     """Erreur lors de la publication sur Meta."""
 
-    def __init__(self, message: str, meta_error_code: Optional[str] = None, meta_error_subcode: Optional[str] = None):
+    def __init__(self, message: str, meta_error_code: Optional[str] = None, meta_error_subcode: Optional[str] = None) -> None:
         super().__init__(message)
         self.meta_error_code = meta_error_code
         self.meta_error_subcode = meta_error_subcode
+
+
+class FacebookPageTokenMissingError(MetaPublishError):
+    """FACEBOOK_PAGE_TOKEN_MISSING — jeton de Page Facebook absent."""
+
+    code = "FACEBOOK_PAGE_TOKEN_MISSING"
+
+
+class FacebookPageTokenInvalidError(MetaPublishError):
+    """FACEBOOK_PAGE_TOKEN_INVALID — jeton de Page Facebook invalide."""
+
+    code = "FACEBOOK_PAGE_TOKEN_INVALID"
+
+
+class FacebookPageTokenExpiredError(MetaPublishError):
+    """FACEBOOK_PAGE_TOKEN_EXPIRED — jeton de Page Facebook expiré."""
+
+    code = "FACEBOOK_PAGE_TOKEN_EXPIRED"
+
+
+class FacebookPageMismatchError(MetaPublishError):
+    """FACEBOOK_PAGE_MISMATCH — identifiant de Page Facebook incohérent."""
+
+    code = "FACEBOOK_PAGE_MISMATCH"
+
+
+class FacebookPagePermissionMissingError(MetaPublishError):
+    """FACEBOOK_PAGE_PERMISSION_MISSING — tâches/permissions de publication absentes."""
+
+    code = "FACEBOOK_PAGE_PERMISSION_MISSING"
+
+
+class FacebookPageTokenResolutionFailedError(MetaPublishError):
+    """FACEBOOK_PAGE_TOKEN_RESOLUTION_FAILED — échec de résolution du jeton."""
+
+    code = "FACEBOOK_PAGE_TOKEN_RESOLUTION_FAILED"
 
 
 # Extensions de fichiers vidéo acceptées par Meta
@@ -440,27 +476,54 @@ class MetaPublishService:
     # Facebook Page Publishing
     # ===================================================================== #
 
+    _FACEBOOK_PAGE_CONTENT_TASKS = frozenset({"MANAGE", "CREATE_CONTENT"})
+
     async def _get_facebook_page_token(self, connection) -> Optional[str]:
-        """Jeton d'accès en contexte « Page » (requis pour publier), fallback jeton configuré."""
+        """Jeton d'accès de la Page Facebook publiée (jamais de fallback silencieux sur le SUAT).
+
+        Stratégie : SUAT (configuration Meta) -> GET /me/accounts?fields=id,name,tasks,access_token
+        -> sélection exacte de la Page configurée -> jeton de Page + vérification des tâches.
+        """
         token = await self._get_valid_token(connection)
         if not token:
-            return None
+            raise FacebookPageTokenMissingError(
+                "Aucun jeton Meta centralisé (SUAT) disponible pour résoudre le jeton de Page Facebook"
+            )
         fb_page_id = getattr(connection, "facebook_page_id", None)
         if not fb_page_id:
-            return token
-        try:
-            async with httpx.AsyncClient(timeout=15.0) as client:
-                response = await client.get(
-                    f"{self._base_url}/{fb_page_id}",
-                    params={"fields": "access_token", "access_token": token},
+            raise FacebookPageTokenMissingError("Aucun identifiant de Page Facebook configuré")
+
+        url = f"{self._base_url}/me/accounts"
+        params = {"fields": "id,name,tasks,access_token", "access_token": token}
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            response = await client.get(url, params=params)
+            if response.status_code != 200:
+                raise FacebookPageTokenResolutionFailedError(
+                    f"Résolution du jeton de Page Facebook impossible (HTTP {response.status_code})"
                 )
-                if response.status_code == 200:
-                    page_token = response.json().get("access_token")
-                    if page_token:
-                        return page_token
-        except Exception:
-            logger.warning("Jeton de Page Facebook indisponible — utilisation du jeton configure")
-        return token
+            data = response.json()
+        accounts = data.get("data") if isinstance(data, dict) else None
+        page_entry = None
+        for account in accounts or []:
+            if isinstance(account, dict) and str(account.get("id")) == str(fb_page_id):
+                page_entry = account
+                break
+        if not page_entry:
+            raise FacebookPageMismatchError(
+                f"Aucune Page Facebook accessible ne correspond à l'identifiant configuré {fb_page_id}"
+            )
+        page_token = page_entry.get("access_token")
+        if not page_token:
+            raise FacebookPageTokenMissingError("La Page Facebook configurée ne retourne pas de jeton d'accès")
+        tasks = page_entry.get("tasks") or {}
+        task_types = {str(k) for k in tasks.keys()} if isinstance(tasks, dict) else (
+            {str(t) for t in tasks} if isinstance(tasks, list) else set()
+        )
+        if not (task_types & self._FACEBOOK_PAGE_CONTENT_TASKS):
+            raise FacebookPagePermissionMissingError(
+                "Jeton de Page Facebook insuffisant : tâches de création de contenu absentes"
+            )
+        return str(page_token)
 
     async def publish_to_facebook_page(
         self,

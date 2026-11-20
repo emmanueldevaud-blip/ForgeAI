@@ -636,6 +636,11 @@ class CommunityManagerStudioService:
         publication = await self.pub_service.generate_from_calendar_entry(
             data.calendar_entry_id, gen_request
         )
+
+        # Sélection automatique de la musique Instagram (ig_audio) si une photo est fournie
+        if data.photo_id and _is_sport_publication(publication):
+            publication = await self._refresh_ig_music(publication)
+
         return publication
 
     async def get_draft(self, publication_id: int) -> Optional[SportPublication]:

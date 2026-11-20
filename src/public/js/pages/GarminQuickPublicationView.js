@@ -8,6 +8,8 @@ import {
   searchStudioMusic,
   getEditorialBrief,
   regeneratePublicationContent,
+  getLocalStudioMusic,
+  getStudioAudioMatch,
 } from '../services/sportApi.js?v=14';
 
 /** Parcours Garmin sans timeline ni Studio graphique. */
@@ -30,6 +32,9 @@ export class GarminQuickPublicationView {
     this.previewOpen = false;
     this.pollTimer = null;
     this.musicItems = [];
+    this.localMusicItems = [];
+    this.musicLoading = false;
+    this.musicError = null;
     this.musicQueryIndex = 0;
     this.captionSaveTimer = null;
     this.musicMuted = true;
@@ -57,7 +62,8 @@ export class GarminQuickPublicationView {
       const carousel = this.publication?.design?.carousel;
       this.selected = Array.isArray(carousel) && carousel.length
         ? [...carousel] : (this.publication?.photo_id ? [this.publication.photo_id] : []);
-      await this._loadMusic(false);
+      // La recherche du catalogue Meta est indépendante du chargement du brouillon.
+      // Ne pas bloquer l'ouverture de la publication sur un fournisseur externe.
       const savedSuggestions = this.publication?.design?.ig_audio?.suggestions;
       if (Array.isArray(savedSuggestions) && savedSuggestions.length) {
         this.musicItems = savedSuggestions;
@@ -70,6 +76,8 @@ export class GarminQuickPublicationView {
       this.error = error?.data?.detail || error?.message || 'Impossible de charger les photos.';
     }
     this.render();
+    this._loadLocalMusic();
+    if (this.publication?.status !== 'shared') this._loadMusic(false);
   }
 
   render() {
@@ -116,12 +124,12 @@ export class GarminQuickPublicationView {
       ${this.error ? `<div class="alert alert-error">${this._escape(this.error)}</div>` : ''}
       ${!ready ? `<section class="cm-studio-photo-picker garmin-quick-photos">
         <p class="garmin-quick-intro"><span class="garmin-quick-intro-icon" aria-hidden="true">📸</span><span><strong>Composez votre Reel</strong><small>Choisissez vos photos · la première sera la couverture</small></span></p>
-        ${this.editorialBrief?.direction ? `<div class="garmin-editorial-brief"><span>🎨</span><label for="garmin-editorial-style">Direction</label><select id="garmin-editorial-style" data-action="editorial-style"><option value="humour">Humour</option><option value="aventure">Aventure</option><option value="performance">Performance</option><option value="souvenir">Souvenir</option></select><small>${this._escape(this.editorialBrief.direction.reason || '')}</small></div>` : ''}
+        ${this.editorialBrief?.direction ? `<div class="garmin-editorial-brief"><span>🎨</span><label for="garmin-editorial-style">Ambiance</label><select id="garmin-editorial-style" data-action="editorial-style"><option value="cinematique">Cinématique</option><option value="humour">Humour</option><option value="dynamique">Dynamique</option><option value="performance">Performance</option></select><small>${this._escape(this.editorialBrief.direction.reason || '')}</small></div>` : ''}
         <div class="cm-studio-photo-grid">${this.photos.map(p => this._photo(p)).join('')}</div>
         ${this.photos.length >= this.photosLimit ? '<button class="btn btn-secondary" data-action="more-photos">Voir plus</button>' : ''}
         ${this.generating ? '<p class="garmin-quick-progress">Préparation de la vidéo et publication en cours…</p>' : ''}
         <div class="garmin-quick-caption-card"><label for="garmin-title">Légende</label><input id="garmin-title" class="form-control" data-field="title" value="${this._escape(title)}"><label for="garmin-hashtags">Hashtags</label><textarea id="garmin-hashtags" class="form-control" data-field="hashtags" rows="2">${this._escape(hashtags)}</textarea><small data-caption-status></small></div>
-        <div class="garmin-quick-music">🎵 <select id="garmin-music-select" data-action="music-select"><option value="">${this._escape(pub.design?.ig_audio?.title || 'Choisir un titre')}</option>${this.musicItems.map((item, index) => `<option value="${index}" ${String(item.audio_id) === String(pub.design?.ig_audio?.audio_id) ? 'selected' : ''}>${this._escape(item.title || 'Sans titre')} — ${this._escape(item.display_artist || 'Artiste')}</option>`).join('')}</select><button class="btn btn-link" data-action="music-refresh">10 autres titres</button>${pub.design?.ig_audio?.preview_link ? `<div class="garmin-music-preview"><audio data-music-audio data-start-time-ms="${Number(pub.design.ig_audio.start_time_ms) || 0}" src="${this._escape(pub.design.ig_audio.preview_link)}" autoplay loop ${this.musicMuted ? 'muted' : ''} controls></audio><button type="button" class="btn btn-link" data-action="music-mute">${this.musicMuted ? '🔇' : '🔊'}</button></div>` : ''}</div>
+        <div class="garmin-quick-music">🎵 <label for="garmin-local-music-select">Musique du Reel</label><select id="garmin-local-music-select" data-action="local-music-select"><option value="">${this._escape(pub.design?.audio?.title || 'Choisir une piste locale')}</option>${this.localMusicItems.map(item => `<option value="${this._escape(item.track_id)}" ${String(item.track_id) === String(pub.design?.audio?.track_id) ? 'selected' : ''}>${this._escape(item.title)} — ${this._escape(item.artist)}</option>`).join('')}</select><button class="btn btn-link" data-action="audio-match">🎧 Proposition IA</button><label for="garmin-music-select">Musique Instagram (Meta)</label><select id="garmin-music-select" data-action="music-select"><option value="">${this._escape(pub.design?.ig_audio?.title || 'Choisir un titre')}</option>${this.musicItems.map((item, index) => `<option value="${index}" ${String(item.audio_id) === String(pub.design?.ig_audio?.audio_id) ? 'selected' : ''}>${this._escape(item.title || 'Sans titre')} — ${this._escape(item.display_artist || 'Artiste')}</option>`).join('')}</select><button class="btn btn-link" data-action="music-refresh">10 autres titres</button>${this.musicLoading ? '<small>Recherche musicale…</small>' : ''}${this.musicError ? `<small class="text-danger">${this._escape(this.musicError)} <button class="btn btn-link" data-action="music-retry">Réessayer</button></small>` : ''}${pub.design?.audio?.url ? `<div class="garmin-music-preview"><audio data-music-audio src="${this._escape(pub.design.audio.url)}" preload="metadata" loop ${this.musicMuted ? 'muted' : ''} controls></audio><button type="button" class="btn btn-link" data-action="music-mute">${this.musicMuted ? '🔇' : '🔊'}</button><small>Extrait : ${Number(pub.design.audio.audio_match?.start_time || 0).toFixed(1)}s → ${Number(pub.design.audio.audio_match?.end_time || 0).toFixed(1)}s. ${this._escape(pub.design.audio.audio_match?.reason || 'Piste locale vérifiée.')}</small></div>` : '<small>Musique locale indisponible pour le moment.</small>'}</div>
         <div class="garmin-quick-actions"><button class="btn btn-secondary" data-action="preview">👀 Aperçu</button><button class="btn btn-secondary" data-action="regenerate-editorial">🔄 Nouvelle idée</button>
         <button class="btn btn-primary" data-action="publish" ${!this.selected.length || this.busy || this.generating ? 'disabled' : ''}>
           ${this.busy ? 'Publication…' : '🚀 Publier'}
@@ -146,7 +154,7 @@ export class GarminQuickPublicationView {
 
   _photo(photo) {
     const id = Number(photo.id);
-    return `<button type="button" class="cm-studio-photo-thumb ${this.selected.includes(id) ? 'cm-studio-photo-thumb--selected' : ''}" data-photo-id="${id}">
+    return `<button type="button" draggable="true" class="cm-studio-photo-thumb ${this.selected.includes(id) ? 'cm-studio-photo-thumb--selected' : ''}" data-photo-id="${id}">
       <img src="${this._escape(photo.thumbnail_url || `/photos/${id}/file?size=small`)}" alt="Photo" loading="lazy">
       ${this.selected.includes(id) ? `<span class="cm-studio-photo-order">${this.selected.indexOf(id) + 1}</span>` : ''}
     </button>`;
@@ -161,11 +169,28 @@ export class GarminQuickPublicationView {
       this.render();
       this._schedulePhotoMusicAnalysis();
     }));
+    this.element.querySelectorAll('[data-photo-id]').forEach(btn => {
+      btn.addEventListener('dragstart', event => {
+        event.dataTransfer?.setData('text/plain', btn.dataset.photoId);
+        if (event.dataTransfer) event.dataTransfer.effectAllowed = 'move';
+      });
+      btn.addEventListener('dragover', event => event.preventDefault());
+      btn.addEventListener('drop', async event => {
+        event.preventDefault();
+        const from = this.selected.indexOf(Number(event.dataTransfer?.getData('text/plain')));
+        const to = this.selected.indexOf(Number(btn.dataset.photoId));
+        if (from < 0 || to < 0 || from === to) return;
+        const [photoId] = this.selected.splice(from, 1);
+        this.selected.splice(to, 0, photoId);
+        this.render();
+        await this._savePhotoOrder();
+      });
+    });
     this.element.querySelector('[data-action="publish"]')?.addEventListener('click', () => this._publish());
     this.element.querySelector('[data-action="regenerate-editorial"]')?.addEventListener('click', () => this._regenerateEditorial());
     const styleSelect = this.element.querySelector('[data-action="editorial-style"]');
     if (styleSelect) {
-      styleSelect.value = this.publication?.design?.editorial_engine?.style || this.editorialBrief?.direction?.primary || 'souvenir';
+      styleSelect.value = this.publication?.design?.editorial_engine?.style || 'performance';
       styleSelect.addEventListener('change', async (event) => {
         const design = this.publication?.design && typeof this.publication.design === 'object' ? this.publication.design : {};
         const engine = design.editorial_engine && typeof design.editorial_engine === 'object' ? design.editorial_engine : {};
@@ -176,8 +201,11 @@ export class GarminQuickPublicationView {
     this.element.querySelector('[data-action="preview"]')?.addEventListener('click', () => { this.previewOpen = true; this.render(); });
     this.element.querySelector('[data-action="music"]')?.addEventListener('click', () => this._chooseMusic());
     this.element.querySelector('[data-action="music-refresh"]')?.addEventListener('click', () => this._loadMusic(true));
+    this.element.querySelector('[data-action="music-retry"]')?.addEventListener('click', () => this._loadMusic(false));
     this.element.querySelector('[data-action="more-photos"]')?.addEventListener('click', async () => { this.photosLimit += 20; this.photos = await getSuggestedPhotos(this.publicationId, this.photosLimit); this.render(); });
     this.element.querySelector('[data-action="music-select"]')?.addEventListener('change', event => this._selectMusic(Number(event.target.value)));
+    this.element.querySelector('[data-action="local-music-select"]')?.addEventListener('change', event => this._selectLocalMusic(event.target.value));
+    this.element.querySelector('[data-action="audio-match"]')?.addEventListener('click', () => this._applyAudioMatch());
     this.element.querySelector('[data-action="music-mute"]')?.addEventListener('click', event => {
       const audio = this.element.querySelector('[data-music-audio]');
       if (!audio) return;
@@ -187,7 +215,7 @@ export class GarminQuickPublicationView {
     });
     const musicAudio = this.element.querySelector('[data-music-audio]');
     if (musicAudio) musicAudio.addEventListener('loadedmetadata', () => {
-      const start = Number(musicAudio.dataset.startTimeMs || 0) / 1000;
+      const start = Number(musicAudio.dataset.startTimeMs || (this.publication?.design?.audio?.audio_match?.start_time || 0) * 1000) / 1000;
       if (start > 0 && Number.isFinite(start) && start < musicAudio.duration) musicAudio.currentTime = start;
     }, { once: true });
     const publishedVideo = this.element.querySelector('video');
@@ -236,6 +264,15 @@ export class GarminQuickPublicationView {
     } catch (error) {
       this.error = error?.data?.detail || error?.message || 'La génération vidéo a échoué.';
       this.busy = false; this.render();
+    }
+  }
+
+  async _savePhotoOrder() {
+    try {
+      this.publication = await updateStudioDraft(this.publicationId, { photo_ids: this.selected });
+    } catch (error) {
+      this.error = error?.data?.detail || error?.message || 'Réorganisation impossible.';
+      this.render();
     }
   }
 
@@ -346,13 +383,67 @@ export class GarminQuickPublicationView {
   }
 
   async _loadMusic(refresh) {
+    this.musicLoading = true;
+    this.musicError = null;
+    this.render();
     try {
       if (refresh) this.musicQueryIndex = (this.musicQueryIndex + 1) % this.musicQueries.length;
       const result = await searchStudioMusic(this.publicationId, this.musicQueries[this.musicQueryIndex]);
       this.musicItems = (result?.items || []).slice(0, 10);
+    } catch (error) {
+      this.musicError = error?.data?.detail || error?.message || 'Musiques Instagram indisponibles.';
+    } finally {
+      this.musicLoading = false;
+      this.render();
+    }
+  }
+
+  async _loadLocalMusic() {
+    try {
+      const result = await getLocalStudioMusic(this.publicationId);
+      this.localMusicItems = result?.items || [];
+      this.render();
+    } catch (_) {
+      // La création du Reel reste possible sans musique locale.
+    }
+  }
+
+  async _selectLocalMusic(trackId) {
+    const item = this.localMusicItems.find(candidate => candidate.track_id === trackId);
+    if (!item) return;
+    try {
+      this.publication = await updateStudioDraft(this.publicationId, {
+        design: { audio: { source: 'library_local', track_id: item.track_id, track: item.track_id, title: item.title, artist: item.artist, url: item.url, duration: item.duration, license: item.license, license_name: item.license_name, license_url: item.license_url, attribution: item.attribution, enabled: true, audio_status: 'selected', embedded: false } },
+      });
       this.render();
     } catch (error) {
-      this.error = error?.data?.detail || error?.message || 'Musiques Instagram indisponibles.';
+      this.error = error?.data?.detail || error?.message || 'Sélection de la piste impossible.';
+      this.render();
+    }
+  }
+
+  async _applyAudioMatch() {
+    try {
+      const result = await getStudioAudioMatch(this.publicationId);
+      const item = result?.item;
+      if (!item?.track_id) return;
+      const maxDuration = Number(item.analysis?.duration || item.duration || 0);
+      const suggested = item.excerpt || {};
+      const start = window.prompt(`Début de l'extrait (0 à ${maxDuration.toFixed(1)} s)`, String(suggested.start_time || 0));
+      if (start === null) return;
+      const end = window.prompt(`Fin de l'extrait (supérieure à ${start} et inférieure à ${maxDuration.toFixed(1)} s)`, String(suggested.end_time || Math.min(maxDuration, 12)));
+      if (end === null) return;
+      const startValue = Number(start);
+      const endValue = Number(end);
+      if (!Number.isFinite(startValue) || !Number.isFinite(endValue) || startValue < 0 || endValue <= startValue || (maxDuration > 0 && endValue > maxDuration)) {
+        this.error = 'Les limites de l’extrait sont invalides.';
+        this.render();
+        return;
+      }
+      this.publication = await updateStudioDraft(this.publicationId, { design: { audio: { track_id: item.track_id, track: item.track_id, title: item.title, artist: item.artist, url: item.url, duration: item.duration, license: item.license, audio_match: { ...suggested, start_time: startValue, end_time: endValue, duration: endValue - startValue, reason: 'Extrait validé dans le Quick Reel' }, enabled: true } } });
+      this.render();
+    } catch (error) {
+      this.error = error?.data?.detail || error?.message || 'Proposition audio indisponible.';
       this.render();
     }
   }

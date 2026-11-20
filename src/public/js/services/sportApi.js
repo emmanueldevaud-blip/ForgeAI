@@ -311,6 +311,14 @@ export async function searchStudioMusic(publicationId, query) {
   return cmApi.get(`/community-manager/studio/draft/${encodeURIComponent(publicationId)}/music`, { params: { query } });
 }
 
+export async function getLocalStudioMusic(publicationId) {
+  return cmApi.get(`/community-manager/studio/draft/${encodeURIComponent(publicationId)}/local-music`);
+}
+
+export async function getStudioAudioMatch(publicationId) {
+  return cmApi.get(`/community-manager/studio/draft/${encodeURIComponent(publicationId)}/audio-match`);
+}
+
 // --------------------------------------------------------------------------- #
 // Community Manager V4 - Calendrier mensuel/hebdomadaire + Suggestions
 // --------------------------------------------------------------------------- #

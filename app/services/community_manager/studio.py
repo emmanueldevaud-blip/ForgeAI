@@ -515,6 +515,9 @@ def render_sport_overlay_image(photo_path: str, stats: dict[str, str], out_path:
             "aventure": ((3, 105, 161, 218), (255, 255, 255, 255), (186, 230, 253, 255)),
             "performance": ((0, 0, 0, 180), (255, 255, 255, 255), (200, 200, 200, 255)),
             "souvenir": ((120, 53, 15, 210), (255, 255, 255, 255), (254, 215, 170, 255)),
+            # Noms Quick Reel : conserver les palettes historiques du moteur.
+            "cinematique": ((3, 105, 161, 218), (255, 255, 255, 255), (186, 230, 253, 255)),
+            "dynamique": ((0, 0, 0, 180), (255, 255, 255, 255), (200, 200, 200, 255)),
         }
         panel_color, value_color, label_color = palette.get(str(style or "performance").lower(), palette["performance"])
 
@@ -637,9 +640,17 @@ class CommunityManagerStudioService:
             data.calendar_entry_id, gen_request
         )
 
-        # Sélection automatique de la musique Instagram (ig_audio) si une photo est fournie
-        if data.photo_id and _is_sport_publication(publication):
-            publication = await self._refresh_ig_music(publication)
+        # Les deux usages audio sont distincts : ``ig_audio`` est une référence
+        # Meta (non téléchargeable par ForgeAI), ``audio`` est la piste locale
+        # vérifiée que le moteur FFmpeg peut réellement intégrer. Initialiser la
+        # piste locale ici évite qu'un brouillon créé depuis le calendrier affiche
+        # une musique sélectionnée alors que le rendu n'a aucune source audio.
+        if _is_sport_publication(publication):
+            publication = await self._ensure_sport_defaults(publication, persist_overlay=False)
+            if data.photo_id:
+                publication = await self._refresh_ig_music(publication)
+            await self.db.commit()
+            await self.db.refresh(publication)
 
         return publication
 
@@ -1628,6 +1639,20 @@ class CommunityManagerStudioService:
             pub.design = design
         except Exception:
             logger.exception("[CM-STUDIO] Impossible de sélectionner l'audio sport pour publication %s", pub.id)
+
+        # Analyse locale de l'extrait, distincte de la référence Meta ig_audio.
+        try:
+            from app.services.community_manager.audio_matching import recommend_track
+            style = str((pub.design or {}).get("editorial_engine", {}).get("style") or "performance")
+            current = (pub.design or {}).get("audio") or {}
+            if current.get("track_id") and not current.get("audio_match"):
+                recommendation = recommend_track(style, 12.0)
+                if recommendation and recommendation.get("track_id") == current.get("track_id"):
+                    design = dict(pub.design or {})
+                    design["audio"] = {**current, "audio_match": recommendation["excerpt"]}
+                    pub.design = design
+        except Exception:
+            logger.exception("[CM-STUDIO] Impossible d'analyser l'extrait audio sport pour publication %s", pub.id)
 
         await self.db.flush()
         return pub

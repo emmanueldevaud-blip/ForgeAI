@@ -1044,6 +1044,7 @@ class StudioRenderService:
             # Style léger et déterministe : transitions visibles sans zoompan
             # (qui surcharge fortement le VPS).
             "montage_style": "trail-fade-v1",
+            "audio_match": (design.get("audio") or {}).get("audio_match") or {},
         }
 
         # Idempotence : rendu existant et valide (et entrée inchangée)
@@ -1081,11 +1082,16 @@ class StudioRenderService:
         ffmpeg = self._find_binary("ffmpeg") or "ffmpeg"
         # Qualité suffisante pour un Reel Instagram, avec un encodage nettement
         # plus rapide et un fichier plus léger à transférer vers Meta.
-        width, height, fps = 720, 1280, 30
+        width, height, fps = 1080, 1920, 30
+        montage_style = str((design.get("editorial_engine") or {}).get("style") or "performance").lower()
         n_photos = len(photos)
         seg_dur = 0.0
+        transition_dur = 0.0
         if n_photos >= 2:
-            seg_dur, target_dur = diaporama_timing(n_photos)
+            seg_dur, raw_target_dur = diaporama_timing(n_photos)
+            transition_dur = {"cinematique": 0.8, "humour": 0.35, "dynamique": 0.25, "performance": 0.5}.get(montage_style, 0.5)
+            transition_dur = min(transition_dur, max(0.1, seg_dur / 2))
+            target_dur = raw_target_dur - transition_dur * (n_photos - 1)
         else:
             target_dur = max(8.0, min(float(duration or 12.0), 20.0))
         temp_dir = Path(tempfile.mkdtemp(prefix="forgeai-sport-video-"))
@@ -1100,11 +1106,22 @@ class StudioRenderService:
             # recalculait chaque frame en haute résolution et pouvait monopoliser
             # plusieurs minutes de CPU sur le VPS.
             def _segment_command(input_path: Path, seconds: float, out_path: Path) -> list[str]:
-                vf = (
+                base_vf = (
                     f"scale={width}:{height}:force_original_aspect_ratio=increase,"
                     f"crop={width}:{height},"
                     f"format=yuv420p"
                 )
+                # Effets Quick Reel déterministes, appliqués dans le renderer
+                # existant. Performance reste sobre ; les autres ambiances ont
+                # un mouvement visuel réel et vérifiable dans le MP4.
+                if montage_style == "cinematique":
+                    vf = f"{base_vf},zoompan=z='min(zoom+0.0015,1.12)':d={max(1, int(seconds * fps))}:s={width}x{height}:fps={fps}"
+                elif montage_style == "dynamique":
+                    vf = f"{base_vf},zoompan=z='min(zoom+0.004,1.18)':d={max(1, int(seconds * fps))}:s={width}x{height}:fps={fps}"
+                elif montage_style == "humour":
+                    vf = f"{base_vf},hflip"
+                else:
+                    vf = base_vf
                 return [
                     ffmpeg, "-y",
                     "-loop", "1",
@@ -1121,7 +1138,7 @@ class StudioRenderService:
                 ]
 
             if n_photos >= 2:
-                # Diaporama : overlay stats par photo (originaux) + segments + concat
+                # Diaporama : overlay stats par photo (originaux) + segments + xfade.
                 seg_paths: list[Path] = []
                 for idx, pid in enumerate(photos):
                     src_path, _fn, _mt = await photo_service.resolve_file(pid, "original")
@@ -1139,23 +1156,26 @@ class StudioRenderService:
                         self._run_ffmpeg, _segment_command(input_image, seg_dur, seg_out)
                     )
                     seg_paths.append(seg_out)
-                concat_list = temp_dir / "segments.txt"
-                concat_list.write_text(
-                    "\n".join(
-                        f"file '{str(p).replace(chr(39), chr(92) + chr(39))}'"
-                        for p in seg_paths
+                cmd_c = [ffmpeg, "-y"]
+                for segment in seg_paths:
+                    cmd_c.extend(["-i", str(segment)])
+                filters = []
+                current = "0:v"
+                cumulative_offset = seg_dur - transition_dur
+                for idx in range(1, len(seg_paths)):
+                    output = f"xf{idx}"
+                    filters.append(
+                        f"[{current}][{idx}:v]xfade=transition=fade:duration={transition_dur}:offset={cumulative_offset}[{output}]"
                     )
-                    + "\n",
-                    encoding="utf-8",
-                )
-                cmd_c = [
-                    ffmpeg, "-y",
-                    "-f", "concat",
-                    "-safe", "0",
-                    "-i", str(concat_list),
-                    "-c", "copy",
+                    current = output
+                    cumulative_offset += seg_dur - transition_dur
+                cmd_c.extend([
+                    "-filter_complex", ";".join(filters),
+                    "-map", f"[{current}]",
+                    "-an", "-c:v", "libx264", "-preset", "ultrafast",
+                    "-pix_fmt", "yuv420p", "-movflags", "+faststart",
                     str(video_tmp),
-                ]
+                ])
                 await asyncio.to_thread(self._run_ffmpeg, cmd_c)
             else:
                 # Photo unique : _ensure_sport_defaults est appelé sans persister
@@ -1192,6 +1212,7 @@ class StudioRenderService:
             )
             cmd_a = [
                 ffmpeg, "-y",
+                "-ss", str(max(0.0, float((audio_cfg.get("audio_match") or {}).get("start_time") or 0.0))),
                 "-i", str(audio_path),
                 "-vn",
                 "-af", af,

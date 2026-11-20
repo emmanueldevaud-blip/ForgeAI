@@ -273,6 +273,33 @@ async def search_studio_music(
     return {"items": await search_ig_audio(service.db, query, limit=10)}
 
 
+@router.get("/studio/draft/{publication_id}/local-music")
+async def list_local_studio_music(
+    publication_id: int,
+    service: CommunityManagerStudioService = Depends(get_cm_studio_service),
+):
+    """Catalogue local vérifié, utilisable par le lecteur et FFmpeg."""
+    publication = await service.get_draft(publication_id)
+    if not publication:
+        raise HTTPException(status_code=404, detail="Brouillon introuvable")
+    from app.services.community_manager.audio import list_tracks
+    return {"items": [track for track in list_tracks() if track.get("available")]}
+
+
+@router.get("/studio/draft/{publication_id}/audio-match")
+async def suggest_local_studio_audio(
+    publication_id: int,
+    service: CommunityManagerStudioService = Depends(get_cm_studio_service),
+):
+    publication = await service.get_draft(publication_id)
+    if not publication:
+        raise HTTPException(status_code=404, detail="Brouillon introuvable")
+    from app.services.community_manager.audio_matching import recommend_track
+    design = publication.design if isinstance(publication.design, dict) else {}
+    style = str((design.get("editorial_engine") or {}).get("style") or "performance")
+    return {"item": recommend_track(style, 12.0)}
+
+
 @router.post("/studio/draft/{publication_id}/variants", response_model=PublicationVariantsResponse)
 async def generate_text_variants(
     publication_id: int,

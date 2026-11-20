@@ -11760,6 +11760,25 @@
     box-sizing: border-box;
   }
 
+  .garmin-audio-proposal-heading {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .garmin-audio-proposal-heading button {
+    width: 100%;
+    max-width: 100%;
+  }
+
+  .garmin-audio-proposal {
+    max-width: 100%;
+    box-sizing: border-box;
+  }
+
+  .garmin-audio-proposal > span:last-child {
+    flex: 0 0 auto;
+  }
+
   .garmin-quick-header { align-items:stretch; flex-direction:column; gap:12px; }
   .garmin-quick-header .btn { align-self:flex-start; }
   .garmin-quick-step { padding:16px; border-radius:15px; }

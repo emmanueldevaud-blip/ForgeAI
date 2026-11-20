@@ -393,7 +393,7 @@ async def suggest_local_studio_audio_proposals(
             "source": "instagram",
             "status": "available_on_meta",
             "reason": f"Proposition Instagram adaptée à l'ambiance {style} et aux photos sélectionnées.",
-            "preview_link": item.get("preview_link"),
+            "preview_link": item.get("preview_link") or item.get("on_platform_audio_preview_link"),
         })
     return {"items": items[:10], "eligible_count": len(items[:10]), "source": "instagram", "local_render": False, "reason": "Catalogue Instagram Meta" if items else "Aucune réponse exploitable du catalogue Instagram Meta"}
 

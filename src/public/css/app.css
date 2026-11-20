@@ -11690,6 +11690,20 @@
 .garmin-audio-player { display:block; width:100%; margin-top:16px; }
 .garmin-excerpt { display:flex; align-items:center; flex-wrap:wrap; gap:8px; margin-top:9px; color:#334155; font-size:.84rem; }
 .garmin-excerpt small { flex-basis:100%; }
+.garmin-audio-proposals { display:grid; gap:8px; margin-top:12px; }
+.garmin-audio-proposals > p { margin:4px 0; color:#64748b; }
+.garmin-audio-proposals > small { color:#64748b; }
+.garmin-audio-proposal-heading { display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:4px; }
+.garmin-audio-proposal-heading strong { color:#0f172a; font-size:.9rem; }
+.garmin-audio-proposal { display:flex; align-items:center; gap:10px; width:100%; padding:11px; border:1px solid #e2e8f0; border-radius:12px; background:#fff; text-align:left; cursor:pointer; }
+.garmin-audio-proposal:hover,.garmin-audio-proposal.is-selected { border-color:#2563eb; background:#eff6ff; }
+.garmin-audio-rank { display:grid; place-items:center; width:25px; height:25px; flex:0 0 25px; border-radius:50%; background:#e2e8f0; color:#475569; font-size:.75rem; font-weight:800; }
+.garmin-audio-proposal.is-selected .garmin-audio-rank { background:#2563eb; color:#fff; }
+.garmin-audio-proposal-main { min-width:0; flex:1; }
+.garmin-audio-proposal-main strong,.garmin-audio-proposal-main small,.garmin-audio-proposal-main em { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.garmin-audio-proposal-main strong { color:#0f172a; font-size:.88rem; }
+.garmin-audio-proposal-main small,.garmin-audio-proposal-main em { color:#64748b; font-size:.76rem; font-style:normal; margin-top:2px; }
+.garmin-audio-proposal > span:last-child { color:#2563eb; font-size:.75rem; font-weight:700; white-space:nowrap; }
 .garmin-quick-step label { display:block; margin-top:12px; color:#475569; font-size:.84rem; font-weight:600; }
 .garmin-output-step { background:#f8fafc; }
 .garmin-final-preview { display:block; width:min(100%,360px); max-height:62dvh; margin:0 auto 18px; aspect-ratio:9/16; object-fit:cover; border-radius:16px; background:#0f172a; }
@@ -11697,6 +11711,17 @@
 .garmin-mini-preview img { flex:1; min-width:0; object-fit:cover; }
 .garmin-mini-preview span { margin:auto; color:#94a3b8; }
 .garmin-output-actions { display:flex; justify-content:flex-end; gap:10px; }
+.garmin-caption-fields { display:grid; gap:8px; }
+.garmin-caption-fields label { margin:8px 0 0; }
+.garmin-caption-fields input,.garmin-caption-fields textarea { width:100%; box-sizing:border-box; min-height:46px; }
+.garmin-caption-fields textarea { min-height:104px; resize:vertical; }
+.garmin-preview-trigger { min-height:46px; width:100%; }
+.garmin-preview-modal--video { display:flex; flex-direction:column; max-width:460px; }
+.garmin-modal-video { display:block; width:min(100%,360px); max-height:68dvh; aspect-ratio:9/16; object-fit:cover; margin:0 auto 14px; border-radius:14px; background:#0f172a; }
+.garmin-preview-loading { display:grid; place-items:center; min-height:320px; border-radius:14px; background:#0f172a; color:#e2e8f0; text-align:center; }
+.garmin-modal-caption { display:grid; gap:5px; padding:4px 2px 14px; line-height:1.4; }
+.garmin-modal-caption span { color:#2563eb; white-space:pre-wrap; }
+.garmin-modal-publish { width:100%; min-height:46px; }
 .garmin-render-status { margin:12px 0 0; color:#2563eb; font-size:.86rem; }
 @media (max-width:680px) {
   .garmin-quick-header { align-items:stretch; flex-direction:column; gap:12px; }

@@ -300,6 +300,46 @@ async def suggest_local_studio_audio(
     return {"item": recommend_track(style, 12.0)}
 
 
+@router.get("/studio/draft/{publication_id}/audio-proposals")
+async def suggest_local_studio_audio_proposals(
+    publication_id: int,
+    exclude: str = Query(""),
+    service: CommunityManagerStudioService = Depends(get_cm_studio_service),
+):
+    publication = await service.get_draft(publication_id)
+    if not publication:
+        raise HTTPException(status_code=404, detail="Brouillon introuvable")
+    from app.services.community_manager.ig_music import pick_audio_for_photos_bounded
+    design = publication.design if isinstance(publication.design, dict) else {}
+    style = str((design.get("editorial_engine") or {}).get("style") or "performance")
+    excluded = {value for value in exclude.split(",") if value}
+    carousel = design.get("carousel") if isinstance(design.get("carousel"), list) else []
+    if not carousel and publication.photo_id:
+        carousel = [publication.photo_id]
+    result = await pick_audio_for_photos_bounded(
+        service.db,
+        service.current_user,
+        carousel,
+        title=f"{publication.title or ''} {style}".strip(),
+        hashtags=publication.hashtags,
+        timeout_seconds=25.0,
+    )
+    suggestions = (result or {}).get("suggestions") or []
+    items = []
+    for item in suggestions:
+        audio_id = str(item.get("audio_id") or "")
+        if not audio_id or audio_id in excluded:
+            continue
+        items.append({
+            **item,
+            "source": "instagram",
+            "status": "available_on_meta",
+            "reason": f"Proposition Instagram adaptée à l'ambiance {style} et aux photos sélectionnées.",
+            "preview_link": item.get("preview_link"),
+        })
+    return {"items": items[:10], "eligible_count": len(items[:10]), "source": "instagram", "local_render": False}
+
+
 @router.post("/studio/draft/{publication_id}/variants", response_model=PublicationVariantsResponse)
 async def generate_text_variants(
     publication_id: int,

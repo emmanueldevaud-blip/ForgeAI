@@ -143,3 +143,29 @@ def recommend_track(style: str, reel_duration: float) -> dict[str, Any] | None:
         return None
     chosen = max(candidates, key=lambda item: (item["score"], item["track_id"]))
     return {**chosen, "excerpt": select_excerpt(chosen["analysis"], reel_duration, style)}
+
+
+def recommend_tracks(style: str, reel_duration: float, limit: int = 10, exclude: set[str] | None = None) -> list[dict[str, Any]]:
+    """Retourne uniquement des titres dont les voix sont explicitement confirmées.
+
+    Le catalogue actuel marque ses pistes historiques ``unknown`` : elles sont
+    volontairement exclues plutôt que présentées à tort comme des chansons.
+    """
+    excluded = {str(value) for value in (exclude or set())}
+    candidates: list[dict[str, Any]] = []
+    for item in list_tracks():
+        if not item.get("available") or item.get("vocals") != "confirmed" or str(item.get("track_id")) in excluded:
+            continue
+        analysis = analyze_track(str(item["track_id"]))
+        if not analysis:
+            continue
+        score = float(analysis.get("energy") or 0)
+        if style in {"dynamique", "performance"} and analysis.get("energy", 0) > 0.6:
+            score += 1
+        if style == "cinematique" and analysis.get("structure") == "progressive":
+            score += 1
+        if style == "humour" and "joyeux" in item.get("tags", []):
+            score += 1
+        candidates.append({**item, "analysis": analysis, "score": round(score, 3), "excerpt": select_excerpt(analysis, reel_duration, style), "reason": f"Voix confirmées · affinité {style} · énergie {analysis.get('energy')}"})
+    candidates.sort(key=lambda item: (-item["score"], item["track_id"]))
+    return candidates[:max(0, min(int(limit), 10))]

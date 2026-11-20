@@ -53,6 +53,7 @@ class TrackInfo:
     source: str
     attribution: str
     available: bool
+    vocals: str = "unknown"  # confirmed | instrumental | unknown
 
 
 # Catalogue statique (source de vérité = src/public/music + CREDITS.txt)
@@ -180,6 +181,7 @@ def list_tracks() -> list[dict[str, Any]]:
             "source": t.source,
             "url": f"{PUBLIC_MUSIC_URL_PREFIX}/{t.filename}",
             "available": available,
+            "vocals": t.vocals,
         })
     return out
 

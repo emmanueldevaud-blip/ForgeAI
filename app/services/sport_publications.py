@@ -1227,7 +1227,7 @@ class SportPublicationService:
                     title="Nouvelle activite disponible",
                     message="Une publication Instagram peut etre generee a partir de cette sortie.",
                     category="sport_publication",
-                    data={"url": f"/sport/publications?activity={act.id}", "activity_id": act.id},
+                    data={"url": "/sport/activities", "activity_id": act.id},
                 )
                 sent += 1
             except Exception:

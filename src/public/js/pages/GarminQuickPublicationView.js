@@ -41,13 +41,22 @@ export class GarminQuickPublicationView {
   async initialize() {
     try {
       this.publication = await getStudioDraft(this.publicationId);
+      this.editedTitle = this.publication?.title || '';
+      this.editedHashtags = this.publication?.hashtags || '';
+      // Publication déjà partagée : lecture seule, on ne charge que le contenu publié.
+      if (this.publication?.status === 'shared') {
+        if (this.publication?.companion_video_status === 'ready') {
+          this.videoReady = true;
+          await this._loadVideoPreview();
+        }
+        this.render();
+        return;
+      }
       this.photos = await getSuggestedPhotos(this.publicationId, this.photosLimit);
       try { this.editorialBrief = await getEditorialBrief(this.publicationId); } catch (_) { this.editorialBrief = null; }
       const carousel = this.publication?.design?.carousel;
       this.selected = Array.isArray(carousel) && carousel.length
         ? [...carousel] : (this.publication?.photo_id ? [this.publication.photo_id] : []);
-      this.editedTitle = this.publication?.title || '';
-      this.editedHashtags = this.publication?.hashtags || '';
       await this._loadMusic(false);
       const savedSuggestions = this.publication?.design?.ig_audio?.suggestions;
       if (Array.isArray(savedSuggestions) && savedSuggestions.length) {
@@ -69,6 +78,7 @@ export class GarminQuickPublicationView {
     const pub = this.publication || {};
     const status = pub.companion_video_status || 'none';
     const ready = this.videoReady && status === 'ready';
+    const isShared = pub.status === 'shared';
     const title = this.editedTitle || pub.title || '';
     const hashtags = this.editedHashtags || pub.hashtags || '';
     const caption = [title, hashtags].filter(Boolean).join('\n\n');
@@ -80,6 +90,24 @@ export class GarminQuickPublicationView {
         <small>${this._escape(element.label || '')}</small>
         <strong>${this._escape(element.value || '')} ${this._escape(element.unit || '')}</strong>
       </span>`).join('');
+
+    // Publication déjà partagée : lecture seule, seul le retour est possible.
+    if (isShared) {
+      const music = pub.design?.ig_audio;
+      this.element.innerHTML = `
+        <div class="page-header"><div><h1>${this._escape(pub.title || 'Publication Garmin')}</h1>
+          <p class="page-subtitle">Publication publiée</p></div></div>
+        ${this.error ? `<div class="alert alert-error">${this._escape(this.error)}</div>` : ''}
+        <section class="garmin-quick-result">
+          ${ready ? `<video controls playsinline preload="metadata" class="garmin-quick-video" src="${this._escape(this.videoUrl || '')}"></video>` : (status === 'ready' ? '<div class="garmin-quick-video garmin-quick-video--loading">Chargement de l’aperçu vidéo…</div>' : '')}
+          <div class="garmin-quick-caption-card"><strong>${this._escape(title)}</strong><span>${this._escape(hashtags)}</span></div>
+          ${music?.title ? `<div class="garmin-quick-music">🎵 <span>${this._escape(music.title)}${music.artist ? ` — ${this._escape(music.artist)}` : ''}</span></div>` : ''}
+        </section>
+        <button class="btn btn-secondary" data-action="back">Retour au calendrier</button>`;
+      this._bind();
+      return this.element;
+    }
+
     this.element.innerHTML = `
       <div class="page-header"><div><h1>${this._escape(pub.title || 'Publication Garmin')}</h1>
         <p class="page-subtitle">${ready ? 'Aperçu et publication' : 'Choisissez vos photos'}</p></div></div>

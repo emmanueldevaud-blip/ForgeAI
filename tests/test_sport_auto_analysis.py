@@ -93,7 +93,7 @@ async def test_analysis_creates_phone_notification(db_session, auth_user, monkey
     ).scalars().all()
     assert len(notifications) == 1
     assert notifications[0].category == "sport_analysis"
-    assert notifications[0].data_json.get("url") == "/sport/analyses"
+    assert notifications[0].data_json.get("url") == "/sport"
 
 
 async def _make_activity(db_session, athlete_id, *, created_delta, started_delta, duration=1800):

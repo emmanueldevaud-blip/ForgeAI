@@ -250,7 +250,10 @@ async def update_studio_draft(
     service: CommunityManagerStudioService = Depends(get_cm_studio_write_service),
 ):
     """Mettre à jour un brouillon (texte, hashtags, visuel, ton, propositions)."""
-    publication = await service.update_draft(publication_id, data)
+    try:
+        publication = await service.update_draft(publication_id, data)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     if not publication:
         raise HTTPException(status_code=404, detail="Brouillon introuvable")
     return PublicationDraftResponse.model_validate(publication)
@@ -400,7 +403,10 @@ async def toggle_title_lock(
     service: CommunityManagerStudioService = Depends(get_cm_studio_write_service),
 ):
     """Verrouiller ou déverrouiller le titre."""
-    publication = await service.update_draft(publication_id, PublicationDraftUpdate(title_locked=locked))
+    try:
+        publication = await service.update_draft(publication_id, PublicationDraftUpdate(title_locked=locked))
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     if not publication:
         raise HTTPException(status_code=404, detail="Brouillon introuvable")
     return PublicationDraftResponse.model_validate(publication)
@@ -413,7 +419,10 @@ async def toggle_content_lock(
     service: CommunityManagerStudioService = Depends(get_cm_studio_write_service),
 ):
     """Verrouiller ou déverrouiller le contenu."""
-    publication = await service.update_draft(publication_id, PublicationDraftUpdate(content_locked=locked))
+    try:
+        publication = await service.update_draft(publication_id, PublicationDraftUpdate(content_locked=locked))
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     if not publication:
         raise HTTPException(status_code=404, detail="Brouillon introuvable")
     return PublicationDraftResponse.model_validate(publication)
@@ -426,7 +435,10 @@ async def toggle_photo_lock(
     service: CommunityManagerStudioService = Depends(get_cm_studio_write_service),
 ):
     """Verrouiller ou déverrouiller le visuel."""
-    publication = await service.update_draft(publication_id, PublicationDraftUpdate(photo_locked=locked))
+    try:
+        publication = await service.update_draft(publication_id, PublicationDraftUpdate(photo_locked=locked))
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     if not publication:
         raise HTTPException(status_code=404, detail="Brouillon introuvable")
     return PublicationDraftResponse.model_validate(publication)

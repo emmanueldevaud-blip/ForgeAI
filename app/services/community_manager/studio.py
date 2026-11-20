@@ -690,6 +690,10 @@ class CommunityManagerStudioService:
         if not pub:
             return None
 
+        # Publication déjà partagée : lecture seule (aucune modification).
+        if pub.status == "shared":
+            raise ValueError("Cette publication est déjà publiée et ne peut plus être modifiée.")
+
         # Vérifier que l'utilisateur a le droit (déjà fait par get_publication)
 
         # Mettre à jour les champs fournis (texte/hashtags/titre toujours modifiables
@@ -1238,6 +1242,9 @@ class CommunityManagerStudioService:
         pub = await self.pub_service.get_publication(publication_id)
         if not pub:
             return None
+
+        if pub.status == "shared":
+            raise ValueError("Cette publication est déjà publiée.")
 
         if not (pub.content or "").strip() and not (_is_sport_publication(pub) and (pub.title or pub.hashtags)):
             raise ValueError("Le texte de la publication est vide")

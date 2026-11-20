@@ -13,7 +13,7 @@ from app.services import coach_feed
 from app.services.notification import NotificationService, is_notification_quiet_time
 from app.services.sport_agent.tool_registry import ToolContext, ToolSpec
 
-_NOTIFICATION_URL = "/sport/analyses"
+_NOTIFICATION_URL = "/sport"
 _COACH_TIP_URL = "/ai"
 
 

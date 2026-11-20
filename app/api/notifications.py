@@ -133,7 +133,7 @@ async def push_test(
         title="Test ForgeAI",
         message="Notifications configurees : tout fonctionne.",
         category="system",
-        data={"url": "/sport/analyses"},
+        data={"url": "/sport"},
     )
     await db.commit()
     return {"push_sent": notification.push_sent}

@@ -310,6 +310,10 @@ class SportGarminConnectService:
         if pub is None:
             return None
 
+        # Publication déjà partagée : lecture seule.
+        if pub.status == "shared":
+            return None
+
         # Publication V2 (créée depuis le calendrier éditorial) : sans activité
         # liée, la régénération passe par l'entrée éditoriale.
         if pub.activity_id is None and pub.calendar_entry_id is not None:

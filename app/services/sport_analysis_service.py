@@ -58,7 +58,7 @@ ACTIVITY_ANALYSIS_MAX_AGE_HOURS = 48
 AGENT_TRIGGER_COOLDOWN_MINUTES = 30
 
 _NOTIFICATION_CATEGORY = "sport_analysis"
-_NOTIFICATION_URL = "/sport/analyses"
+_NOTIFICATION_URL = "/sport"
 _NOTIFICATION_TITLES = {
     "morning": "Analyse du matin",
     "evening": "Analyse du soir",

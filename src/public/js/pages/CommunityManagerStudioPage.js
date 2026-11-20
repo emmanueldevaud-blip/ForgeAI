@@ -96,6 +96,7 @@ export class CommunityManagerStudioPage {
       || calendarEntry?.content_type === 'publication_sportive'
     );
     this.isSportPublication = isSportPublication;
+    const isShared = pub?.status === 'shared';
     const canPublish = pub && pub.status === 'validated' && pub.status !== 'shared' && pub.status !== 'refused' && pub.status !== 'failed' && pub.status !== 'publishing';
     const canValidate = pub && pub.status !== 'validated' && pub.status !== 'shared' && pub.status !== 'refused' && pub.status !== 'failed' && pub.status !== 'publishing';
 
@@ -134,7 +135,7 @@ export class CommunityManagerStudioPage {
           ${photoUrl ? `<img src="${photoUrl}" alt="Visuel" class="cm-studio-photo-img"/>` : '<div class="cm-studio-photo-empty">Aucune photo</div>'}
           ${pub?.error_message ? `<div class="cm-studio-warning">⚠ ${this._escape(pub.error_message)}</div>` : ''}
           ${pub?.photo_locked ? '<div class="cm-studio-warning">Photo verrouillée.</div>' : ''}
-          <div class="cm-studio-photo-actions">
+          ${isShared ? '' : `<div class="cm-studio-photo-actions">
             ${!isSportPublication ? `
             <button class="btn btn-primary btn-small" data-action="open-editor"
                     ${pub?.status === 'shared' ? 'disabled' : ''}>
@@ -150,8 +151,8 @@ export class CommunityManagerStudioPage {
               <button class="btn btn-secondary btn-small" data-action="regenerate" ${pub?.status === 'shared' ? 'disabled' : ''}>
                 ${pub?.error_message ? 'Régénérer le contenu' : 'Régénérer le visuel'}
               </button>` : ''}
-          </div>
-          ${this._renderIgMusic(pub)}
+          </div>`}
+          ${this._renderIgMusic(pub, isShared)}
           ${this.photoPickerOpen ? this._renderPhotoPicker() : ''}
         </div>
 
@@ -160,7 +161,7 @@ export class CommunityManagerStudioPage {
           <input type="hidden" name="title" value="${this._escape(title)}">
           <input type="hidden" name="content" value="${this._escape(content)}">
           <input type="hidden" name="hashtags" value="${this._escape(hashtags)}">
-          
+
           <div class="form-group">
             <label>Légende Instagram complète</label>
             <textarea name="full_caption" rows="10" ${pub?.status === 'shared' ? 'disabled' : ''} placeholder="Titre (ligne 1), ligne vide, hashtags…">${this._escape(fullCaption)}</textarea>
@@ -176,6 +177,10 @@ export class CommunityManagerStudioPage {
           </div>
         </form>
 
+        ${isShared ? `
+        <div class="cm-studio-actions">
+          <button class="btn btn-secondary" data-action="back">Retour au calendrier</button>
+        </div>` : `
         <div class="cm-studio-actions">
           <button class="btn btn-secondary" data-action="back">Annuler</button>
           <button class="btn btn-secondary" data-action="preview" ${this.previewLoading ? 'disabled' : ''}>
@@ -217,7 +222,7 @@ export class CommunityManagerStudioPage {
               Raccourcir le texte
             </button>
           ` : ''}
-        </div>
+        </div>`}
       </div>
 
       ${this.success ? `<div class="cm-studio-success">${this._escape(this.success)}</div>` : ''}
@@ -245,13 +250,13 @@ export class CommunityManagerStudioPage {
     return String(text ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   }
 
-  _renderIgMusic(pub) {
+  _renderIgMusic(pub, isShared = false) {
     const music = this.isSportPublication ? pub?.design?.ig_audio : null;
     if (!music?.audio_id) return '';
     const preview = typeof music.preview_link === 'string' && music.preview_link.startsWith('http')
       ? `<a class="cm-studio-ig-music-link" href="${this._escape(music.preview_link)}" target="_blank" rel="noopener">Écouter</a>`
       : '';
-    const suggestions = Array.isArray(music.suggestions) ? music.suggestions : [];
+    const suggestions = isShared ? [] : (Array.isArray(music.suggestions) ? music.suggestions : []);
     const options = suggestions.length ? suggestions.map((item, index) => `
       <option value="${this._escape(item.audio_id)}" ${String(item.audio_id) === String(music.audio_id) ? 'selected' : ''}>
         ${index + 1}. ${this._escape(item.title || 'Musique')} — ${this._escape(item.artist || 'Artiste')}
@@ -265,7 +270,7 @@ export class CommunityManagerStudioPage {
         ${options ? `<label class="cm-studio-ig-music-select-label">Suggestions IA
           <select data-action="select-ig-music" class="cm-studio-ig-music-select">${options}</select>
         </label>` : ''}
-        <span class="cm-studio-ig-music-hint">10 titres avec paroles privilégiés selon la photo et le titre de sortie</span>
+        ${isShared ? '' : '<span class="cm-studio-ig-music-hint">10 titres avec paroles privilégiés selon la photo et le titre de sortie</span>'}
       </div>`;
   }
 

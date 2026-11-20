@@ -578,6 +578,8 @@ export class GarminQuickPublicationView {
     if (!AudioCtor) return;
     const audio = new AudioCtor(item.preview_link);
     this.previewAudio = audio;
+    audio.muted = false;
+    audio.volume = 1;
     this.audioPlayingId = id;
     this.audioPlaybackError = null;
     audio.onended = () => { if (this.previewAudio === audio) { this.audioPlayingId = null; this.render(); } };

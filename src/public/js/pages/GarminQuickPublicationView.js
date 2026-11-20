@@ -86,9 +86,7 @@ export class GarminQuickPublicationView {
       this.error = error?.data?.detail || error?.message || 'Impossible de charger les photos.';
     }
     this.render();
-    this._loadLocalMusic();
     this._scheduleAudioProposals();
-    if (this.publication?.status !== 'shared') this._loadMusic(false);
   }
 
   render() {

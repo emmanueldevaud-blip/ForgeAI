@@ -1,6 +1,8 @@
 """Routes API V1 pour le Community Manager IA."""
 
+import asyncio
 import logging
+import time
 from datetime import datetime, date, timedelta
 from pathlib import Path
 from typing import Any, Optional
@@ -336,22 +338,51 @@ async def suggest_local_studio_audio_proposals(
         elevation = getattr(activity, "elevation_gain_m", None)
         terrain = "mountain" if elevation and float(elevation) >= 300 else "trail"
         fallback_queries = [
+            "trail running",
+            "running music",
+            "running motivation",
             f"{publication.title or 'trail running'} {style}",
             f"{sport} {terrain} {style}",
             f"{sport} {distance_query} {style}".strip(),
             f"{sport} motivation",
-            "trail running",
-            "running music",
         ]
         seen: set[str] = set()
-        for query in fallback_queries:
-            for candidate in await search_ig_audio(service.db, query[:80], limit=10):
-                audio_id = str(candidate.get("audio_id") or "")
-                if audio_id and audio_id not in seen:
-                    seen.add(audio_id)
-                    suggestions.append(candidate)
+        started = time.perf_counter()
+        request_count = 0
+        raw_count = 0
+
+        async def run_search(query: str):
+            try:
+                return await search_ig_audio(service.db, query[:80], limit=10)
+            except Exception as exc:  # une requête Meta ne bloque pas les autres
+                logger.warning("[IG-MUSIC] Recherche concurrente échouée (%s): %s", query, exc)
+                return []
+
+        async def merge_results(results):
+            nonlocal request_count, raw_count
+            for result in results:
+                request_count += 1
+                raw_count += len(result)
+                for candidate in result:
+                    audio_id = str(candidate.get("audio_id") or "")
+                    if audio_id and audio_id not in seen:
+                        seen.add(audio_id)
+                        suggestions.append(candidate)
+
+        # Trois requêtes génériques concurrentes couvrent normalement le cas
+        # nominal en un seul aller-retour Meta.
+        batch_size = 3
+        for offset in range(0, len(fallback_queries), batch_size):
+            batch = fallback_queries[offset:offset + batch_size]
+            results = await asyncio.gather(*(run_search(query) for query in batch))
+            await merge_results(results)
             if len(suggestions) >= 10:
                 break
+        logger.info(
+            "[IG-MUSIC] recommandations publication=%s durée=%.2fs requêtes=%s bruts=%s uniques=%s affichés=%s",
+            publication_id, time.perf_counter() - started, request_count,
+            raw_count, len(seen), min(10, len(suggestions)),
+        )
     items = []
     for item in suggestions:
         audio_id = str(item.get("audio_id") or "")

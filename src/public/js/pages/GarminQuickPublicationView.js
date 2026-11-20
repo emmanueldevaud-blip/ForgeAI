@@ -283,7 +283,11 @@ export class GarminQuickPublicationView {
       });
     }
     this.element.querySelector('[data-action="preview"]')?.addEventListener('click', () => {
-      if (!this.videoReady && this.selected.length) { this.previewOpen = true; this._create(); }
+      if (!this.videoReady && this.selected.length) {
+        this.previewOpen = true;
+        this.render();
+        this._create();
+      }
       else { this.previewOpen = true; this.render(); }
     });
     this.element.querySelector('[data-action="music"]')?.addEventListener('click', () => this._chooseMusic());
@@ -347,7 +351,13 @@ export class GarminQuickPublicationView {
   }
 
   async _create() {
-    if (this.busy || !this.selected.length) return;
+    if (this.generating) return;
+    if (this.busy || !this.selected.length) {
+      this.error = this.busy ? 'Une autre opération est en cours. Réessayez dans un instant.' : 'Sélectionnez au moins une photo.';
+      this.generating = false;
+      this.render();
+      return;
+    }
     this.busy = true; this.error = null; this.render();
     try {
       this.publication = await updateStudioDraft(this.publicationId, {
@@ -411,7 +421,6 @@ export class GarminQuickPublicationView {
         this.error = null;
         const updated = await updateStudioDraft(this.publicationId, {
           photo_ids: this.selected,
-          quick_generation: true,
         });
         this.publication = updated;
         const audio = updated?.design?.ig_audio;
@@ -427,7 +436,7 @@ export class GarminQuickPublicationView {
   }
 
   async _pollVideo() {
-    for (let attempt = 0; attempt < 180; attempt += 1) {
+    for (let attempt = 0; attempt < 120; attempt += 1) {
       this.publication = await getStudioDraft(this.publicationId);
       const status = this.publication.companion_video_status;
       if (status === 'ready') {
@@ -438,8 +447,8 @@ export class GarminQuickPublicationView {
         return;
       }
       if (status === 'failed') throw new Error(this.publication.companion_video_error || 'Rendu vidéo impossible.');
-      this.render();
-      await new Promise(resolve => { this.pollTimer = setTimeout(resolve, 1000); });
+      if (attempt % 4 === 0) this.render();
+      await new Promise(resolve => { this.pollTimer = setTimeout(resolve, 2000); });
     }
     throw new Error('La génération prend plus de temps que prévu. Réessayez dans un instant.');
   }
@@ -557,7 +566,12 @@ export class GarminQuickPublicationView {
     this._toggleProposalAudio(item);
     try {
       this.publication = await updateStudioDraft(this.publicationId, { design: { ig_audio: { source: 'instagram', status: 'available_on_meta', audio_id: String(item.audio_id), title: item.title || '', artist: item.artist || item.display_artist || '', duration_in_ms: item.duration_in_ms, start_time_ms: item.start_time_ms || 0, preview_link: item.preview_link || item.on_platform_audio_preview_link || null, recommendation_reason: item.reason || '' } } });
-      this.render();
+      this.element.querySelectorAll('[data-audio-proposal]').forEach(button => {
+        const selected = button.dataset.audioProposal === String(trackId);
+        button.classList.toggle('is-selected', selected);
+        const state = button.querySelector(':scope > span:last-child');
+        if (state && !button.classList.contains('is-playing')) state.textContent = selected ? 'Sélectionné' : 'Choisir';
+      });
     } catch (error) {
       this.error = error?.data?.detail || error?.message || 'Sélection musicale impossible.';
       this.render();
@@ -577,19 +591,32 @@ export class GarminQuickPublicationView {
 
   _toggleProposalAudio(item) {
     const id = String(item.track_id);
+    const updatePlaybackState = () => {
+      this.element.querySelectorAll('[data-audio-proposal]').forEach(button => {
+        const playing = button.dataset.audioProposal === String(this.audioPlayingId);
+        button.classList.toggle('is-playing', playing);
+        const label = button.querySelector(':scope > span:last-child');
+        if (label) label.textContent = playing ? 'En lecture' : (button.classList.contains('is-selected') ? 'Sélectionné' : 'Écouter');
+      });
+      const proposals = this.element.querySelector('[data-audio-proposals]');
+      proposals?.querySelector('.garmin-audio-playback-error')?.remove();
+      if (this.audioPlaybackError && proposals) {
+        proposals.insertAdjacentHTML('afterbegin', `<small class="garmin-audio-playback-error">${this._escape(this.audioPlaybackError)}</small>`);
+      }
+    };
     if (!item.preview_link) {
       this._stopPreviewAudio();
       this.audioPlaybackError = 'Aperçu indisponible sur Instagram.';
-      this.render();
+      updatePlaybackState();
       return;
     }
     if (this.audioPlayingId === id && this.previewAudio) {
       if (this.previewAudio.paused) {
-        this.previewAudio.play().catch(() => { this.audioPlaybackError = 'Lecture refusée par le navigateur.'; this.render(); });
+        this.previewAudio.play().catch(error => { this.audioPlaybackError = `Lecture impossible : ${error?.name || 'erreur navigateur'}.`; updatePlaybackState(); });
       } else {
         this.previewAudio.pause();
         this.audioPlayingId = null;
-        this.render();
+        updatePlaybackState();
       }
       return;
     }
@@ -602,10 +629,10 @@ export class GarminQuickPublicationView {
     audio.volume = 1;
     this.audioPlayingId = id;
     this.audioPlaybackError = null;
-    audio.onended = () => { if (this.previewAudio === audio) { this.audioPlayingId = null; this.render(); } };
-    audio.onerror = () => { if (this.previewAudio === audio) { this.audioPlayingId = null; this.audioPlaybackError = 'Aperçu indisponible sur Instagram.'; this.render(); } };
-    audio.play().catch(() => { if (this.previewAudio === audio) { this.audioPlayingId = null; this.audioPlaybackError = 'Lecture refusée par le navigateur.'; this.render(); } });
-    this.render();
+    audio.onended = () => { if (this.previewAudio === audio) { this.audioPlayingId = null; updatePlaybackState(); } };
+    audio.onerror = () => { if (this.previewAudio === audio) { this.audioPlayingId = null; this.audioPlaybackError = `Aperçu audio indisponible (erreur ${audio.error?.code || 'réseau'}).`; updatePlaybackState(); } };
+    audio.play().catch(error => { if (this.previewAudio === audio) { this.audioPlayingId = null; this.audioPlaybackError = `Lecture impossible : ${error?.name || 'erreur navigateur'}.`; updatePlaybackState(); } });
+    updatePlaybackState();
   }
 
   async _selectLocalMusic(trackId) {

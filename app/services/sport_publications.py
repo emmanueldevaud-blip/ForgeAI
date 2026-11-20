@@ -499,6 +499,16 @@ def _activity_stats(activity: SportActivity) -> dict[str, Any]:
     }
 
 
+def _fallback_proposal_title(activity: Optional[SportActivity]) -> str:
+    """Titre de repli lorsqu'aucune proposition IA exploitable n'a ete generee."""
+    name = (getattr(activity, "activity_name", None) or "").strip() if activity is not None else ""
+    if name:
+        return name
+    distance_km = round((getattr(activity, "distance_m", None) or 0) / 1000, 1) if activity is not None else 0.0
+    duration_h = int((getattr(activity, "duration_seconds", None) or 0) // 3600) if activity is not None else 0
+    return f"[{distance_km} km - {duration_h} h]"
+
+
 def _previous_publications_context(db_publications: list[SportPublication]) -> str:
     if not db_publications:
         return "Aucune publication precedente."
@@ -731,7 +741,7 @@ class SportPublicationService:
 
         if not proposals_raw:
             # repli : une seule proposition avec le texte brut
-            proposals_raw = [{"title": "Publication", "content": clean_caption_text(text), "hashtags": None}]
+            proposals_raw = [{"title": _fallback_proposal_title(activity), "content": clean_caption_text(text), "hashtags": None}]
 
         # complete a 3 si besoin
         while len(proposals_raw) < 3:
@@ -916,6 +926,7 @@ class SportPublicationService:
 
         # Construire le prompt pour la génération V2
         editorial_brief = None
+        source_activity: Optional[SportActivity] = None
         if entry.source_activity_id:
             source_activity = await self.db.get(SportActivity, entry.source_activity_id)
             if source_activity is not None:
@@ -995,7 +1006,7 @@ class SportPublicationService:
                 })
 
         if not proposals_raw:
-            proposals_raw = [{"title": "Publication", "content": clean_caption_text(text), "hashtags": None, "format": "photo", "idee_visuelle": None, "objectif": None}]
+            proposals_raw = [{"title": _fallback_proposal_title(source_activity), "content": clean_caption_text(text), "hashtags": None, "format": "photo", "idee_visuelle": None, "objectif": None}]
 
         while len(proposals_raw) < 3:
             proposals_raw.append({"title": None, "content": "", "hashtags": None, "format": "photo", "idee_visuelle": None, "objectif": None})

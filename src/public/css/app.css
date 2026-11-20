@@ -11697,6 +11697,7 @@
 .garmin-audio-proposal-heading strong { color:#0f172a; font-size:.9rem; }
 .garmin-audio-proposal { display:flex; align-items:center; gap:10px; width:100%; padding:11px; border:1px solid #e2e8f0; border-radius:12px; background:#fff; text-align:left; cursor:pointer; }
 .garmin-audio-proposal:hover,.garmin-audio-proposal.is-selected { border-color:#2563eb; background:#eff6ff; }
+.garmin-audio-proposal.is-playing { border-color:#16a34a; background:#f0fdf4; }
 .garmin-audio-rank { display:grid; place-items:center; width:25px; height:25px; flex:0 0 25px; border-radius:50%; background:#e2e8f0; color:#475569; font-size:.75rem; font-weight:800; }
 .garmin-audio-proposal.is-selected .garmin-audio-rank { background:#2563eb; color:#fff; }
 .garmin-audio-proposal-main { min-width:0; flex:1; }
@@ -11704,6 +11705,7 @@
 .garmin-audio-proposal-main strong { color:#0f172a; font-size:.88rem; }
 .garmin-audio-proposal-main small,.garmin-audio-proposal-main em { color:#64748b; font-size:.76rem; font-style:normal; margin-top:2px; }
 .garmin-audio-proposal > span:last-child { color:#2563eb; font-size:.75rem; font-weight:700; white-space:nowrap; }
+.garmin-audio-playback-error { display:block; color:#b45309; }
 .garmin-quick-step label { display:block; margin-top:12px; color:#475569; font-size:.84rem; font-weight:600; }
 .garmin-output-step { background:#f8fafc; }
 .garmin-final-preview { display:block; width:min(100%,360px); max-height:62dvh; margin:0 auto 18px; aspect-ratio:9/16; object-fit:cover; border-radius:16px; background:#0f172a; }

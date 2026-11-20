@@ -1006,8 +1006,10 @@ class StudioRenderService:
                 entry = await self.db.get(EditorialCalendarEntry, pub.calendar_entry_id)
                 pub.calendar_entry = entry
             # _ensure_sport_defaults a besoin d'un service studio-like (current_user/db)
+            # persist_overlay=False : l'overlay est composé dans les fichiers temporaires
+            # du rendu, jamais enregistré dans le module photo.
             studio = CommunityManagerStudioService(self.db, self.current_user)
-            pub = await studio._ensure_sport_defaults(pub)
+            pub = await studio._ensure_sport_defaults(pub, persist_overlay=False)
             await self.db.commit()
             await self.db.refresh(pub)
 

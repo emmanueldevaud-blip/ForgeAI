@@ -177,3 +177,34 @@ class TestStudioPhotoSelection:
 
         assert updated.design["carousel"] == [photo.id]
         assert updated.photo_id == photo.id
+
+    @pytest.mark.asyncio
+    async def test_same_photo_ids_keep_selected_music(self, db_session, auth_user, monkeypatch):
+        """Renvoyer les mêmes photo_ids (publication) ne doit pas remplacer la musique choisie."""
+        pub = await _make_garmin_publication(db_session, auth_user)
+        service = CommunityManagerStudioService(db_session, auth_user)
+        photo = await _make_photo(db_session, auth_user)
+        selected = {
+            "source": "instagram",
+            "status": "selected",
+            "audio_id": "chosen-by-user",
+            "title": "Ma musique",
+            "artist": "Artiste",
+        }
+
+        async def fake_pick(db, user, photo_id, title=None, hashtags=None, **kwargs):
+            return dict(_FAKE_ENTRY)
+
+        monkeypatch.setattr(
+            "app.services.community_manager.ig_music.pick_audio_for_photo_bounded",
+            fake_pick,
+        )
+
+        await service.update_draft(
+            pub.id,
+            PublicationDraftUpdate(photo_ids=[photo.id], design={"ig_audio": dict(selected)}),
+        )
+        updated = await service.update_draft(pub.id, PublicationDraftUpdate(photo_ids=[photo.id]))
+
+        assert updated.design["ig_audio"]["audio_id"] == "chosen-by-user"
+        assert updated.design["ig_audio"]["title"] == "Ma musique"

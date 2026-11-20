@@ -703,6 +703,12 @@ class CommunityManagerStudioService:
         if "photo_ids" in data.model_fields_set and not pub.photo_locked:
             ids = await self._validate_photo_ids(data.photo_ids or [])
             design = dict(pub.design) if isinstance(pub.design, dict) else {}
+            previous_ids = design.get("carousel") or ([pub.photo_id] if pub.photo_id else [])
+            try:
+                previous_ids = [int(x) for x in previous_ids]
+            except (TypeError, ValueError):
+                previous_ids = []
+            photos_changed = ids != previous_ids
             if ids:
                 design["carousel"] = ids
                 pub.photo_id = ids[0]
@@ -712,12 +718,14 @@ class CommunityManagerStudioService:
             pub.design = design
             if _is_sport_publication(pub):
                 pub = await self._ensure_sport_defaults(pub, persist_overlay=False)
-                # La musique doit suivre la couverture choisie, y compris dans
-                # le parcours Garmin rapide. Le mode quick_generation ne doit
-                # pas conserver une musique liée à une ancienne photo.
-                pub = await self._refresh_ig_music(pub)
+                # Rechoisir la musique uniquement si la sélection photo change :
+                # renvoyer les mêmes photo_ids (publication) ne doit pas remplacer
+                # une musique déjà choisie par l'utilisateur.
+                if photos_changed:
+                    pub = await self._refresh_ig_music(pub)
         if "photo_id" in data.model_fields_set:
             if not pub.photo_locked and "photo_ids" not in data.model_fields_set:
+                previous_photo_id = pub.photo_id
                 pub.photo_id = data.photo_id
                 # Sélection mono-photo : le carrousel reflète la sélection unique
                 design = dict(pub.design) if isinstance(pub.design, dict) else {}
@@ -731,9 +739,10 @@ class CommunityManagerStudioService:
                 # sans enregistrement dans le module photo (réservé à la publication)
                 if _is_sport_publication(pub):
                     pub = await self._ensure_sport_defaults(pub, persist_overlay=False)
-                    # Musique Instagram : (re)choix par IA (vision) à chaque
-                    # changement de photo ; nettoyage si la photo est retirée.
-                    pub = await self._refresh_ig_music(pub)
+                    # Musique Instagram : (re)choix par IA (vision) uniquement
+                    # quand la couverture change ; nettoyage si la photo est retirée.
+                    if previous_photo_id != data.photo_id:
+                        pub = await self._refresh_ig_music(pub)
         if data.visual_type is not None:
             if not pub.photo_locked:
                 pub.visual_type = data.visual_type
@@ -1831,8 +1840,9 @@ class CommunityManagerStudioService:
                 )
             )
             pub.calendar_entry = entry_result.scalar_one_or_none()
-        # Publications sportives : overlay stats (durée, dénivelé, km) + audio choisi automatiquement
-        pub = await self._ensure_sport_defaults(pub)
+        # Publications sportives : overlay stats (durée, dénivelé, km) + audio choisi
+        # automatiquement — sans créer de Photo dans le module photo.
+        pub = await self._ensure_sport_defaults(pub, persist_overlay=False)
 
         # Texte lisible : une réponse IA brute (JSON) ne doit jamais partir sur
         # Instagram. La correction est persistée par le commit ci-dessous.
@@ -1969,6 +1979,7 @@ class CommunityManagerStudioService:
                 pub.status = "failed"
                 pub.failed_at = datetime.now(timezone.utc)
                 pub.error_message = str(e)
+                await self._cleanup_companion_video_media(pub)
                 await self.db.commit()
                 await self.db.refresh(pub)
 
@@ -1979,6 +1990,7 @@ class CommunityManagerStudioService:
             pub.status = "failed"
             pub.failed_at = datetime.now(timezone.utc)
             pub.error_message = f"Meta API: {str(e)}"
+            await self._cleanup_companion_video_media(pub)
             await self.db.commit()
             await self.db.refresh(pub)
             raise ValueError(f"Erreur Meta: {str(e)}")
@@ -1986,6 +1998,7 @@ class CommunityManagerStudioService:
             pub.status = "failed"
             pub.failed_at = datetime.now(timezone.utc)
             pub.error_message = str(e)
+            await self._cleanup_companion_video_media(pub)
             await self.db.commit()
             await self.db.refresh(pub)
             logger.exception(f"Erreur publication Instagram: {e}")
@@ -2009,8 +2022,9 @@ class CommunityManagerStudioService:
                 )
             )
             pub.calendar_entry = entry_result.scalar_one_or_none()
-        # Publications sportives : overlay stats (durée, dénivelé, km) + audio choisi automatiquement
-        pub = await self._ensure_sport_defaults(pub)
+        # Publications sportives : overlay stats (durée, dénivelé, km) + audio choisi
+        # automatiquement — sans créer de Photo dans le module photo.
+        pub = await self._ensure_sport_defaults(pub, persist_overlay=False)
 
         # Texte lisible : une réponse IA brute (JSON) ne doit jamais partir sur
         # Facebook. La correction est persistée par le commit ci-dessous.
@@ -2124,6 +2138,9 @@ class CommunityManagerStudioService:
                 pub.facebook_permalink = permalink
                 pub.error_message = None
 
+                # Le MP4 importé comme Photo n'est qu'un support technique pour
+                # l'URL Meta : il ne doit pas rester dans le module Photos.
+                await self._cleanup_companion_video_media(pub)
                 await self.db.commit()
                 await self.db.refresh(pub)
 
@@ -2134,6 +2151,7 @@ class CommunityManagerStudioService:
                 pub.status = "failed"
                 pub.failed_at = datetime.now(timezone.utc)
                 pub.error_message = str(e)
+                await self._cleanup_companion_video_media(pub)
                 await self.db.commit()
                 await self.db.refresh(pub)
                 logger.error(f"Erreur publication Facebook Page: {e}")
@@ -2143,6 +2161,7 @@ class CommunityManagerStudioService:
             pub.status = "failed"
             pub.failed_at = datetime.now(timezone.utc)
             pub.error_message = f"Meta API: {str(e)}"
+            await self._cleanup_companion_video_media(pub)
             await self.db.commit()
             await self.db.refresh(pub)
             raise ValueError(f"Erreur Meta: {str(e)}")
@@ -2150,6 +2169,7 @@ class CommunityManagerStudioService:
             pub.status = "failed"
             pub.failed_at = datetime.now(timezone.utc)
             pub.error_message = str(e)
+            await self._cleanup_companion_video_media(pub)
             await self.db.commit()
             await self.db.refresh(pub)
             logger.exception(f"Erreur publication Facebook Page: {e}")
@@ -2173,7 +2193,7 @@ class CommunityManagerStudioService:
                 )
             )
             pub.calendar_entry = entry_result.scalar_one_or_none()
-        pub = await self._ensure_sport_defaults(pub)
+        pub = await self._ensure_sport_defaults(pub, persist_overlay=False)
 
         # Nettoyage du contenu
         content = clean_caption_text(pub.content)
@@ -2353,6 +2373,9 @@ class CommunityManagerStudioService:
                     pub.facebook_permalink = results['facebook']['permalink']
                 
                 pub.shared_at = datetime.now(timezone.utc)
+                # Le MP4 importé comme Photo n'est qu'un support technique pour
+                # l'URL Meta : il ne doit pas rester dans le module Photos.
+                await self._cleanup_companion_video_media(pub)
                 await self.db.commit()
                 await self.db.refresh(pub)
                 logger.info(f"Publication multi-plateforme: IG={ig_success}, FB={fb_success}")
@@ -2362,6 +2385,7 @@ class CommunityManagerStudioService:
                 pub.status = "failed"
                 pub.failed_at = datetime.now(timezone.utc)
                 pub.error_message = str(e)
+                await self._cleanup_companion_video_media(pub)
                 await self.db.commit()
                 await self.db.refresh(pub)
                 logger.error(f"Erreur publication multi-plateforme: {e}")
@@ -2371,6 +2395,7 @@ class CommunityManagerStudioService:
             pub.status = "failed"
             pub.failed_at = datetime.now(timezone.utc)
             pub.error_message = f"Meta API: {str(e)}"
+            await self._cleanup_companion_video_media(pub)
             await self.db.commit()
             await self.db.refresh(pub)
             raise ValueError(f"Erreur Meta: {str(e)}")
@@ -2378,6 +2403,7 @@ class CommunityManagerStudioService:
             pub.status = "failed"
             pub.failed_at = datetime.now(timezone.utc)
             pub.error_message = str(e)
+            await self._cleanup_companion_video_media(pub)
             await self.db.commit()
             await self.db.refresh(pub)
             logger.exception(f"Erreur publication multi-plateforme: {e}")

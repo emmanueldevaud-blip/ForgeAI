@@ -197,7 +197,7 @@ class TestStudioCaptionSynchronisation:
 # ============================================================
 
 class TestNoOverlayRegistrationBeforePublication:
-    """L'overlay sport ne doit créer une Photo que lors de la publication (Instagram / Facebook)."""
+    """L'overlay sport ne doit jamais créer de Photo dans le module photo."""
 
     @staticmethod
     def _spy(service, calls: list) -> None:
@@ -250,16 +250,19 @@ class TestNoOverlayRegistrationBeforePublication:
         assert count == 1, "aucune Photo supplémentaire ne doit être enregistrée avant publication"
 
     @pytest.mark.asyncio
-    async def test_ensure_sport_defaults_keeps_persist_default(self, db_session, auth_user):
-        """Les chemins de publication (Instagram / Facebook) conservent l'enregistrement par défaut."""
-        sig = signature(CommunityManagerStudioService._ensure_sport_defaults)
-        assert sig.parameters["persist_overlay"].default is True
+    async def test_publish_paths_do_not_persist_overlay(self, db_session, auth_user):
+        """Les chemins de publication ne doivent pas enregistrer l'overlay dans le module photo."""
+        import inspect
 
-        pub = await _make_garmin_publication(db_session, auth_user)
-        service = CommunityManagerStudioService(db_session, auth_user)
-        await service._ensure_sport_defaults(pub)
-        # appel sans argument explicite -> comportement inchangé (défaut True)
-        assert sig.parameters["persist_overlay"].default is True
+        for method_name in ("publish_to_instagram", "publish_to_facebook_page", "publish_to_both"):
+            method = getattr(CommunityManagerStudioService, method_name)
+            source = inspect.getsource(method)
+            assert "persist_overlay=False" in source, (
+                f"{method_name} doit appeler _ensure_sport_defaults avec persist_overlay=False"
+            )
+        assert signature(CommunityManagerStudioService._ensure_sport_defaults).parameters[
+            "persist_overlay"
+        ].default is True
 
 
 # ============================================================

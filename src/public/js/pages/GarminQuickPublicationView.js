@@ -265,11 +265,14 @@ export class GarminQuickPublicationView {
 
   async _publish() {
     if (this.busy) return;
-    this.busy = true; this.generating = true; this.error = null; this.render();
+    this.busy = true; this.generating = true; this.error = null;
+    clearTimeout(this.musicSelectionTimer);
+    this.render();
     try {
+      // Ne renvoyer que titre/hashtags : les photo_ids sont déjà synchronisés.
+      // Renvoyer photo_ids déclencherait un rechoix musical qui remplacerait
+      // la piste sélectionnée par l'utilisateur juste avant la publication.
       this.publication = await updateStudioDraft(this.publicationId, {
-        photo_ids: this.selected,
-        quick_generation: true,
         title: this.editedTitle,
         hashtags: this.editedHashtags,
       });
@@ -316,6 +319,9 @@ export class GarminQuickPublicationView {
   async _selectMusic(index) {
     const item = this.musicItems[index];
     if (!item?.audio_id) return;
+    // Annuler l'analyse musicale planifiée : elle ne doit pas remplacer
+    // le choix manuel de l'utilisateur.
+    clearTimeout(this.musicSelectionTimer);
     try {
       this.publication = await updateStudioDraft(this.publicationId, { design: { ig_audio: { source: 'instagram', status: 'selected', audio_id: String(item.audio_id), title: item.title || '', artist: item.display_artist || '', duration_in_ms: item.duration_in_ms, start_time_ms: item.start_time_ms || 0, preview_link: item.on_platform_audio_preview_link || item.download_url } } });
       this.render();

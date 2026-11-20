@@ -685,6 +685,16 @@ class CommunityManagerStudioService:
         cleaned_hashtags = clean_hashtags(pub.hashtags)
         if cleaned_hashtags and cleaned_hashtags != pub.hashtags:
             pub.hashtags = cleaned_hashtags
+
+        # Sélection automatique de la musique Instagram (ig_audio) si des photos sont présentes
+        # et qu'aucune musique n'est encore choisie
+        if _is_sport_publication(pub):
+            design = pub.design if isinstance(pub.design, dict) else {}
+            has_photos = pub.photo_id or (isinstance(design.get("carousel"), list) and len(design.get("carousel")) > 0)
+            has_music = isinstance(design.get("ig_audio"), dict) and design.get("ig_audio", {}).get("audio_id")
+            if has_photos and not has_music:
+                pub = await self._refresh_ig_music(pub)
+
         return pub
 
     async def update_draft(
@@ -805,18 +815,31 @@ class CommunityManagerStudioService:
         return pub
 
     async def _refresh_ig_music(self, pub: SportPublication) -> SportPublication:
-        """(Re)choisit la musique Instagram à partir de la photo sélectionnée.
+        """(Re)choisit la musique Instagram à partir de la photo de couverture.
 
-        Analyse vision de la photo + titre -> recherche dans le catalogue
-        Instagram (ig_audio) -> persistance dans design["ig_audio"].
+        Analyse vision de la photo de couverture (premier du carrousel si multi)
+        + titre -> recherche dans le catalogue Instagram (ig_audio)
+        -> persistance dans design["ig_audio"].
         Échec non bloquant : le choix précédent est conservé.
         """
         if not _is_sport_publication(pub):
             return pub
 
         design = pub.design if isinstance(pub.design, dict) else {}
-        if not pub.photo_id:
-            # Photo retirée : la musique associée n'a plus de sens
+        
+        # Déterminer la photo de couverture : premier du carrousel ou photo unique
+        carousel = design.get("carousel") if isinstance(design.get("carousel"), list) else None
+        cover_photo_id = None
+        if carousel:
+            try:
+                cover_photo_id = int(carousel[0])
+            except (TypeError, ValueError, IndexError):
+                pass
+        if not cover_photo_id:
+            cover_photo_id = pub.photo_id
+        
+        if not cover_photo_id:
+            # Photo(s) retirée(s) : la musique associée n'a plus de sens
             if "ig_audio" in design:
                 design = dict(design)
                 design.pop("ig_audio", None)
@@ -825,6 +848,7 @@ class CommunityManagerStudioService:
 
         from app.services.community_manager.ig_music import pick_audio_for_photo_bounded
         import inspect
+        
         previous_audio_id = design.get("ig_audio", {}).get("audio_id") if isinstance(design.get("ig_audio"), dict) else None
         audio_kwargs = {"title": pub.title, "hashtags": pub.hashtags}
         if previous_audio_id:
@@ -841,7 +865,7 @@ class CommunityManagerStudioService:
             entry = await pick_audio_for_photo_bounded(
                 self.db,
                 self.current_user,
-                pub.photo_id,
+                cover_photo_id,
                 **audio_kwargs,
             )
         except Exception:
@@ -849,6 +873,7 @@ class CommunityManagerStudioService:
                 "[CM-STUDIO] Choix musique IG impossible pour la publication %s", pub.id
             )
             return pub
+        
         if entry:
             design = dict(pub.design) if isinstance(pub.design, dict) else {}
             design["ig_audio"] = entry

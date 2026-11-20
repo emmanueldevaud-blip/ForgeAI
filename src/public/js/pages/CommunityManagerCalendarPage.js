@@ -234,7 +234,7 @@ export class CommunityManagerCalendarPage {
       this.quickPublicationPage?.destroy();
       this.quickPublicationPage = null;
       this.selectedEntry = null;
-      this.render();
+      this._loadMonth();
     });
     this.quickPublicationPage.initialize().catch(() => {});
     this.render();

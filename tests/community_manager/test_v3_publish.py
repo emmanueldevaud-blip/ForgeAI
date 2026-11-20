@@ -116,6 +116,7 @@ def mock_db(mock_athlete, mock_strategy):
     db.flush = AsyncMock()
     db.commit = AsyncMock()
     db.refresh = AsyncMock()
+    db.get = AsyncMock(return_value=None)
     db.add = MagicMock()
     db.delete = AsyncMock()
     
@@ -835,6 +836,7 @@ class TestCommunityManagerStudioServicePublish:
         db.flush = AsyncMock()
         db.commit = AsyncMock()
         db.refresh = AsyncMock()
+        db.get = AsyncMock(return_value=None)
         db.add = MagicMock()
         db.delete = AsyncMock()
         return db
@@ -846,6 +848,8 @@ class TestCommunityManagerStudioServicePublish:
     @pytest.fixture
     def mock_publication(self):
         pub = MagicMock(spec=SportPublication)
+        pub.activity_id = None
+        pub.calendar_entry = None
         pub.id = 1
         pub.athlete_id = 10
         pub.status = "validated"
@@ -859,7 +863,7 @@ class TestCommunityManagerStudioServicePublish:
         pub.tone_used = "professional"
         pub.custom_instructions = None
         pub.styles = ["stats"]
-        pub.calendar_entry_id = 1
+        pub.calendar_entry_id = None
         return pub
 
     @pytest.mark.asyncio
@@ -883,6 +887,8 @@ class TestCommunityManagerStudioServicePublish:
         
         # Mock publication
         pub = MagicMock()
+        pub.activity_id = None
+        pub.calendar_entry = None
         pub.id = 1
         pub.athlete_id = 10
         pub.status = "validated"
@@ -896,7 +902,7 @@ class TestCommunityManagerStudioServicePublish:
         pub.tone_used = "professional"
         pub.custom_instructions = None
         pub.styles = ["stats"]
-        pub.calendar_entry_id = 1
+        pub.calendar_entry_id = None
         pub.instagram_media_id = None
         pub.instagram_permalink = None
         
@@ -993,6 +999,8 @@ class TestCommunityManagerStudioServicePublish:
         from app.services.sport_instagram_publish import MetaPublishService
 
         pub = MagicMock(spec=SportPublication)
+        pub.activity_id = None
+        pub.calendar_entry = None
         pub.id = 1
         pub.athlete_id = 10
         pub.status = "validated"
@@ -1005,7 +1013,7 @@ class TestCommunityManagerStudioServicePublish:
         pub.tone_used = "professional"
         pub.custom_instructions = None
         pub.styles = ["stats"]
-        pub.calendar_entry_id = 1
+        pub.calendar_entry_id = None
         pub.instagram_media_id = None
         pub.instagram_permalink = None
 
@@ -1087,6 +1095,8 @@ class TestCommunityManagerStudioServicePublish:
         from app.services.sport_instagram_publish import MetaPublishService
 
         pub = MagicMock(spec=SportPublication)
+        pub.activity_id = None
+        pub.calendar_entry = None
         pub.id = 1
         pub.athlete_id = 10
         pub.status = "validated"
@@ -1099,7 +1109,7 @@ class TestCommunityManagerStudioServicePublish:
         pub.tone_used = "professional"
         pub.custom_instructions = None
         pub.styles = ["stats"]
-        pub.calendar_entry_id = 1
+        pub.calendar_entry_id = None
         pub.instagram_media_id = None
         pub.instagram_permalink = None
 
@@ -1175,6 +1185,8 @@ class TestCommunityManagerStudioServicePublish:
         from app.services.sport_instagram_publish import MetaPublishService
 
         pub = MagicMock(spec=SportPublication)
+        pub.activity_id = None
+        pub.calendar_entry = None
         pub.id = 1
         pub.athlete_id = 10
         pub.status = "validated"
@@ -1187,7 +1199,7 @@ class TestCommunityManagerStudioServicePublish:
         pub.tone_used = "professional"
         pub.custom_instructions = None
         pub.styles = ["stats"]
-        pub.calendar_entry_id = 1
+        pub.calendar_entry_id = None
         pub.instagram_media_id = None
         pub.instagram_permalink = None
 
@@ -1257,7 +1269,12 @@ class TestCommunityManagerStudioServicePublish:
     async def test_publish_to_instagram_not_validated(self, service):
         """Test publication refusée si pas validée."""
         pub = MagicMock()
-        pub.status = "draft"
+        pub.activity_id = None
+        pub.calendar_entry = None
+        pub.calendar_entry_id = None
+        pub.status = "scheduled"
+        pub.title = None
+        pub.hashtags = None
         
         service.pub_service.get_publication = AsyncMock(return_value=pub)
         
@@ -1268,8 +1285,13 @@ class TestCommunityManagerStudioServicePublish:
     async def test_publish_to_instagram_no_content(self, service):
         """Test publication refusée si contenu vide."""
         pub = MagicMock()
+        pub.activity_id = None
+        pub.calendar_entry = None
+        pub.calendar_entry_id = None
         pub.status = "validated"
         pub.content = ""
+        pub.title = None
+        pub.hashtags = None
         
         service.pub_service.get_publication = AsyncMock(return_value=pub)
         
@@ -1280,8 +1302,13 @@ class TestCommunityManagerStudioServicePublish:
     async def test_publish_to_instagram_no_visual(self, service):
         """Test publication refusée si pas de visuel."""
         pub = MagicMock()
+        pub.activity_id = None
+        pub.calendar_entry = None
+        pub.calendar_entry_id = None
         pub.status = "validated"
         pub.content = "Test"
+        pub.title = None
+        pub.hashtags = None
         pub.photo_id = None
         pub.visual_generation_prompt = None
         
@@ -1294,10 +1321,14 @@ class TestCommunityManagerStudioServicePublish:
     async def test_publish_to_instagram_no_config(self, service, mock_db):
         """Test publication refusée si aucune source Meta n'est configurée."""
         pub = MagicMock()
+        pub.activity_id = None
+        pub.calendar_entry = None
+        pub.calendar_entry_id = None
         pub.id = 1
         pub.athlete_id = 10
         pub.status = "validated"
         pub.content = "Test content"
+        pub.title = "Test"
         pub.hashtags = "#test"
         pub.photo_id = 123
         pub.visual_type = "photo"

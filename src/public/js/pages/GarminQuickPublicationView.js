@@ -201,7 +201,7 @@ export class GarminQuickPublicationView {
     }
     const outputStep = this.element.querySelector('[data-step="5"]');
     if (outputStep) {
-      outputStep.innerHTML = `<div class="garmin-step-heading"><span>05</span><div><h2>Aperçu du Reel</h2><p>Vérifie ton montage avant de le publier.</p></div></div><button class="btn btn-primary garmin-preview-trigger" data-action="preview">Aperçu vidéo</button>`;
+      outputStep.innerHTML = `<div class="garmin-step-heading"><span>05</span><div><h2>Aperçu et publication</h2><p>${ready && this.videoUrl ? 'Votre Reel est prêt.' : (this.generating ? 'Génération de votre Reel en cours…' : 'Vérifiez le montage avant de le publier.')}</p></div></div>${ready && this.videoUrl ? `<video controls playsinline preload="metadata" class="garmin-final-preview" src="${this._escape(this.videoUrl)}"></video>` : `<div class="garmin-mini-preview">${this.selected.map((id, index) => `<img src="/photos/${id}/file?size=medium" alt="Photo ${index + 1}">`).join('') || '<span>Sélectionnez au moins une photo</span>'}</div>`}<div class="garmin-output-actions"><button class="btn btn-secondary garmin-preview-trigger" data-action="preview" ${this.busy || this.generating || !this.selected.length ? 'disabled' : ''}>${ready && this.videoUrl ? 'Voir l’aperçu' : (this.generating ? 'Génération…' : 'Créer l’aperçu')}</button><button class="btn btn-primary" data-action="publish" ${!ready || !this.videoUrl || this.busy || this.generating ? 'disabled' : ''}>${this.busy ? 'Publication…' : 'Publier sur Instagram et Facebook'}</button></div>`;
     }
     const musicSelect = this.element.querySelector('[data-action="local-music-select"]');
     if (musicSelect) musicSelect.outerHTML = this._audioProposalsHtml();
@@ -455,6 +455,11 @@ export class GarminQuickPublicationView {
 
   async _publish() {
     if (this.busy) return;
+    if (!this.videoReady || !this.videoUrl || this.publication?.companion_video_status !== 'ready') {
+      this.error = 'Générez et vérifiez l’aperçu vidéo avant de publier.';
+      this.render();
+      return;
+    }
     this.busy = true; this.generating = true; this.error = null;
     clearTimeout(this.musicSelectionTimer);
     this.render();
@@ -750,8 +755,12 @@ export class GarminQuickPublicationView {
 
   destroy() {
     if (this.pollTimer) clearTimeout(this.pollTimer);
+    clearTimeout(this.audioProposalTimer);
+    clearTimeout(this.musicSelectionTimer);
     clearTimeout(this.captionSaveTimer);
+    this._stopPreviewAudio();
     if (this.videoUrl?.startsWith('blob:')) URL.revokeObjectURL(this.videoUrl);
+    this.videoUrl = null;
   }
 }
 

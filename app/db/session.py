@@ -2,11 +2,6 @@ from contextlib import asynccontextmanager
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase
-from sqlalchemy.util._concurrency_py3k import greenlet_spawn
-
-# Initialiser le contexte greenlet DÈS l'import pour éviter MissingGreenlet
-# lors du premier checkout de connexion (asyncmy fait un ping interne).
-greenlet_spawn(lambda: None)
 
 from app.core.config import get_settings
 

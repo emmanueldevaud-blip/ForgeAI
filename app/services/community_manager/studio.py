@@ -1677,11 +1677,13 @@ class CommunityManagerStudioService:
 
         design = pub.design if isinstance(pub.design, dict) else {}
         audio_cfg = normalize_audio_config(design.get("audio") if isinstance(design.get("audio"), dict) else {})
+        ig_audio = design.get("ig_audio") if isinstance(design.get("ig_audio"), dict) else {}
         track_id = audio_cfg.get("track_id") or audio_cfg.get("track")
-        if not audio_cfg.get("enabled", True) or not track_id:
+        # Une sélection Meta suffit pour générer la vidéo compagnon : son audio
+        # sera attaché par Instagram, jamais téléchargé ni transmis à FFmpeg.
+        if not audio_cfg.get("enabled", True) and not ig_audio.get("audio_id"):
             return None
-        # Fichier audio indisponible -> pas de rendu (évite jobs voués à l'échec en boucle)
-        if resolve_track_path(str(track_id)) is None:
+        if not ig_audio.get("audio_id") and (not track_id or resolve_track_path(str(track_id)) is None):
             return None
 
         # Idempotence : rendu déjà prêt et fichier présent
@@ -1729,7 +1731,7 @@ class CommunityManagerStudioService:
         if force:
             pub.companion_video_generated_at = None
         # Refléter l'état audio "en attente d'intégration"
-        design = {**design, "audio": {**audio_cfg, "embedded": False, "audio_status": "selected"}}
+        design = {**design, "audio": {**audio_cfg, "embedded": False, "audio_status": "meta_attached" if ig_audio.get("audio_id") else "selected"}}
         pub.design = design
 
         # Déclenchement immédiat best-effort en contexte HTTP (sinon boucle lifespan)

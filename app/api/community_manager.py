@@ -329,9 +329,19 @@ async def suggest_local_studio_audio_proposals(
     # Instagram impossible. Repli contextualisé sur le titre/ambiance lorsque
     # les photos ne peuvent pas être analysées ou que l'appel IA expire.
     if not suggestions:
+        activity = await service._get_activity_for_publication(publication)
+        sport = str(getattr(activity, "sport_type", "trail running") or "trail running").replace("_", " ")
+        distance = getattr(activity, "distance_m", None)
+        distance_query = f"{float(distance) / 1000:.0f} km" if distance else ""
+        elevation = getattr(activity, "elevation_gain_m", None)
+        terrain = "mountain" if elevation and float(elevation) >= 300 else "trail"
         fallback_queries = [
             f"{publication.title or 'trail running'} {style}",
-            f"trail running {style}",
+            f"{sport} {terrain} {style}",
+            f"{sport} {distance_query} {style}".strip(),
+            f"{sport} motivation",
+            "trail running",
+            "running music",
         ]
         seen: set[str] = set()
         for query in fallback_queries:

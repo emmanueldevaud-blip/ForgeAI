@@ -1018,14 +1018,16 @@ class StudioRenderService:
 
         design = pub.design if isinstance(pub.design, dict) else {}
         audio_cfg = normalize_audio_config(design.get("audio") if isinstance(design.get("audio"), dict) else {})
+        ig_audio = design.get("ig_audio") if isinstance(design.get("ig_audio"), dict) else {}
         track_id = audio_cfg.get("track_id") or audio_cfg.get("track")
-        if not audio_cfg.get("enabled", True):
-            raise StudioRenderError("Audio désactivé : une piste est requise pour la vidéo sportive")
-        if not track_id:
-            raise StudioRenderError("Aucune piste audio sélectionnée")
-        audio_path = resolve_track_path(str(track_id))
-        if audio_path is None or not audio_path.is_file():
-            raise StudioRenderError("Fichier audio introuvable ou indisponible")
+        # L'audio Meta est attaché côté Instagram et n'est pas un fichier local.
+        # Le MP4 reçoit uniquement un silence AAC technique dans ce cas.
+        meta_audio = bool(ig_audio.get("audio_id"))
+        audio_path = None if meta_audio else resolve_track_path(str(track_id)) if track_id else None
+        if not meta_audio and not audio_cfg.get("enabled", True):
+            raise StudioRenderError("Audio désactivé sans musique Meta sélectionnée")
+        if not meta_audio and (audio_path is None or not audio_path.is_file()):
+            raise StudioRenderError("Fichier audio local introuvable ou indisponible")
         if not shutil.which("ffmpeg") and not self._find_binary("ffmpeg"):
             raise StudioRenderError("ffmpeg introuvable")
 
@@ -1045,6 +1047,7 @@ class StudioRenderService:
             # (qui surcharge fortement le VPS).
             "montage_style": "trail-fade-v1",
             "audio_match": (design.get("audio") or {}).get("audio_match") or {},
+            "ig_audio_id": ig_audio.get("audio_id"),
         }
 
         # Idempotence : rendu existant et valide (et entrée inchangée)
@@ -1210,16 +1213,12 @@ class StudioRenderService:
                 f"asetpts=PTS-STARTPTS,"
                 f"aformat=sample_rates=44100:channel_layouts=stereo"
             )
-            cmd_a = [
-                ffmpeg, "-y",
-                "-ss", str(max(0.0, float((audio_cfg.get("audio_match") or {}).get("start_time") or 0.0))),
-                "-i", str(audio_path),
-                "-vn",
-                "-af", af,
-                "-c:a", "aac",
-                "-b:a", "128k",
-                str(audio_tmp),
-            ]
+            cmd_a = [ffmpeg, "-y"]
+            if meta_audio:
+                cmd_a.extend(["-f", "lavfi", "-i", "anullsrc=r=44100:cl=stereo"])
+            else:
+                cmd_a.extend(["-ss", str(max(0.0, float((audio_cfg.get("audio_match") or {}).get("start_time") or 0.0))), "-i", str(audio_path)])
+            cmd_a.extend(["-t", str(target_dur), "-vn", "-af", af, "-c:a", "aac", "-b:a", "128k", str(audio_tmp)])
             await asyncio.to_thread(self._run_ffmpeg, cmd_a)
 
             # Mux : piste audio réellement intégrée
@@ -1246,8 +1245,8 @@ class StudioRenderService:
             out_path = out_dir / f"companion_{suffix}.mp4"
             out_path.write_bytes(final_tmp.read_bytes())
 
-            audio_cfg["embedded"] = True
-            audio_cfg["audio_status"] = "integrated"
+            audio_cfg["embedded"] = not meta_audio
+            audio_cfg["audio_status"] = "meta_attached" if meta_audio else "integrated"
             design = {
                 **(pub.design if isinstance(pub.design, dict) else {}),
                 "audio": audio_cfg,

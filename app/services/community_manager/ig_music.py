@@ -16,7 +16,10 @@ import io
 import json
 import logging
 import re
+import shutil
+import subprocess
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, Optional
 
 import httpx
@@ -64,7 +67,25 @@ async def photo_image_b64(db, current_user, photo_id: int) -> Optional[str]:
         src_path = storage.backend_for_photo(photo).original_path(photo.storage_path)
         if not src_path:
             return None
-        with Image.open(src_path) as src:
+        try:
+            src = Image.open(src_path)
+        except Exception:
+            # Les sélections Garmin peuvent contenir des vidéos MOV. On en
+            # extrait une image représentative sans faire échouer les autres
+            # médias de la sélection.
+            ffmpeg = shutil.which("ffmpeg") or "/home/edevaud/.local/bin/ffmpeg"
+            if not Path(ffmpeg).is_file() and not shutil.which("ffmpeg"):
+                return None
+            result = subprocess.run(
+                [ffmpeg, "-hide_banner", "-loglevel", "error", "-i", str(src_path), "-frames:v", "1", "-f", "image2pipe", "-vcodec", "mjpeg", "pipe:1"],
+                capture_output=True,
+                timeout=20,
+                check=False,
+            )
+            if result.returncode != 0 or not result.stdout:
+                return None
+            src = Image.open(io.BytesIO(result.stdout))
+        with src:
             img = ImageOps.exif_transpose(src).convert("RGB")
             img.thumbnail((_MAX_IMAGE_SIDE, _MAX_IMAGE_SIDE))
             buf = io.BytesIO()
@@ -249,7 +270,7 @@ async def pick_audio_for_photo(
         "title": chosen.get("title") or "",
         "artist": chosen.get("display_artist") or "",
         "duration_in_ms": chosen.get("duration_in_ms"),
-        "preview_link": chosen.get("on_platform_audio_preview_link") or chosen.get("download_url"),
+        "preview_link": chosen.get("on_platform_audio_preview_link"),
         "query": query,
         "scene": (analysis or {}).get("scene"),
         "ambiance": (analysis or {}).get("ambiance"),
@@ -263,7 +284,7 @@ async def pick_audio_for_photo(
                 "title": item.get("title") or "",
                 "artist": item.get("display_artist") or "",
                 "duration_in_ms": item.get("duration_in_ms"),
-                "preview_link": item.get("on_platform_audio_preview_link") or item.get("download_url"),
+                "preview_link": item.get("on_platform_audio_preview_link"),
                 "start_time_ms": item.get("start_time_ms") or item.get("start_offset_ms") or 0,
             }
             for item in results[:10]
@@ -346,7 +367,7 @@ async def pick_audio_for_photos(
         "title": chosen.get("title") or "",
         "artist": chosen.get("display_artist") or "",
         "duration_in_ms": duration,
-        "preview_link": chosen.get("on_platform_audio_preview_link") or chosen.get("download_url"),
+        "preview_link": chosen.get("on_platform_audio_preview_link"),
         "query": query,
         "scene": merged["scene"],
         "ambiance": merged["ambiance"],
@@ -357,7 +378,7 @@ async def pick_audio_for_photos(
                 "title": item.get("title") or "",
                 "artist": item.get("display_artist") or "",
                 "duration_in_ms": item.get("duration_in_ms"),
-                "preview_link": item.get("on_platform_audio_preview_link") or item.get("download_url"),
+                "preview_link": item.get("on_platform_audio_preview_link"),
                 "start_time_ms": item.get("start_time_ms") or item.get("start_offset_ms") or 0,
             }
             for item in results[:10] if item.get("audio_id")

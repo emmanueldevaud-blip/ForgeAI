@@ -94,12 +94,14 @@ export class GarminQuickPublicationView {
     // Publication déjà partagée : lecture seule, seul le retour est possible.
     if (isShared) {
       const music = pub.design?.ig_audio;
+      const publishedMusic = (ready && music?.audio_id && music?.preview_link) ? music : null;
       this.element.innerHTML = `
         <div class="page-header"><div><h1>${this._escape(pub.title || 'Publication Garmin')}</h1>
           <p class="page-subtitle">Publication publiée</p></div></div>
         ${this.error ? `<div class="alert alert-error">${this._escape(this.error)}</div>` : ''}
         <section class="garmin-quick-result">
-          ${ready ? `<video controls playsinline preload="metadata" class="garmin-quick-video" src="${this._escape(this.videoUrl || '')}"></video>` : (status === 'ready' ? '<div class="garmin-quick-video garmin-quick-video--loading">Chargement de l’aperçu vidéo…</div>' : '')}
+          ${ready ? `<video controls playsinline preload="metadata" class="garmin-quick-video" src="${this._escape(this.videoUrl || '')}"${publishedMusic ? ' muted' : ''}></video>` : (status === 'ready' ? '<div class="garmin-quick-video garmin-quick-video--loading">Chargement de l’aperçu vidéo…</div>' : '')}
+          ${publishedMusic ? `<div class="garmin-music-preview"><audio data-music-audio data-start-time-ms="${Number(publishedMusic.start_time_ms) || 0}" src="${this._escape(publishedMusic.preview_link)}" preload="metadata"></audio></div>` : ''}
           <div class="garmin-quick-caption-card"><strong>${this._escape(title)}</strong><span>${this._escape(hashtags)}</span></div>
           ${music?.title ? `<div class="garmin-quick-music">🎵 <span>${this._escape(music.title)}${music.artist ? ` — ${this._escape(music.artist)}` : ''}</span></div>` : ''}
         </section>
@@ -188,6 +190,17 @@ export class GarminQuickPublicationView {
       const start = Number(musicAudio.dataset.startTimeMs || 0) / 1000;
       if (start > 0 && Number.isFinite(start) && start < musicAudio.duration) musicAudio.currentTime = start;
     }, { once: true });
+    const publishedVideo = this.element.querySelector('video');
+    const publishedAudio = this.element.querySelector('[data-music-audio]');
+    if (publishedVideo && publishedAudio) {
+      publishedVideo.addEventListener('play', () => { const p = publishedAudio.play(); if (p && p.catch) p.catch(() => {}); });
+      publishedVideo.addEventListener('pause', () => publishedAudio.pause());
+      publishedVideo.addEventListener('timeupdate', () => {
+        if (publishedAudio.paused || !publishedAudio.duration || !Number.isFinite(Number(publishedAudio.duration))) return;
+        const target = Number(publishedVideo.currentTime) || 0;
+        if (Math.abs((Number(publishedAudio.currentTime) || 0) - target) > 0.25) publishedAudio.currentTime = target;
+      });
+    }
     this.element.querySelector('[data-field="title"]')?.addEventListener('input', event => this._queueCaptionSave('title', event.target.value));
     this.element.querySelector('[data-field="hashtags"]')?.addEventListener('input', event => this._queueCaptionSave('hashtags', event.target.value));
     this.element.querySelector('[data-action="edit-caption"]')?.addEventListener('click', () => this._editCaption());

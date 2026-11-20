@@ -309,7 +309,7 @@ async def suggest_local_studio_audio_proposals(
     publication = await service.get_draft(publication_id)
     if not publication:
         raise HTTPException(status_code=404, detail="Brouillon introuvable")
-    from app.services.community_manager.ig_music import pick_audio_for_photos_bounded
+    from app.services.community_manager.ig_music import pick_audio_for_photos_bounded, search_ig_audio
     design = publication.design if isinstance(publication.design, dict) else {}
     style = str((design.get("editorial_engine") or {}).get("style") or "performance")
     excluded = {value for value in exclude.split(",") if value}
@@ -325,6 +325,23 @@ async def suggest_local_studio_audio_proposals(
         timeout_seconds=25.0,
     )
     suggestions = (result or {}).get("suggestions") or []
+    # L'analyse vision est enrichissante mais ne doit pas rendre la recherche
+    # Instagram impossible. Repli contextualisé sur le titre/ambiance lorsque
+    # les photos ne peuvent pas être analysées ou que l'appel IA expire.
+    if not suggestions:
+        fallback_queries = [
+            f"{publication.title or 'trail running'} {style}",
+            f"trail running {style}",
+        ]
+        seen: set[str] = set()
+        for query in fallback_queries:
+            for candidate in await search_ig_audio(service.db, query[:80], limit=10):
+                audio_id = str(candidate.get("audio_id") or "")
+                if audio_id and audio_id not in seen:
+                    seen.add(audio_id)
+                    suggestions.append(candidate)
+            if len(suggestions) >= 10:
+                break
     items = []
     for item in suggestions:
         audio_id = str(item.get("audio_id") or "")
@@ -337,7 +354,7 @@ async def suggest_local_studio_audio_proposals(
             "reason": f"Proposition Instagram adaptée à l'ambiance {style} et aux photos sélectionnées.",
             "preview_link": item.get("preview_link"),
         })
-    return {"items": items[:10], "eligible_count": len(items[:10]), "source": "instagram", "local_render": False}
+    return {"items": items[:10], "eligible_count": len(items[:10]), "source": "instagram", "local_render": False, "reason": "Catalogue Instagram Meta" if items else "Aucune réponse exploitable du catalogue Instagram Meta"}
 
 
 @router.post("/studio/draft/{publication_id}/variants", response_model=PublicationVariantsResponse)

@@ -686,15 +686,6 @@ class CommunityManagerStudioService:
         if cleaned_hashtags and cleaned_hashtags != pub.hashtags:
             pub.hashtags = cleaned_hashtags
 
-        # Sélection automatique de la musique Instagram (ig_audio) si des photos sont présentes
-        # et qu'aucune musique n'est encore choisie
-        if _is_sport_publication(pub):
-            design = pub.design if isinstance(pub.design, dict) else {}
-            has_photos = pub.photo_id or (isinstance(design.get("carousel"), list) and len(design.get("carousel")) > 0)
-            has_music = isinstance(design.get("ig_audio"), dict) and design.get("ig_audio", {}).get("audio_id")
-            if has_photos and not has_music:
-                pub = await self._refresh_ig_music(pub)
-
         return pub
 
     async def update_draft(

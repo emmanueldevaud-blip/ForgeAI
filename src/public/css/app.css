@@ -11776,12 +11776,15 @@
   }
 
   .garmin-audio-proposal {
+    display: grid;
+    grid-template-columns: 25px minmax(0, 1fr);
     max-width: 100%;
     box-sizing: border-box;
   }
 
   .garmin-audio-proposal > span:last-child {
-    flex: 0 0 auto;
+    grid-column: 2;
+    justify-self: start;
     max-width: 30%;
     overflow-wrap: anywhere;
     text-align: right;

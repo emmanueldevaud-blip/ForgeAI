@@ -533,7 +533,13 @@ export class GarminQuickPublicationView {
     try {
       const result = await getStudioAudioProposals(this.publicationId, this.audioProposalExclude);
       if (version !== this.audioProposalVersion) return;
-      this.audioProposals = (result?.items || []).map(item => ({ ...item, track_id: item.audio_id, artist: item.artist || item.display_artist || '', excerpt: { start_time: Number(item.start_time_ms || 0) / 1000, end_time: Number((item.start_time_ms || 0) + (item.duration_in_ms || 0)) / 1000, duration: Number(item.duration_in_ms || 0) / 1000 } }));
+      this.audioProposals = (result?.items || []).map(item => ({
+        ...item,
+        track_id: item.audio_id,
+        artist: item.artist || item.display_artist || '',
+        preview_link: item.preview_link || item.on_platform_audio_preview_link || item.on_platform_audio_preview_url || item.preview_url || item.preview || null,
+        excerpt: { start_time: Number(item.start_time_ms || 0) / 1000, end_time: Number((item.start_time_ms || 0) + (item.duration_in_ms || 0)) / 1000, duration: Number(item.duration_in_ms || 0) / 1000 },
+      }));
     } catch (error) {
       if (version !== this.audioProposalVersion) return;
       this.audioProposalError = error?.data?.detail || error?.message || 'Impossible de proposer des musiques.';

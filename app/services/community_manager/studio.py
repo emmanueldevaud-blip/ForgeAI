@@ -1666,7 +1666,6 @@ class CommunityManagerStudioService:
         Conditions : publication sportive, photo présente, audio activé avec piste.
         Ne bloque pas ; le traitement est effectué par le worker photo_jobs (studio_render).
         """
-        from app.core.config import get_settings
         from app.models.photo import PhotoJob
         from app.services.photo.jobs import enqueue_job, run_pending_jobs_now
         from app.services.community_manager.audio import normalize_audio_config, resolve_track_path
@@ -1738,14 +1737,15 @@ class CommunityManagerStudioService:
         pub.design = design
 
         # Déclenchement immédiat best-effort en contexte HTTP (sinon boucle lifespan)
-        if get_settings().PHOTO_BACKGROUND_JOBS:
-            try:
-                import asyncio
+        # Le Quick Reel doit démarrer même si la boucle générale des jobs
+        # photo est désactivée dans la configuration.
+        try:
+            import asyncio
 
-                loop = asyncio.get_running_loop()
-                loop.create_task(run_pending_jobs_now())
-            except Exception:
-                pass
+            loop = asyncio.get_running_loop()
+            loop.create_task(run_pending_jobs_now())
+        except Exception:
+            pass
 
         return job
 

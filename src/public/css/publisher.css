@@ -1713,6 +1713,7 @@
   .publisher-header { gap: 8px; padding: 10px 12px; }
   .publisher-step { padding: 8px 8px; }
   .publisher-header-left h1 { font-size: 16px; }
+  .publisher-steps { overflow-x: auto; min-width: 0; scrollbar-width: none; }
   .publisher-steps .publisher-step-label {
     display: none;
   }

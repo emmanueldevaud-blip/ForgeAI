@@ -16,6 +16,7 @@ export class PublisherCaptionEditor {
     this.element = null;
     this.aiPanelOpen = false;
     this.instagramAccounts = [];
+    this.instagramSelectedIds = [];
     this._accountLoading = false;
     this._unsubscribeStore = null;
   }
@@ -85,6 +86,9 @@ export class PublisherCaptionEditor {
             <div class="pce-account-panel" data-account-panel hidden>
               <div class="pce-account-empty" data-account-empty hidden>Aucun compte Instagram configure.</div>
               <div class="pce-account-list" data-account-list></div>
+              <div class="pce-account-footer">
+                <button type="button" class="pce-btn pce-btn-secondary" data-action="confirm-account-selection">Confirmer la sélection</button>
+              </div>
             </div>
           </div>
         </div>
@@ -169,6 +173,8 @@ export class PublisherCaptionEditor {
     // Account selector
     const accountBtn = this.element.querySelector('[data-action="select-account"]');
     accountBtn.addEventListener('click', () => this._openAccountSelector());
+    const confirmBtn = this.element.querySelector('[data-action="confirm-account-selection"]');
+    if (confirmBtn) confirmBtn.addEventListener('click', () => this._confirmAccountSelection());
     this.element.querySelectorAll('[data-account-id]').forEach(btn => {
       btn.addEventListener('click', () => this._selectAccount(btn.dataset.accountId));
     });
@@ -298,8 +304,9 @@ export class PublisherCaptionEditor {
     if (!list) return;
     list.innerHTML = this.instagramAccounts.map(account => {
       const accountId = account.platform_account_id || account.username;
+      const selected = this.instagramSelectedIds.includes(accountId);
       return `
-        <button type="button" class="pce-account-item" data-account-id="${this._esc(accountId)}">
+        <button type="button" class="pce-account-item ${selected ? 'selected' : ''}" data-account-id="${this._esc(accountId)}">
           <span>${this._esc(account.username || account.account_name || accountId)}</span>
           <span>${this._esc(account.account_name || '')}</span>
         </button>
@@ -311,8 +318,18 @@ export class PublisherCaptionEditor {
   }
 
   _selectAccount(accountId) {
-    this.instagramAccounts = this.instagramAccounts.map(a => ({ ...a, selected: (a.platform_account_id || a.username) === accountId }));
-    publisherStore.updateCaption('accountId', accountId);
+    const idx = this.instagramSelectedIds.indexOf(accountId);
+    if (idx >= 0) {
+      this.instagramSelectedIds.splice(idx, 1);
+    } else {
+      this.instagramSelectedIds.push(accountId);
+    }
+    this._renderAccountList();
+  }
+
+  _confirmAccountSelection() {
+    if (!this.instagramSelectedIds.length) return;
+    publisherStore.updateCaption('accountId', this.instagramSelectedIds[0]);
     const panel = this.element.querySelector('[data-account-panel]');
     if (panel) panel.hidden = true;
   }

@@ -1835,3 +1835,7 @@
 .pce-account-item:hover {
   background: rgba(255,255,255,0.06);
 }
+
+.pce-account-item.selected {
+  background: rgba(0,149,246,0.12);
+}

@@ -220,7 +220,7 @@ export class StoryStudioPage {
   }
 
   _escape(text) {
-    return String(text ?? '').replace(/[&<>"']/g, c => ({ '&': '&', '<': '<', '>': '>', '"': '"', "'": ''' }[c]));
+    return String(text ?? '').replace(/[&<>"']/g, c => ({ '&': '&', '<': '<', '>': '>', '"': '"', "'": "'" }[c]));
   }
 
   _getSlideTypeIcon(type) {

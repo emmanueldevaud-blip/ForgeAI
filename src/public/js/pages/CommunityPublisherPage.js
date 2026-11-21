@@ -35,6 +35,7 @@ export class CommunityPublisherPage {
     this.garminActivityId = options.garminActivityId || null;
     this.preselectedMedia = options.preselectedMedia || [];
     this.onBack = options.onBack || null;
+    this.isExistingPublication = options.isExistingPublication || false;
 
     this.element = null;
     this.mediaPicker = null;
@@ -50,7 +51,9 @@ export class CommunityPublisherPage {
 
   async initialize() {
     // Charger le brouillon existant ou en créer un nouveau
-    if (this.entryId) {
+    if (this.isExistingPublication) {
+      await this._loadExistingPublication(this.entryId);
+    } else if (this.entryId) {
       await this._loadFromCalendarEntry();
     } else if (this.garminActivityId) {
       await this._loadFromGarmin();
@@ -85,6 +88,15 @@ export class CommunityPublisherPage {
     // Pour l'instant, on attend la sélection de photos via le MediaPicker
     // Le MediaPicker émettra un événement pmp:garmin-select
     publisherStore.setGarmin(this.garminActivityId, {}, []);
+  }
+
+  async _loadExistingPublication(publicationId) {
+    try {
+      const pub = await publisherDraftService.load(publicationId);
+      // Le service met à jour le store
+    } catch (error) {
+      this.error = error.message;
+    }
   }
 
   render() {

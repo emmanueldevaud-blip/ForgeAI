@@ -215,7 +215,7 @@ export class CommunityManagerCalendarPage {
     }
   }
 
-  _openPublisher({ entryId = null, draftId = null, format = 'post', garminActivityId = null } = {}) {
+  _openPublisher({ entryId = null, draftId = null, pubId = null, format = 'post', garminActivityId = null } = {}) {
     if (draftId) {
       // Ouvre un brouillon Story existant
       this.showStoryStudio = true;
@@ -231,7 +231,32 @@ export class CommunityManagerCalendarPage {
       return;
     }
 
-    // Ouvre le nouveau Publisher unifié
+    if (pubId) {
+      // Charge une publication existante (SportPublication)
+      this.showPublisher = true;
+      this.publisherPage = createCommunityPublisherPage(this.router, {
+        entryId: pubId,  // Pour compatibilité, mais on va charger la pub existante
+        format,
+        isExistingPublication: true,
+        onBack: () => {
+          this.showPublisher = false;
+          this.publisherPage?.destroy();
+          this.publisherPage = null;
+          this.selectedEntry = null;
+          this._loadMonth();
+        },
+      });
+      // Charger la publication existante après l'initialisation
+      this.publisherPage.initialize().then(() => {
+        if (this.publisherPage) {
+          this.publisherPage._loadExistingPublication(pubId);
+        }
+      }).catch(() => {});
+      this.render();
+      return;
+    }
+
+    // Ouvre le nouveau Publisher unifié pour créer un nouveau brouillon
     this.showPublisher = true;
     this.publisherPage = createCommunityPublisherPage(this.router, {
       entryId,
@@ -277,7 +302,7 @@ export class CommunityManagerCalendarPage {
     if (pubId) {
       // Publication existante : déterminer le format depuis le type de contenu
       const format = source === 'garmin' ? 'story' : 'post';
-      this._openPublisher({ entryId: pubId, format });
+      this._openPublisher({ pubId, format });
       return;
     }
     if (source === 'suggestion' && status === 'refused') {

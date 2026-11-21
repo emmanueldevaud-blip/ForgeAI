@@ -94,6 +94,12 @@ export class CommunityPublisherPage {
     try {
       const pub = await publisherDraftService.load(publicationId);
       // Le service met à jour le store
+      // Rafraîchir le media picker si on est sur l'étape media
+      if (this.currentStep === 'media' && this.mediaPicker) {
+        this.mediaPicker._updateSelectionUI();
+        this.mediaPicker._updateCounter();
+        this.mediaPicker._updateGridSelection();
+      }
     } catch (error) {
       this.error = error.message;
     }
@@ -238,6 +244,11 @@ export class CommunityPublisherPage {
 
   _mountMediaPicker() {
     const host = this.element.querySelector('[data-media-host]');
+    if (!host) {
+      console.warn('[Publisher] Media host not found, retrying...');
+      setTimeout(() => this._mountMediaPicker(), 50);
+      return;
+    }
     this.mediaPicker = createPublisherMediaPicker({
       multiSelect: true,
       maxSelection: FORMAT_CONFIG[this.format].maxMedia,
@@ -246,7 +257,11 @@ export class CommunityPublisherPage {
       onComplete: () => publisherStore.nextStep(),
       onCancel: () => this._goBack(),
     });
-    this.mediaPicker.mount(host);
+    try {
+      this.mediaPicker.mount(host);
+    } catch (e) {
+      console.error('[Publisher] Media picker mount failed:', e);
+    }
   }
 
   _mountAdjustEditor() {

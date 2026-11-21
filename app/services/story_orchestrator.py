@@ -22,6 +22,7 @@ from sqlalchemy.orm import selectinload
 
 from app.models.photo import Photo
 from app.models.sport import (
+    CommunityManagerStrategy,
     EditorialCalendarEntry,
     SportActivity,
     SportAthlete,

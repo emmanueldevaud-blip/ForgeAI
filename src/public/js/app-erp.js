@@ -115,6 +115,7 @@ let surveillancePage = null;
 let photosPage = null;
 let souvenirsPage = null;
 let itAssetPage = null;
+let communityPublisherPage = null;
 
 // Force inclusion - side effect at module evaluation time
 void (function() {
@@ -456,7 +457,12 @@ async function showCommunityPublisherPage(route) {
   try {
     const format = route.params.format || 'post';
     const entryId = route.params.entryId ? parseInt(route.params.entryId, 10) : null;
+    if (communityPublisherPage) {
+      communityPublisherPage.destroy();
+      communityPublisherPage = null;
+    }
     const page = createCommunityPublisherPage(router, { format, entryId });
+    communityPublisherPage = page;
     await page.initialize();
     const element = page.render();
     appShell.showContent(element);

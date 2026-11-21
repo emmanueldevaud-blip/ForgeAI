@@ -45,6 +45,7 @@ export class CommunityPublisherPage {
     this.currentStep = 'media';
     this.loading = false;
     this.error = null;
+    this._renderedStep = null;
     this._unsubscribeStore = null;
     this._garminListener = null;
   }
@@ -112,6 +113,10 @@ export class CommunityPublisherPage {
     }
     if (this.element.children.length === 0) {
       this.element.innerHTML = this._renderShell();
+      this._bindEvents();
+      this._subscribeStore();
+      this._renderStep();
+      this._updateFooterButtons();
     }
     return this.element;
   }
@@ -119,10 +124,6 @@ export class CommunityPublisherPage {
   mount(host) {
     if (!this.element) this.render();
     host.appendChild(this.element);
-
-    this._bindEvents();
-    this._subscribeStore();
-    this._renderStep();
 
     // Écouter les événements Garmin du MediaPicker
     this._garminListener = (e) => this._onGarminSelect(e.detail.activityId);
@@ -195,6 +196,10 @@ export class CommunityPublisherPage {
   }
 
   _renderStep() {
+    if (this._renderedStep === this.currentStep) {
+      return;
+    }
+    this._renderedStep = this.currentStep;
     const content = this.element.querySelector('[data-step-content]');
     content.innerHTML = this._getStepContent(this.currentStep);
     this._bindStepEvents(this.currentStep);
@@ -249,6 +254,10 @@ export class CommunityPublisherPage {
       setTimeout(() => this._mountMediaPicker(), 50);
       return;
     }
+    if (this.mediaPicker) {
+      this.mediaPicker.destroy();
+      this.mediaPicker = null;
+    }
     this.mediaPicker = createPublisherMediaPicker({
       multiSelect: true,
       maxSelection: FORMAT_CONFIG[this.format].maxMedia,
@@ -279,22 +288,26 @@ export class CommunityPublisherPage {
     const host = this.element.querySelector('[data-compose-host]');
     if (this.format === 'story') {
       // StoryEditorView existe déjà
-      if (!this.formatEditor) {
-        this.formatEditor = createPublisherStoryEditor({
-          draft: publisherStore.draft,
-          onSave: () => publisherStore.nextStep(),
-          onBack: () => publisherStore.prevStep(),
-        });
+      if (this.formatEditor) {
+        this.formatEditor.destroy();
+        this.formatEditor = null;
       }
+      this.formatEditor = createPublisherStoryEditor({
+        draft: publisherStore.draft,
+        onSave: () => publisherStore.nextStep(),
+        onBack: () => publisherStore.prevStep(),
+      });
       this.formatEditor.mount(host);
     } else if (this.format === 'reel') {
-      if (!this.formatEditor) {
-        this.formatEditor = createPublisherReelEditor({
-          draft: publisherStore.draft,
-          onSave: () => publisherStore.nextStep(),
-          onBack: () => publisherStore.prevStep(),
-        });
+      if (this.formatEditor) {
+        this.formatEditor.destroy();
+        this.formatEditor = null;
       }
+      this.formatEditor = createPublisherReelEditor({
+        draft: publisherStore.draft,
+        onSave: () => publisherStore.nextStep(),
+        onBack: () => publisherStore.prevStep(),
+      });
       this.formatEditor.mount(host);
     } else {
       // Post simple : pas d'étape compose, on passe directement à caption
@@ -304,27 +317,31 @@ export class CommunityPublisherPage {
 
   _mountCaptionEditor() {
     const host = this.element.querySelector('[data-caption-host]');
-    if (!this.captionEditor) {
-      this.captionEditor = createPublisherCaptionEditor({
-        draft: publisherStore.draft,
-        onSave: () => publisherStore.nextStep(),
-        onBack: () => publisherStore.prevStep(),
-        onAIRequest: (request) => this._handleAIRequest(request),
-      });
+    if (this.captionEditor) {
+      this.captionEditor.destroy();
+      this.captionEditor = null;
     }
+    this.captionEditor = createPublisherCaptionEditor({
+      draft: publisherStore.draft,
+      onSave: () => publisherStore.nextStep(),
+      onBack: () => publisherStore.prevStep(),
+      onAIRequest: (request) => this._handleAIRequest(request),
+    });
     this.captionEditor.mount(host);
   }
 
   _mountPreview() {
     const host = this.element.querySelector('[data-preview-host]');
-    if (!this.preview) {
-      this.preview = createPublisherPreview({
-        draft: publisherStore.draft,
-        format: this.format,
-        onBack: () => publisherStore.prevStep(),
-        onPublish: () => publisherStore.setStep('publish'),
-      });
+    if (this.preview) {
+      this.preview.destroy();
+      this.preview = null;
     }
+    this.preview = createPublisherPreview({
+      draft: publisherStore.draft,
+      format: this.format,
+      onBack: () => publisherStore.prevStep(),
+      onPublish: () => publisherStore.setStep('publish'),
+    });
     this.preview.mount(host);
   }
 
@@ -381,7 +398,15 @@ export class CommunityPublisherPage {
 
     // Footer
     this.element.querySelector('[data-action="prev-step"]').addEventListener('click', () => publisherStore.prevStep());
-    this.element.querySelector('[data-action="next-step"]').addEventListener('click', () => publisherStore.nextStep());
+    this.element.querySelector('[data-action="next-step"]').addEventListener('click', () => {
+      const stepOrder = FORMAT_CONFIG[this.format].steps;
+      const currentIdx = stepOrder.indexOf(this.currentStep);
+      if (currentIdx === stepOrder.length - 1) {
+        this.element.querySelector('[data-action="publish-final"]')?.click();
+        return;
+      }
+      publisherStore.nextStep();
+    });
 
     // Publish final
     this.element.querySelector('[data-action="publish-final"]')?.addEventListener('click', () => this._publish());

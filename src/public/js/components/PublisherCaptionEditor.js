@@ -4,6 +4,7 @@
  */
 
 import { publisherStore } from '../stores/publisherStore.js';
+import { getMetaInstagramAccount } from '../services/sportApi.js?v=16';
 
 const MAX_LENGTH = 2200;
 
@@ -14,6 +15,8 @@ export class PublisherCaptionEditor {
     this.onAIRequest = options.onAIRequest || (() => {});
     this.element = null;
     this.aiPanelOpen = false;
+    this.instagramAccounts = [];
+    this._accountLoading = false;
     this._unsubscribeStore = null;
   }
 
@@ -25,6 +28,7 @@ export class PublisherCaptionEditor {
 
     this._bindEvents();
     this._subscribeStore();
+    this._loadInstagramAccount();
   }
 
   _subscribeStore() {
@@ -78,6 +82,10 @@ export class PublisherCaptionEditor {
               <span>Choisir un compte Instagram</span>
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
             </button>
+            <div class="pce-account-panel" data-account-panel hidden>
+              <div class="pce-account-empty" data-account-empty hidden>Aucun compte Instagram configure.</div>
+              <div class="pce-account-list" data-account-list></div>
+            </div>
           </div>
         </div>
       </form>
@@ -159,7 +167,11 @@ export class PublisherCaptionEditor {
     });
 
     // Account selector
-    this.element.querySelector('[data-action="select-account"]').addEventListener('click', () => this._openAccountSelector());
+    const accountBtn = this.element.querySelector('[data-action="select-account"]');
+    accountBtn.addEventListener('click', () => this._openAccountSelector());
+    this.element.querySelectorAll('[data-account-id]').forEach(btn => {
+      btn.addEventListener('click', () => this._selectAccount(btn.dataset.accountId));
+    });
   }
 
   _getFullCaption(caption) {
@@ -215,9 +227,94 @@ export class PublisherCaptionEditor {
     result.textContent = text;
   }
 
-  _openAccountSelector() {
-    // TODO: Ouvrir le sélecteur de comptes Meta
-    alert('Sélecteur de comptes Meta - à connecter avec l\'API existante');
+  async _openAccountSelector() {
+    const panel = this.element.querySelector('[data-account-panel]');
+    const btn = this.element.querySelector('[data-action="select-account"]');
+    if (panel && !panel.hidden) {
+      panel.hidden = true;
+      return;
+    }
+    if (!this.instagramAccounts.length) {
+      this._accountLoading = true;
+      btn.disabled = true;
+      try {
+        const res = await getMetaInstagramAccount();
+        const account = res?.data?.platform ? res.data : res;
+        this.instagramAccounts = account?.platform ? [account] : [];
+      } catch (e) {
+        console.error('[PublisherCaptionEditor] Erreur chargement compte Instagram:', e);
+        this.instagramAccounts = [];
+      } finally {
+        this._accountLoading = false;
+        btn.disabled = false;
+      }
+    }
+    this._updateAccountUI();
+    if (panel) panel.hidden = false;
+    this._renderAccountList();
+  }
+
+  async _loadInstagramAccount() {
+    try {
+      const res = await getMetaInstagramAccount();
+      const account = res?.data?.platform ? res.data : res;
+      this.instagramAccounts = account?.platform ? [account] : [];
+      this._updateAccountUI();
+    } catch (e) {
+      console.error('[PublisherCaptionEditor] Erreur chargement compte Instagram:', e);
+      this.instagramAccounts = [];
+      this._updateAccountUI();
+    }
+  }
+
+  _updateAccountUI() {
+    const btn = this.element.querySelector('[data-action="select-account"]');
+    if (!btn) return;
+    const account = this.instagramAccounts[0];
+    if (account) {
+      btn.disabled = false;
+      btn.innerHTML = `
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>
+        </svg>
+        <span>${this._esc(account.username || account.account_name || account.platform_account_id)}</span>
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
+      `;
+    } else {
+      btn.disabled = false;
+      btn.innerHTML = `
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>
+        </svg>
+        <span>Choisir un compte Instagram</span>
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
+      `;
+    }
+  }
+
+  _renderAccountList() {
+    const list = this.element.querySelector('[data-account-list]');
+    const empty = this.element.querySelector('[data-account-empty]');
+    if (!list) return;
+    list.innerHTML = this.instagramAccounts.map(account => {
+      const accountId = account.platform_account_id || account.username;
+      return `
+        <button type="button" class="pce-account-item" data-account-id="${this._esc(accountId)}">
+          <span>${this._esc(account.username || account.account_name || accountId)}</span>
+          <span>${this._esc(account.account_name || '')}</span>
+        </button>
+      `;
+    }).join('');
+    this.element.querySelectorAll('[data-account-id]').forEach(btn => {
+      btn.addEventListener('click', () => this._selectAccount(btn.dataset.accountId));
+    });
+  }
+
+  _selectAccount(accountId) {
+    this.instagramAccounts = this.instagramAccounts.map(a => ({ ...a, selected: (a.platform_account_id || a.username) === accountId }));
+    publisherStore.updateCaption('accountId', accountId);
+    const panel = this.element.querySelector('[data-account-panel]');
+    if (panel) panel.hidden = true;
   }
 
   destroy() {

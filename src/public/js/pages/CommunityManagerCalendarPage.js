@@ -18,12 +18,9 @@ import {
   getStudioDraft,
   publishStudioDraft,
   regeneratePublicationContent,
-  createStoryDraft,
-  listStoryDrafts,
 } from '../services/sportApi.js?v=16';
-import { createCommunityManagerStudioPage } from './CommunityManagerStudioPage.js?v=13';
-import { createGarminQuickPublicationView } from './GarminQuickPublicationView.js?v=3';
 import { createStoryStudioPage } from './StoryStudioPage.js?v=1';
+import { createCommunityPublisherPage } from './CommunityPublisherPage.js?v=1';
 
 const MONTHS = [
   'Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin',
@@ -58,11 +55,9 @@ export class CommunityManagerCalendarPage {
     this.view = 'month'; // 'month' | 'week'
     this.currentDate = new Date();
     this.selectedEntry = null;
-    this.studioPage = null;
-    this.quickPublicationPage = null;
+    this.publisherPage = null;
     this.storyStudioPage = null;
-    this.showQuickPublication = false;
-    this.showStudio = false;
+    this.showPublisher = false;
     this.showStoryStudio = false;
     this.loading = false;
     this.error = null;
@@ -218,44 +213,37 @@ export class CommunityManagerCalendarPage {
     }
   }
 
-  _openStudio(entryId) {
-    this.selectedEntry = entryId;
-    this.showStudio = true;
-    this.studioPage = createCommunityManagerStudioPage(this.router, entryId, null, () => {
-      this.showStudio = false;
-      this.studioPage = null;
-      this.selectedEntry = null;
+  _openPublisher({ entryId = null, draftId = null, format = 'post', garminActivityId = null } = {}) {
+    if (draftId) {
+      // Ouvre un brouillon Story existant
+      this.showStoryStudio = true;
+      this.storyStudioPage = createStoryStudioPage(this.router, draftId, () => {
+        this.showStoryStudio = false;
+        this.storyStudioPage?.destroy();
+        this.storyStudioPage = null;
+        this.selectedEntry = null;
+        this._loadMonth();
+      });
+      this.storyStudioPage.initialize().catch(() => {});
       this.render();
-    });
-    this.studioPage.initialize().then(() => this.render()).catch(() => {});
-    this.render();
-  }
+      return;
+    }
 
-  _openGarminQuick(publicationId) {
-    this.selectedEntry = publicationId;
-    this.showQuickPublication = true;
-    this.quickPublicationPage = createGarminQuickPublicationView(publicationId, () => {
-      this.showQuickPublication = false;
-      this.quickPublicationPage?.destroy();
-      this.quickPublicationPage = null;
-      this.selectedEntry = null;
-      this._loadMonth();
+    // Ouvre le nouveau Publisher unifié
+    this.showPublisher = true;
+    this.publisherPage = createCommunityPublisherPage(this.router, {
+      entryId,
+      format,
+      garminActivityId,
+      onBack: () => {
+        this.showPublisher = false;
+        this.publisherPage?.destroy();
+        this.publisherPage = null;
+        this.selectedEntry = null;
+        this._loadMonth();
+      },
     });
-    this.quickPublicationPage.initialize().catch(() => {});
-    this.render();
-  }
-
-  _openStoryStudio(draftId) {
-    this.selectedEntry = draftId;
-    this.showStoryStudio = true;
-    this.storyStudioPage = createStoryStudioPage(this.router, draftId, () => {
-      this.showStoryStudio = false;
-      this.storyStudioPage?.destroy();
-      this.storyStudioPage = null;
-      this.selectedEntry = null;
-      this._loadMonth();
-    });
-    this.storyStudioPage.initialize().catch(() => {});
+    this.publisherPage.initialize().catch(() => {});
     this.render();
   }
 
@@ -279,13 +267,14 @@ export class CommunityManagerCalendarPage {
 
     // Si un brouillon Story existe, l'ouvrir directement
     if (storyDraftId) {
-      this._openStoryStudio(storyDraftId);
+      this._openPublisher({ draftId: storyDraftId });
       return;
     }
 
     if (pubId) {
-      if (source === 'garmin') this._openGarminQuick(pubId);
-      else this._openStudio(pubId);
+      // Publication existante : déterminer le format depuis le type de contenu
+      const format = source === 'garmin' ? 'story' : 'post';
+      this._openPublisher({ entryId: pubId, format });
       return;
     }
     if (source === 'suggestion' && status === 'refused') {
@@ -315,8 +304,9 @@ export class CommunityManagerCalendarPage {
       if (!res?.publication_id) {
         throw new Error(res?.detail || 'Création du brouillon impossible.');
       }
-      if (source === 'garmin') this._openGarminQuick(res.publication_id);
-      else this._openStudio(res.publication_id);
+      // Ouvrir le Publisher avec le bon format selon la source
+      const format = source === 'garmin' ? 'story' : 'post';
+      this._openPublisher({ entryId: res.publication_id, format });
       this._loadMonth();
     } catch (error) {
       this.loading = false;
@@ -334,12 +324,8 @@ export class CommunityManagerCalendarPage {
       this.element.replaceChildren(this.storyStudioPage.render());
       return this.element;
     }
-    if (this.showStudio && this.studioPage) {
-      this.element.replaceChildren(this.studioPage.render());
-      return this.element;
-    }
-    if (this.showQuickPublication && this.quickPublicationPage) {
-      this.element.replaceChildren(this.quickPublicationPage.render());
+    if (this.showPublisher && this.publisherPage) {
+      this.element.replaceChildren(this.publisherPage.render());
       return this.element;
     }
 

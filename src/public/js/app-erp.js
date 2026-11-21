@@ -25,6 +25,7 @@ import { createProfilePage } from './pages/ProfilePage.js?v=2';
 import { createSettingsPage } from './pages/UserSettingsPage.js?v=19';
 import { createCommunityManagerCalendarPage } from './pages/CommunityManagerCalendarPage.js?v=8';
 import { createAnalyticsIntelligencePage } from './pages/AnalyticsIntelligencePage.js?v=2';
+import { createCommunityPublisherPage } from './pages/CommunityPublisherPage.js?v=1';
 import { createCleaningVolunteersPage } from './pages/CleaningVolunteersPage.js?v=5';
 import { createAdministrativeProgramsPage } from './pages/AdministrativeProgramsPage.js';
 import { createSportDashboardPage } from './pages/SportDashboardPage.js?v=5';
@@ -360,6 +361,15 @@ async function initializeApp() {
     .addRoute('/community-manager/analytics', async (route) => {
       await showAnalyticsIntelligencePage(route);
     }, { requiresAuth: true, permissions: ['meta_analytics.view'], module: 'community_manager' })
+    .addRoute('/publisher', async (route) => {
+      await showCommunityPublisherPage(route);
+    }, { requiresAuth: true, permissions: ['community_manager.strategy_view'], module: 'community_manager' })
+    .addRoute('/publisher/:format', async (route) => {
+      await showCommunityPublisherPage(route);
+    }, { requiresAuth: true, permissions: ['community_manager.strategy_view'], module: 'community_manager' })
+    .addRoute('/publisher/:format/:entryId', async (route) => {
+      await showCommunityPublisherPage(route);
+    }, { requiresAuth: true, permissions: ['community_manager.strategy_view'], module: 'community_manager' })
 
   // Modules with explicit routes (registered above) - skip in module loop
   const explicitModuleRoutes = ['dashboard', 'administration', 'administratif',
@@ -435,6 +445,23 @@ async function showCommunityManagerPage(route) {
     appShell.showContent(element);
   } catch (error) {
     console.error('Erreur affichage Community Manager:', error);
+    appShell.showError(error);
+  }
+}
+
+async function showCommunityPublisherPage(route) {
+  if (!appShell) return;
+  appShell.showLoading();
+
+  try {
+    const format = route.params.format || 'post';
+    const entryId = route.params.entryId ? parseInt(route.params.entryId, 10) : null;
+    const page = createCommunityPublisherPage(router, { format, entryId });
+    await page.initialize();
+    const element = page.render();
+    appShell.showContent(element);
+  } catch (error) {
+    console.error('Erreur affichage Community Publisher:', error);
     appShell.showError(error);
   }
 }

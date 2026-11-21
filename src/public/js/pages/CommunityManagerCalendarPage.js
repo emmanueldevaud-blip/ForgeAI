@@ -18,6 +18,8 @@ import {
   getStudioDraft,
   publishStudioDraft,
   regeneratePublicationContent,
+  createStoryDraft,
+  getSuggestedPhotos,
 } from '../services/sportApi.js?v=16';
 import { createStoryStudioPage } from './StoryStudioPage.js?v=1';
 import { createCommunityPublisherPage } from './CommunityPublisherPage.js?v=1';
@@ -262,6 +264,7 @@ export class CommunityManagerCalendarPage {
     const entryId = parseInt(entryEl.dataset.entryId, 10);
     const pubId = entryEl.dataset.entryPubId ? parseInt(entryEl.dataset.entryPubId, 10) : null;
     const storyDraftId = entryEl.dataset.entryStoryDraftId ? parseInt(entryEl.dataset.entryStoryDraftId, 10) : null;
+    const sourceActivityId = entryEl.dataset.entrySourceActivityId ? parseInt(entryEl.dataset.entrySourceActivityId, 10) : null;
     const status = entryEl.dataset.entryStatus || '';
     const source = entryEl.dataset.entrySource || '';
 
@@ -295,18 +298,40 @@ export class CommunityManagerCalendarPage {
         await updateCommunityManagerCalendarEntry(entryId, { status: 'planifié' });
         effectiveStatus = 'planifié';
       }
-      const res = await createStudioDraftFromCalendar({
-        calendar_entry_id: entryId,
-        styles: ['stats'],
-        visual_type: 'photo',
-      });
-      this.loading = false;
-      if (!res?.publication_id) {
-        throw new Error(res?.detail || 'Création du brouillon impossible.');
+
+      // Pour les activités Garmin, créer un StoryDraft (via Story Studio)
+      // Pour les autres, créer un brouillon Studio (Post/Reel)
+      if (source === 'garmin') {
+        if (!sourceActivityId) {
+          throw new Error('Activité Garmin non liée à cette entrée de calendrier');
+        }
+        // Récupérer les photos suggérées pour cette activité
+        const photoRes = await getSuggestedPhotos(null, 20);
+        const photoIds = (photoRes.items || []).map(p => p.id);
+        if (photoIds.length === 0) {
+          throw new Error('Aucune photo disponible pour cette activité Garmin');
+        }
+        const res = await createStoryDraft({
+          activity_id: sourceActivityId,
+          photo_ids: photoIds,
+          calendar_entry_id: entryId,
+        });
+        this.loading = false;
+        if (!res?.id) {
+          throw new Error(res?.detail || 'Création du brouillon Story impossible.');
+        }
+        this._openPublisher({ draftId: res.id });
+      } else {
+        const res = await createStudioDraftFromCalendar({
+          calendar_entry_id: entryId,
+          styles: ['stats'],
+          visual_type: 'photo',
+        });
+        if (!res?.publication_id) {
+          throw new Error(res?.detail || 'Création du brouillon impossible.');
+        }
+        this._openPublisher({ entryId: res.publication_id, format: 'post' });
       }
-      // Ouvrir le Publisher avec le bon format selon la source
-      const format = source === 'garmin' ? 'story' : 'post';
-      this._openPublisher({ entryId: res.publication_id, format });
       this._loadMonth();
     } catch (error) {
       this.loading = false;
@@ -433,12 +458,14 @@ export class CommunityManagerCalendarPage {
     const isShared = entry.pub_status === 'shared';
     const publishedClass = isShared ? ' cal-entry--published' : '';
     const storyDraftId = entry.story_draft_id || entry.pub_story_draft_id || null;
+    const sourceActivityId = entry.source_activity_id || null;
     const deleteBtn = !isShared ? `
       <button class="cal-entry-btn cal-entry-btn--delete" data-action="delete-entry" data-entry-id="${entry.entry_id}" title="Supprimer">🗑</button>
     ` : '';
     return `
       <div class="cal-entry${publishedClass}" data-entry-id="${entry.entry_id}" data-entry-pub-id="${entry.pub_id || ''}"
            data-entry-story-draft-id="${storyDraftId || ''}"
+           data-entry-source-activity-id="${sourceActivityId || ''}"
            data-entry-status="${this._escape(entry.status || '')}" data-entry-source="${this._escape(entry.source || 'manuel')}"
            data-entry-pub-status="${this._escape(entry.pub_status || '')}"
            title="${topic}"

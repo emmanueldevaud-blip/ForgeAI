@@ -87,10 +87,19 @@ export class CommunityPublisherPage {
     publisherStore.setGarmin(this.garminActivityId, {}, []);
   }
 
+  render() {
+    if (!this.element) {
+      this.element = document.createElement('div');
+      this.element.className = 'publisher-page';
+    }
+    if (this.element.children.length === 0) {
+      this.element.innerHTML = this._renderShell();
+    }
+    return this.element;
+  }
+
   mount(host) {
-    this.element = document.createElement('div');
-    this.element.className = 'publisher-page';
-    this.element.innerHTML = this._renderShell();
+    if (!this.element) this.render();
     host.appendChild(this.element);
 
     this._bindEvents();

@@ -53,6 +53,7 @@ function makeFake() {
     dataset: {},
     disabled: false,
     textContent: '',
+    style: {},
     classList: { add() {}, remove() {}, toggle() {} },
   };
   return el;

@@ -203,6 +203,8 @@ export class CommunityPublisherPage {
     this._renderedStep = this.currentStep;
     const content = this.element.querySelector('[data-step-content]');
     content.innerHTML = this._getStepContent(this.currentStep);
+    const footer = this.element.querySelector('[data-footer]');
+    if (footer) footer.style.display = this.currentStep === 'media' ? 'none' : '';
     this._bindStepEvents(this.currentStep);
   }
 

@@ -64,8 +64,8 @@ export class PublisherMediaPicker {
               <line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/>
             </svg>
           </button>
-          <h2>Sélectionner des médias</h2>
         </div>
+        <h2 class="pmp-header-title">Sélectionner des médias</h2>
         <div class="pmp-header-right">
           <div class="pmp-counter" data-counter>${publisherStore.draft.media.length} / ${this.maxSelection}</div>
           <button type="button" class="pmp-btn pmp-btn-primary" data-action="complete" disabled>

@@ -1710,6 +1710,9 @@
    ========================================================= */
 
 @media (max-width: 480px) {
+  .publisher-header { gap: 8px; padding: 10px 12px; }
+  .publisher-step { padding: 8px 8px; }
+  .publisher-header-left h1 { font-size: 16px; }
   .publisher-steps .publisher-step-label {
     display: none;
   }

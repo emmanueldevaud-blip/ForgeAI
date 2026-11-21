@@ -193,7 +193,7 @@ export class PublisherPreview {
             <div class="pp-story-slide ${i === 0 ? 'active' : ''}" data-slide="${i}">
               <img src="${m.thumbnail_url}" alt="Story ${i+1}">
             </div>
-          `).join('')} ) : '<div class="pp-story-empty">Aucun contenu</div>'}
+          `).join('')) : '<div class="pp-story-empty">Aucun contenu</div>'}
         </div>
 
         <div class="pp-story-footer">

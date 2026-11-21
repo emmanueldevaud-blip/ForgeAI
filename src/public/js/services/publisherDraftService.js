@@ -3,7 +3,7 @@
  * Abstraction sur SportPublication (post/reel) et StoryDraft
  */
 
-import { publisherStore } from './publisherStore.js';
+import { publisherStore } from '../stores/publisherStore.js';
 import {
   // Studio V2 (post/reel)
   createStudioDraftFromCalendar,

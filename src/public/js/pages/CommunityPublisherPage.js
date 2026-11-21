@@ -42,6 +42,7 @@ export class CommunityPublisherPage {
     this.captionEditor = null;
     this.preview = null;
     this.formatEditor = null; // Post/Reel/Story editor
+    this.adjustEditor = null; // PublisherPostEditor (recadrage / réorganisation)
     this.currentStep = 'media';
     this.loading = false;
     this.error = null;
@@ -280,7 +281,16 @@ export class CommunityPublisherPage {
     if (this.format === 'story') {
       host.innerHTML = '<div class="publisher-adjust-story">Ajustement des slides Story (à implémenter)</div>';
     } else {
-      host.innerHTML = '<div class="publisher-adjust-post">Recadrage et réorganisation (à implémenter)</div>';
+      if (this.adjustEditor) {
+        this.adjustEditor.destroy();
+        this.adjustEditor = null;
+      }
+      this.adjustEditor = createPublisherPostEditor({
+        draft: publisherStore.draft,
+        onSave: () => publisherStore.nextStep(),
+        onBack: () => publisherStore.prevStep(),
+      });
+      this.adjustEditor.mount(host);
     }
   }
 

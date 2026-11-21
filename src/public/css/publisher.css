@@ -222,6 +222,7 @@
   cursor: pointer;
   transition: all var(--publisher-transition);
   padding: 10px 16px;
+  color: var(--publisher-text);
 }
 
 .publisher-btn:disabled,

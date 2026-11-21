@@ -356,6 +356,58 @@ export async function regeneratePublicationContent(publicationId) {
 }
 
 // --------------------------------------------------------------------------- #
+// Story Studio — Nouvelles routes pour l'éditeur Stories
+// --------------------------------------------------------------------------- #
+
+export async function createStoryDraft(data) {
+  return cmApi.post('/community-manager/story-studio/draft', data);
+}
+
+export async function listStoryDrafts(params = {}) {
+  const query = new URLSearchParams();
+  if (params.status) query.append('status', params.status);
+  if (params.page) query.append('page', params.page);
+  if (params.page_size) query.append('page_size', params.page_size);
+  return cmApi.get(`/community-manager/story-studio/drafts${query.toString() ? `?${query}` : ''}`);
+}
+
+export async function getStoryDraft(draftId) {
+  return cmApi.get(`/community-manager/story-studio/draft/${encodeURIComponent(draftId)}`);
+}
+
+export async function updateStoryDraft(draftId, data) {
+  return cmApi.patch(`/community-manager/story-studio/draft/${encodeURIComponent(draftId)}`, data);
+}
+
+export async function updateStorySlideDesign(draftId, slideIndex, design) {
+  return cmApi.patch(`/community-manager/story-studio/draft/${encodeURIComponent(draftId)}/slide/${encodeURIComponent(slideIndex)}`, { design });
+}
+
+export async function renderStorySlide(draftId, slideIndex) {
+  return cmApi.post(`/community-manager/story-studio/draft/${encodeURIComponent(draftId)}/render-slide/${encodeURIComponent(slideIndex)}`, {});
+}
+
+export async function getStoryRenderJobs(draftId) {
+  return cmApi.get(`/community-manager/story-studio/draft/${encodeURIComponent(draftId)}/render-jobs`);
+}
+
+export async function validateStoryDraft(draftId) {
+  return cmApi.post(`/community-manager/story-studio/draft/${encodeURIComponent(draftId)}/validate`, { status: 'awaiting_validation' });
+}
+
+export async function publishStoryDraft(draftId, data) {
+  return cmApi.post(`/community-manager/story-studio/draft/${encodeURIComponent(draftId)}/publish`, data);
+}
+
+export async function deleteStoryDraft(draftId) {
+  return cmApi.delete(`/community-manager/story-studio/draft/${encodeURIComponent(draftId)}`);
+}
+
+export async function previewStoryDraft(draftId) {
+  return cmApi.post(`/community-manager/story-studio/draft/${encodeURIComponent(draftId)}/preview`, {});
+}
+
+// --------------------------------------------------------------------------- #
 // Meta Analytics & Intelligence (Community Manager IA)
 // --------------------------------------------------------------------------- #
 

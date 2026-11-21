@@ -26,6 +26,7 @@ class SportAthlete(Base):
         cascade="all, delete-orphan",
         uselist=False,
     )
+    story_drafts: Mapped[list["StoryDraft"]] = relationship("StoryDraft", back_populates="athlete", cascade="all, delete-orphan", order_by="StoryDraft.created_at.desc()")
 
 
 class SportActivity(Base):
@@ -393,9 +394,13 @@ class SportPublication(Base):
     companion_video_error: Mapped[str | None] = mapped_column(Text, nullable=True)
     companion_video_generated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
+    # Story Draft link
+    story_draft_id: Mapped[int | None] = mapped_column(ForeignKey("story_drafts.id", ondelete="SET NULL"), nullable=True, index=True)
+
     athlete: Mapped["SportAthlete"] = relationship("SportAthlete", lazy="selectin")
     activity: Mapped["SportActivity | None"] = relationship("SportActivity", lazy="selectin")
     calendar_entry: Mapped["EditorialCalendarEntry | None"] = relationship("EditorialCalendarEntry", lazy="selectin")
+    story_draft: Mapped["StoryDraft | None"] = relationship("StoryDraft", lazy="selectin")
 
 
 class CommunityManagerStrategy(Base):
@@ -509,3 +514,65 @@ class SportInstagramOAuthState(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
+
+
+class StoryDraft(Base):
+    """Brouillon de Story Instagram préparé automatiquement (Story Studio).
+
+    Une Story = une séquence 9:16 (photo/vidéo + textes + stickers + musique).
+    Plusieurs Stories peuvent être générées depuis une activité Garmin + sélection photos.
+    L'utilisateur peut modifier chaque Story dans l'éditeur graphique avant validation.
+    Statuts : draft -> preparing -> ready -> editing -> rendering -> awaiting_validation -> publishing -> published | failed | cancelled
+    """
+
+    __tablename__ = "story_drafts"
+    __table_args__ = (
+        Index("ix_story_drafts_athlete_status", "athlete_id", "status"),
+        Index("ix_story_drafts_activity", "source_activity_id"),
+        Index("ix_story_drafts_calendar_entry", "calendar_entry_id"),
+        Index("ix_story_drafts_created", "created_at"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    athlete_id: Mapped[int] = mapped_column(ForeignKey("sport_athletes.id", ondelete="CASCADE"), nullable=False, index=True)
+
+    # Origine
+    source: Mapped[str] = mapped_column(String(50), nullable=False, default="garmin", index=True)  # garmin | calendar | manual
+    source_activity_id: Mapped[int | None] = mapped_column(ForeignKey("sport_activities.id", ondelete="SET NULL"), nullable=True, index=True)
+    calendar_entry_id: Mapped[int | None] = mapped_column(ForeignKey("editorial_calendar_entries.id", ondelete="SET NULL"), nullable=True, index=True)
+
+    # Sélection d'entrée
+    selected_asset_ids: Mapped[list[int]] = mapped_column(JSON, nullable=False, default=list)  # photo IDs dans l'ordre
+
+    # Composition automatique (préparée par l'Orchestrateur)
+    slides: Mapped[list[dict]] = mapped_column(JSON, nullable=False, default=list)  # chaque slide = une Story
+    design_documents: Mapped[list[dict]] = mapped_column(JSON, nullable=False, default=list)  # document Studio v2 par Story
+
+    # Métadonnées de publication
+    caption: Mapped[str | None] = mapped_column(Text, nullable=True)  # légende commune (optionnel)
+    hashtags: Mapped[str | None] = mapped_column(Text, nullable=True)
+    audio_configuration: Mapped[dict | None] = mapped_column(JSON, nullable=True)  # config audio globale
+
+    # Statut global du brouillon
+    status: Mapped[str] = mapped_column(String(30), nullable=False, default="draft", index=True)
+    # draft | preparing | ready | editing | rendering | awaiting_validation | publishing | published | failed | cancelled
+
+    # Rendu et publication
+    render_jobs: Mapped[list[dict]] = mapped_column(JSON, nullable=False, default=list)  # jobs de rendu par Story
+    publication_results: Mapped[list[dict]] = mapped_column(JSON, nullable=False, default=list)  # résultats par Story
+
+    # Erreurs
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    # Timestamps
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+    prepared_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    validated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    # Relations
+    athlete: Mapped["SportAthlete"] = relationship("SportAthlete", lazy="selectin")
+    source_activity: Mapped["SportActivity | None"] = relationship("SportActivity", lazy="selectin")
+    calendar_entry: Mapped["EditorialCalendarEntry | None"] = relationship("EditorialCalendarEntry", lazy="selectin")
+    sport_publication: Mapped["SportPublication | None"] = relationship("SportPublication", back_populates="story_draft", lazy="selectin")

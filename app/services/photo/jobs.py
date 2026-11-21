@@ -22,6 +22,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
 from app.models.photo import Photo, PhotoFace, PhotoJob, PhotoPlace
+from app.models.sport import StoryDraft
 from app.models.user import User
 from app.services.photo.storage import PhotoStorageError, get_photo_storage
 
@@ -139,6 +140,19 @@ async def enqueue_job_unique(
     return await enqueue_job(
         db, type=type, photo_id=photo_id, payload=payload, commit=commit
     )
+
+
+async def _update_job_progress(db: AsyncSession, job_id: str | None, stage: str, percent: int) -> None:
+    """Met à jour la progression d'un job de rendu."""
+    if not job_id:
+        return
+    job = await db.get(PhotoJob, job_id)
+    if job:
+        job.payload_json = {
+            **(job.payload_json or {}),
+            "progress": {"stage": stage, "percent": percent},
+        }
+        await db.commit()
 
 
 # ------------------------------------------------------------------ ingest
@@ -542,6 +556,48 @@ async def _studio_render(db: AsyncSession, photo: Photo | None, payload: dict) -
         )
         return
 
+    # Rendu d'une slide Story Studio (format 9:16)
+    if payload.get("kind") == "story_slide":
+        draft_id = payload.get("draft_id")
+        slide_index = payload.get("slide_index")
+        if draft_id is None or slide_index is None:
+            raise PhotoJobError("draft_id et slide_index requis pour le rendu Story")
+        design = payload.get("design")
+        if not design:
+            raise PhotoJobError("Design introuvable")
+        design["format"] = {"width": 1080, "height": 1920, "type": "story_916", "platform": "instagram"}
+
+        # Mettre à jour le job avec la progression
+        await _update_job_progress(db, job_id, "video", 10)
+
+        final_path, plan = await service.render(
+            design=design,
+            job_id=job_id,
+            publication_id=draft_id,
+        )
+
+        # Mettre à jour le StoryDraft avec le chemin de rendu
+        from app.models.sport import StoryDraft
+        draft = await db.get(StoryDraft, draft_id)
+        if draft:
+            render_jobs = list(draft.render_jobs or [])
+            for j in render_jobs:
+                if j.get("job_id") == job_id:
+                    j["status"] = "done"
+                    j["output_path"] = str(final_path)
+                    j["updated_at"] = datetime.now(UTC).replace(tzinfo=None).isoformat()
+                    break
+            draft.render_jobs = render_jobs
+            # Vérifier si tous les jobs sont terminés
+            if all(j.get("status") == "done" for j in render_jobs):
+                draft.status = "awaiting_validation"
+            elif any(j.get("status") == "failed" for j in render_jobs):
+                draft.status = "failed"
+                draft.error_message = "Échec du rendu d'une ou plusieurs slides"
+            await db.commit()
+
+        return
+
     design = payload.get("design")
     if not design:
         raise PhotoJobError("Design introuvable")
@@ -562,6 +618,94 @@ async def _community_publish(db: AsyncSession, photo: Photo | None, payload: dic
     if user is None:
         raise PhotoJobError("Utilisateur introuvable")
     service = CommunityManagerStudioService(db, user)
+
+    kind = payload.get("kind")
+
+    # Publication d'une slide Story Studio individuelle
+    if kind == "story_slide_publish":
+        draft_id = payload.get("draft_id")
+        slide_index = payload.get("slide_index")
+        if draft_id is None or slide_index is None:
+            raise PhotoJobError("draft_id et slide_index requis pour la publication Story")
+        
+        design = payload.get("design")
+        caption = payload.get("caption")
+        hashtags = payload.get("hashtags")
+        platforms = payload.get("platforms", ["instagram"])
+        
+        if not design:
+            raise PhotoJobError("Design introuvable pour la slide")
+        
+        design["format"] = {"width": 1080, "height": 1920, "type": "story_916", "platform": "instagram"}
+        
+        # Rendre la slide en MP4/image si pas encore fait
+        from app.services.studio_render import StudioRenderService
+        render_service = StudioRenderService(db, user)
+        
+        # Vérifier si le rendu existe déjà
+        draft = await db.get(StoryDraft, draft_id)
+        if not draft:
+            raise PhotoJobError("Brouillon Story introuvable")
+        
+        # Trouver le job de rendu pour cette slide
+        render_jobs = draft.render_jobs or []
+        render_job = None
+        for j in render_jobs:
+            if j.get("slide_index") == slide_index:
+                render_job = j
+                break
+        
+        if render_job and render_job.get("status") == "done" and render_job.get("output_path"):
+            # Le rendu existe, on peut publier directement
+            pass
+        else:
+            # Lancer le rendu d'abord
+            await _update_job_progress(db, None, "video", 10)
+            final_path, plan = await render_service.render(
+                design=design,
+                job_id=None,
+                publication_id=draft_id,
+            )
+            
+            # Mettre à jour le StoryDraft
+            for j in (draft.render_jobs or []):
+                if j.get("slide_index") == slide_index:
+                    j["status"] = "done"
+                    j["output_path"] = str(final_path)
+                    j["updated_at"] = datetime.now(UTC).replace(tzinfo=None).isoformat()
+                    break
+            draft.render_jobs = draft.render_jobs or []
+            await db.commit()
+        
+        # Publier sur Meta
+        data = PublicationPublishRequest.model_validate(payload.get("data") or {})
+        
+        for platform in platforms:
+            if platform == "instagram" or platform == "both":
+                await service.publish_to_instagram(int(draft_id), data)
+            if platform == "facebook" or platform == "both":
+                await service.publish_to_facebook_page(int(draft_id), data)
+        
+        # Mettre à jour les résultats de publication
+        publication_results = list(draft.publication_results or [])
+        publication_results.append({
+            "slide_index": slide_index,
+            "platform": platforms[0] if platforms else "instagram",
+            "published_at": datetime.now(UTC).replace(tzinfo=None).isoformat(),
+        })
+        draft.publication_results = publication_results
+        
+        # Vérifier si toutes les slides sont publiées
+        total_slides = len(draft.design_documents or [])
+        published_slides = set(r.get("slide_index") for r in publication_results)
+        if len(published_slides) >= total_slides:
+            draft.status = "published"
+            draft.published_at = datetime.now(UTC).replace(tzinfo=None)
+        
+        await db.commit()
+        return
+
+    # Publication classique (existante)
     data = PublicationPublishRequest.model_validate(payload.get("data") or {})
     await service.publish_to_instagram(int(payload["publication_id"]), data)
 

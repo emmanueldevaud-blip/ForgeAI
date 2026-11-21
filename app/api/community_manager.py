@@ -3,18 +3,19 @@
 import asyncio
 import logging
 import time
-from datetime import datetime, date, timedelta
+from datetime import datetime, date, timedelta, timezone
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Optional, List, Dict
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
 from fastapi.responses import FileResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import func
 
 from app.api.deps import get_db, require_module_enabled, require_permission
 from app.models.user import User
-from app.models.sport import EditorialCalendarEntry, SportAthlete, SportPublication
+from app.models.sport import EditorialCalendarEntry, SportAthlete, SportPublication, StoryDraft
 from app.schemas.sport import (
     CalendarGenerateRequest,
     CalendarGenerateResponse,
@@ -42,9 +43,73 @@ from app.services.ai_gateway import AIGatewayError
 from app.services.community_manager import CommunityManagerService, CommunityManagerStudioService
 from app.services.community_manager.suggestions import EditorialSuggestionService
 from app.services.garmin import SportGarminConnectService
+from app.services.story_orchestrator import StoryOrchestrator
 from pydantic import BaseModel
-from datetime import date
-from typing import Optional
+from datetime import date, datetime
+from typing import Optional, List, Dict, Any
+
+
+class StoryDraftCreateRequest(BaseModel):
+    activity_id: int
+    photo_ids: List[int]
+    calendar_entry_id: Optional[int] = None
+
+
+class StoryDraftResponse(BaseModel):
+    id: int
+    athlete_id: int
+    source: str
+    source_activity_id: Optional[int]
+    calendar_entry_id: Optional[int]
+    selected_asset_ids: List[int]
+    slides: List[Dict[str, Any]]
+    design_documents: List[Dict[str, Any]]
+    caption: Optional[str]
+    hashtags: Optional[str]
+    audio_configuration: Optional[Dict[str, Any]]
+    status: str
+    render_jobs: List[Dict[str, Any]]
+    publication_results: List[Dict[str, Any]]
+    error_message: Optional[str]
+    created_at: datetime
+    updated_at: datetime
+    prepared_at: Optional[datetime]
+    validated_at: Optional[datetime]
+    published_at: Optional[datetime]
+
+    class Config:
+        from_attributes = True
+
+
+class StoryDraftListResponse(BaseModel):
+    items: List[StoryDraftResponse]
+    total: int
+    page: int
+    page_size: int
+    total_pages: int
+
+
+class StoryDraftUpdateRequest(BaseModel):
+    slides: Optional[List[Dict[str, Any]]] = None
+    design_documents: Optional[List[Dict[str, Any]]] = None
+    caption: Optional[str] = None
+    hashtags: Optional[str] = None
+    audio_configuration: Optional[Dict[str, Any]] = None
+    status: Optional[str] = None
+
+
+class StoryDraftSlideUpdate(BaseModel):
+    slide_index: int
+    design: Dict[str, Any]
+
+
+class StoryDraftStatusUpdate(BaseModel):
+    status: str
+
+
+class StoryDraftPublishRequest(BaseModel):
+    confirm: bool = True
+    platforms: List[str] = ["instagram"]  # instagram, facebook, both, List, Dict, Any
 
 logger = logging.getLogger(__name__)
 
@@ -95,6 +160,20 @@ async def get_cm_studio_write_service(
     db: AsyncSession = Depends(get_db),
 ) -> CommunityManagerStudioService:
     return CommunityManagerStudioService(db, current_user)
+
+
+async def get_story_orchestrator(
+    current_user: User = Depends(require_permission("community_manager.calendar_generate")),
+    db: AsyncSession = Depends(get_db),
+) -> StoryOrchestrator:
+    return StoryOrchestrator(db, current_user)
+
+
+async def get_story_orchestrator_write(
+    current_user: User = Depends(require_permission("community_manager.calendar_generate")),
+    db: AsyncSession = Depends(get_db),
+) -> StoryOrchestrator:
+    return StoryOrchestrator(db, current_user)
 
 
 # ============================================================
@@ -720,6 +799,371 @@ async def publish_draft_both(
 
 
 # ============================================================
+# STORY STUDIO — Nouvelle expérience Stories Instagram
+# ============================================================
+
+
+@router.post("/story-studio/draft", response_model=StoryDraftResponse, status_code=status.HTTP_201_CREATED)
+async def create_story_draft(
+    data: StoryDraftCreateRequest,
+    orchestrator: StoryOrchestrator = Depends(get_story_orchestrator_write),
+):
+    """Créer un brouillon Story Studio à partir d'une activité Garmin + photos sélectionnées."""
+    try:
+        draft = await orchestrator.create_draft_from_garmin(
+            activity_id=data.activity_id,
+            selected_photo_ids=data.photo_ids,
+            calendar_entry_id=data.calendar_entry_id,
+        )
+        return StoryDraftResponse.model_validate(draft)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.exception("[STORY-STUDIO] Erreur création brouillon")
+        raise HTTPException(status_code=503, detail="Création impossible") from exc
+
+
+@router.get("/story-studio/drafts", response_model=StoryDraftListResponse)
+async def list_story_drafts(
+    status: Optional[str] = Query(None, description="Filtrer par statut"),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+    orchestrator: StoryOrchestrator = Depends(get_story_orchestrator),
+):
+    """Lister les brouillons Story Studio de l'utilisateur."""
+    result = await orchestrator.list_drafts(status=status, page=page, page_size=page_size)
+    return StoryDraftListResponse(
+        items=[StoryDraftResponse.model_validate(d) for d in result["items"]],
+        total=result["total"],
+        page=result["page"],
+        page_size=result["page_size"],
+        total_pages=result["total_pages"],
+    )
+
+
+@router.get("/story-studio/draft/{draft_id}", response_model=StoryDraftResponse)
+async def get_story_draft(
+    draft_id: int,
+    orchestrator: StoryOrchestrator = Depends(get_story_orchestrator),
+):
+    """Récupérer un brouillon Story Studio avec ses slides et designs."""
+    draft = await orchestrator.get_draft(draft_id)
+    if not draft:
+        raise HTTPException(status_code=404, detail="Brouillon Story introuvable")
+    return StoryDraftResponse.model_validate(draft)
+
+
+@router.patch("/story-studio/draft/{draft_id}", response_model=StoryDraftResponse)
+async def update_story_draft(
+    draft_id: int,
+    data: StoryDraftUpdateRequest,
+    orchestrator: StoryOrchestrator = Depends(get_story_orchestrator_write),
+):
+    """Mettre à jour un brouillon Story (slides, designs, caption, hashtags, audio, statut)."""
+    # Pour l'instant, on met à jour directement via le service
+    # Une implémentation complète ajouterait une méthode update_draft à l'orchestrator
+    from sqlalchemy import select
+    draft = await orchestrator.get_draft(draft_id)
+    if not draft:
+        raise HTTPException(status_code=404, detail="Brouillon Story introuvable")
+
+    if data.slides is not None:
+        draft.slides = data.slides
+    if data.design_documents is not None:
+        draft.design_documents = data.design_documents
+    if data.caption is not None:
+        draft.caption = data.caption
+    if data.hashtags is not None:
+        draft.hashtags = data.hashtags
+    if data.audio_configuration is not None:
+        draft.audio_configuration = data.audio_configuration
+    if data.status is not None:
+        draft.status = data.status
+
+    await orchestrator.db.commit()
+    await orchestrator.db.refresh(draft)
+    return StoryDraftResponse.model_validate(draft)
+
+
+@router.patch("/story-studio/draft/{draft_id}/slide/{slide_index}", response_model=StoryDraftResponse)
+async def update_story_slide_design(
+    draft_id: int,
+    slide_index: int,
+    data: StoryDraftSlideUpdate,
+    orchestrator: StoryOrchestrator = Depends(get_story_orchestrator_write),
+):
+    """Mettre à jour le design d'une slide spécifique (depuis l'éditeur graphique)."""
+    draft = await orchestrator.get_draft(draft_id)
+    if not draft:
+        raise HTTPException(status_code=404, detail="Brouillon Story introuvable")
+
+    if slide_index < 0 or slide_index >= len(draft.design_documents):
+        raise HTTPException(status_code=422, detail="Index de slide invalide")
+
+    designs = list(draft.design_documents)
+    designs[slide_index] = data.design
+    draft.design_documents = designs
+    draft.status = "editing"
+    draft.updated_at = datetime.now(timezone.utc)
+
+    await orchestrator.db.commit()
+    await orchestrator.db.refresh(draft)
+    return StoryDraftResponse.model_validate(draft)
+
+
+@router.post("/story-studio/draft/{draft_id}/render-slide/{slide_index}")
+async def render_story_slide(
+    draft_id: int,
+    slide_index: int,
+    background_tasks: BackgroundTasks,
+    orchestrator: StoryOrchestrator = Depends(get_story_orchestrator_write),
+):
+    """Lancer le rendu FFmpeg d'une slide individuelle."""
+    from app.services.photo.jobs import enqueue_job, run_pending_jobs_now
+    from app.models.photo import PhotoJob
+
+    draft = await orchestrator.get_draft(draft_id)
+    if not draft:
+        raise HTTPException(status_code=404, detail="Brouillon Story introuvable")
+
+    if slide_index < 0 or slide_index >= len(draft.design_documents):
+        raise HTTPException(status_code=422, detail="Index de slide invalide")
+
+    design = draft.design_documents[slide_index]
+    design["format"] = {"width": 1080, "height": 1920, "type": "story_916", "platform": "instagram"}
+
+    # Vérifier s'il y a déjà un job en cours pour cette slide
+    active = await orchestrator.db.execute(
+        select(PhotoJob).where(
+            PhotoJob.type == "studio_render",
+            PhotoJob.status.in_(("pending", "running")),
+        )
+    )
+    for job in active.scalars():
+        payload = job.payload_json or {}
+        if payload.get("kind") == "story_slide" and payload.get("draft_id") == draft_id and payload.get("slide_index") == slide_index:
+            return {"job_id": job.id, "status": job.status, "slide_index": slide_index}
+
+    job = await enqueue_job(
+        orchestrator.db,
+        type="studio_render",
+        photo_id=None,
+        payload={
+            "kind": "story_slide",
+            "draft_id": draft_id,
+            "slide_index": slide_index,
+            "design": design,
+            "user_id": orchestrator.current_user.id,
+        },
+    )
+
+    # Mettre à jour le statut du brouillon
+    draft.status = "rendering"
+    await orchestrator.add_render_job(draft_id, slide_index, job.id)
+    background_tasks.add_task(run_pending_jobs_now)
+
+    return {"job_id": job.id, "status": "pending", "slide_index": slide_index}
+
+
+@router.get("/story-studio/draft/{draft_id}/render-jobs")
+async def get_story_render_jobs(
+    draft_id: int,
+    orchestrator: StoryOrchestrator = Depends(get_story_orchestrator),
+):
+    """Récupérer l'état des jobs de rendu pour un brouillon."""
+    draft = await orchestrator.get_draft(draft_id)
+    if not draft:
+        raise HTTPException(status_code=404, detail="Brouillon Story introuvable")
+    return {"render_jobs": draft.render_jobs or []}
+
+
+@router.post("/story-studio/draft/{draft_id}/render-slide/{slide_index}/cancel")
+async def cancel_story_render_job(
+    draft_id: int,
+    slide_index: int,
+    orchestrator: StoryOrchestrator = Depends(get_story_orchestrator_write),
+):
+    """Annuler un job de rendu pour une slide Story."""
+    from app.services.studio_render import StudioRenderService, StudioRenderError
+    from app.models.photo import PhotoJob
+    from sqlalchemy import select
+
+    draft = await orchestrator.get_draft(draft_id)
+    if not draft:
+        raise HTTPException(status_code=404, detail="Brouillon Story introuvable")
+
+    # Trouver le job pour cette slide
+    render_jobs = draft.render_jobs or []
+    job_info = None
+    for j in render_jobs:
+        if j.get("slide_index") == slide_index:
+            job_info = j
+            break
+
+    if not job_info:
+        raise HTTPException(status_code=404, detail="Job de rendu introuvable pour cette slide")
+
+    job_id = job_info.get("job_id")
+    if not job_id:
+        raise HTTPException(status_code=422, detail="Job ID manquant")
+
+    job = await orchestrator.db.get(PhotoJob, job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job introuvable en base")
+
+    if job.status == "cancelled":
+        return {"job_id": job_id, "status": "cancelled", "slide_index": slide_index}
+
+    service = StudioRenderService(orchestrator.db, orchestrator.current_user)
+    try:
+        cancelled_job = await service.cancel_render_job(job_id)
+    except StudioRenderError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from None
+
+    # Mettre à jour le StoryDraft
+    for j in render_jobs:
+        if j.get("slide_index") == slide_index:
+            j["status"] = "cancelled"
+            j["updated_at"] = datetime.now(timezone.utc).isoformat()
+            break
+    draft.render_jobs = render_jobs
+    await orchestrator.db.commit()
+
+    return {"job_id": job_id, "status": cancelled_job.status, "slide_index": slide_index}
+
+
+@router.post("/story-studio/draft/{draft_id}/validate", response_model=StoryDraftResponse)
+async def validate_story_draft(
+    draft_id: int,
+    data: StoryDraftStatusUpdate,
+    orchestrator: StoryOrchestrator = Depends(get_story_orchestrator_write),
+):
+    """Valider le brouillon Story pour publication (passe en awaiting_validation)."""
+    draft = await orchestrator.get_draft(draft_id)
+    if not draft:
+        raise HTTPException(status_code=404, detail="Brouillon Story introuvable")
+
+    if not draft.design_documents:
+        raise HTTPException(status_code=422, detail="Aucune slide préparée")
+
+    draft.status = "awaiting_validation"
+    draft.validated_at = datetime.now(timezone.utc)
+    await orchestrator.db.commit()
+    await orchestrator.db.refresh(draft)
+    return StoryDraftResponse.model_validate(draft)
+
+
+@router.post("/story-studio/draft/{draft_id}/publish", response_model=Dict[str, Any])
+async def publish_story_draft(
+    draft_id: int,
+    data: StoryDraftPublishRequest,
+    background_tasks: BackgroundTasks,
+    orchestrator: StoryOrchestrator = Depends(get_story_orchestrator_write),
+):
+    """Publier les Stories validées sur Instagram (et/ou Facebook)."""
+    from app.services.photo.jobs import enqueue_job, run_pending_jobs_now
+    from app.models.photo import PhotoJob
+
+    draft = await orchestrator.get_draft(draft_id)
+    if not draft:
+        raise HTTPException(status_code=404, detail="Brouillon Story introuvable")
+
+    if draft.status != "awaiting_validation":
+        raise HTTPException(status_code=422, detail="Le brouillon doit être validé avant publication")
+
+    if not draft.design_documents:
+        raise HTTPException(status_code=422, detail="Aucune slide à publier")
+
+    # Vérifier les jobs de rendu terminés
+    incomplete = [j for j in (draft.render_jobs or []) if j.get("status") != "done"]
+    if incomplete:
+        raise HTTPException(status_code=422, detail=f"{len(incomplete)} slide(s) en cours de rendu")
+
+    # Créer un job de publication pour chaque slide
+    published_count = 0
+    results = []
+
+    for slide_index, design in enumerate(draft.design_documents):
+        # Rendre la slide en MP4 si vidéo, sinon image
+        # Pour l'instant, on crée un job de publication par slide
+        job = await enqueue_job(
+            orchestrator.db,
+            type="community_publish",
+            photo_id=None,
+            payload={
+                "kind": "story_slide_publish",
+                "draft_id": draft_id,
+                "slide_index": slide_index,
+                "design": design,
+                "caption": draft.caption,
+                "hashtags": draft.hashtags,
+                "platforms": data.platforms,
+                "user_id": orchestrator.current_user.id,
+            },
+        )
+        results.append({"slide_index": slide_index, "job_id": job.id, "status": "queued"})
+        published_count += 1
+
+    draft.status = "publishing"
+    await orchestrator.db.commit()
+
+    background_tasks.add_task(run_pending_jobs_now)
+
+    return {
+        "draft_id": draft_id,
+        "published_slides": published_count,
+        "jobs": results,
+        "message": f"{published_count} Story(s) en file de publication",
+    }
+
+
+@router.delete("/story-studio/draft/{draft_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_story_draft(
+    draft_id: int,
+    orchestrator: StoryOrchestrator = Depends(get_story_orchestrator_write),
+):
+    """Supprimer un brouillon Story (si pas publié)."""
+    try:
+        deleted = await orchestrator.delete_draft(draft_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Brouillon Story introuvable")
+
+
+# Importer la route pour l'aperçu des Stories
+@router.post("/story-studio/draft/{draft_id}/preview")
+async def preview_story_draft(
+    draft_id: int,
+    orchestrator: StoryOrchestrator = Depends(get_story_orchestrator),
+):
+    """Générer un aperçu HTML de toutes les slides."""
+    draft = await orchestrator.get_draft(draft_id)
+    if not draft:
+        raise HTTPException(status_code=404, detail="Brouillon Story introuvable")
+
+    # Construire un aperçu HTML simple pour chaque slide
+    slides_html = []
+    for i, design in enumerate(draft.design_documents):
+        slide = draft.slides[i] if i < len(draft.slides) else {}
+        slides_html.append({
+            "index": i,
+            "type": slide.get("type", "photo"),
+            "hook": slide.get("hook"),
+            "caption": slide.get("caption"),
+            "design": design,
+        })
+
+    return {
+        "draft_id": draft_id,
+        "total_slides": len(draft.design_documents),
+        "caption": draft.caption,
+        "hashtags": draft.hashtags,
+        "slides": slides_html,
+    }
+
+
+# ============================================================
 # ROUTES SPORT PUBLICATIONS (pont vers V1)
 # ============================================================
 
@@ -935,6 +1379,7 @@ async def get_month_calendar(
                 SportPublication.content.label("pub_content"),
                 SportPublication.hashtags.label("pub_hashtags"),
                 SportPublication.photo_id.label("pub_photo_id"),
+                SportPublication.story_draft_id.label("pub_story_draft_id"),
             )
             .select_from(EditorialCalendarEntry)
             .outerjoin(
@@ -957,6 +1402,7 @@ async def get_month_calendar(
                 "pub_content": row.pub_content,
                 "pub_hashtags": row.pub_hashtags,
                 "pub_photo_id": row.pub_photo_id,
+                "pub_story_draft_id": row.pub_story_draft_id,
             }
 
     days: dict[str, list[dict]] = {}
@@ -974,6 +1420,7 @@ async def get_month_calendar(
             "pub_title": info.get("pub_title"),
             "pub_hashtags": info.get("pub_hashtags"),
             "photo_id": info.get("pub_photo_id", info.get("entry_photo_id")),
+            "story_draft_id": info.get("pub_story_draft_id"),
         })
 
     return MonthCalendarResponse(year=year, month=month, days=days)
@@ -1037,6 +1484,7 @@ async def get_week_calendar(
                 SportPublication.title.label("pub_title"),
                 SportPublication.hashtags.label("pub_hashtags"),
                 SportPublication.photo_id.label("pub_photo_id"),
+                SportPublication.story_draft_id.label("pub_story_draft_id"),
             )
             .select_from(EditorialCalendarEntry)
             .outerjoin(
@@ -1056,6 +1504,7 @@ async def get_week_calendar(
                 "pub_title": row.pub_title,
                 "pub_hashtags": row.pub_hashtags,
                 "photo_id": row.pub_photo_id or row.entry_photo_id,
+                "pub_story_draft_id": row.pub_story_draft_id,
             }
 
     days: dict[str, list[dict]] = {}
@@ -1073,6 +1522,7 @@ async def get_week_calendar(
             "pub_title": info.get("pub_title"),
             "pub_hashtags": info.get("pub_hashtags"),
             "photo_id": info.get("photo_id"),
+            "story_draft_id": info.get("pub_story_draft_id"),
         })
 
     return WeekCalendarResponse(

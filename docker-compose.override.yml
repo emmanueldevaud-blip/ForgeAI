@@ -11,6 +11,7 @@ services:
       - IT_ARP_RESOLVER_ENABLED=true
       - IT_ARP_RESOLVER_HOST=192.168.100.253
       - IT_ARP_RESOLVER_COMMUNITY=design
+      - AI_GATEWAY_ENABLED=false
     volumes:
       - /mnt/synology-medias/PHOTOS:/mnt/synology-medias/PHOTOS
       - ./data:/app/data

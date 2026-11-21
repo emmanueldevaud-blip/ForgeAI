@@ -18,9 +18,12 @@ import {
   getStudioDraft,
   publishStudioDraft,
   regeneratePublicationContent,
-} from '../services/sportApi.js?v=14';
+  createStoryDraft,
+  listStoryDrafts,
+} from '../services/sportApi.js?v=16';
 import { createCommunityManagerStudioPage } from './CommunityManagerStudioPage.js?v=13';
 import { createGarminQuickPublicationView } from './GarminQuickPublicationView.js?v=3';
+import { createStoryStudioPage } from './StoryStudioPage.js?v=1';
 
 const MONTHS = [
   'Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin',
@@ -57,8 +60,10 @@ export class CommunityManagerCalendarPage {
     this.selectedEntry = null;
     this.studioPage = null;
     this.quickPublicationPage = null;
+    this.storyStudioPage = null;
     this.showQuickPublication = false;
     this.showStudio = false;
+    this.showStoryStudio = false;
     this.loading = false;
     this.error = null;
     this.calendarData = {};
@@ -240,6 +245,20 @@ export class CommunityManagerCalendarPage {
     this.render();
   }
 
+  _openStoryStudio(draftId) {
+    this.selectedEntry = draftId;
+    this.showStoryStudio = true;
+    this.storyStudioPage = createStoryStudioPage(this.router, draftId, () => {
+      this.showStoryStudio = false;
+      this.storyStudioPage?.destroy();
+      this.storyStudioPage = null;
+      this.selectedEntry = null;
+      this._loadMonth();
+    });
+    this.storyStudioPage.initialize().catch(() => {});
+    this.render();
+  }
+
   _notifyError(message) {
     this.error = message;
     this.render();
@@ -254,8 +273,15 @@ export class CommunityManagerCalendarPage {
     if (this.loading) return;
     const entryId = parseInt(entryEl.dataset.entryId, 10);
     const pubId = entryEl.dataset.entryPubId ? parseInt(entryEl.dataset.entryPubId, 10) : null;
+    const storyDraftId = entryEl.dataset.entryStoryDraftId ? parseInt(entryEl.dataset.entryStoryDraftId, 10) : null;
     const status = entryEl.dataset.entryStatus || '';
     const source = entryEl.dataset.entrySource || '';
+
+    // Si un brouillon Story existe, l'ouvrir directement
+    if (storyDraftId) {
+      this._openStoryStudio(storyDraftId);
+      return;
+    }
 
     if (pubId) {
       if (source === 'garmin') this._openGarminQuick(pubId);
@@ -304,6 +330,10 @@ export class CommunityManagerCalendarPage {
       this.element.className = 'page-content';
     }
 
+    if (this.showStoryStudio && this.storyStudioPage) {
+      this.element.replaceChildren(this.storyStudioPage.render());
+      return this.element;
+    }
     if (this.showStudio && this.studioPage) {
       this.element.replaceChildren(this.studioPage.render());
       return this.element;
@@ -416,11 +446,13 @@ export class CommunityManagerCalendarPage {
     const topic = this._escape(entry.pub_title || entry.topic || '');
     const isShared = entry.pub_status === 'shared';
     const publishedClass = isShared ? ' cal-entry--published' : '';
+    const storyDraftId = entry.story_draft_id || entry.pub_story_draft_id || null;
     const deleteBtn = !isShared ? `
       <button class="cal-entry-btn cal-entry-btn--delete" data-action="delete-entry" data-entry-id="${entry.entry_id}" title="Supprimer">🗑</button>
     ` : '';
     return `
       <div class="cal-entry${publishedClass}" data-entry-id="${entry.entry_id}" data-entry-pub-id="${entry.pub_id || ''}"
+           data-entry-story-draft-id="${storyDraftId || ''}"
            data-entry-status="${this._escape(entry.status || '')}" data-entry-source="${this._escape(entry.source || 'manuel')}"
            data-entry-pub-status="${this._escape(entry.pub_status || '')}"
            title="${topic}"

@@ -11,7 +11,8 @@ import {
   getLocalStudioMusic,
   getStudioAudioMatch,
   getStudioAudioProposals,
-} from '../services/sportApi.js?v=14';
+  createStoryDraft,
+} from '../services/sportApi.js?v=15';
 
 /** Parcours Garmin sans timeline ni Studio graphique. */
 export class GarminQuickPublicationView {
@@ -193,7 +194,7 @@ export class GarminQuickPublicationView {
         <section class="garmin-quick-step" data-step="2"><div class="garmin-step-heading"><span>02</span><div><h2>Ambiance</h2><p>ForgeAI adapte le rythme et les effets du montage.</p></div></div><div class="garmin-style-grid">${styleCards.map(([value, label, hint]) => `<button type="button" class="garmin-style-card ${style === value ? 'is-selected' : ''}" data-style-value="${value}"><strong>${label}</strong><small>${hint}</small></button>`).join('')}</div></section>
         <section class="garmin-quick-step garmin-music-card" data-step="3"><div class="garmin-step-heading"><span>03</span><div><h2>Musique</h2><p>${audio.title ? 'Proposition locale intégrable au MP4' : 'ForgeAI choisira une piste compatible avec le rendu'}</p></div></div><div class="garmin-music-row"><div class="garmin-music-icon">♪</div><div class="garmin-music-main"><select data-action="local-music-select" aria-label="Musique du Reel"><option value="">${this._escape(audio.title || 'Choisir une musique')}</option>${musicOptions}</select><strong>${this._escape(audio.title || 'Aucune piste sélectionnée')}</strong><small>${this._escape(audio.artist || 'Musique locale vérifiée')}</small></div><button class="btn btn-secondary" data-action="audio-match">Autre proposition</button><button class="btn btn-link" data-action="music-alt">Catalogue</button></div>${audio.url ? `<audio class="garmin-audio-player" data-music-audio src="${this._escape(audio.url)}" preload="metadata" controls ${this.musicMuted ? 'muted' : ''}></audio><div class="garmin-excerpt"><span>Extrait ${Number(excerpt.start_time || 0).toFixed(1)}s → ${Number(excerpt.end_time || 0).toFixed(1)}s</span><button class="btn btn-link" data-action="audio-range">Modifier</button><small>${this._escape(excerpt.reason || 'Extrait choisi automatiquement')}</small></div>` : '<div class="garmin-empty-music">Sélectionnez une piste locale pour écouter et intégrer la musique.</div>'}</section>
         <section class="garmin-quick-step" data-step="4"><div class="garmin-step-heading"><span>04</span><div><h2>Légende</h2><p>Modifiez le texte avant publication.</p></div></div><label>Titre<input class="form-control" data-field="title" value="${this._escape(title)}"></label><label>Hashtags<textarea class="form-control" data-field="hashtags" rows="2">${this._escape(hashtags)}</textarea></label><small data-caption-status></small></section>
-        <section class="garmin-quick-step garmin-output-step" data-step="5"><div class="garmin-step-heading"><span>05</span><div><h2>Aperçu et publication</h2><p>${ready ? 'Votre Reel est prêt.' : 'Générez un aperçu vidéo fidèle au rendu final.'}</p></div></div>${ready && this.videoUrl ? `<video controls playsinline preload="metadata" class="garmin-final-preview" src="${this._escape(this.videoUrl)}"></video>` : `<div class="garmin-mini-preview">${this.selected.map((id, i) => `<img src="/photos/${id}/file?size=medium" alt="Photo ${i + 1}">`).join('') || '<span>Sélectionnez au moins une photo</span>'}</div>`}<div class="garmin-output-actions"><button class="btn btn-secondary" data-action="preview">Aperçu</button><button class="btn btn-primary" data-action="publish" ${!this.selected.length || this.busy || this.generating ? 'disabled' : ''}>${this.busy ? 'Publication…' : 'Publier sur Instagram et Facebook'}</button></div>${this.generating ? '<p class="garmin-render-status">Génération du Reel en cours…</p>' : ''}</section>
+        <section class="garmin-quick-step garmin-output-step" data-step="5"><div class="garmin-step-heading"><span>05</span><div><h2>Aperçu et publication</h2><p>${ready ? 'Votre Reel est prêt.' : 'Générez un aperçu vidéo fidèle au rendu final.'}</p></div></div>${ready && this.videoUrl ? `<video controls playsinline preload="metadata" class="garmin-final-preview" src="${this._escape(this.videoUrl)}"></video>` : `<div class="garmin-mini-preview">${this.selected.map((id, i) => `<img src="/photos/${id}/file?size=medium" alt="Photo ${i + 1}">`).join('') || '<span>Sélectionnez au moins une photo</span>'}</div>`}<div class="garmin-output-actions"><button class="btn btn-secondary" data-action="preview">Aperçu</button><button class="btn btn-primary" data-action="publish" ${!this.selected.length || this.busy || this.generating ? 'disabled' : ''}>${this.busy ? 'Publication…' : 'Publier sur Instagram et Facebook'}</button><button class="btn btn-secondary" data-action="create-stories" ${!this.selected.length ? 'disabled' : ''}>✨ Créer mes Stories</button></div>${this.generating ? '<p class="garmin-render-status">Génération du Reel en cours…</p>' : ''}</section>
       </main>`;
     const captionStep = this.element.querySelector('[data-step="4"]');
     if (captionStep) {
@@ -271,6 +272,7 @@ export class GarminQuickPublicationView {
       });
     });
     this.element.querySelector('[data-action="publish"]')?.addEventListener('click', () => this._publish());
+    this.element.querySelector('[data-action="create-stories"]')?.addEventListener('click', () => this._createStories());
     this.element.querySelector('[data-action="regenerate-editorial"]')?.addEventListener('click', () => this._regenerateEditorial());
     const styleSelect = this.element.querySelector('[data-action="editorial-style"]');
     if (styleSelect) {
@@ -407,6 +409,37 @@ export class GarminQuickPublicationView {
       this.success = 'Nouvelle proposition générée.';
     } catch (error) {
       this.error = error?.data?.detail || error?.message || 'Régénération impossible.';
+    } finally {
+      this.busy = false;
+      this.render();
+    }
+  }
+
+  async _createStories() {
+    if (this.busy || !this.selected.length) return;
+    this.busy = true;
+    this.error = null;
+    this.render();
+    try {
+      const res = await createStoryDraft({
+        activity_id: this.publication?.activity_id,
+        photo_ids: this.selected,
+        calendar_entry_id: this.publication?.calendar_entry_id,
+      });
+      if (res?.id) {
+        // Rediriger vers l'éditeur Story Studio
+        if (this.onBack) {
+          // On utilise onBack pour revenir au calendrier, puis on ouvre le Story Studio
+          // L'intégration complète se fera via le calendrier
+          this.onBack();
+          // TODO: Ouvrir le Story Studio via le routeur
+          alert('Brouillon Story créé ! Ouvrez-le depuis le calendrier éditorial.');
+        }
+      } else {
+        throw new Error(res?.detail || 'Création du brouillon Story impossible');
+      }
+    } catch (error) {
+      this.error = error?.data?.detail || error?.message || 'Création Story impossible.';
     } finally {
       this.busy = false;
       this.render();

@@ -1664,7 +1664,7 @@ export class PhotosPage {
     if (isVideo) {
       media.innerHTML = `<video controls preload="metadata" src="${src}" title="${this._esc(detail.title || detail.original_filename)}"></video>`;
     } else {
-      media.innerHTML = `<img class="lb-bg" src="${src}" alt="" aria-hidden="true"><img class="lb-main" src="${src}" alt="${this._esc(detail.title || detail.original_filename)}">`;
+      media.innerHTML = `<img src="${src}" alt="${this._esc(detail.title || detail.original_filename)}">`;
     }
 
     const tags = detail.tags || [];

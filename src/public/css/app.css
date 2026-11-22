@@ -7582,7 +7582,7 @@
 .souvenirs-stage { position: relative; width: 100%; aspect-ratio: 16 / 9; max-height: 70vh; overflow: hidden; border-radius: var(--radius-lg); background: #0b0b0f; outline: none; }
 .souvenirs-layer { position: absolute; inset: 0; opacity: 0; transition: opacity 1.2s ease; }
 .souvenirs-layer.is-active { opacity: 1; }
-.souvenirs-photo { width: 100%; height: 100%; object-fit: contain; }
+.souvenirs-photo { width: 100%; height: 100%; object-fit: cover; }
 .souvenirs-photo.kb-1 { animation: souvenirsKb1 var(--slide-ms, 6000ms) linear forwards; }
 .souvenirs-photo.kb-2 { animation: souvenirsKb2 var(--slide-ms, 6000ms) linear forwards; }
 .souvenirs-photo.kb-3 { animation: souvenirsKb3 var(--slide-ms, 6000ms) linear forwards; }

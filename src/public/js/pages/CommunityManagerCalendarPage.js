@@ -78,7 +78,8 @@ export class CommunityManagerCalendarPage {
     this.user = authStore.currentUser;
     this.canGenerate = !!authStore?.authenticated && authStore.hasPermission('community_manager.calendar_generate');
     this.canManage = !!authStore?.authenticated && authStore.hasPermission('community_manager.calendar_generate');
-    await this._loadMonth();
+    if (this.view === 'week') await this._loadWeek();
+    else await this._loadMonth();
   }
 
   _today() {

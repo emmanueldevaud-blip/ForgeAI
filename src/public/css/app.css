@@ -10042,13 +10042,33 @@
     width: 100%;
   }
 
+  .cal-week,
+  .cal-week thead,
+  .cal-week tbody,
+  .cal-week tr,
+  .cal-week th,
+  .cal-week td {
+    display: block;
+    width: 100%;
+  }
+
+  .cal-week thead {
+    display: none;
+  }
+
+  .cal-week td {
+    height: auto;
+    min-height: 60px;
+  }
+
   .cal-month td {
     height: 104px;
     padding: var(--spacing-1) var(--spacing-2);
   }
 
   .cal-week td {
-    height: 160px;
+    height: auto;
+    min-height: 60px;
   }
 
   .calendar-title {

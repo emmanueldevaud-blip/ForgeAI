@@ -54,7 +54,7 @@ export class CommunityManagerCalendarPage {
     this.router = router;
     this.element = null;
     this.user = null;
-    this.view = 'month'; // 'month' | 'week'
+    this.view = (typeof window !== 'undefined' && window.matchMedia && window.matchMedia('(max-width: 767px)').matches) ? 'week' : 'month'; // 'month' | 'week'
     this.currentDate = new Date();
     this.selectedEntry = null;
     this.publisherPage = null;

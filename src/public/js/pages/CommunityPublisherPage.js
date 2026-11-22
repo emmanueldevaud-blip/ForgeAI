@@ -317,7 +317,7 @@ export class CommunityPublisherPage {
       });
       this.formatEditor.mount(host);
     } else {
-      // Post simple : pas d'étape compose, on passe directement à caption
+      // Post simple ne passe pas par compose ; sécurité
       publisherStore.nextStep();
     }
   }

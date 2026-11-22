@@ -200,14 +200,20 @@ class PublisherStore {
     }
   }
 
+  _formatSteps() {
+    const format = this.draft?.format || 'post';
+    if (format === 'post') return ['media', 'adjust', 'caption', 'preview', 'publish'];
+    return ['media', 'adjust', 'compose', 'caption', 'preview', 'publish'];
+  }
+
   nextStep() {
-    const steps = ['media', 'adjust', 'compose', 'caption', 'preview', 'publish'];
+    const steps = this._formatSteps();
     const idx = steps.indexOf(this.ui.currentStep);
-    if (idx < steps.length - 1) this.setStep(steps[idx + 1]);
+    if (idx >= 0 && idx < steps.length - 1) this.setStep(steps[idx + 1]);
   }
 
   prevStep() {
-    const steps = ['media', 'adjust', 'compose', 'caption', 'preview', 'publish'];
+    const steps = this._formatSteps();
     const idx = steps.indexOf(this.ui.currentStep);
     if (idx > 0) this.setStep(steps[idx - 1]);
   }
@@ -371,6 +377,118 @@ async function runTests() {
     assert(store.getState().ui.currentStep === 'preview', 'Next step should be preview');
     store.prevStep();
     assert(store.getState().ui.currentStep === 'caption', 'Prev step should be caption');
+  });
+
+  test('post transitions: media->adjust->caption->preview->publish', () => {
+    const s = new PublisherStore();
+    s.resetDraft('post');
+    const expected = ['media', 'adjust', 'caption', 'preview', 'publish'];
+    assert(s.getState().ui.currentStep === 'media', 'start media');
+    for (let i = 1; i < expected.length; i++) {
+      s.nextStep();
+      assert(s.getState().ui.currentStep === expected[i], 'expected ' + expected[i]);
+    }
+    // no further advance
+    s.nextStep();
+    assert(s.getState().ui.currentStep === 'publish', 'stays publish');
+  });
+
+  test('reel transitions: media->adjust->compose->caption->preview->publish', () => {
+    const s = new PublisherStore();
+    s.resetDraft('reel');
+    const expected = ['media', 'adjust', 'compose', 'caption', 'preview', 'publish'];
+    assert(s.getState().ui.currentStep === 'media', 'start media');
+    for (let i = 1; i < expected.length; i++) {
+      s.nextStep();
+      assert(s.getState().ui.currentStep === expected[i], 'expected ' + expected[i]);
+    }
+  });
+
+  test('story transitions: media->adjust->compose->caption->preview->publish', () => {
+    const s = new PublisherStore();
+    s.resetDraft('story');
+    const expected = ['media', 'adjust', 'compose', 'caption', 'preview', 'publish'];
+    assert(s.getState().ui.currentStep === 'media', 'start media');
+    for (let i = 1; i < expected.length; i++) {
+      s.nextStep();
+      assert(s.getState().ui.currentStep === expected[i], 'expected ' + expected[i]);
+    }
+  });
+
+  test('prevStep returns without data loss (media conserved)', () => {
+    const s = new PublisherStore();
+    s.resetDraft('post');
+    s.addMedia([{ id: 'm1', url: '/x', thumbnail_url: '/t', type: 'photo', source: 'library' }]);
+    s.updateCaption('title', 'hello');
+    s.nextStep(); // adjust
+    s.nextStep(); // caption
+    assert(s.getState().draft.media.length === 1, 'media conserved');
+    assert(s.getState().draft.caption.title === 'hello', 'caption conserved');
+    s.prevStep(); // adjust
+    assert(s.getState().draft.media.length === 1, 'media still conserved');
+    s.prevStep(); // media
+    assert(s.getState().draft.media.length === 1, 'media still conserved on media');
+  });
+
+  test('repeated nextStep does not skip extra', () => {
+    const s = new PublisherStore();
+    s.resetDraft('post');
+    s.nextStep();
+    s.nextStep();
+    s.nextStep();
+    assert(s.getState().ui.currentStep === 'preview', 'should be preview after 3');
+  });
+
+  test('format switch resets design but keeps media', () => {
+    const s = new PublisherStore();
+    s.resetDraft('post');
+    s.addMedia([{ id: 'm1', url: '/x', thumbnail_url: '/t', type: 'photo', source: 'library' }]);
+    s.setFormat('story');
+    assert(s.getState().draft.format === 'story', 'format switched');
+    assert(Array.isArray(s.getState().draft.design.slides), 'slides created');
+    assert(s.getState().draft.media.length === 1, 'media conserved');
+  });
+
+  test('unknown format keeps default steps (reel-like)', () => {
+    const s = new PublisherStore();
+    s.resetDraft('post');
+    s.draft.format = 'unknown';
+    // nextStep still works without crash
+    s.setStep('media');
+    s.nextStep();
+    assert(s.getState().ui.currentStep === 'adjust', 'adjust reachable');
+  });
+
+  test('setStep rejects invalid step', () => {
+    const s = new PublisherStore();
+    s.resetDraft('post');
+    s.setStep('foo');
+    assert(s.getState().ui.currentStep === 'media', 'invalid step ignored');
+  });
+
+  test('nextStep at last step is no-op', () => {
+    const s = new PublisherStore();
+    s.resetDraft('post');
+    s.setStep('publish');
+    s.nextStep();
+    assert(s.getState().ui.currentStep === 'publish', 'stays publish');
+  });
+
+  test('prevStep at first step is no-op', () => {
+    const s = new PublisherStore();
+    s.resetDraft('post');
+    s.prevStep();
+    assert(s.getState().ui.currentStep === 'media', 'stays media');
+  });
+
+  test('resetDraft restores initial state', () => {
+    const s = new PublisherStore();
+    s.resetDraft('reel', 99);
+    const st = s.getState();
+    assert(st.draft.format === 'reel', 'format');
+    assert(st.draft.sourceEntryId === 99, 'sourceEntryId');
+    assert(st.ui.currentStep === 'media', 'step media');
+    assert(st.draft.media.length === 0, 'no media');
   });
 
   test('setGarmin stores activity and stats', () => {

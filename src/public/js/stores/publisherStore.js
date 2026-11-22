@@ -235,14 +235,20 @@ class PublisherStore {
     }
   }
 
+  _formatSteps() {
+    const format = this.draft?.format || 'post';
+    if (format === 'post') return ['media', 'adjust', 'caption', 'preview', 'publish'];
+    return ['media', 'adjust', 'compose', 'caption', 'preview', 'publish'];
+  }
+
   nextStep() {
-    const steps = ['media', 'adjust', 'compose', 'caption', 'preview', 'publish'];
+    const steps = this._formatSteps();
     const idx = steps.indexOf(this.ui.currentStep);
-    if (idx < steps.length - 1) this.setStep(steps[idx + 1]);
+    if (idx >= 0 && idx < steps.length - 1) this.setStep(steps[idx + 1]);
   }
 
   prevStep() {
-    const steps = ['media', 'adjust', 'compose', 'caption', 'preview', 'publish'];
+    const steps = this._formatSteps();
     const idx = steps.indexOf(this.ui.currentStep);
     if (idx > 0) this.setStep(steps[idx - 1]);
   }

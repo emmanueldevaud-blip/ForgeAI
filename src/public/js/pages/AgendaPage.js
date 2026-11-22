@@ -91,7 +91,7 @@ export class AgendaPage {
   constructor(router) {
     this.router = router;
     this.element = null;
-    this.view = 'week';
+    this.view = (typeof window !== 'undefined' && window.matchMedia && window.matchMedia('(max-width: 767px)').matches) ? 'week' : 'week';
     this.anchor = new Date();
     this.data = null;
     this.error = null;

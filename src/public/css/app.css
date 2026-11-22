@@ -5568,6 +5568,7 @@
 .agenda-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: var(--spacing-3); }
 .agenda-nav, .agenda-views { display: inline-flex; flex-wrap: wrap; gap: var(--spacing-2); }
 .agenda-section { overflow: hidden; }
+@media (max-width: 767px) { .agenda-section { overflow: visible; } }
 .agenda-section-header { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: var(--spacing-3); padding: var(--spacing-4) var(--spacing-5); border-bottom: 1px solid var(--color-border-light); background: var(--color-bg-secondary); }
 .agenda-section-header--plain { background: transparent; border-bottom: 0; padding-bottom: 0; }
 .agenda-section-header h2 { margin: 0; color: var(--color-text-primary); font-size: var(--font-size-lg); display: flex; align-items: center; gap: var(--spacing-2); }

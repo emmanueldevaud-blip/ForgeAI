@@ -10038,7 +10038,8 @@
 
   .cal-month,
   .cal-week {
-    min-width: 680px;
+    min-width: 100%;
+    width: 100%;
   }
 
   .cal-month td {

@@ -457,11 +457,13 @@ async function showCommunityPublisherPage(route) {
   try {
     const format = route.params.format || 'post';
     const entryId = route.params.entryId ? parseInt(route.params.entryId, 10) : null;
+    const urlParams = new URLSearchParams(window.location.search);
+    const garminActivityId = urlParams.get('garmin') ? parseInt(urlParams.get('garmin'), 10) : null;
     if (communityPublisherPage) {
       communityPublisherPage.destroy();
       communityPublisherPage = null;
     }
-    const page = createCommunityPublisherPage(router, { format, entryId });
+    const page = createCommunityPublisherPage(router, { format, entryId, garminActivityId });
     communityPublisherPage = page;
     await page.initialize();
     const element = page.render();

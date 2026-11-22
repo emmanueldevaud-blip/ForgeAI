@@ -120,12 +120,6 @@ export class DashboardPage {
     this.element = document.createElement('div');
     this.element.className = 'page-content dashboard-page';
     this.element.innerHTML = `
-      <div class="page-header dash-header">
-        <div class="page-header-left">
-          <h1>Tableau de bord</h1>
-          <p class="page-subtitle">Vue d’ensemble de ForgeAI — ${todayLabel()}</p>
-        </div>
-      </div>
       <div class="dashboard-loading" data-loading>
         <div class="spinner" aria-hidden="true"></div>
         <p>Préparation de votre tableau de bord...</p>

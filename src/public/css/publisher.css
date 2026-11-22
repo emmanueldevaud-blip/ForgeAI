@@ -44,12 +44,14 @@
   top: 0;
   z-index: 100;
   gap: 16px;
+  min-width: 0;
 }
 
 .publisher-header-left {
   display: flex;
   align-items: center;
   gap: 12px;
+  min-width: 0;
 }
 
 .publisher-header-left h1 {
@@ -60,6 +62,7 @@
 
 .publisher-header-center {
   flex: 1;
+  min-width: 0;
   display: flex;
   justify-content: center;
 }
@@ -311,6 +314,16 @@
   border: none;
   color: var(--publisher-text);
   cursor: pointer;
+}
+
+/* =========================================================
+   RESPONSIVE — CommunityPublisher (mobile-first)
+   ========================================================= */
+
+@media (max-width: 480px) {
+  .publisher-steps {
+    display: none;
+  }
 }
 
 /* =========================================================

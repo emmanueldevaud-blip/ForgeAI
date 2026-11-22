@@ -297,13 +297,6 @@ export class SouvenirsPage {
     const prevLayer = stage.querySelector(`[data-layer="${this.layerIndex}"]`);
     if (!nextLayer) return;
     nextLayer.className = `souvenirs-layer ${FX_VARIANTS[Math.floor(Math.random() * FX_VARIANTS.length)]}`;
-    const bg = document.createElement('img');
-    bg.className = 'souvenirs-photo-bg';
-    bg.alt = '';
-    bg.decoding = 'async';
-    bg.src = img.src;
-    nextLayer.appendChild(bg);
-
     const img = document.createElement('img');
     img.className = `souvenirs-photo ${KB_VARIANTS[Math.floor(Math.random() * KB_VARIANTS.length)]}`;
     img.alt = '';
@@ -316,10 +309,8 @@ export class SouvenirsPage {
     img.addEventListener('error', () => {
       if (this.playing && this.current) this._advance();
     }, { once: true });
-    nextLayer.replaceChildren(bg, img);
-    const url = photoFileUrl(photoId, 'large');
-    bg.src = url;
-    img.src = url;
+    nextLayer.replaceChildren(img);
+    img.src = photoFileUrl(photoId, 'large');
     this.layerIndex = nextIndex;
   }
 

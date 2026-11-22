@@ -642,12 +642,27 @@
   place-items: center;
   background: #0b0b0b;
   min-height: 320px;
+  position: relative;
+  overflow: hidden;
 }
 
-.photos-lightbox-media img {
+.photos-lightbox-media img.lb-bg {
+  position: absolute;
+  inset: -30px;
+  width: calc(100% + 60px);
+  height: calc(100% + 60px);
+  object-fit: cover;
+  filter: blur(25px) brightness(0.65);
+  z-index: 0;
+}
+
+.photos-lightbox-media img.lb-main {
+  position: relative;
+  z-index: 1;
   max-width: 100%;
   max-height: calc(100vh - 2rem);
   object-fit: contain;
+  object-position: center;
 }
 
 .photos-lightbox-info {

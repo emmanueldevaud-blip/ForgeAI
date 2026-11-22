@@ -5,11 +5,12 @@
  */
 
 import { publisherStore } from '../stores/publisherStore.js';
-import { listPhotos, uploadPhotos, searchPhotos } from '../services/photosApi.js?v=8';
+import { listPhotos, uploadPhotos, searchPhotos, listAlbums } from '../services/photosApi.js?v=8';
 import { listSportActivities, getSuggestedPhotos } from '../services/sportApi.js?v=16';
 
 const VIEW_MODES = {
   library: 'Bibliothèque',
+  albums: 'Albums',
   garmin: 'Activités Garmin',
   upload: 'Importer',
 };
@@ -28,6 +29,7 @@ export class PublisherMediaPicker {
     this.cursor = null;
     this.hasMore = true;
     this.loading = false;
+    this.currentAlbumId = null;
     this.searchQuery = '';
     this.garminActivities = [];
     this.selectedIds = new Set();
@@ -85,6 +87,13 @@ export class PublisherMediaPicker {
       <div class="pmp-panels">
         <!-- Bibliothèque Photos -->
         <div class="pmp-panel ${this.view === 'library' ? 'active' : ''}" role="tabpanel" data-panel="library">
+          <div class="pmp-preview" data-preview hidden>
+            <div class="pmp-preview-stage" data-preview-stage>
+              <img class="pmp-preview-img" src="" alt="">
+              <span class="pmp-video-badge">▶</span>
+              <button type="button" class="pmp-preview-remove" data-action="preview-remove" data-media-id="">✕</button>
+            </div>
+          </div>
           <div class="pmp-search">
             <input type="search" class="form-control" placeholder="Rechercher dans la bibliothèque…" data-search>
             <button type="button" class="pmp-btn pmp-btn-filter" data-action="filter-date" title="Filtrer par date">
@@ -100,6 +109,11 @@ export class PublisherMediaPicker {
             <button type="button" class="pmp-btn pmp-btn-secondary">Charger plus</button>
           </div>
           <div class="pmp-empty" data-empty hidden>Aucune photo trouvée</div>
+        </div>
+
+        <!-- Albums -->
+        <div class="pmp-panel ${this.view === 'albums' ? 'active' : ''}" role="tabpanel" data-panel="albums">
+          <div class="pmp-albums" data-albums-list></div>
         </div>
 
         <!-- Activités Garmin -->
@@ -194,6 +208,12 @@ export class PublisherMediaPicker {
     // Actions sélection
     this.element.querySelector('[data-action="clear-selection"]').addEventListener('click', () => this._clearSelection());
     this.element.querySelector('[data-action="confirm-selection"]').addEventListener('click', () => this.onComplete());
+
+    // Retrait via le grand aperçu (délégation)
+    this.element.addEventListener('click', (e) => {
+      const removeBtn = e.target.closest('[data-action="preview-remove"]');
+      if (removeBtn) { this._removeSelectedMedia(removeBtn.dataset.mediaId); }
+    });
   }
 
   _setupDragDrop() {
@@ -246,15 +266,20 @@ export class PublisherMediaPicker {
 
   _switchView(view) {
     this.view = view;
+    this._syncTabs();
+    if (view === 'library') this._loadLibrary();
+    if (view === 'albums') this._loadAlbums();
+    if (view === 'garmin') this._loadGarmin();
+  }
+
+  _syncTabs() {
     this.element.querySelectorAll('[data-view]').forEach(btn => {
-      btn.classList.toggle('active', btn.dataset.view === view);
-      btn.setAttribute('aria-selected', btn.dataset.view === view);
+      btn.classList.toggle('active', btn.dataset.view === this.view);
+      btn.setAttribute('aria-selected', btn.dataset.view === this.view);
     });
     this.element.querySelectorAll('[data-panel]').forEach(panel => {
-      panel.classList.toggle('active', panel.dataset.panel === view);
+      panel.classList.toggle('active', panel.dataset.panel === this.view);
     });
-    if (view === 'library') this._loadLibrary();
-    if (view === 'garmin') this._loadGarmin();
   }
 
   async _loadInitial() {
@@ -265,13 +290,15 @@ export class PublisherMediaPicker {
     this._updateCounter();
   }
 
-  async _loadLibrary() {
+  async _loadLibrary(loadParams = {}) {
     if (this.loading) return;
     this.loading = true;
     this.element.querySelector('[data-grid]').classList.add('loading');
 
     try {
       const params = { page_size: 60 };
+      if (this.currentAlbumId) params.album_id = this.currentAlbumId;
+      if (loadParams.album_id) params.album_id = loadParams.album_id;
       if (this.cursor) params.cursor = this.cursor;
       if (this.searchQuery) params.search = this.searchQuery;
 
@@ -310,6 +337,37 @@ export class PublisherMediaPicker {
     }).join('');
 
     this._updateOrderBadges();
+  }
+
+  async _loadAlbums() {
+    const container = this.element.querySelector('[data-albums-list]');
+    if (!container) return;
+    container.innerHTML = '<div class="pmp-loading">Chargement des albums…</div>';
+    try {
+      const res = await listAlbums({ page_size: 50 });
+      const albums = res.items || [];
+      container.innerHTML = albums.length
+        ? albums.map(a => `
+          <button type="button" class="pmp-album-item" data-album-id="${a.id}">
+            <span class="pmp-album-cover">${a.cover_photo_id ? `<img src="/photos/${a.cover_photo_id}/file?size=small" alt="">` : '<span class="pmp-album-placeholder">📷</span>'}</span>
+            <span class="pmp-album-info"><strong>${this._esc(a.name)}</strong><span>${a.photo_count || 0} photo(s)</span></span>
+          </button>
+        `).join('')
+        : '<div class="pmp-empty">Aucun album pour le moment.</div>';
+      container.querySelectorAll('[data-album-id]').forEach(btn => {
+        btn.addEventListener('click', () => this._openAlbum(btn.dataset.albumId));
+      });
+    } catch (error) {
+      console.error('[MediaPicker] Erreur chargement albums:', error);
+      container.innerHTML = '<div class="pmp-empty">Erreur chargement des albums.</div>';
+    }
+  }
+
+  async _openAlbum(albumId) {
+    this.currentAlbumId = albumId;
+    this.view = 'library';
+    this._syncTabs();
+    await this._loadLibrary({ album_id: albumId });
   }
 
   async _loadGarmin() {
@@ -420,19 +478,46 @@ export class PublisherMediaPicker {
     this._updateOrderBadges();
   }
 
+  _updatePreview() {
+    const previewPanel = this.element.querySelector('[data-preview]');
+    if (!previewPanel) return;
+    if (this.selectedIds.size === 0) { previewPanel.hidden = true; return; }
+    const mediaMap = new Map(publisherStore.draft.media.map(m => [m.id, m]));
+    const firstId = [...this.selectedIds].find(id => mediaMap.has(id));
+    const media = firstId ? mediaMap.get(firstId) : null;
+    const stage = previewPanel.querySelector('[data-preview-stage]');
+    if (!stage || !media) { previewPanel.hidden = true; return; }
+    stage.innerHTML = `
+      <img class="pmp-preview-img" src="${media.thumbnail_url || media.url}" alt="">
+      ${media.type === 'video' ? '<span class="pmp-video-badge">▶</span>' : ''}
+      <button type="button" class="pmp-preview-remove" data-action="preview-remove" data-media-id="${media.id}">✕</button>
+    `;
+    previewPanel.hidden = false;
+  }
+
+  _removeSelectedMedia(mediaId) {
+    this.selectedIds.delete(mediaId);
+    this._updateSelectionUI();
+    this._updateCounter();
+    this._updateGridSelection();
+  }
+
   _updateSelectionUI() {
     const preview = this.element.querySelector('[data-selected-preview]');
     const bar = this.element.querySelector('[data-selected-bar]');
     const completeBtn = this.element.querySelector('[data-action="complete"]');
+    const previewPanel = this.element.querySelector('[data-preview]');
 
     if (this.selectedIds.size === 0) {
-      bar.hidden = true;
-      completeBtn.disabled = true;
+      if (bar) bar.hidden = true;
+      if (completeBtn) completeBtn.disabled = true;
+      if (previewPanel) previewPanel.hidden = true;
       return;
     }
 
-    bar.hidden = false;
-    completeBtn.disabled = false;
+    if (bar) bar.hidden = false;
+    if (completeBtn) completeBtn.disabled = false;
+    if (previewPanel) this._updatePreview();
 
     const mediaMap = new Map(publisherStore.draft.media.map(m => [m.id, m]));
     preview.innerHTML = [...this.selectedIds].map(id => {
@@ -452,10 +537,7 @@ export class PublisherMediaPicker {
     preview.querySelectorAll('[data-remove]').forEach(btn => {
       btn.addEventListener('click', (e) => {
         e.stopPropagation();
-        this.selectedIds.delete(btn.dataset.remove);
-        this._updateSelectionUI();
-        this._updateCounter();
-        this._updateGridSelection();
+        this._removeSelectedMedia(btn.dataset.remove);
       });
     });
   }

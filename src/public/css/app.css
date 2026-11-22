@@ -10042,23 +10042,36 @@
     width: 100%;
   }
 
-  .cal-week,
-  .cal-week thead,
-  .cal-week tbody,
-  .cal-week tr,
-  .cal-week th,
-  .cal-week td {
-    display: block;
-    width: 100%;
+  .cal-week-mobile {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-2);
   }
 
-  .cal-week thead {
-    display: none;
+  .cal-week-day-card {
+    background: var(--color-surface-raised);
+    border: 1px solid var(--color-border-light);
+    border-radius: var(--radius-lg);
+    padding: var(--spacing-3);
   }
 
-  .cal-week td {
-    height: auto;
-    min-height: 60px;
+  .cal-week-day-card.cal-week-day--today {
+    border-color: var(--color-primary);
+    background: var(--color-primary-light);
+  }
+
+  .cal-week-day-header {
+    font-weight: var(--font-weight-semibold);
+    font-size: var(--font-size-sm);
+    margin-bottom: var(--spacing-2);
+    color: var(--color-text-secondary);
+    text-transform: uppercase;
+  }
+
+  .cal-week-day-body {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-1);
   }
 
   .cal-month td {

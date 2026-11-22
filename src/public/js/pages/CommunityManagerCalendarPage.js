@@ -520,6 +520,24 @@ export class CommunityManagerCalendarPage {
       days.push(new Date(monday.getFullYear(), monday.getMonth(), monday.getDate() + i));
     }
 
+    const isMobile = (typeof window !== 'undefined' && window.matchMedia && window.matchMedia('(max-width: 767px)').matches);
+
+    if (isMobile) {
+      let html = '<div class="cal-week-mobile">';
+      for (const day of days) {
+        const isToday = day.toDateString() === this._today().toDateString();
+        const dayKey = this._dateKey(day);
+        const entries = this.weekData.days?.[dayKey] || [];
+        const entriesHtml = entries.map(e => this._renderMonthEntry(e)).join('');
+        html += `<div class="cal-week-day-card ${isToday ? 'cal-week-day--today' : ''}">
+          <div class="cal-week-day-header">${WEEK_DAYS[(day.getDay() + 6) % 7]} ${day.getDate()}</div>
+          <div class="cal-week-day-body">${entriesHtml || '<span class="cal-empty">—</span>'}</div>
+        </div>`;
+      }
+      html += '</div>';
+      return html;
+    }
+
     let html = '<table class="cal-week"><thead><tr>';
     for (const day of days) {
       const isToday = day.toDateString() === this._today().toDateString();

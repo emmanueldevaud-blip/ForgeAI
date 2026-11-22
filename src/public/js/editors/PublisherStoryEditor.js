@@ -98,6 +98,7 @@ export class PublisherStoryEditor {
     this.editorView = createStoryEditorView({
       draft: storyDraft,
       deps: {
+        photoFileUrl: (id) => `/photos/${id}/file`,
         updateDraft: (id, data) => publisherDraftService.save({ design: data }),
         updateSlideDesign: (id, slideIndex, design) => publisherDraftService.saveStorySlide(id, slideIndex, design),
         renderSlide: (id, slideIndex) => publisherDraftService.renderStorySlide(id, slideIndex),

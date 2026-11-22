@@ -278,22 +278,17 @@ export class CommunityPublisherPage {
 
   _mountAdjustEditor() {
     const host = this.element.querySelector('[data-adjust-host]');
-    // Pour post/reel: recadrage, réorganisation
-    // Pour story: cadrage par slide
-    if (this.format === 'story') {
-      host.innerHTML = '<div class="publisher-adjust-story">Ajustement des slides Story (à implémenter)</div>';
-    } else {
-      if (this.adjustEditor) {
-        this.adjustEditor.destroy();
-        this.adjustEditor = null;
-      }
-      this.adjustEditor = createPublisherPostEditor({
-        draft: publisherStore.draft,
-        onSave: () => publisherStore.nextStep(),
-        onBack: () => publisherStore.prevStep(),
-      });
-      this.adjustEditor.mount(host);
+    // Recadrage / réorganisation des médias (post, reel, story)
+    if (this.adjustEditor) {
+      this.adjustEditor.destroy();
+      this.adjustEditor = null;
     }
+    this.adjustEditor = createPublisherPostEditor({
+      draft: publisherStore.draft,
+      onSave: () => publisherStore.nextStep(),
+      onBack: () => publisherStore.prevStep(),
+    });
+    this.adjustEditor.mount(host);
   }
 
   _mountComposeEditor() {

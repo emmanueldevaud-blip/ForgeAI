@@ -468,10 +468,21 @@ export class PublisherMediaPicker {
     if (this.selectedIds.has(mediaId)) {
       this.selectedIds.delete(mediaId);
       itemEl.classList.remove('selected');
+      publisherStore.removeMedia(mediaId);
     } else {
       if (this.selectedIds.size >= this.maxSelection) return;
       this.selectedIds.add(mediaId);
       itemEl.classList.add('selected');
+      const photo = this.photos.find(p => p.id === mediaId);
+      if (photo) {
+        publisherStore.addMedia([{
+          id: photo.id,
+          url: photo.file_url,
+          thumbnail_url: photo.thumbnail_url,
+          type: photo.mime_type?.startsWith('video/') ? 'video' : 'photo',
+          source: 'library',
+        }]);
+      }
     }
     this._updateSelectionUI();
     this._updateCounter();
@@ -497,6 +508,7 @@ export class PublisherMediaPicker {
 
   _removeSelectedMedia(mediaId) {
     this.selectedIds.delete(mediaId);
+    publisherStore.removeMedia(mediaId);
     this._updateSelectionUI();
     this._updateCounter();
     this._updateGridSelection();
@@ -577,8 +589,8 @@ export class PublisherMediaPicker {
 
   _clearSelection() {
     this.selectedIds.clear();
-    this._updateSelectionUI();
-    this._updateCounter();
+    publisherStore.draft.media = [];
+    publisherStore._notify();
     this._updateGridSelection();
   }
 

@@ -223,12 +223,23 @@ export class SouvenirsPage {
     this._advance();
   }
 
-  _advance() {
+  async _advance() {
     const story = this.current;
     if (!story) return;
     this.photoIndex += 1;
     if (this.photoIndex >= story.photo_ids.length) {
       const next = (this.storyIndex + 1) % this.stories.length;
+      if (next === 0 && this.stories.length > 0) {
+        // Régénérer une nouvelle série sans coupure
+        try {
+          const params = { count: 8, seed: Math.floor(Math.random() * 1e9) };
+          const result = await getSouvenirs(params);
+          if (result?.stories?.length) {
+            this.stories = result.stories;
+            this._renderChips();
+          }
+        } catch (e) { /* garder l'ancienne série */ }
+      }
       this._openStory(next);
       return;
     }
@@ -245,7 +256,7 @@ export class SouvenirsPage {
       this._stop();
       return;
     }
-    this._advance();
+    this._advance().catch(() => {});
   }
 
   _schedule(ms) {

@@ -250,6 +250,10 @@
   background: var(--publisher-primary-hover);
 }
 
+.pmp-btn-primary {
+  min-height: 40px;
+}
+
 .publisher-btn-secondary,
 .pmp-btn-secondary,
 .ppe-btn-secondary,

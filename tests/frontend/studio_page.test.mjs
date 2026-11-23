@@ -201,6 +201,10 @@ const hasCall = (n) => calls.some(c => c[0] === n);
   check('E: bouton Publier présent et actif', html.includes('data-action="publish"') && !/data-action="publish"[^>]*disabled/.test(html));
   check('E: pas de bouton Refuser', !html.includes('data-action="refuse"'));
   check('E: pas de bouton Valider la story', !html.includes('Valider la story'));
+  await p._publish();
+  const publish = findCall('publish');
+  check('E: action publication appelle l’API avec confirmation', !!publish && publish[1] === 5 && publish[2]?.confirm === true, JSON.stringify(publish));
+  check('E: succès affiché après réponse API', p.success === 'Publié avec succès.', `success=${p.success}`);
 }
 
 // --- F : sélecteur de photos (non régressé)
@@ -218,22 +222,24 @@ const hasCall = (n) => calls.some(c => c[0] === n);
   check('F: retrait envoie photo_id=null', updates[updates.length - 1]?.[2]?.photo_id === null);
 }
 
-// --- G : légende complète éditable (titre + hashtags, hashtags en fin de texte)
+// --- G : titre, texte visuel et légende Instagram sont éditables séparément
 {
   const p = makePage({ ...V1_PUB, title: 'Publication V1', content: 'Contenu V1.', hashtags: '#garmin' });
   const html = p.render().innerHTML;
-  const m = html.match(/<textarea[^>]*>([\s\S]*?)<\/textarea>/);
-  check('G: champ texte = Titre + ligne vide + hashtags', m && m[1] === 'Publication V1\n\n#garmin', `val=${JSON.stringify(m && m[1])}`);
+  check('G: aperçu post Instagram présent', html.includes('cm-ig-phone') && html.includes('cm-ig-post-head') && html.includes('cm-ig-post-actions'));
+  check('G: champs titre, texte visuel et hashtags présents', /name="title"/.test(html) && /name="content"/.test(html) && /name="hashtags"/.test(html));
+  check('G: aperçu reprend titre et légende', html.includes('Publication V1') && html.includes('#garmin'));
+  check('G: actions photo, sauvegarde et publication accessibles', ['photos', 'save-form', 'publish'].every(action => html.includes(`data-action="${action}"`)));
   check('G: compteur légende = contenu attendu', p.captionLength === 'Publication V1\n\n#garmin'.length, `len=${p.captionLength}`);
 }
 
 // --- H : modal d'aperçu lisible et scrollable (y compris iPhone)
 {
   const css = fs.readFileSync(new URL('../../src/public/css/app.css', import.meta.url), 'utf8');
-  const header = css.match(/\.cm-studio-preview-header\s*\{[^}]*\}/);
+  const header = [...css.matchAll(/\.cm-studio-preview-header\s*\{[^}]*\}/g)].at(-1)?.[0];
   const body = css.match(/\.cm-studio-preview-body\s*\{[^}]*\}/);
   const modal = css.match(/\.cm-studio-preview-modal\s*\{[^}]*\}/);
-  check('H: en-tête aperçu avec couleur explicite (pas de blanc sur blanc)', !!header && /color:\s*#111827/.test(header[0]));
+  check('H: en-tête aperçu avec couleur explicite (pas de blanc sur blanc)', !!header && /color:\s*(?:var\([^)]*,\s*)?#111827/.test(header));
   check('H: corps modal scrollable (flex + min-height: 0)', !!body && /min-height:\s*0/.test(body[0]) && /flex:\s*1/.test(body[0]));
   check('H: scroll tactile iPhone (overflow scrolling)', !!body && /-webkit-overflow-scrolling:\s*touch/.test(body[0]));
   check('H: hauteur dynamique du viewport (dvh)', !!modal && /max-height:\s*90dvh/.test(modal[0]));

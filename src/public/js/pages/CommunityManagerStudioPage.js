@@ -74,16 +74,15 @@ export class CommunityManagerStudioPage {
     const p = this.publication || {};
     const story = p.calendar_entry?.source === 'suggestion';
     const legacy = !p.calendar_entry_id;
-    const multi = !!p.photo_id;
-    const pickerClass = multi ? 'cm-studio-photo-picker' : 'cm-studio-photo-grid';
-    this.element.innerHTML = this._renderShell(p, story, legacy, pickerClass);
+    this.element.innerHTML = this._renderShell(p, story, legacy);
     this._bindEvents();
     return this.element;
   }
 
-  _renderShell(p, story, legacy, pickerClass) {
+  _renderShell(p, story, legacy) {
     const caption = this.captionValue;
     const photoUrl = (id) => (publicationPhotoUrl ? publicationPhotoUrl(id) : `/photos/${id}/file?size=medium`);
+    const media = p.photo_id ? `<img src="${this._esc(photoUrl(p.photo_id))}" alt="Aperçu de la publication">` : '<div class="cm-ig-empty">Choisissez une photo pour voir l’aperçu</div>';
 
     const storyView = story ? `
       <header class="cm-studio-header">
@@ -101,23 +100,31 @@ export class CommunityManagerStudioPage {
         <button type="button" class="cm-btn cm-btn-primary" data-action="validate-story">Valider la story</button>
       </div>
     ` : `
-      <header class="cm-studio-header">
-        <button type="button" class="cm-btn cm-btn-back" data-action="back">Annuler</button>
-        <h1 class="cm-studio-title">${legacy ? 'Publication sportive' : 'Publication'}</h1>
-      </header>
-      <form data-form="studio-edit">
-        <div class="cm-studio-field">
-          <label>Légende</label>
-          <textarea name="content" class="cm-studio-caption">${this._esc(caption)}</textarea>
-        </div>
-      </form>
-      <div class="cm-studio-actions cm-studio-actions--sport">
-        <button type="button" class="cm-btn cm-btn-primary" data-action="publish">Publier</button>
+      <header class="cm-ig-topbar"><button type="button" class="cm-ig-back" data-action="back">Annuler</button><strong>Nouvelle publication</strong><span>Instagram</span></header>
+      <div class="cm-ig-workspace">
+        <section class="cm-ig-phone" aria-label="Aperçu Instagram">
+          <div class="cm-ig-post-head"><span class="cm-ig-avatar">${this._esc((p.title || 'F').slice(0, 1).toUpperCase())}</span><strong>${this._esc(p.instagram_username || 'votre_compte')}</strong><span>•••</span></div>
+          <div class="cm-ig-media">${media}</div>
+          <div class="cm-ig-post-actions"><span>♡</span><span>♧</span><span>➤</span><span class="cm-ig-save">♧</span></div>
+          <div class="cm-ig-caption"><strong>${this._esc(p.instagram_username || 'votre_compte')}</strong> ${this._esc([p.title, p.hashtags].filter(Boolean).join('\n\n') || 'Votre légende Instagram apparaîtra ici.')}</div>
+          <div class="cm-ig-time">À L’INSTANT</div>
+        </section>
+        <section class="cm-ig-editor">
+          <div class="cm-ig-editor-heading"><div><span class="cm-ig-kicker">CRÉATION</span><h1>${legacy ? 'Publication sportive' : 'Préparer la publication'}</h1></div><span class="cm-ig-network">◎ Instagram</span></div>
+          <form data-form="studio-edit" class="cm-ig-form">
+            <label>Titre<input name="title" maxlength="200" value="${this._esc(p.title || '')}" placeholder="Le titre de votre publication"></label>
+            <label>Texte sur le visuel<textarea name="content" rows="4" class="cm-studio-caption" placeholder="Texte affiché sur l’image">${this._esc(p.content || '')}</textarea></label>
+            <label>Légende et hashtags<textarea name="hashtags" rows="5" placeholder="Écrivez la légende de votre publication">${this._esc(p.hashtags || '')}</textarea></label>
+            <div class="cm-ig-form-footer"><span>${this.captionLength} caractères</span><button type="button" class="btn btn-secondary" data-action="photos">${p.photo_id ? 'Changer la photo' : 'Choisir une photo'}</button><button type="button" class="btn btn-primary" data-action="save-form">Enregistrer</button></div>
+          </form>
+          <div class="cm-ig-publish-row"><span>Vérifiez l’aperçu avant publication.</span><button type="button" class="btn btn-primary" data-action="publish">Publier</button></div>
+        </section>
       </div>
     `;
 
     const picker = this.photoPickerOpen ? `
-      <div class="cm-studio-photo-panel ${pickerClass}">
+      <section class="cm-studio-photo-panel cm-studio-photo-picker">
+        <div class="cm-ig-picker-heading"><strong>Choisir une photo</strong><button type="button" class="btn btn-secondary" data-action="apply-photos">Utiliser la sélection</button></div>
         <div class="cm-studio-photo-grid">
           ${(this.suggestedPhotos || []).map((photo, idx) => {
             const id = String(photo.id);
@@ -132,12 +139,14 @@ export class CommunityManagerStudioPage {
             `;
           }).join('')}
         </div>
-      </div>
+      </section>
     ` : '';
 
     return `
-      <div class="cm-studio-root">
-        ${storyView}
+      <div class="cm-studio-root ${story ? '' : 'cm-ig-studio'}">
+        ${story ? storyView : `
+          <div class="cm-ig-main">${storyView}</div>
+        `}
         ${picker}
         ${this.error ? `<div class="cm-studio-alert cm-studio-alert--error">${this._esc(this.error)}</div>` : ''}
         ${this.success ? `<div class="cm-studio-alert cm-studio-alert--success">${this._esc(this.success)}</div>` : ''}
@@ -163,11 +172,26 @@ export class CommunityManagerStudioPage {
     const publishBtn = el.querySelector?.('[data-action="publish"]');
     if (publishBtn) publishBtn.addEventListener('click', () => this._publish());
 
+    const photoBtn = el.querySelector?.('[data-action="photos"]');
+    if (photoBtn) photoBtn.addEventListener('click', async () => { await this._togglePhotoPicker(); this.render(); });
+    const applyPhotosBtn = el.querySelector?.('[data-action="apply-photos"]');
+    if (applyPhotosBtn) applyPhotosBtn.addEventListener('click', async () => { await this._applyPhotoSelection(); this.render(); });
+
     const saveBtn = el.querySelector?.('[data-action="save-form"]');
-    if (saveBtn) saveBtn.addEventListener('click', () => this._saveForm());
+    if (saveBtn) saveBtn.addEventListener('click', async () => { await this._saveForm(); this.render(); });
 
     el.querySelectorAll?.('[data-photo-id]').forEach((btn) => {
-      btn.addEventListener('click', () => this._togglePhotoSelection(btn.dataset.photoId));
+      btn.addEventListener('click', () => { this._togglePhotoSelection(btn.dataset.photoId); this.render(); });
+    });
+
+    const form = el.querySelector?.('[data-form="studio-edit"]');
+    form?.addEventListener('input', () => {
+      const title = form.elements.title?.value || '';
+      const hashtags = form.elements.hashtags?.value || '';
+      const caption = el.querySelector('.cm-ig-caption');
+      if (caption) caption.innerHTML = `<strong>${this._esc(this.publication?.instagram_username || 'votre_compte')}</strong> ${this._esc([title, hashtags].filter(Boolean).join('\n\n') || 'Votre légende Instagram apparaîtra ici.')}`;
+      const counter = el.querySelector('.cm-ig-form-footer > span');
+      if (counter) counter.textContent = `${[title, hashtags].filter(Boolean).join('\n\n').length} caractères`;
     });
   }
 
@@ -224,6 +248,7 @@ export class CommunityManagerStudioPage {
       values.hashtags = form.elements.hashtags?.value ?? '';
     }
     await updateStudioDraft(this.publicationId, values);
+    this.publication = { ...this.publication, ...values };
     this.success = 'Modifications enregistrées.';
     this.error = null;
   }
@@ -255,6 +280,7 @@ export class CommunityManagerStudioPage {
       if (!ids.includes(n)) ids.push(n);
     }
     await updateStudioDraft(this.publicationId, { photo_ids: ids });
+    this.publication = { ...p, photo_id: ids[0] ?? null };
     this.success = 'Sélection appliquée.';
     this.error = null;
   }

@@ -72,6 +72,8 @@ export function defaultDesign(formatKey = 'ig_feed_45') {
     cover: null,
     timeline: { fps: 30, tracks: [] },
     subtitles: [],
+    audio: null,
+    sport_overlay: null,
   };
 }
 

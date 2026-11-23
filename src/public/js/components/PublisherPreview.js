@@ -14,6 +14,8 @@ export class PublisherPreview {
     this.element = null;
     this._unsubscribeStore = null;
     this._mediaIds = null; // ids des médias rendus pour détection de changement
+    this._visualSignature = null;
+    this.carouselIndex = 0;
   }
 
   mount(host) {
@@ -24,6 +26,7 @@ export class PublisherPreview {
 
     this._bindEvents();
     this._subscribeStore();
+    this._visualSignature = this._currentVisualSignature();
   }
 
   _subscribeStore() {
@@ -37,6 +40,7 @@ export class PublisherPreview {
   _render() {
     switch (this.format) {
       case 'post':
+      case 'carousel':
         return this._renderPost();
       case 'reel':
         return this._renderReel();
@@ -68,17 +72,21 @@ export class PublisherPreview {
             ${isCarousel ? `
               <div class="pp-carousel" data-carousel>
                 ${media.map((m, i) => `
-                  <div class="pp-carousel-slide ${i === 0 ? 'active' : ''}" style="background-image: url('${m.thumbnail_url}')">
+                  <div class="pp-carousel-slide ${i === this.carouselIndex ? 'active' : ''}" style="background-image: url('${m.thumbnail_url || m.url || ''}')" aria-label="Photo ${i + 1} sur ${media.length}">
                     ${m.type === 'video' ? '<span class="pp-video-badge">▶</span>' : ''}
                   </div>
                 `).join('')}
+                <button type="button" class="pp-carousel-nav pp-carousel-nav--prev" data-carousel-nav="-1" aria-label="Photo précédente" ${this.carouselIndex === 0 ? 'disabled' : ''}>‹</button>
+                <button type="button" class="pp-carousel-nav pp-carousel-nav--next" data-carousel-nav="1" aria-label="Photo suivante" ${this.carouselIndex >= media.length - 1 ? 'disabled' : ''}>›</button>
+                <span class="pp-carousel-count" data-carousel-count>${this.carouselIndex + 1}/${media.length}</span>
               </div>
               <div class="pp-carousel-indicators">
-                ${media.map((_, i) => `<span class="${i === 0 ? 'active' : ''}"></span>`).join('')}
+                ${media.map((_, i) => `<button type="button" class="${i === this.carouselIndex ? 'active' : ''}" data-carousel-index="${i}" aria-label="Afficher la photo ${i + 1}"></button>`).join('')}
               </div>
             ` : `
-              <div class="pp-single-media" style="background-image: url('${media[0]?.thumbnail_url || ''}')">
+              <div class="pp-single-media" style="background-image: url('${media[0]?.thumbnail_url || media[0]?.url || ''}')">
                 ${media[0]?.type === 'video' ? '<span class="pp-video-badge">▶</span>' : ''}
+                ${media[0] ? '' : '<span class="pp-media-placeholder">Aucune photo sélectionnée</span>'}
               </div>
             `}
           </div>
@@ -108,6 +116,9 @@ export class PublisherPreview {
     const media = this.draft.media;
     const firstMedia = media[0];
     const caption = this.draft.caption;
+    const igAudio = this.draft.design?.ig_audio || {};
+    const musicName = this.draft.music?.title || this.draft.music?.track?.title
+      || igAudio.title || igAudio.name || this.draft.music?.trackId;
 
     return `
       <div class="pp-reel">
@@ -122,17 +133,13 @@ export class PublisherPreview {
 
           <div class="pp-reel-player" data-reel-player>
             ${firstMedia ? `
-              <video class="pp-reel-video" playsinline muted loop preload="metadata"
-                     style="background-image: url('${firstMedia.thumbnail_url}')">
-                <source src="${firstMedia.url}" type="${firstMedia.type === 'video' ? 'video/mp4' : 'image/jpeg'}">
-              </video>
+              ${firstMedia.type === 'video'
+                ? `<video class="pp-reel-video" playsinline controls preload="metadata" poster="${firstMedia.thumbnail_url || ''}"><source src="${firstMedia.url}" type="video/mp4"></video>`
+                : `<img class="pp-reel-poster" src="${firstMedia.thumbnail_url || firstMedia.url || ''}" alt="Aperçu du Reel">`}
             ` : '<div class="pp-reel-placeholder">Aucun média</div>'}
-            <div class="pp-reel-overlay">
-              <button class="pp-reel-play" data-action="play-pause">
-                <svg width="48" height="48" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21"/></svg>
-              </button>
+            <div class="pp-reel-design" aria-label="Texte et stickers du Reel">
+              ${(this.draft.design?.elements || []).map(el => this._renderStudioElement(el)).join('')}
             </div>
-            <div class="pp-reel-progress" data-progress><div class="pp-reel-progress-bar"></div></div>
           </div>
 
           <div class="pp-reel-sidebar">
@@ -143,7 +150,7 @@ export class PublisherPreview {
             </div>
             <div class="pp-reel-music">
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
-              <span>Musique originale</span>
+              <span>${musicName ? this._esc(musicName) : 'Musique originale'}</span>
             </div>
           </div>
         </div>
@@ -166,7 +173,7 @@ export class PublisherPreview {
       <div class="pp-story">
         <div class="pp-story-header">
           <button type="button" class="pp-btn pp-btn-back" data-action="back">✕</button>
-          <span class="pp-story-title">Aperçu Story (${slides.length || media.length} slide${slides.length > 1 ? 's' : ''})</button>
+          <span class="pp-story-title">Aperçu Story (${slides.length || media.length} slide${slides.length > 1 ? 's' : ''})</span>
           <span class="pp-story-nav">
             <button type="button" class="pp-nav-btn" data-nav="prev" disabled>‹</button>
             <span class="pp-slide-indicator">1 / ${slides.length || media.length}</span>
@@ -177,12 +184,12 @@ export class PublisherPreview {
         <div class="pp-story-viewport" data-story-viewport>
           ${(slides.length || media.length) > 0 ? (slides.length > 0 ? slides.map((slide, i) => `
             <div class="pp-story-slide ${i === 0 ? 'active' : ''}" data-slide="${i}" style="background: ${designs[i]?.background?.color || '#000'}">
-              ${designs[i]?.background?.type === 'photo' && media[i] ? `<img src="${media[i].thumbnail_url}" alt="Slide ${i+1}">` : ''}
+              ${designs[i]?.background?.type === 'photo' && media[i] ? `<img src="${media[i].thumbnail_url || media[i].url || ''}" alt="Slide ${i+1}">` : ''}
               ${designs[i]?.elements?.map(el => this._renderStoryElement(el)).join('') || ''}
             </div>
           `).join('') : media.map((m, i) => `
             <div class="pp-story-slide ${i === 0 ? 'active' : ''}" data-slide="${i}">
-              <img src="${m.thumbnail_url}" alt="Story ${i+1}">
+              <img src="${m.thumbnail_url || m.url || ''}" alt="Story ${i+1}">
             </div>
           `).join('')) : '<div class="pp-story-empty">Aucun contenu</div>'}
         </div>
@@ -197,16 +204,39 @@ export class PublisherPreview {
   }
 
   _renderStoryElement(el) {
+    // StoryEditorView stocke les positions en pixels sur une toile 1080×1920.
+    // Le preview doit convertir ces coordonnées dans le viewport affiché.
+    const position = `left:${(Number(el.x) / 1080) * 100}%;top:${(Number(el.y) / 1920) * 100}%;`;
     if (el.type === 'text') {
-      return `<div class="pp-story-text" style="left:${el.x}px;top:${el.y}px;font-size:${el.size}px;color:${el.color};font-weight:${el.bold?'bold':'normal'};text-align:${el.align};${el.shadow?'text-shadow:0 2px 4px rgba(0,0,0,0.5)':''}">${this._esc(el.text)}</div>`;
+      return `<div class="pp-story-text" style="${position}font-size:${(Number(el.size) / 1080) * 100}cqw;color:${el.color};font-weight:${el.bold?'bold':'normal'};text-align:${el.align};${el.shadow?'text-shadow:0 2px 4px rgba(0,0,0,0.5)':''}">${this._esc(el.text)}</div>`;
     }
     if (el.type === 'sticker') {
-      return `<div class="pp-story-sticker" style="left:${el.x}px;top:${el.y}px;font-size:${el.size}px">${this._esc(el.text)}</div>`;
+      return `<div class="pp-story-sticker" style="${position}font-size:${(Number(el.size) / 1080) * 100}cqw">${this._esc(el.text)}</div>`;
     }
     if (el.type === 'sport_stats') {
-      return `<div class="pp-story-stats" style="left:${el.x}px;top:${el.y}px"><strong>${el.value} ${el.unit}</strong><br><small>${el.label}</small></div>`;
+      return `<div class="pp-story-stats" style="${position}"><strong>${this._esc(el.value)} ${this._esc(el.unit)}</strong><br><small>${this._esc(el.label)}</small></div>`;
     }
     return '';
+  }
+
+  _renderStudioElement(el) {
+    if (!['text', 'sticker', 'sport_stats'].includes(el.type)) return '';
+    const width = Number(this.draft.design?.format?.width) || 1080;
+    const height = Number(this.draft.design?.format?.height) || 1920;
+    const x = (Number(el.x) / width) * 100;
+    const y = (Number(el.y) / height) * 100;
+    const style = `left:${x}%;top:${y}%;opacity:${Number(el.opacity ?? 1)};transform:translate(-50%,-50%)${el.rotation ? ` rotate(${Number(el.rotation)}deg)` : ''};`;
+    if (el.type === 'text') {
+      const size = (Number(el.size) / width) * 100;
+      return `<div class="pp-reel-design-text" style="${style}font-size:${size}cqw;color:${this._esc(el.color || '#fff')};font-weight:${el.bold ? 'bold' : 'normal'};font-style:${el.italic ? 'italic' : 'normal'};text-align:${this._esc(el.align || 'center')};">${this._esc(el.text)}</div>`;
+    }
+    if (el.type === 'sticker') {
+      const sticker = el.sticker || '⭐';
+      const size = (Math.min(Number(el.w) || Number(el.size) || 80, Number(el.h) || Number(el.size) || 80) / width) * 100;
+      return `<div class="pp-reel-design-sticker" style="${style}font-size:${size}cqw">${this._esc(sticker)}</div>`;
+    }
+    const size = (Number(el.size) / width) * 100;
+    return `<div class="pp-reel-design-text" style="${style}font-size:${size}cqw;color:${this._esc(el.color || '#fff')};font-weight:bold;text-align:${this._esc(el.align || 'center')};">${this._esc(el.value || '')} ${this._esc(el.unit || '')}<br><small>${this._esc(el.label || '')}</small></div>`;
   }
 
   _bindEvents() {
@@ -241,24 +271,54 @@ export class PublisherPreview {
         if (Math.abs(dx) > 50) updateSlide(currentSlide + (dx > 0 ? -1 : 1));
       });
     }
+
+    if (this.draft.media?.length > 1) {
+      this.element.querySelectorAll('[data-carousel-nav]').forEach((button) => {
+        button.addEventListener('click', () => this._setCarouselIndex(this.carouselIndex + Number(button.dataset.carouselNav)));
+      });
+      this.element.querySelectorAll('[data-carousel-index]').forEach((button) => {
+        button.addEventListener('click', () => this._setCarouselIndex(Number(button.dataset.carouselIndex)));
+      });
+    }
+  }
+
+  _setCarouselIndex(index) {
+    const slides = this.element?.querySelectorAll?.('.pp-carousel-slide') || [];
+    if (!slides.length) return;
+    this.carouselIndex = Math.max(0, Math.min(index, slides.length - 1));
+    slides.forEach((slide, i) => slide.classList.toggle('active', i === this.carouselIndex));
+    this.element.querySelectorAll('[data-carousel-index]').forEach((dot, i) => dot.classList.toggle('active', i === this.carouselIndex));
+    this.element.querySelectorAll('[data-carousel-nav]').forEach((button) => {
+      const direction = Number(button.dataset.carouselNav);
+      button.disabled = direction < 0 ? this.carouselIndex === 0 : this.carouselIndex === slides.length - 1;
+    });
+    const count = this.element.querySelector('[data-carousel-count]');
+    if (count) count.textContent = `${this.carouselIndex + 1}/${slides.length}`;
   }
 
   _updatePreview(prevDraft) {
-    // Re-render complet uniquement si les médias ont changé (ajout/suppression/réorganisation).
+    const signature = this._currentVisualSignature();
+    // Les textes, stickers, crops et la musique font partie du visuel publié.
     // Sinon, on met à jour seulement le caption pour éviter de perdre le focus
     // sur les champs de saisie pendant l'édition.
-    if (this._mediaChanged(prevDraft)) {
+    if (signature !== this._visualSignature) {
+      this.carouselIndex = 0;
       this.element.innerHTML = this._render();
       this._bindEvents();
       this._mediaIds = this._currentMediaIds();
+      this._visualSignature = signature;
     }
     this._updateCaption();
   }
 
+  _currentVisualSignature() {
+    return JSON.stringify({ media: this.draft.media || [], design: this.draft.design || {}, music: this.draft.music || {} });
+  }
+
   _mediaChanged(prevDraft) {
     if (!prevDraft) return true;
-    const prevIds = (prevDraft.media || []).map(m => String(m.id)).sort().join(',');
-    const currIds = (this.draft.media || []).map(m => String(m.id)).sort().join(',');
+    const prevIds = (prevDraft.media || []).map(m => String(m.id)).join(',');
+    const currIds = (this.draft.media || []).map(m => String(m.id)).join(',');
     return prevIds !== currIds;
   }
 
@@ -267,7 +327,7 @@ export class PublisherPreview {
   }
 
   _updateCaption() {
-    if (this.format === 'post') this._updatePostCaption();
+    if (this.format === 'post' || this.format === 'carousel') this._updatePostCaption();
     else if (this.format === 'reel') this._updateReelCaption();
     else if (this.format === 'story') this._updateStoryCaption();
   }

@@ -1,6 +1,14 @@
 /**
  * CommunityPublisherPage — Point d'entrée unique pour la création
- * Publication, Reel, Story — Interface unifiée style Instagram
+ * Publication, Carrousel, Reel, Story — Interface unifiée style Instagram
+ *
+ * Chrome unifié :
+ *   - header (retour + sélecteur de format + sauvegarde) : masqué sur `media`
+ *     (le sélecteur de médias possède son propre header) et sur `compose`
+ *     (l'éditeur imbriqué possède le sien)
+ *   - barre de progression segmentée : masquée avec le header
+ *   - footer unique Précédent/Suivant : masqué sur `media` et sur `publish`
+ *     (le CTA y est `publish-final` dans le contenu)
  */
 
 import { publisherStore } from '../stores/publisherStore.js';
@@ -12,26 +20,67 @@ import { createPublisherPostEditor } from '../editors/PublisherPostEditor.js';
 import { createPublisherReelEditor } from '../editors/PublisherReelEditor.js';
 import { createPublisherStoryEditor } from '../editors/PublisherStoryEditor.js';
 
-const STEPS = [
-  { id: 'media', label: 'Médias', icon: '📷' },
-  { id: 'adjust', label: 'Ajuster', icon: '✂️' },
-  { id: 'compose', label: 'Composer', icon: '✨' },
-  { id: 'caption', label: 'Légende', icon: '📝' },
-  { id: 'preview', label: 'Aperçu', icon: '👁️' },
-  { id: 'publish', label: 'Publier', icon: '🚀' },
-];
-
-const FORMAT_CONFIG = {
-  post: { label: 'Publication', icon: '📸', steps: ['media', 'adjust', 'caption', 'preview', 'publish'], maxMedia: 10 },
-  reel: { label: 'Reel', icon: '🎬', steps: ['media', 'adjust', 'compose', 'caption', 'preview', 'publish'], maxMedia: 20 },
-  story: { label: 'Story', icon: '📖', steps: ['media', 'adjust', 'compose', 'caption', 'preview', 'publish'], maxMedia: 10 },
+/**
+ * Métadonnées des étapes (libellé + icône).
+ */
+const STEP_META = {
+  media: { label: 'Médias', icon: '📷' },
+  adjust: { label: 'Ajuster', icon: '✂️' },
+  compose: { label: 'Composer', icon: '✨' },
+  caption: { label: 'Légende', icon: '📝' },
+  preview: { label: 'Aperçu', icon: '👁️' },
+  publish: { label: 'Publier', icon: '🚀' },
 };
+
+/**
+ * Configuration unique des formats.
+ *
+ * Copie locale alignée sur `FORMAT_CONFIG` de `stores/publisherStore.js` :
+ * les tests frontend suppriment les imports du module, la table doit donc
+ * rester déclarée ici. Modifier les deux ensemblages ensemble.
+ */
+const FORMAT_CONFIG = {
+  post: {
+    label: 'Publication',
+    icon: '📸',
+    steps: ['media', 'adjust', 'caption', 'preview', 'publish'],
+    maxMedia: 1,
+    minMedia: 1,
+    allowedTypes: ['photo'],
+  },
+  carousel: {
+    label: 'Carrousel',
+    icon: '🖼️',
+    steps: ['media', 'adjust', 'caption', 'preview', 'publish'],
+    maxMedia: 10,
+    minMedia: 2,
+    allowedTypes: ['photo'],
+  },
+  reel: {
+    label: 'Reel',
+    icon: '🎬',
+    steps: ['media', 'adjust', 'compose', 'caption', 'preview', 'publish'],
+    maxMedia: 20,
+    minMedia: 1,
+    allowedTypes: ['photo', 'video'],
+  },
+  story: {
+    label: 'Story',
+    icon: '📖',
+    steps: ['media', 'adjust', 'compose', 'caption', 'preview', 'publish'],
+    maxMedia: 10,
+    minMedia: 1,
+    allowedTypes: ['photo'],
+  },
+};
+
+const CAPTION_MAX_LENGTH = 2200;
 
 export class CommunityPublisherPage {
   constructor(router, options = {}) {
     this.router = router;
     this.entryId = options.entryId || null;
-    this.format = options.format || 'post';
+    this.format = FORMAT_CONFIG[options.format] ? options.format : 'post';
     this.garminActivityId = options.garminActivityId || null;
     this.preselectedMedia = options.preselectedMedia || [];
     this.onBack = options.onBack || null;
@@ -49,6 +98,7 @@ export class CommunityPublisherPage {
     this._renderedStep = null;
     this._unsubscribeStore = null;
     this._garminListener = null;
+    this._navLocked = false;
   }
 
   async initialize() {
@@ -60,25 +110,54 @@ export class CommunityPublisherPage {
     } else if (this.garminActivityId) {
       await this._loadFromGarmin();
     } else {
-      publisherStore.resetDraft(this.format);
+      this._restoreOrResetDraft();
     }
 
     // Appliquer les médias pré-sélectionnés
     if (this.preselectedMedia.length) {
       publisherStore.draft.media = this.preselectedMedia.map((m, i) => ({
         ...m,
-        id: m.id || `media_${Date.now()}_${i}`,
+        id: String(m.id ?? `media_${Date.now()}_${i}`),
         order: i,
       }));
       publisherStore._notify();
     }
   }
 
+  /**
+   * Reprend le brouillon local persisté s'il contient des données,
+   * sinon en crée un propre pour le format demandé.
+   * Ne jamais écraser un brouillon en cours.
+   */
+  _restoreOrResetDraft() {
+    const draft = publisherStore.draft;
+    const caption = draft.caption || {};
+    const hasData = (draft.media && draft.media.length > 0)
+      || !!(caption.title || caption.content || caption.hashtags)
+      || !!(draft.design && Object.keys(draft.design).length > 0);
+
+    if (!hasData) {
+      // Nouveau brouillon : réinitialiser le service pour éviter toute
+      // sauvegarde sur un ancien currentDraftId résiduel.
+      publisherDraftService.clearCurrent();
+      publisherStore.resetDraft(this.format);
+    } else if (draft.format !== this.format) {
+      publisherStore.setFormat(this.format);
+    } else {
+      // Simule une notification pour resynchroniser la page sur l'état restauré
+      publisherStore._notify();
+    }
+  }
+
   async _loadFromCalendarEntry() {
     try {
-      const res = await publisherDraftService.createFromCalendar({
+      const visualType = this.format === 'carousel' ? 'carousel'
+        : this.format === 'reel' ? 'reel'
+          : 'photo';
+      await publisherDraftService.createFromCalendar({
         calendarEntryId: this.entryId,
         format: this.format,
+        visualType,
       });
       // Le service met à jour le store
     } catch (error) {
@@ -94,7 +173,7 @@ export class CommunityPublisherPage {
 
   async _loadExistingPublication(publicationId) {
     try {
-      const pub = await publisherDraftService.load(publicationId);
+      await publisherDraftService.load(publicationId);
       // Le service met à jour le store
       // Rafraîchir le media picker si on est sur l'étape media
       if (this.currentStep === 'media' && this.mediaPicker) {
@@ -117,6 +196,8 @@ export class CommunityPublisherPage {
       this._bindEvents();
       this._subscribeStore();
       this._renderStep();
+      this._updateChrome();
+      this._updateStepIndicator();
       this._updateFooterButtons();
     }
     return this.element;
@@ -133,40 +214,57 @@ export class CommunityPublisherPage {
 
   _subscribeStore() {
     this._unsubscribeStore = publisherStore.subscribe(state => {
-      this.format = state.draft.format;
+      this.format = FORMAT_CONFIG[state.draft.format] ? state.draft.format : 'post';
       this.currentStep = state.ui.currentStep;
-      this._updateStepIndicator();
       this._updateStepContent();
     });
   }
 
   _renderShell() {
     const config = FORMAT_CONFIG[this.format];
+    const canSwitchFormat = !this.entryId && !this.isExistingPublication;
     return `
       <header class="publisher-header">
-        <div class="publisher-header-left">
-          <button type="button" class="publisher-btn publisher-btn-back" data-action="back">
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/>
-            </svg>
-          </button>
-          <h1>${config.icon} ${config.label}</h1>
-        </div>
-        <div class="publisher-header-center">
-          <div class="publisher-steps" data-steps>
-            ${STEPS.map(s => `
-              <button type="button" class="publisher-step ${this.currentStep === s.id ? 'active' : ''} ${this._isStepCompleted(s.id) ? 'completed' : ''}" data-step="${s.id}" ${!config.steps.includes(s.id) ? 'disabled' : ''}>
-                <span class="publisher-step-icon">${s.icon}</span>
-                <span class="publisher-step-label">${s.label}</span>
-              </button>
-            `).join('')}
+        <div class="publisher-header-bar">
+          <div class="publisher-header-left">
+            <button type="button" class="publisher-btn publisher-btn-back" data-action="back" aria-label="Retour">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/>
+              </svg>
+            </button>
+            ${canSwitchFormat ? `
+              <div class="publisher-format" data-format-root>
+                <button type="button" class="publisher-format-btn" data-action="select-format" aria-haspopup="menu" aria-expanded="false">
+                  <span class="publisher-format-icon">${config.icon}</span>
+                  <span class="publisher-format-label">${config.label}</span>
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>
+                </button>
+                <div class="publisher-format-menu" data-format-menu hidden role="menu">
+                  ${Object.entries(FORMAT_CONFIG).map(([key, c]) => `
+                    <button type="button" role="menuitem" class="publisher-format-option ${key === this.format ? 'active' : ''}" data-format="${key}">
+                      <span class="publisher-format-icon">${c.icon}</span>
+                      <span>${c.label}</span>
+                    </button>
+                  `).join('')}
+                </div>
+              </div>
+            ` : `
+              <h1 class="publisher-header-title">
+                <span class="publisher-format-icon">${config.icon}</span>
+                <span class="publisher-format-label">${config.label}</span>
+              </h1>
+            `}
+          </div>
+          <div class="publisher-header-right">
+            <button type="button" class="publisher-btn publisher-btn-secondary" data-action="save-draft">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/></svg>
+              <span class="publisher-btn-label">Brouillon</span>
+            </button>
           </div>
         </div>
-        <div class="publisher-header-right">
-          <button type="button" class="publisher-btn publisher-btn-secondary" data-action="save-draft">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/></svg>
-            Brouillon
-          </button>
+        <div class="publisher-progress" data-progress>
+          <div class="publisher-progress-track" data-progress-track></div>
+          <div class="publisher-progress-label" data-progress-label></div>
         </div>
       </header>
 
@@ -189,11 +287,15 @@ export class CommunityPublisherPage {
     `;
   }
 
+  _config() {
+    return FORMAT_CONFIG[this.format] || FORMAT_CONFIG.post;
+  }
+
   _isStepCompleted(stepId) {
-    const order = ['media', 'adjust', 'compose', 'caption', 'preview', 'publish'];
-    const currentIdx = order.indexOf(this.currentStep);
-    const stepIdx = order.indexOf(stepId);
-    return stepIdx < currentIdx;
+    const steps = this._config().steps;
+    const currentIdx = steps.indexOf(this.currentStep);
+    const stepIdx = steps.indexOf(stepId);
+    return stepIdx >= 0 && currentIdx >= 0 && stepIdx < currentIdx;
   }
 
   _renderStep() {
@@ -203,8 +305,6 @@ export class CommunityPublisherPage {
     this._renderedStep = this.currentStep;
     const content = this.element.querySelector('[data-step-content]');
     content.innerHTML = this._getStepContent(this.currentStep);
-    const footer = this.element.querySelector('[data-footer]');
-    if (footer) footer.style.display = this.currentStep === 'media' ? 'none' : '';
     this._bindStepEvents(this.currentStep);
   }
 
@@ -261,10 +361,12 @@ export class CommunityPublisherPage {
       this.mediaPicker.destroy();
       this.mediaPicker = null;
     }
+    const config = this._config();
     this.mediaPicker = createPublisherMediaPicker({
       multiSelect: true,
-      maxSelection: FORMAT_CONFIG[this.format].maxMedia,
-      allowedTypes: this.format === 'reel' ? ['photo', 'video'] : ['photo'],
+      maxSelection: config.maxMedia,
+      minSelection: config.minMedia,
+      allowedTypes: config.allowedTypes,
       onSelectionChange: () => {},
       onComplete: () => publisherStore.nextStep(),
       onCancel: () => this._goBack(),
@@ -278,7 +380,7 @@ export class CommunityPublisherPage {
 
   _mountAdjustEditor() {
     const host = this.element.querySelector('[data-adjust-host]');
-    // Recadrage / réorganisation des médias (post, reel, story)
+    // Recadrage / réorganisation des médias (post, carousel, reel, story)
     if (this.adjustEditor) {
       this.adjustEditor.destroy();
       this.adjustEditor = null;
@@ -317,7 +419,7 @@ export class CommunityPublisherPage {
       });
       this.formatEditor.mount(host);
     } else {
-      // Post simple ne passe pas par compose ; sécurité
+      // Post/Carrousel ne passent pas par compose ; sécurité
       publisherStore.nextStep();
     }
   }
@@ -330,8 +432,7 @@ export class CommunityPublisherPage {
     }
     this.captionEditor = createPublisherCaptionEditor({
       draft: publisherStore.draft,
-      onSave: () => publisherStore.nextStep(),
-      onBack: () => publisherStore.prevStep(),
+      aiAvailable: !!publisherDraftService.currentDraftId,
       onAIRequest: (request) => this._handleAIRequest(request),
     });
     this.captionEditor.mount(host);
@@ -347,7 +448,6 @@ export class CommunityPublisherPage {
       draft: publisherStore.draft,
       format: this.format,
       onBack: () => publisherStore.prevStep(),
-      onPublish: () => publisherStore.setStep('publish'),
     });
     this.preview.mount(host);
   }
@@ -360,7 +460,7 @@ export class CommunityPublisherPage {
         <div class="publisher-publish-summary">
           <div class="publisher-publish-item">
             <label>Format</label>
-            <span>${FORMAT_CONFIG[this.format].icon} ${FORMAT_CONFIG[this.format].label}</span>
+            <span>${this._config().icon} ${this._config().label}</span>
           </div>
           <div class="publisher-publish-item">
             <label>Médias</label>
@@ -377,7 +477,7 @@ export class CommunityPublisherPage {
           ${publisherStore.draft.garmin.activityId ? `
             <div class="publisher-publish-item">
               <label>Activité Garmin</label>
-              <span>#{publisherStore.draft.garmin.activityId}</span>
+              <span>#${publisherStore.draft.garmin.activityId}</span>
             </div>
           ` : ''}
         </div>
@@ -396,54 +496,152 @@ export class CommunityPublisherPage {
     this.element.querySelector('[data-action="back"]').addEventListener('click', () => this._goBack());
     this.element.querySelector('[data-action="save-draft"]').addEventListener('click', () => this._saveDraft());
 
-    // Steps navigation
-    this.element.querySelectorAll('[data-step]').forEach(btn => {
-      btn.addEventListener('click', () => {
-        if (!btn.disabled) publisherStore.setStep(btn.dataset.step);
+    // Sélecteur de format
+    const formatBtn = this.element.querySelector('[data-action="select-format"]');
+    if (formatBtn) {
+      formatBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this._toggleFormatMenu();
       });
-    });
+      this.element.querySelectorAll('[data-format]').forEach(opt => {
+        opt.addEventListener('click', () => this._switchFormat(opt.dataset.format));
+      });
+    }
 
     // Footer
-    this.element.querySelector('[data-action="prev-step"]').addEventListener('click', () => publisherStore.prevStep());
-    this.element.querySelector('[data-action="next-step"]').addEventListener('click', () => {
-      const stepOrder = FORMAT_CONFIG[this.format].steps;
+    this.element.querySelector('[data-action="prev-step"]').addEventListener('click', () => {
+      this._navLock(() => publisherStore.prevStep());
+    });
+    this.element.querySelector('[data-action="next-step"]').addEventListener('click', async () => {
+      const stepOrder = this._config().steps;
       const currentIdx = stepOrder.indexOf(this.currentStep);
       if (currentIdx === stepOrder.length - 1) {
         this.element.querySelector('[data-action="publish-final"]')?.click();
         return;
       }
-      publisherStore.nextStep();
+      const nextBtn = this.element.querySelector('[data-action="next-step"]');
+      this._navLock(async () => {
+        // Sauvegarder le design du Studio avant de quitter l'étape compose
+        if (this.currentStep === 'compose' && this.formatEditor?.save) {
+          try {
+            nextBtn.disabled = true;
+            nextBtn.textContent = 'Enregistrement…';
+            await this.formatEditor.save();
+            nextBtn.textContent = 'Suivant';
+            nextBtn.disabled = false;
+            this._showToast('Modifications enregistrées');
+          } catch (error) {
+            nextBtn.textContent = 'Suivant';
+            nextBtn.disabled = false;
+            this._showError(`Échec de la sauvegarde : ${error.message}`);
+            throw error; // bloquer la transition
+          }
+        }
+        publisherStore.nextStep();
+      }).catch(() => {
+        // Erreur déjà affichée par le bloc ci-dessus, on reste sur l'étape courante
+      });
     });
 
-    // Publish final
-    this.element.querySelector('[data-action="publish-final"]')?.addEventListener('click', () => this._publish());
+    // Fermer le menu de format si on clique ailleurs
+    this.element.addEventListener('click', () => this._toggleFormatMenu(false));
+  }
+
+  /**
+   * Verrou anti double-transition : un second clic rapproché pendant que
+   * l'étape change est ignoré. Si l'étape n'a pas bougé (rien à faire),
+   * le verrou est relâché immédiatement. Supporte les fonctions async.
+   */
+  _navLock(fn) {
+    if (this._navLocked) return;
+    this._navLocked = true;
+    const before = this.currentStep;
+    Promise.resolve(fn()).then(() => {
+      if (this.currentStep === before) {
+        this._navLocked = false;
+      } else {
+        setTimeout(() => { this._navLocked = false; }, 300);
+      }
+    }).catch(() => {
+      this._navLocked = false;
+    });
+  }
+
+  _toggleFormatMenu(force) {
+    const btn = this.element.querySelector('[data-action="select-format"]');
+    const menu = this.element.querySelector('[data-format-menu]');
+    if (!btn || !menu) return;
+    const open = force !== undefined ? force : menu.hidden;
+    menu.hidden = !open;
+    btn.setAttribute('aria-expanded', String(open));
+  }
+
+  _switchFormat(format) {
+    this._toggleFormatMenu(false);
+    if (!FORMAT_CONFIG[format] || format === this.format) return;
+    this.router.navigate(`/publisher/${format}`);
   }
 
   _updateStepIndicator() {
-    this.element.querySelectorAll('[data-step]').forEach(btn => {
-      const step = btn.dataset.step;
-      btn.classList.toggle('active', step === this.currentStep);
-      btn.classList.toggle('completed', this._isStepCompleted(step));
-    });
+    const config = this._config();
+    const track = this.element.querySelector('[data-progress-track]');
+    const label = this.element.querySelector('[data-progress-label]');
+    if (track) {
+      track.innerHTML = config.steps.map(id => {
+        const meta = STEP_META[id] || { label: id };
+        const state = id === this.currentStep ? 'active' : (this._isStepCompleted(id) ? 'done' : '');
+        return `<span class="publisher-progress-seg ${state}" data-seg="${id}" title="${meta.label}"></span>`;
+      }).join('');
+    }
+    if (label) {
+      const idx = config.steps.indexOf(this.currentStep);
+      const meta = STEP_META[this.currentStep] || { label: '' };
+      label.textContent = `${idx + 1}/${config.steps.length} · ${meta.label}`;
+    }
+  }
+
+  /** Masque le header/le footer selon l'étape (chrome unifié). */
+  _updateChrome() {
+    if (!this.element) return;
+    const noHeader = this.currentStep === 'media';
+    const noFooter = this.currentStep === 'media' || this.currentStep === 'publish';
+    const immersive = this.currentStep === 'compose';
+    this.element.classList.toggle('publisher-page--no-header', noHeader && !immersive);
+    this.element.classList.toggle('publisher-page--no-footer', noFooter);
+    this.element.classList.toggle('publisher-page--immersive', immersive);
   }
 
   _updateStepContent() {
     this._renderStep();
+    this._updateChrome();
+    this._updateStepIndicator();
     this._updateFooterButtons();
   }
 
+  _captionLength() {
+    const c = publisherStore.draft.caption || {};
+    return [c.title, c.content, c.hashtags].filter(Boolean).join('\n\n').length;
+  }
+
   _updateFooterButtons() {
-    const config = FORMAT_CONFIG[this.format];
+    const config = this._config();
     const stepOrder = config.steps;
     const currentIdx = stepOrder.indexOf(this.currentStep);
 
     const prevBtn = this.element.querySelector('[data-action="prev-step"]');
     const nextBtn = this.element.querySelector('[data-action="next-step"]');
+    if (!prevBtn || !nextBtn) return;
 
-    prevBtn.disabled = currentIdx === 0;
-    nextBtn.disabled = currentIdx === stepOrder.length - 1;
+    const atFirst = currentIdx <= 0;
+    const atLast = currentIdx === stepOrder.length - 1;
+    const mediaCount = (publisherStore.draft.media || []).length;
+    const mediaTooFew = this.currentStep === 'adjust' && mediaCount < (config.minMedia || 1);
+    const captionOver = this.currentStep === 'caption' && this._captionLength() > CAPTION_MAX_LENGTH;
 
-    if (currentIdx === stepOrder.length - 1) {
+    prevBtn.disabled = atFirst;
+    nextBtn.disabled = atLast || mediaTooFew || captionOver;
+
+    if (atLast) {
       nextBtn.textContent = 'Publier';
       nextBtn.classList.add('publisher-btn-success');
       nextBtn.classList.remove('publisher-btn-primary');
@@ -457,13 +655,18 @@ export class CommunityPublisherPage {
   async _saveDraft() {
     try {
       const draft = publisherStore.draft;
-      await publisherDraftService.save({
-        caption: draft.caption,
-        media: draft.media,
-        design: draft.design,
-        music: draft.music,
-      });
-      this._showToast('Brouillon sauvegardé');
+      if (publisherDraftService.currentDraftId) {
+        await publisherDraftService.save({
+          caption: draft.caption,
+          media: draft.media,
+          design: draft.design,
+          music: draft.music,
+        });
+        this._showToast('Brouillon sauvegardé');
+      } else {
+        // Brouillon local uniquement : le store est déjà à jour via _notify
+        this._showToast('Brouillon sauvegardé localement');
+      }
     } catch (error) {
       this._showError(error.message);
     }
@@ -476,7 +679,7 @@ export class CommunityPublisherPage {
       btn.textContent = 'Publication…';
 
       await publisherDraftService.publish({
-        platforms: ['instagram'], // TODO: sélecteur de plateforme
+        platforms: ['instagram'],
       });
 
       this._showToast('Publié avec succès !');
@@ -490,9 +693,21 @@ export class CommunityPublisherPage {
     }
   }
 
-  _handleAIRequest(request) {
-    // TODO: Intégrer les appels IA via publisherDraftService
-    console.log('[Publisher] AI Request:', request);
+  /**
+   * Génération de légende via l'endpoint réel
+   * POST /community-manager/studio/draft/{id}/generate-text
+   */
+  async _handleAIRequest({ tone, length } = {}) {
+    if (!publisherDraftService.currentDraftId) {
+      throw new Error('Assistance IA disponible après création du brouillon depuis le calendrier.');
+    }
+    const res = await publisherDraftService.generateText({ tone, length });
+    if (res && typeof res === 'object') {
+      if (typeof res.title === 'string') publisherStore.updateCaption('title', res.title);
+      if (typeof res.content === 'string') publisherStore.updateCaption('content', res.content);
+      if (typeof res.hashtags === 'string') publisherStore.updateCaption('hashtags', res.hashtags);
+    }
+    return res;
   }
 
   _onGarminSelect(activityId) {
@@ -527,16 +742,17 @@ export class CommunityPublisherPage {
   }
 
   _esc(text) {
-    return String(text ?? '').replace(/[&<>"']/g, c => ({ '&': '&', '<': '<', '>': '>', '"': '"', "'": "'" }[c]));
+    return String(text ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   }
 
   destroy() {
     if (this._unsubscribeStore) this._unsubscribeStore();
-    if (this._garminListener) this.element.removeEventListener('pmp:garmin-select', this._garminListener);
+    if (this._garminListener && this.element) this.element.removeEventListener('pmp:garmin-select', this._garminListener);
     if (this.mediaPicker) this.mediaPicker.destroy();
     if (this.captionEditor) this.captionEditor.destroy();
     if (this.preview) this.preview.destroy();
     if (this.formatEditor) this.formatEditor.destroy();
+    if (this.adjustEditor) this.adjustEditor.destroy();
     if (this.element && this.element.parentNode) this.element.parentNode.removeChild(this.element);
   }
 }

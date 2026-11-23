@@ -11,9 +11,9 @@ export class PublisherPreview {
     this.format = options.format || 'post';
     this.draft = options.draft || publisherStore.draft;
     this.onBack = options.onBack || (() => {});
-    this.onPublish = options.onPublish || (() => {});
     this.element = null;
     this._unsubscribeStore = null;
+    this._mediaIds = null; // ids des médias rendus pour détection de changement
   }
 
   mount(host) {
@@ -28,8 +28,9 @@ export class PublisherPreview {
 
   _subscribeStore() {
     this._unsubscribeStore = publisherStore.subscribe(state => {
+      const prevDraft = this.draft;
       this.draft = state.draft;
-      this._updatePreview();
+      this._updatePreview(prevDraft);
     });
   }
 
@@ -100,11 +101,6 @@ export class PublisherPreview {
           </div>
         </div>
       </div>
-
-      <div class="pp-preview-footer">
-        <button type="button" class="pp-btn pp-btn-secondary" data-action="back">Retour</button>
-        <button type="button" class="pp-btn pp-btn-success" data-action="publish">Publier</button>
-      </div>
     `;
   }
 
@@ -157,11 +153,6 @@ export class PublisherPreview {
           ${caption.content ? `<span>${this._esc(caption.content)}</span>` : ''}
           ${caption.hashtags ? `<div class="pp-hashtags">${this._esc(caption.hashtags)}</div>` : ''}
         </div>
-
-        <div class="pp-preview-footer">
-          <button type="button" class="pp-btn pp-btn-secondary" data-action="back">Retour</button>
-          <button type="button" class="pp-btn pp-btn-success" data-action="publish">Publier le Reel</button>
-        </div>
       </div>
     `;
   }
@@ -201,11 +192,6 @@ export class PublisherPreview {
             ${(slides.length || media.length) > 0 ? Array.from({ length: slides.length || media.length }, (_, i) => `<span class="${i === 0 ? 'active' : ''}"></span>`).join('') : ''}
           </div>
         </div>
-
-        <div class="pp-preview-footer">
-          <button type="button" class="pp-btn pp-btn-secondary" data-action="back">Retour</button>
-          <button type="button" class="pp-btn pp-btn-success" data-action="publish">Publier les Stories</button>
-        </div>
       </div>
     `;
   }
@@ -224,8 +210,8 @@ export class PublisherPreview {
   }
 
   _bindEvents() {
-    this.element.querySelector('[data-action="back"]').addEventListener('click', () => this.onBack());
-    this.element.querySelector('[data-action="publish"]').addEventListener('click', () => this.onPublish());
+    const backBtn = this.element.querySelector('[data-action="back"]');
+    if (backBtn) backBtn.addEventListener('click', () => this.onBack());
 
     // Story navigation
     if (this.format === 'story') {
@@ -257,15 +243,36 @@ export class PublisherPreview {
     }
   }
 
-  _updatePreview() {
-    // Re-render seulement les parties dynamiques
-    if (this.format === 'post') this._updatePostPreview();
-    else if (this.format === 'reel') this._updateReelPreview();
-    else if (this.format === 'story') this._updateStoryPreview();
+  _updatePreview(prevDraft) {
+    // Re-render complet uniquement si les médias ont changé (ajout/suppression/réorganisation).
+    // Sinon, on met à jour seulement le caption pour éviter de perdre le focus
+    // sur les champs de saisie pendant l'édition.
+    if (this._mediaChanged(prevDraft)) {
+      this.element.innerHTML = this._render();
+      this._bindEvents();
+      this._mediaIds = this._currentMediaIds();
+    }
+    this._updateCaption();
   }
 
-  _updatePostPreview() {
-    // Mise à jour légende
+  _mediaChanged(prevDraft) {
+    if (!prevDraft) return true;
+    const prevIds = (prevDraft.media || []).map(m => String(m.id)).sort().join(',');
+    const currIds = (this.draft.media || []).map(m => String(m.id)).sort().join(',');
+    return prevIds !== currIds;
+  }
+
+  _currentMediaIds() {
+    return (this.draft.media || []).map(m => String(m.id)).sort().join(',');
+  }
+
+  _updateCaption() {
+    if (this.format === 'post') this._updatePostCaption();
+    else if (this.format === 'reel') this._updateReelCaption();
+    else if (this.format === 'story') this._updateStoryCaption();
+  }
+
+  _updatePostCaption() {
     const captionEl = this.element.querySelector('.pp-post-caption');
     if (captionEl) {
       const c = this.draft.caption;
@@ -277,16 +284,16 @@ export class PublisherPreview {
     }
   }
 
-  _updateReelPreview() {
-    this._updatePostPreview(); // Même logique pour la légende
+  _updateReelCaption() {
+    this._updatePostCaption(); // Même logique pour la légende
   }
 
-  _updateStoryPreview() {
+  _updateStoryCaption() {
     // Les slides sont générées depuis le design, pas besoin de mise à jour temps réel pour l'instant
   }
 
   _esc(text) {
-    return String(text ?? '').replace(/[&<>"']/g, c => ({ '&': '&', '<': '<', '>': '>', '"': '"', "'": "'" }[c]));
+    return String(text ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   }
 
   destroy() {

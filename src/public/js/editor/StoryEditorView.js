@@ -75,10 +75,16 @@ export class StoryEditorView {
    * @param {Function} params.onSave - Callback sauvegarde
    * @param {Function} params.onPublish - Callback publication
    */
-  constructor({ draft, deps, onClose, onSave, onPublish }) {
+  constructor({ draft, deps, onClose, onSave, onPublish, callbacks = {} }) {
     this.draft = draft;
     this.deps = deps;
-    this.callbacks = { onClose, onSave, onPublish };
+    // Les appelants passent soit les callbacks au premier niveau (contrat
+    // documenté), soit dans un objet `callbacks` : accepter les deux formes.
+    this.callbacks = {
+      onClose: onClose ?? callbacks.onClose,
+      onSave: onSave ?? callbacks.onSave,
+      onPublish: onPublish ?? callbacks.onPublish,
+    };
 
     // État global
     this.currentSlideIndex = 0;

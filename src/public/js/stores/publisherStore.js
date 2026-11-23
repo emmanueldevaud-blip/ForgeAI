@@ -5,9 +5,54 @@
 
 const STORAGE_KEY = 'forgeai_publisher_draft';
 
+/**
+ * Configuration unique des formats du Community Publisher.
+ *
+ * Source de vérité pour le store (étapes, limites de sélection, types autorisés).
+ * NOTE : `CommunityPublisherPage.js` maintient une copie locale de cette table
+ * car les tests frontend (`tests/frontend/community_publisher_page.test.mjs`)
+ * suppriment les imports du module. Les deux tables doivent rester alignées.
+ */
+export const FORMAT_CONFIG = {
+  post: {
+    label: 'Publication',
+    icon: '📸',
+    steps: ['media', 'adjust', 'caption', 'preview', 'publish'],
+    maxMedia: 1,
+    minMedia: 1,
+    allowedTypes: ['photo'],
+  },
+  carousel: {
+    label: 'Carrousel',
+    icon: '🖼️',
+    steps: ['media', 'adjust', 'caption', 'preview', 'publish'],
+    maxMedia: 10,
+    minMedia: 2,
+    allowedTypes: ['photo'],
+  },
+  reel: {
+    label: 'Reel',
+    icon: '🎬',
+    steps: ['media', 'adjust', 'compose', 'caption', 'preview', 'publish'],
+    maxMedia: 20,
+    minMedia: 1,
+    allowedTypes: ['photo', 'video'],
+  },
+  story: {
+    label: 'Story',
+    icon: '📖',
+    steps: ['media', 'adjust', 'compose', 'caption', 'preview', 'publish'],
+    maxMedia: 10,
+    minMedia: 1,
+    allowedTypes: ['photo'],
+  },
+};
+
+export const FORMAT_IDS = Object.keys(FORMAT_CONFIG);
+
 const DEFAULT_DRAFT = {
   id: null,
-  format: 'post', // 'post' | 'reel' | 'story'
+  format: 'post', // 'post' | 'carousel' | 'reel' | 'story'
   media: [],       // [{ id, url, thumbnail_url, crop: {x,y,w,h}, order, type: 'photo'|'video', source: 'library'|'garmin'|'upload' }]
   design: {},      // JSON v2 pour post/reel, slides pour story
   caption: { title: '', content: '', hashtags: '', accountId: null },
@@ -69,12 +114,18 @@ class PublisherStore {
         const parsed = JSON.parse(stored);
         this.draft = { ...createDefaultDraft(), ...parsed.draft };
         this.ui = { ...createDefaultUI(), ...parsed.ui };
+        // Format inconnu (ancien brouillon / donnée corrompue) -> format par défaut
+        if (!FORMAT_CONFIG[this.draft.format]) this.draft.format = 'post';
         // Ne pas restaurer les étapes finales
         if (['publishing', 'published', 'failed'].includes(this.draft.status)) {
           this.draft.status = 'draft';
         }
         if (['preview', 'publish'].includes(this.ui.currentStep)) {
           this.ui.currentStep = 'caption';
+        }
+        // Une étape qui n'existe pas pour ce format -> première étape
+        if (!FORMAT_CONFIG[this.draft.format].steps.includes(this.ui.currentStep)) {
+          this.ui.currentStep = 'media';
         }
       }
     } catch (e) {
@@ -116,30 +167,35 @@ class PublisherStore {
 
   // ========== Actions Draft ==========
   resetDraft(format = 'post', sourceEntryId = null) {
+    if (!FORMAT_CONFIG[format]) format = 'post';
     this.draft = { ...createDefaultDraft(), format, sourceEntryId, createdAt: Date.now(), updatedAt: Date.now() };
     this.ui = { ...createDefaultUI(), currentStep: 'media' };
     this._notify();
   }
 
   setFormat(format) {
-    if (['post', 'reel', 'story'].includes(format)) {
-      this.draft.format = format;
-      this.draft.updatedAt = Date.now();
-      // Réinitialiser le design selon le format
-      if (format === 'story') {
-        this.draft.design = { slides: [], designDocuments: [] };
-      } else {
-        this.draft.design = {};
-      }
-      this._notify();
+    if (!FORMAT_CONFIG[format] || format === this.draft.format) return;
+    this.draft.format = format;
+    this.draft.updatedAt = Date.now();
+    // Réinitialiser le design selon le format
+    if (format === 'story') {
+      this.draft.design = { slides: [], designDocuments: [] };
+    } else {
+      this.draft.design = {};
     }
+    // L'étape courante doit exister pour le nouveau format
+    if (!FORMAT_CONFIG[format].steps.includes(this.ui.currentStep)) {
+      this.ui.currentStep = FORMAT_CONFIG[format].steps[0];
+    }
+    this._notify();
   }
 
   // Médias
   addMedia(mediaItems) {
     const startOrder = this.draft.media.length;
     const newItems = mediaItems.map((m, i) => ({
-      id: m.id || `local_${Date.now()}_${i}`,
+      // Id normalisé en chaîne : les dataset DOM sont toujours des chaînes
+      id: String(m.id ?? `local_${Date.now()}_${i}`),
       url: m.url || m.file_url || `/photos/${m.id}/file`,
       thumbnail_url: m.thumbnail_url || m.url || `/photos/${m.id}/file?size=small`,
       crop: { x: 0, y: 0, w: 1, h: 1 },
@@ -154,7 +210,8 @@ class PublisherStore {
   }
 
   removeMedia(mediaId) {
-    this.draft.media = this.draft.media.filter(m => m.id !== mediaId);
+    const id = String(mediaId);
+    this.draft.media = this.draft.media.filter(m => String(m.id) !== id);
     // Réindexer les orders
     this.draft.media.forEach((m, i) => { m.order = i; });
     this.draft.updatedAt = Date.now();
@@ -170,7 +227,8 @@ class PublisherStore {
   }
 
   updateMediaCrop(mediaId, crop) {
-    const media = this.draft.media.find(m => m.id === mediaId);
+    const id = String(mediaId);
+    const media = this.draft.media.find(m => String(m.id) === id);
     if (media) {
       media.crop = { ...media.crop, ...crop };
       this.draft.updatedAt = Date.now();
@@ -228,8 +286,8 @@ class PublisherStore {
 
   // ========== Actions UI ==========
   setStep(step) {
-    const validSteps = ['media', 'adjust', 'compose', 'caption', 'preview', 'publish'];
-    if (validSteps.includes(step)) {
+    // Seules les étapes du format courant sont atteignables
+    if (this._formatSteps().includes(step)) {
       this.ui.currentStep = step;
       this._notify();
     }
@@ -237,8 +295,7 @@ class PublisherStore {
 
   _formatSteps() {
     const format = this.draft?.format || 'post';
-    if (format === 'post') return ['media', 'adjust', 'caption', 'preview', 'publish'];
-    return ['media', 'adjust', 'compose', 'caption', 'preview', 'publish'];
+    return (FORMAT_CONFIG[format] || FORMAT_CONFIG.post).steps;
   }
 
   nextStep() {
@@ -282,6 +339,10 @@ class PublisherStore {
     try {
       const parsed = JSON.parse(json);
       this.draft = { ...createDefaultDraft(), ...parsed };
+      if (!FORMAT_CONFIG[this.draft.format]) this.draft.format = 'post';
+      if (!FORMAT_CONFIG[this.draft.format].steps.includes(this.ui.currentStep)) {
+        this.ui.currentStep = 'media';
+      }
       this.draft.updatedAt = Date.now();
       this._notify();
       return true;

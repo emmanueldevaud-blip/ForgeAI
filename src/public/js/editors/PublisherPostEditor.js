@@ -45,6 +45,7 @@ export class PublisherPostEditor {
       <div class="ppe-grid" data-grid>
         ${media.map((m, i) => this._renderMediaItem(m, i)).join('')}
       </div>
+      <div class="ppe-empty" data-empty ${media.length ? 'hidden' : ''}>Aucun média sélectionné.</div>
 
       ${media.length > 0 ? `
         <div class="ppe-crop-panel" data-crop-panel hidden>
@@ -66,11 +67,6 @@ export class PublisherPostEditor {
           </div>
         </div>
       ` : ''}
-
-      <div class="ppe-footer">
-        <button type="button" class="ppe-btn ppe-btn-secondary" data-action="back">Retour</button>
-        <button type="button" class="ppe-btn ppe-btn-primary" data-action="save" ${media.length === 0 ? 'disabled' : ''}>Suivant</button>
-      </div>
     `;
   }
 
@@ -136,17 +132,13 @@ export class PublisherPostEditor {
       this._reorderFromDOM();
     });
 
-    // Crop panel
-    this.element.querySelector('[data-action="close-crop"]').addEventListener('click', () => this._closeCrop());
-    this.element.querySelector('[data-action="reset-crop"]').addEventListener('click', () => this._resetCrop());
-    this.element.querySelector('[data-action="apply-crop"]').addEventListener('click', () => this._applyCrop());
+    // Crop panel (absent si la grille est montée sans média)
+    this.element.querySelector('[data-action="close-crop"]')?.addEventListener('click', () => this._closeCrop());
+    this.element.querySelector('[data-action="reset-crop"]')?.addEventListener('click', () => this._resetCrop());
+    this.element.querySelector('[data-action="apply-crop"]')?.addEventListener('click', () => this._applyCrop());
     this.element.querySelectorAll('[data-preset]').forEach(btn => {
       btn.addEventListener('click', () => this._setCropPreset(btn.dataset.preset));
     });
-
-    // Footer
-    this.element.querySelector('[data-action="back"]').addEventListener('click', () => this.onBack());
-    this.element.querySelector('[data-action="save"]').addEventListener('click', () => this.onSave());
   }
 
   _getDragAfterElement(container, y) {
@@ -161,45 +153,54 @@ export class PublisherPostEditor {
 
   _reorderFromDOM() {
     const grid = this.element.querySelector('[data-grid]');
-    const newOrder = [...grid.querySelectorAll('[data-media-id]')].map(el => el.dataset.mediaId);
+    const newOrder = [...grid.querySelectorAll('[data-media-id]')].map(el => String(el.dataset.mediaId));
     const media = publisherStore.draft.media;
-    const reordered = newOrder.map(id => media.find(m => m.id === id)).filter(Boolean);
-    media.forEach(m => { if (!newOrder.includes(m.id)) reordered.push(m); });
+    const reordered = newOrder.map(id => media.find(m => String(m.id) === id)).filter(Boolean);
+    media.forEach(m => { if (!newOrder.includes(String(m.id))) reordered.push(m); });
+    reordered.forEach((m, i) => { m.order = i; });
     publisherStore.draft.media = reordered;
     publisherStore._notify();
   }
 
   _selectMedia(mediaId) {
-    this.selectedMediaId = mediaId;
+    const id = String(mediaId);
+    this.selectedMediaId = id;
     this.element.querySelectorAll('[data-media-id]').forEach(el => {
-      el.classList.toggle('selected', el.dataset.mediaId === mediaId);
+      el.classList.toggle('selected', String(el.dataset.mediaId) === id);
     });
+  }
+
+  _findMedia(mediaId) {
+    const id = String(mediaId);
+    return publisherStore.draft.media.find(m => String(m.id) === id);
   }
 
   _openCrop(mediaId) {
     this.cropMode = true;
-    this.selectedMediaId = mediaId;
-    const media = publisherStore.draft.media.find(m => m.id === mediaId);
+    this.selectedMediaId = String(mediaId);
+    const media = this._findMedia(mediaId);
     if (!media) return;
 
     this.cropData = { ...media.crop };
     const panel = this.element.querySelector('[data-crop-panel]');
+    if (!panel) return;
     panel.hidden = false;
     this._renderCropCanvas(media);
   }
 
   _closeCrop() {
     this.cropMode = false;
-    this.element.querySelector('[data-crop-panel]').hidden = true;
+    const panel = this.element.querySelector('[data-crop-panel]');
+    if (panel) panel.hidden = true;
   }
 
   _resetCrop() {
     this.cropData = { x: 0, y: 0, w: 1, h: 1 };
-    this._renderCropCanvas(publisherStore.draft.media.find(m => m.id === this.selectedMediaId));
+    this._renderCropCanvas(this._findMedia(this.selectedMediaId));
   }
 
   _applyCrop() {
-    const media = publisherStore.draft.media.find(m => m.id === this.selectedMediaId);
+    const media = this._findMedia(this.selectedMediaId);
     if (media) {
       media.crop = { ...this.cropData };
       publisherStore._notify();
@@ -215,7 +216,7 @@ export class PublisherPostEditor {
       const ratio = ratios[preset];
       this.cropData = coverCrop(1, 1, ratio);
     }
-    this._renderCropCanvas(publisherStore.draft.media.find(m => m.id === this.selectedMediaId));
+    this._renderCropCanvas(this._findMedia(this.selectedMediaId));
   }
 
   _renderCropCanvas(media) {
@@ -254,6 +255,12 @@ export class PublisherPostEditor {
     if (!grid) return;
     const media = publisherStore.draft.media;
     grid.innerHTML = media.map((m, i) => this._renderMediaItem(m, i)).join('');
+    const empty = this.element.querySelector('[data-empty]');
+    if (empty) empty.hidden = media.length > 0;
+    if (media.length === 0) this._closeCrop();
+    if (this.selectedMediaId && !media.some(m => String(m.id) === String(this.selectedMediaId))) {
+      this.selectedMediaId = null;
+    }
   }
 
   destroy() {
@@ -262,7 +269,7 @@ export class PublisherPostEditor {
   }
 
   _esc(text) {
-    return String(text ?? '').replace(/[&<>"']/g, c => ({ '&': '&', '<': '<', '>': '>', '"': '"', "'": "'" }[c]));
+    return String(text ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   }
 }
 

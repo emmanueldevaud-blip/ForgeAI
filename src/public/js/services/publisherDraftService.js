@@ -60,8 +60,8 @@ export class PublisherDraftService {
       if (!res?.publication_id) throw new Error(res?.detail || 'Création impossible');
       this.currentDraftType = 'studio';
       this.currentDraftId = res.publication_id;
-      // Sync avec le store local
-      publisherStore.resetDraft(format === 'story' ? 'story' : 'post', calendarEntryId);
+      // Sync avec le store local (post | carousel | reel | story)
+      publisherStore.resetDraft(format, calendarEntryId);
       return await this.load(res.publication_id);
     } catch (error) {
       throw new Error(error?.data?.detail || error?.message || 'Erreur création brouillon');
@@ -147,7 +147,9 @@ export class PublisherDraftService {
     publisherStore.draft = {
       ...publisherStore.draft,
       id: pub.id,
-      format: pub.content_type === 'reel' ? 'reel' : 'post',
+      format: pub.content_type === 'reel' || pub.visual_type === 'reel'
+        ? 'reel'
+        : (pub.visual_type === 'carousel' ? 'carousel' : 'post'),
       media,
       design: design,
       caption: {
@@ -218,6 +220,10 @@ export class PublisherDraftService {
     }
     if (data.design) updates.design = data.design;
     if (data.music) updates.design = { ...(updates.design || {}), ig_audio: data.music };
+    if (data.photoId !== undefined && data.photoId !== null) {
+      updates.photo_id = Number(data.photoId);
+    }
+    if (data.visualType) updates.visual_type = data.visualType;
 
     if (this.currentDraftType === 'story') {
       await updateStoryDraft(this.currentDraftId, updates);
@@ -241,9 +247,19 @@ export class PublisherDraftService {
     return generateStudioDraftVariants(this.currentDraftId, { tone, styles, custom_instructions: customInstructions, count });
   }
 
-  async generateText({ format, tone, length, customInstructions }) {
+  /**
+   * Génère un texte (court ou long) selon le ton.
+   * Endpoint réel : POST /community-manager/studio/draft/{id}/generate-text
+   * @param {{tone?:string, length?:'short'|'long', customInstructions?:string}} options
+   */
+  async generateText({ tone, length = 'short', customInstructions } = {}) {
     if (!this.currentDraftId || this.currentDraftType !== 'studio') throw new Error('Brouillon Studio requis');
-    return generateStudioDraftText(this.currentDraftId, { format, tone, length, custom_instructions: customInstructions });
+    return generateStudioDraftText(this.currentDraftId, {
+      publication_id: Number(this.currentDraftId),
+      length: length === 'long' ? 'long' : 'short',
+      tone: tone || undefined,
+      custom_instructions: customInstructions || undefined,
+    });
   }
 
   // ========== Verrous ==========

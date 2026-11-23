@@ -1,11 +1,15 @@
 /**
- * PublisherReelEditor — Éditeur Reel (wrap StudioEditorView)
- * Timeline, vidéo, audio, transitions, couverture
+ * PublisherReelEditor — Hôte du StudioEditorView (montage timeline) dans le
+ * parcours Publisher.
+ *
+ * Pas de chrome propre : StudioEditorView fournit sa propre barre d'outils,
+ * le wizard (header/footer du publisher) pilote la navigation.
  */
 
 import { publisherStore } from '../stores/publisherStore.js';
 import { publisherDraftService } from '../services/publisherDraftService.js';
 import { createStudioEditorView } from '../editor/StudioEditorView.js?v=2';
+import { listPhotos, photoFileUrl, uploadPhotos } from '../services/photosApi.js?v=8';
 
 export class PublisherReelEditor {
   constructor(options = {}) {
@@ -19,106 +23,102 @@ export class PublisherReelEditor {
   mount(host) {
     this.element = document.createElement('div');
     this.element.className = 'publisher-reel-editor';
-    this.element.innerHTML = this._renderShell();
+    this.element.innerHTML = '<div class="pre-studio-host" data-studio-host></div>';
     host.appendChild(this.element);
 
-    this._bindShell();
     this._subscribeStore();
     this._mountStudioEditor();
   }
 
   _subscribeStore() {
-    this._unsubscribeStore = publisherStore.subscribe(state => {
-      // Le StudioEditorView gère son propre état via EditorState
-      // On sync juste le format
-    });
+    // StudioEditorView gère son propre état (EditorState) : pas de re-render.
+    this._unsubscribeStore = publisherStore.subscribe(() => {});
   }
 
-  _renderShell() {
-    return `
-      <header class="pre-header">
-        <div class="pre-header-left">
-          <button type="button" class="pre-btn pre-btn-back" data-action="back">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/>
-            </svg>
-          </button>
-          <h2>Monteur Reel</h2>
-        </div>
-        <div class="pre-header-right">
-          <button type="button" class="pre-btn pre-btn-secondary" data-action="add-media">+ Ajouter</button>
-          <button type="button" class="pre-btn pre-btn-primary" data-action="save">Suivant</button>
-        </div>
-      </header>
+  /**
+   * Pousse le design (et éventuellement la photo exportée) dans le store
+   * local, puis dans le brouillon backend s'il existe.
+   */
+  async _updateDraft(data = {}) {
+    if (data.design) publisherStore.updateDesign(data.design);
 
-      <main class="pre-main" data-main>
-        <div class="pre-studio-host" data-studio-host></div>
-      </main>
+    if (data.photo_id !== undefined && data.photo_id !== null) {
+      const pid = String(data.photo_id);
+      publisherStore.draft.media = [
+        {
+          id: pid,
+          url: `/photos/${pid}/file`,
+          thumbnail_url: `/photos/${pid}/file?size=small`,
+          crop: { x: 0, y: 0, w: 1, h: 1 },
+          order: 0,
+          type: 'photo',
+          source: 'library',
+        },
+      ];
+      publisherStore._notify();
+    }
 
-      <footer class="pre-footer">
-        <div class="pre-footer-left">
-          <span class="pre-duration" data-duration>0:00</span>
-        </div>
-        <div class="pre-footer-right">
-          <button type="button" class="pre-btn pre-btn-ghost" data-action="preview">Aperçu</button>
-        </div>
-      </footer>
-    `;
+    if (publisherDraftService.currentDraftId) {
+      await publisherDraftService.save({
+        design: data.design,
+        photoId: data.photo_id,
+        visualType: data.visual_type,
+      });
+    }
+    return true;
   }
 
-  _bindShell() {
-    this.element.querySelector('[data-action="back"]').addEventListener('click', () => this.onBack());
-    this.element.querySelector('[data-action="save"]').addEventListener('click', () => this.onSave());
-    this.element.querySelector('[data-action="add-media"]').addEventListener('click', () => this._addMedia());
-    this.element.querySelector('[data-action="preview"]').addEventListener('click', () => this._preview());
+  /**
+   * Sauvegarde le design courant du Studio dans le store local
+   * (et backend si un brouillon est chargé). Appelée avant de quitter
+   * l'étape compose pour éviter toute perte de modification.
+   */
+  async save() {
+    if (!this.editorView) return;
+    const design = this.editorView.state.toJSON();
+    await this._updateDraft({ design });
   }
 
   _mountStudioEditor() {
     const host = this.element.querySelector('[data-studio-host]');
-    const design = publisherStore.draft.design || {};
+    const draft = publisherStore.draft;
+    const design = { ...(draft.design || {}) };
 
-    // Assurer le format Reel (vidéo 16:9 ou 9:16)
+    // Assurer le format Reel (9:16)
     if (!design.format) {
       design.format = { width: 1080, height: 1920, type: 'reel_916', platform: 'instagram' };
     }
 
+    const publication = {
+      id: publisherDraftService.currentDraftId || draft.id || 'new',
+      design,
+      photo_id: null,
+      photo_locked: false,
+    };
+
     this.editorView = createStudioEditorView({
-      draft: { id: publisherStore.draft.id || 'new', design },
+      publication,
       deps: {
-        updateDraft: (id, data) => publisherDraftService.save({ design: data.design }),
-        uploadPhotos: () => {}, // TODO
-        getSuggestedPhotos: () => [],
-        listPhotos: () => [],
-        photoFileUrl: (id) => `/photos/${id}/file`,
-        publicationPhotoUrl: (id) => `/photos/${id}/file`,
-        createRender: (publicationId) => publisherDraftService.createRender?.(publicationId),
-        getRenderJob: (jobId) => publisherDraftService.getRenderJob?.(jobId),
-        cancelRender: (jobId) => publisherDraftService.cancelRender?.(jobId),
+        publicationId: publication.id,
+        updateDraft: (id, data) => this._updateDraft(data),
+        uploadPhotos: (files) => uploadPhotos(files),
+        listPhotos: (params) => listPhotos(params),
+        getSuggestedPhotos: () =>
+          publisherDraftService.getSuggestedPhotos(12).catch(() => []),
+        photoFileUrl: (id, size) => photoFileUrl(id, size || 'medium'),
+        createRender: (publicationId) => publisherDraftService.createRender(publicationId),
+        getRenderJob: (jobId) => publisherDraftService.getRenderJob(jobId),
+        cancelRender: (jobId) => publisherDraftService.cancelRender(jobId),
         renderFileUrl: (jobId) => `/studio-renders/${jobId}.mp4`,
       },
       callbacks: {
         onClose: () => this.onBack(),
-        onSave: async (id, data) => {
-          publisherStore.updateDesign(data);
-          this.onSave();
-        },
-        onPublish: async (id, data) => {
-          // Géré par PublisherPreview
-        },
+        // onApplied : le design/photo sont déjà poussés par updateDraft,
+        // on laisse l'utilisateur relire avant de passer à l'étape suivante.
       },
     });
 
     this.editorView.mount(host);
-  }
-
-  _addMedia() {
-    // Ouvrir le media picker en mode ajout
-    // TODO: Intégrer PublisherMediaPicker en modal
-    alert('Ajout média - à connecter avec PublisherMediaPicker');
-  }
-
-  _preview() {
-    publisherStore.setStep('preview');
   }
 
   destroy() {

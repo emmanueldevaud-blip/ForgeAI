@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import { coverCrop } from '../../src/public/js/editor/editorGeometry.js';
 
 const css = fs.readFileSync(new URL('../../src/public/css/publisher.css', import.meta.url), 'utf8');
+const indexHtml = fs.readFileSync(new URL('../../src/public/index.html', import.meta.url), 'utf8');
 const file = new URL('../../src/public/js/editors/PublisherPostEditor.js', import.meta.url);
 let source = fs.readFileSync(file, 'utf8');
 source = source.replace(/^import\s[\s\S]*?from\s+['"][^'"]+['"];?\s*$/gm, '');
@@ -26,8 +27,10 @@ assert.ok(pickerIndex > 0 && cropPanelIndex > pickerIndex);
 assert.ok(mobileBreakpointIndex > cropPanelIndex, 'les styles du sélecteur et de l’ajustement doivent être globaux');
 assert.match(css, /\.pmp-body\s*\{[^}]*display:\s*flex;[^}]*flex:\s*1;[^}]*min-height:\s*0;/s);
 assert.match(css, /\.pmp-selection-head\s*\{[^}]*display:\s*flex;[^}]*align-items:\s*center;/s);
+assert.match(css, /\.pmp-check\[hidden\][\s\S]*?\.pmp-order\[hidden\]\s*\{\s*display:\s*none;/);
 assert.match(css, /\.ppe-crop-panel\s*\{[^}]*position:\s*fixed;/s);
 assert.match(css, /@media\s*\(min-width:\s*768px\)\s*\{\s*\.ppe-crop-panel\s*\{[^}]*left:\s*50%;[^}]*transform:\s*translate\(-50%,\s*-50%\);/s);
 assert.match(css, /@media\s*\(hover:\s*none\),\s*\(pointer:\s*coarse\)\s*\{\s*\.ppe-media-actions\s*\{\s*opacity:\s*1;/s);
+assert.match(indexHtml, /publisher\.css\?v=2/);
 
 console.log('Styles du sélecteur/ajustement et formats de recadrage OK.');

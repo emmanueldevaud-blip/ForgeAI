@@ -709,6 +709,11 @@
   justify-content: center;
 }
 
+.pmp-check[hidden],
+.pmp-order[hidden] {
+  display: none;
+}
+
 .pmp-order {
   position: absolute;
   top: 4px;

@@ -99,6 +99,7 @@ export class CommunityPublisherPage {
     this._unsubscribeStore = null;
     this._garminListener = null;
     this._navLocked = false;
+    this._mediaRestored = false;
   }
 
   async initialize() {
@@ -371,6 +372,8 @@ export class CommunityPublisherPage {
       onComplete: () => publisherStore.nextStep(),
       onCancel: () => this._goBack(),
     });
+    // Réinitialiser le flag de restauration à chaque remontée sur l'étape media
+    this._mediaRestored = false;
     try {
       this.mediaPicker.mount(host);
     } catch (e) {
@@ -385,6 +388,37 @@ export class CommunityPublisherPage {
       this.adjustEditor.destroy();
       this.adjustEditor = null;
     }
+    // Diagnostique : si le draft est vide alors que le picker a une sélection,
+    // on restaure les médias depuis le picker avant de monter l'éditeur.
+    // Cela couvre le cas où addMedia n'a pas persisté dans le draft.
+    if (
+      !this._mediaRestored &&
+      publisherStore.draft.media.length === 0 &&
+      this.mediaPicker?.selectedIds?.size
+    ) {
+      const media = [];
+      for (const id of this.mediaPicker.selectedIds) {
+        const photo = this.mediaPicker.photos.find(p => String(p.id) === String(id));
+        if (photo) {
+          media.push({
+            id: String(photo.id),
+            url: photo.file_url || `/photos/${photo.id}/file`,
+            thumbnail_url: photo.thumbnail_url || `/photos/${photo.id}/file?size=small`,
+            type: photo.mime_type?.startsWith('video/') ? 'video' : 'photo',
+            source: 'library',
+          });
+        }
+      }
+      if (media.length) {
+        // Insertion directe dans le draft + un seul _notify pour éviter la boucle
+        // avec _subscribeStore du MediaPicker (qui recrée selectedIds depuis draft.media).
+        publisherStore.draft.media.push(...media);
+        publisherStore.draft.updatedAt = Date.now();
+        publisherStore._notify();
+        this._mediaRestored = true;
+      }
+    }
+    console.log('[Publisher] adjust step mounted, media count =', publisherStore.draft.media.length);
     this.adjustEditor = createPublisherPostEditor({
       draft: publisherStore.draft,
       onSave: () => publisherStore.nextStep(),

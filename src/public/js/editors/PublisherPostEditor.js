@@ -214,7 +214,7 @@ export class PublisherPostEditor {
       this.cropData = { x: 0, y: 0, w: 1, h: 1 };
     } else {
       const ratio = ratios[preset];
-      this.cropData = coverCrop(1, 1, ratio);
+      this.cropData = coverCrop(1, 1, ratio, 1);
     }
     this._renderCropCanvas(this._findMedia(this.selectedMediaId));
   }

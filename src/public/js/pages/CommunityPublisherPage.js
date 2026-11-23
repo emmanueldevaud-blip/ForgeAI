@@ -385,6 +385,26 @@ export class CommunityPublisherPage {
       this.adjustEditor.destroy();
       this.adjustEditor = null;
     }
+    // Si le store est vide mais que le picker a des médias sélectionnés,
+    // on les restaure dans le draft avant de monter l'éditeur d'ajustement.
+    if (publisherStore.draft.media.length === 0 && this.mediaPicker?.selectedIds?.size) {
+      const media = [];
+      for (const id of this.mediaPicker.selectedIds) {
+        const photo = this.mediaPicker.photos.find(p => String(p.id) === String(id));
+        if (photo) {
+          media.push({
+            id: String(photo.id),
+            url: photo.file_url || `/photos/${photo.id}/file`,
+            thumbnail_url: photo.thumbnail_url || `/photos/${photo.id}/file?size=small`,
+            type: photo.mime_type?.startsWith('video/') ? 'video' : 'photo',
+            source: 'library',
+          });
+        }
+      }
+      if (media.length) {
+        publisherStore.addMedia(media);
+      }
+    }
     this.adjustEditor = createPublisherPostEditor({
       draft: publisherStore.draft,
       onSave: () => publisherStore.nextStep(),
@@ -635,7 +655,7 @@ export class CommunityPublisherPage {
     const atFirst = currentIdx <= 0;
     const atLast = currentIdx === stepOrder.length - 1;
     const mediaCount = (publisherStore.draft.media || []).length;
-    const mediaTooFew = this.currentStep === 'adjust' && mediaCount < (config.minMedia || 1);
+    const mediaTooFew = (this.currentStep === 'adjust' || this.currentStep === 'media') && mediaCount < (config.minMedia || 1);
     const captionOver = this.currentStep === 'caption' && this._captionLength() > CAPTION_MAX_LENGTH;
 
     prevBtn.disabled = atFirst;

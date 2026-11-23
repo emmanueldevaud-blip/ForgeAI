@@ -1668,9 +1668,11 @@
 
 .ppe-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(140px, 170px));
   gap: 12px;
   margin-bottom: 24px;
+  justify-content: center;
+  max-width: 100%;
 }
 
 .ppe-media-item {
@@ -1905,6 +1907,26 @@
   .pp-reel,
   .pp-reel-caption {
     max-width: min(480px, 100%);
+  }
+
+  .ppe-grid {
+    grid-template-columns: repeat(auto-fill, minmax(140px, 170px));
+    justify-content: center;
+  }
+}
+
+@media (max-width: 480px) {
+  .publisher-page {
+    padding-bottom: env(safe-area-inset-bottom, 0);
+  }
+
+  .publisher-main {
+    padding-bottom: calc(16px + env(safe-area-inset-bottom, 0));
+  }
+
+  .ppe-grid {
+    grid-template-columns: repeat(2, 1fr);
+    justify-content: center;
   }
 }
 

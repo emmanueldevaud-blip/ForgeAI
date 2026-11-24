@@ -108,6 +108,7 @@ export class StoryEditorView {
     this.drawingMode = false;
     this.drawingPaths = [];
     this.currentDrawingPath = null;
+    this._musicItems = [];
 
     // DOM
     this.root = null;
@@ -192,6 +193,21 @@ export class StoryEditorView {
           <button type="button" class="story-btn story-btn-primary" data-action="save">Enregistrer</button>
         </div>
       </header>
+
+      <!-- Sélecteur de musique Instagram -->
+      <div class="pre-music-tools">
+        <button type="button" class="pre-music-button" data-action="music-open" aria-haspopup="dialog" aria-expanded="false">♫ Choisir une musique Instagram</button>
+        <span class="pre-music-selected" data-music-selected></span>
+      </div>
+      <section class="pre-music-panel" data-music-panel hidden aria-label="Catalogue de musiques Instagram">
+        <form class="pre-music-search" data-music-form>
+          <input type="search" minlength="2" maxlength="80" placeholder="Rechercher un titre ou un artiste" aria-label="Rechercher une musique">
+          <button type="submit">Rechercher</button>
+          <button type="button" data-action="music-close" aria-label="Fermer">✕</button>
+        </form>
+        <p class="pre-music-status" data-music-status></p>
+        <div class="pre-music-results" data-music-results></div>
+      </section>
 
       <!-- Zone centrale : Canvas + Navigation slides -->
       <main class="story-editor-main" data-main>
@@ -334,6 +350,16 @@ export class StoryEditorView {
     this.root.querySelector('[data-action="stickers"]').addEventListener('click', () => this._openStickerPicker());
     this.root.querySelector('[data-action="gif"]').addEventListener('click', () => this._openGifPicker());
     this.root.querySelector('[data-action="music"]').addEventListener('click', () => this._openMusicPicker());
+    this.root.querySelector('[data-action="music-close"]').addEventListener('click', () => { const panel = this.root.querySelector('[data-music-panel]'); if (panel) panel.hidden = true; });
+    this.root.querySelector('[data-music-form]').addEventListener('submit', (e) => this._onMusicSearch(e));
+    this.root.addEventListener('click', (e) => {
+      const result = e.target.closest('[data-music-result]');
+      if (!result) return;
+      e.preventDefault();
+      const index = Number(result.dataset.musicIndex);
+      const track = this._musicItems?.[index];
+      if (track) this._selectMusic(track);
+    });
     this.root.querySelector('[data-action="crop"]').addEventListener('click', () => this._openCropTool());
     this.root.querySelector('[data-action="save"]').addEventListener('click', () => this._saveDraft());
 
@@ -757,8 +783,63 @@ export class StoryEditorView {
   }
 
   _openMusicPicker() {
-    // Réutiliser le système audio existant
-    alert('Sélection musicale : réutilise le système audio ForgeAI existant (audio local + catalogue Meta).');
+    const panel = this.root?.querySelector('[data-music-panel]');
+    if (!panel) return;
+    const open = panel.hidden;
+    panel.hidden = !open;
+    const btn = this.root?.querySelector('[data-action="music-open"]');
+    if (btn) btn.setAttribute('aria-expanded', String(!open));
+  }
+
+  async _onMusicSearch(event) {
+    event.preventDefault();
+    const form = this.root?.querySelector('[data-music-form]');
+    const input = form?.querySelector('input');
+    const query = String(input?.value || '').trim();
+    if (query.length < 2) return;
+    const status = this.root?.querySelector('[data-music-status]');
+    const results = this.root?.querySelector('[data-music-results]');
+    if (status) status.textContent = 'Recherche…';
+    if (results) results.innerHTML = '';
+    const searchInstagramMusic = this.deps?.searchInstagramMusic;
+    if (typeof searchInstagramMusic !== 'function') {
+      if (status) status.textContent = 'Recherche de musique indisponible.';
+      return;
+    }
+    const response = await searchInstagramMusic(query);
+    const items = Array.isArray(response?.items) ? response.items : [];
+    if (status) status.textContent = items.length ? `${items.length} résultat(s)` : 'Aucune musique trouvée.';
+    if (results) {
+      results.innerHTML = items.map((track, index) => `
+        <button type="button" class="pre-music-result" data-music-result data-music-index="${index}">
+          <span class="pre-music-note">♫</span>
+          <span><strong>${this._esc(track.title || 'Titre inconnu')}</strong><small>${this._esc(track.display_artist || track.artist || 'Artiste inconnu')}</small></span>
+          <span aria-hidden="true">＋</span>
+        </button>`).join('');
+    }
+  }
+
+  async _selectMusic(track) {
+    const audioId = track?.audio_id;
+    if (!audioId) return;
+    const igAudio = {
+      audio_id: String(audioId),
+      title: track.title || '',
+      artist: track.display_artist || track.artist || '',
+      duration_in_ms: track.duration_in_ms || null,
+      start_time_ms: 0,
+    };
+    const design = { ...this.state.toJSON(), ig_audio: igAudio };
+    this.designDocuments[this.currentSlideIndex] = design;
+    await this._saveDraft({ design });
+    this._syncMusicLabel();
+  }
+
+  _syncMusicLabel() {
+    const design = this.designDocuments[this.currentSlideIndex] || {};
+    const audio = design?.ig_audio || {};
+    const label = this.root?.querySelector('[data-music-selected]');
+    if (label) label.textContent = audio?.title ? `${audio.title}${audio.artist ? ` · ${audio.artist}` : ''}` : '';
   }
 
   _openCropTool() {
@@ -1168,8 +1249,8 @@ export class StoryEditorView {
     }
   }
 
-  _saveDraft() {
-    this.designDocuments[this.currentSlideIndex] = this.state.toJSON();
+  _saveDraft(designOverride) {
+    this.designDocuments[this.currentSlideIndex] = designOverride ? designOverride : this.state.toJSON();
 
     const payload = {
       slides: this.slides,

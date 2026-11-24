@@ -26,6 +26,11 @@ export class PublisherMediaPicker {
     this.minSelection = options.minSelection || 1;
     this.allowedTypes = options.allowedTypes || ['photo', 'video'];
     this.format = options.format || 'post';
+    // Le type de publication se choisit AVANT les photos : il conditionne
+    // le nombre maximal de médias et les types autorisés.
+    this.formats = options.formats || null;
+    this.canSwitchFormat = !!(options.formats && options.canSwitchFormat !== false);
+    this.onFormatChange = options.onFormatChange || (() => {});
     this.element = null;
     this.view = 'library'; // 'library' | 'albums' | 'garmin' | 'upload'
     this.photos = [];
@@ -63,6 +68,15 @@ export class PublisherMediaPicker {
     });
   }
 
+  _toggleFormatMenu(force) {
+    const btn = this.element?.querySelector('[data-action="select-format"]');
+    const menu = this.element?.querySelector('[data-format-menu]');
+    if (!btn || !menu) return;
+    const open = force !== undefined ? force : menu.hidden;
+    menu.hidden = !open;
+    btn.setAttribute('aria-expanded', String(open));
+  }
+
   _render() {
     return `
       <div class="pmp-header">
@@ -71,8 +85,8 @@ export class PublisherMediaPicker {
             <line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/>
           </svg>
         </button>
-        <div class="pmp-header-title">
-          <h2>Nouvelle publication</h2>
+        <div class="pmp-header-title ${this.canSwitchFormat ? 'pmp-header-title--format' : ''}">
+          ${this._renderFormatSelector()}
           <span class="pmp-counter" data-counter>0 / ${this.maxSelection}</span>
         </div>
         <button type="button" class="pmp-btn pmp-btn-primary" data-action="complete" disabled>
@@ -152,7 +166,51 @@ export class PublisherMediaPicker {
     `;
   }
 
+  /**
+   * Sélecteur de format dans le header du picker : le choix du type de
+   * publication (Publication, Carrousel, Reel, Story) précède et conditionne
+   * la sélection des photos.
+   */
+  _renderFormatSelector() {
+    if (!this.canSwitchFormat) return '<h2>Nouvelle publication</h2>';
+    const config = this.formats[this.format] || this.formats.post;
+    return `
+      <div class="publisher-format pmp-format" data-format-root>
+        <button type="button" class="publisher-format-btn pmp-format-btn" data-action="select-format" aria-haspopup="menu" aria-expanded="false" title="Choisir le type de publication">
+          <span class="publisher-format-icon">${config.icon}</span>
+          <span class="publisher-format-label">${config.label}</span>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>
+        </button>
+        <div class="publisher-format-menu" data-format-menu hidden role="menu">
+          ${Object.entries(this.formats).map(([key, c]) => `
+            <button type="button" role="menuitem" class="publisher-format-option ${key === this.format ? 'active' : ''}" data-format="${key}">
+              <span class="publisher-format-icon">${c.icon}</span>
+              <span>${c.label}</span>
+            </button>
+          `).join('')}
+        </div>
+      </div>
+    `;
+  }
+
   _bindEvents() {
+    // Sélecteur de format : le type de publication conditionne la sélection
+    const formatBtn = this.element.querySelector('[data-action="select-format"]');
+    if (formatBtn) {
+      formatBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this._toggleFormatMenu();
+      });
+      this.element.querySelectorAll('[data-format]').forEach(opt => {
+        opt.addEventListener('click', () => {
+          this._toggleFormatMenu(false);
+          const format = opt.dataset.format;
+          if (format && format !== this.format) this.onFormatChange(format);
+        });
+      });
+      this.element.addEventListener('click', () => this._toggleFormatMenu(false));
+    }
+
     // Navigation
     this.element.querySelector('[data-action="cancel"]').addEventListener('click', () => this.onCancel());
     this.element.querySelector('[data-action="complete"]').addEventListener('click', () => {

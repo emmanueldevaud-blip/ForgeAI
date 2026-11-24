@@ -22,7 +22,7 @@ import {
   getSuggestedPhotos,
 } from '../services/sportApi.js?v=16';
 import { createStoryStudioPage } from './StoryStudioPage.js?v=1';
-import { createCommunityPublisherPage } from './CommunityPublisherPage.js?v=4';
+import { createCommunityPublisherPage } from './CommunityPublisherPage.js?v=5';
 
 const MONTHS = [
   'Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin',
@@ -371,6 +371,8 @@ export class CommunityManagerCalendarPage {
       this.element = document.createElement('div');
       this.element.className = 'page-content';
     }
+    // Publisher embarqué : hauteur pleine sinon la chaîne height:100% casse
+    this.element.classList.toggle('page-content--publisher', this.showPublisher && !!this.publisherPage);
 
     if (this.showStoryStudio && this.storyStudioPage) {
       this.element.replaceChildren(this.storyStudioPage.render());

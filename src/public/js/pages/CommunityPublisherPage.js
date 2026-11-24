@@ -13,7 +13,7 @@
 
 import { publisherStore } from '../stores/publisherStore.js';
 import { publisherDraftService } from '../services/publisherDraftService.js?v=2';
-import { createPublisherMediaPicker } from '../components/PublisherMediaPicker.js';
+import { createPublisherMediaPicker } from '../components/PublisherMediaPicker.js?v=1';
 import { createPublisherCaptionEditor } from '../components/PublisherCaptionEditor.js';
 import { createPublisherPreview } from '../components/PublisherPreview.js?v=3';
 import { createPublisherPostEditor } from '../editors/PublisherPostEditor.js?v=3';
@@ -147,10 +147,32 @@ export class CommunityPublisherPage {
       publisherStore.resetDraft(this.format);
     } else if (draft.format !== this.format) {
       publisherStore.setFormat(this.format);
+      // Le format conditionne la sélection : limiter le nombre et les types
+      // de médias autorisés pour le nouveau format.
+      this._enforceFormatLimits();
     } else {
       // Simule une notification pour resynchroniser la page sur l'état restauré
       publisherStore._notify();
     }
+  }
+
+  /**
+   * Le format de publication conditionne la sélection : le nombre de médias
+   * et leurs types doivent respecter les limites du format courant
+   * (ex : un Carrousel peut contenir 10 photos, une Publication 1).
+   */
+  _enforceFormatLimits() {
+    const format = publisherStore.draft.format;
+    const config = FORMAT_CONFIG[format] || FORMAT_CONFIG.post;
+    const media = publisherStore.draft.media || [];
+    const kept = media
+      .filter((m) => config.allowedTypes.includes(m.type === 'video' ? 'video' : 'photo'))
+      .slice(0, config.maxMedia)
+      .map((m, i) => ({ ...m, order: i }));
+    if (kept.length === media.length) return;
+    publisherStore.draft.media = kept;
+    publisherStore.draft.updatedAt = Date.now();
+    publisherStore._notify();
   }
 
   async _loadFromCalendarEntry() {
@@ -369,12 +391,16 @@ export class CommunityPublisherPage {
       this.mediaPicker = null;
     }
     const config = this._config();
+    const canSwitchFormat = !this.entryId && !this.isExistingPublication;
     this.mediaPicker = createPublisherMediaPicker({
       format: this.format,
       multiSelect: true,
       maxSelection: config.maxMedia,
       minSelection: config.minMedia,
       allowedTypes: config.allowedTypes,
+      formats: FORMAT_CONFIG,
+      canSwitchFormat,
+      onFormatChange: (nextFormat) => this._switchFormat(nextFormat),
       onSelectionChange: () => {},
       onComplete: () => publisherStore.nextStep(),
       onCancel: () => this._goBack(),
@@ -621,7 +647,31 @@ export class CommunityPublisherPage {
   _switchFormat(format) {
     this._toggleFormatMenu(false);
     if (!FORMAT_CONFIG[format] || format === this.format) return;
+    if (this.onBack) {
+      // Publisher embarqué (ex : calendrier) : changer de format sur place,
+      // sans quitter le contexte courant.
+      this._renderedStep = null; // force le remontage avec les nouvelles règles
+      publisherStore.setFormat(format);
+      this._enforceFormatLimits();
+      this._updateFormatSelector();
+      return;
+    }
     this.router.navigate(`/publisher/${format}`);
+  }
+
+  /** Met à jour le libellé et l'état actif du sélecteur de format (header). */
+  _updateFormatSelector() {
+    if (!this.element) return;
+    const root = this.element.querySelector('.publisher-header [data-format-root]');
+    if (!root) return;
+    const config = FORMAT_CONFIG[this.format] || FORMAT_CONFIG.post;
+    const icon = root.querySelector('.publisher-format-icon');
+    const label = root.querySelector('.publisher-format-label');
+    if (icon) icon.textContent = config.icon;
+    if (label) label.textContent = config.label;
+    root.querySelectorAll('[data-format]').forEach((opt) => {
+      opt.classList.toggle('active', opt.dataset.format === this.format);
+    });
   }
 
   _updateStepIndicator() {

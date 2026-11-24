@@ -247,6 +247,23 @@
   display: none;
 }
 
+/* Publisher embarqué dans une page hôte (ex. calendrier Community Manager) :
+   .publisher-page n'est plus un enfant direct de .main-content, la chaîne de
+   hauteurs (height: 100%) s'arrête sur .page-content et .publisher-main /
+   la grille des médias s'effondrent à 0. */
+.page-content--publisher {
+  height: 100%;
+  min-height: 0;
+  padding: 0;
+  overflow: hidden;
+}
+
+.page-content--publisher > .publisher-page {
+  flex: 1 1 auto;
+  height: 100%;
+  min-height: 0;
+}
+
 .publisher-page--immersive {
   padding: 0;
   overflow: hidden;
@@ -477,6 +494,21 @@
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+/* Sélecteur de format dans le header du picker (choix AVANT la sélection des photos) */
+.pmp-header-title--format {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  overflow: visible;
+}
+
+.pmp-format .publisher-format-btn {
+  padding: 6px 12px;
+  font-size: 14px;
 }
 
 .pmp-header-right {

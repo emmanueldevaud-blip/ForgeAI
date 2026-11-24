@@ -808,6 +808,7 @@ export class StoryEditorView {
     }
     const response = await searchInstagramMusic(query);
     const items = Array.isArray(response?.items) ? response.items : [];
+    this._musicItems = items;
     if (status) status.textContent = items.length ? `${items.length} résultat(s)` : 'Aucune musique trouvée.';
     if (results) {
       results.innerHTML = items.map((track, index) => `

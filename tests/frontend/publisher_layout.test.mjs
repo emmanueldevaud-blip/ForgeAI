@@ -1,4 +1,4 @@
-// Vérifie les étapes médias/ajustement aux largeurs mobile et bureau.
+// Vérifie les ratios photo, la mise en page fixe et les règles responsives.
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { coverCrop } from '../../src/public/js/editor/editorGeometry.js';
@@ -36,6 +36,10 @@ assert.match(css, /\.pmp-preview-stage\s*\{[^}]*aspect-ratio:\s*4\s*\/\s*5;/s);
 assert.match(css, /\.publisher-media-picker--story \.pmp-preview-stage,[\s\S]*?aspect-ratio:\s*9\s*\/\s*16;/);
 assert.match(css, /\.ppe-media-item\s*\{[^}]*aspect-ratio:\s*4\s*\/\s*5;/s);
 assert.match(css, /\.publisher-post-editor--story \.ppe-media-item[\s\S]*?aspect-ratio:\s*9\s*\/\s*16;/);
-assert.match(indexHtml, /publisher\.css\?v=4/);
+assert.match(css, /\.publisher-page\s*\{[^}]*height:\s*100%;[^}]*min-height:\s*0;[^}]*overflow:\s*hidden;/s);
+assert.match(css, /\.publisher-main\s*\{[^}]*min-height:\s*0;[^}]*overflow:\s*hidden;/s);
+assert.match(css, /\.publisher-step-content\s*\{[^}]*flex:\s*1 1 0;[^}]*min-height:\s*0;[^}]*overflow:\s*hidden;/s);
+assert.match(css, /\.publisher-story-editor \.story-editor-root\s*\{[^}]*height:\s*100%;/s);
+assert.match(indexHtml, /publisher\.css\?v=7/);
 
-console.log('Styles du sélecteur/ajustement et formats de recadrage OK.');
+console.log('Mise en page fixe, ratios et ajustement du Publisher OK.');

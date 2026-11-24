@@ -1,5 +1,5 @@
 /**
- * Diagnostic visuel du sélecteur et de l'étape « Ajuster » du Publisher.
+ * Diagnostic visuel du parcours Publisher : sélection, ajustement et aperçu.
  * Usage : node scripts/diagnose_publisher_layout.mjs https://forgeai.example [storage-state.json]
  * Les captures sont écrites dans /tmp/forgeai-publisher-diagnostics.
  */
@@ -45,6 +45,7 @@ try {
       const firstPhoto = page.locator('.pmp-grid [data-photo-id]').first();
       await firstPhoto.waitFor({ state: 'visible', timeout: 20000 });
       await firstPhoto.click();
+      if (format === 'carousel') await page.locator('.pmp-grid [data-photo-id]').nth(1).click();
       const previewStage = page.locator('.pmp-preview-stage');
       await previewStage.waitFor({ state: 'visible', timeout: 5000 });
 
@@ -59,6 +60,9 @@ try {
         const pickerRect = rect(picker);
         const sidebarRect = sidebar && getComputedStyle(sidebar).display !== 'none' ? rect(sidebar) : null;
         const stageRect = rect(stage);
+        const publisherPage = document.querySelector('.publisher-page');
+        const publisherMain = document.querySelector('.publisher-main');
+        const appMain = document.querySelector('.main-content');
         return {
           picker: pickerRect,
           sidebar: sidebarRect,
@@ -66,6 +70,10 @@ try {
           stage: stageRect,
           stageRatio: stageRect.width / stageRect.height,
           stageCssRatio: getComputedStyle(stage).aspectRatio,
+          publisherScrolls: !!publisherPage && publisherPage.scrollHeight > publisherPage.clientHeight + 1,
+          stepScrolls: !!publisherMain && publisherMain.scrollHeight > publisherMain.clientHeight + 1,
+          appMainScrolls: !!appMain && appMain.scrollHeight > appMain.clientHeight + 1,
+          viewportScrolls: document.documentElement.scrollHeight > document.documentElement.clientHeight + 1,
         };
       });
       await page.screenshot({ path: path.join(outputDir, `${viewport.name}-${format}-select.png`), fullPage: true });
@@ -84,16 +92,62 @@ try {
           ratio: rect.width / rect.height,
           cssRatio: getComputedStyle(card).aspectRatio,
           editorClass: document.querySelector('.publisher-post-editor').className,
+          publisherScrolls: document.querySelector('.publisher-page').scrollHeight > document.querySelector('.publisher-page').clientHeight + 1,
+          stepScrolls: document.querySelector('.publisher-main').scrollHeight > document.querySelector('.publisher-main').clientHeight + 1,
+          appMainScrolls: document.querySelector('.main-content').scrollHeight > document.querySelector('.main-content').clientHeight + 1,
+          viewportScrolls: document.documentElement.scrollHeight > document.documentElement.clientHeight + 1,
         };
       });
       await page.screenshot({ path: path.join(outputDir, `${viewport.name}-${format}-adjust.png`), fullPage: true });
 
+      await page.locator('[data-action="next-step"]').click();
+      if (format === 'story') {
+        await page.locator('.story-editor-root [data-action="save"]').waitFor({ state: 'visible', timeout: 10000 });
+        await page.locator('.story-editor-root [data-action="save"]').click();
+      } else if (format === 'reel') {
+        await page.locator('.publisher-reel-editor').waitFor({ state: 'visible', timeout: 10000 });
+        await page.locator('[data-action="next-step"]').click();
+      }
+      await page.locator('.publisher-caption-editor').waitFor({ state: 'visible', timeout: 10000 });
+      await page.locator('[data-action="next-step"]').click();
+      await page.locator('.publisher-preview').waitFor({ state: 'visible', timeout: 10000 });
+      const previewMetrics = await page.evaluate((currentFormat) => {
+        const rect = element => {
+          const box = element.getBoundingClientRect();
+          return { width: box.width, height: box.height, ratio: box.width / box.height };
+        };
+        const preview = document.querySelector('.publisher-preview');
+        const stage = document.querySelector(currentFormat === 'story' ? '.pp-story'
+          : currentFormat === 'reel' ? '.pp-reel-player'
+            : '.pp-single-media, .pp-carousel');
+        const image = stage?.querySelector('img') || stage;
+        const publisherPage = document.querySelector('.publisher-page');
+        const publisherMain = document.querySelector('.publisher-main');
+        const appMain = document.querySelector('.main-content');
+        return {
+          preview: rect(preview),
+          stage: stage ? rect(stage) : null,
+          imageLoaded: currentFormat === 'story'
+            ? image instanceof HTMLImageElement && image.complete && image.naturalWidth > 0
+            : true,
+          publisherScrolls: publisherPage.scrollHeight > publisherPage.clientHeight + 1,
+          stepScrolls: publisherMain.scrollHeight > publisherMain.clientHeight + 1,
+          appMainScrolls: appMain.scrollHeight > appMain.clientHeight + 1,
+          viewportScrolls: document.documentElement.scrollHeight > document.documentElement.clientHeight + 1,
+        };
+      }, format);
+      await page.screenshot({ path: path.join(outputDir, `${viewport.name}-${format}-preview.png`), fullPage: true });
+
       const stageOk = Math.abs(pickerMetrics.stageRatio - expectedRatio) < 0.035;
       const adjustOk = adjustMetrics && Math.abs(adjustMetrics.ratio - expectedRatio) < 0.035;
       const sidebarOk = !pickerMetrics.pickerOverlapsSidebar;
-      const passed = stageOk && adjustOk && sidebarOk;
+      const previewOk = previewMetrics.stage && Math.abs(previewMetrics.stage.ratio - expectedRatio) < 0.04
+        && previewMetrics.imageLoaded;
+      const noPageScroll = [pickerMetrics, adjustMetrics, previewMetrics].every(metrics => metrics
+        && !metrics.publisherScrolls && !metrics.stepScrolls && !metrics.appMainScrolls && !metrics.viewportScrolls);
+      const passed = stageOk && adjustOk && sidebarOk && previewOk && noPageScroll;
       if (!passed) failures++;
-      console.log(JSON.stringify({ viewport: viewport.name, format, passed, picker: pickerMetrics, adjust: adjustMetrics }));
+      console.log(JSON.stringify({ viewport: viewport.name, format, passed, picker: pickerMetrics, adjust: adjustMetrics, preview: previewMetrics }));
       await page.close();
     }
   }

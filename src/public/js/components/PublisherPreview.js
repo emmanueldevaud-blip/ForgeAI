@@ -194,21 +194,26 @@ export class PublisherPreview {
         <div class="pp-story-viewport" data-story-viewport>
           ${(slides.length || media.length) > 0 ? (slides.length > 0 ? slides.map((slide, i) => {
             const design = designs[i] || {};
-            const photoId = design.background?.type === 'photo'
-              ? design.background.photo_id
-              : design.carousel?.[0];
-            const normalizedId = String(photoId ?? '').replace(/^photo_/, '');
-            const matchingMedia = media.find(item => String(item.id).replace(/^photo_/, '') === normalizedId)
-              || media[slide.photo_indices?.[0] ?? i];
+            const publishedPhotoId = slide.published_photo_id;
+            const photoId = publishedPhotoId || design.background?.photo_id || design.carousel?.[0];
+            const normalizePhotoId = value => {
+              const normalized = String(value ?? '').replace(/^photo_/, '');
+              return /^\d+$/.test(normalized) ? normalized : '';
+            };
+            const normalizedId = normalizePhotoId(photoId);
+            const matchingMedia = media.find(item => normalizedId && normalizePhotoId(item.id) === normalizedId)
+              || media[slide.photo_indices?.[0] ?? i]
+              || media[i];
+            const mediaPhotoId = normalizePhotoId(matchingMedia?.id);
             // StoryEditorView resolves photo ids through this endpoint. Reuse that
             // path so the final preview does not depend on a stale picker URL.
-            const imageUrl = photoId
-              ? `/photos/${encodeURIComponent(normalizedId)}/file?size=medium`
+            const imageUrl = normalizedId || mediaPhotoId
+              ? `/photos/${encodeURIComponent(normalizedId || mediaPhotoId)}/file?size=medium`
               : (matchingMedia?.url || matchingMedia?.thumbnail_url || '');
             return `
             <div class="pp-story-slide ${i === 0 ? 'active' : ''}" data-slide="${i}" style="background: ${designs[i]?.background?.color || '#000'}">
               ${imageUrl ? `<img src="${this._esc(imageUrl)}" alt="Story ${i + 1}">` : ''}
-              ${designs[i]?.elements?.map(el => this._renderStoryElement(el)).join('') || ''}
+              ${publishedPhotoId ? '' : (design.elements?.map(el => this._renderStoryElement(el)).join('') || '')}
             </div>
           `;
           }).join('') : media.map((m, i) => `
@@ -224,18 +229,22 @@ export class PublisherPreview {
   }
 
   _renderStoryElement(el) {
-    // StoryEditorView stocke les positions en pixels sur une toile 1080×1920.
-    // Le preview doit convertir ces coordonnées dans le viewport affiché.
-    const x = Math.max(0, Math.min(90, (Number(el.x) / 1080) * 100));
-    const position = `left:${x}%;top:${Math.max(0, Math.min(96, (Number(el.y) / 1920) * 100))}%;max-width:${100 - x - 2}%;`;
+    // Dans EditorCanvas, x/y sont le centre de l'élément et w/h sa taille.
+    // Garder cette convention pour que l'aperçu corresponde à l'export réel.
+    const x = (Number(el.x) / 1080) * 100;
+    const y = (Number(el.y) / 1920) * 100;
+    const width = Math.max(0, (Number(el.w) / 1080) * 100);
+    const opacity = Number(el.opacity ?? 1);
+    const transform = `translate(-50%, -50%)${el.rotation ? ` rotate(${Number(el.rotation)}deg)` : ''}`;
+    const position = `left:${x}%;top:${y}%;transform:${transform};opacity:${opacity};`;
     if (el.type === 'text') {
-      return `<div class="pp-story-text" style="${position}font-size:${(Number(el.size) / 1080) * 100}cqw;color:${el.color};font-weight:${el.bold?'bold':'normal'};text-align:${el.align};${el.shadow?'text-shadow:0 2px 4px rgba(0,0,0,0.5)':''}">${this._esc(el.text)}</div>`;
+      return `<div class="pp-story-text" style="${position}width:${width}%;font-size:${(Number(el.size) / 1080) * 100}cqw;color:${this._esc(el.color || '#fff')};font-weight:${el.bold ? 'bold' : 'normal'};font-style:${el.italic ? 'italic' : 'normal'};text-align:${this._esc(el.align || 'left')};${el.shadow ? 'text-shadow:0 2px 4px rgba(0,0,0,0.5);' : ''}">${this._esc(el.text)}</div>`;
     }
     if (el.type === 'sticker') {
-      return `<div class="pp-story-sticker" style="${position}font-size:${(Number(el.size) / 1080) * 100}cqw">${this._esc(el.text)}</div>`;
+      return `<div class="pp-story-sticker" style="${position}font-size:${(Math.min(Number(el.w) || Number(el.size) || 80, Number(el.h) || Number(el.size) || 80) / 1080) * 100}cqw">${this._esc(el.text || el.sticker || '⭐')}</div>`;
     }
     if (el.type === 'sport_stats') {
-      return `<div class="pp-story-stats" style="${position}"><strong>${this._esc(el.value)} ${this._esc(el.unit)}</strong><br><small>${this._esc(el.label)}</small></div>`;
+      return `<div class="pp-story-stats" style="${position}width:${width || 80}%;font-size:${(Number(el.size || 32) / 1080) * 100}cqw;color:${this._esc(el.color || '#fff')}"><strong>${this._esc(el.value)} ${this._esc(el.unit)}</strong><br><small>${this._esc(el.label)}</small></div>`;
     }
     return '';
   }

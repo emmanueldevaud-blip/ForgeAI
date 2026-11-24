@@ -15,7 +15,7 @@ import { publisherStore } from '../stores/publisherStore.js';
 import { publisherDraftService } from '../services/publisherDraftService.js';
 import { createPublisherMediaPicker } from '../components/PublisherMediaPicker.js';
 import { createPublisherCaptionEditor } from '../components/PublisherCaptionEditor.js';
-import { createPublisherPreview } from '../components/PublisherPreview.js?v=2';
+import { createPublisherPreview } from '../components/PublisherPreview.js?v=3';
 import { createPublisherPostEditor } from '../editors/PublisherPostEditor.js?v=3';
 import { createPublisherReelEditor } from '../editors/PublisherReelEditor.js';
 import { createPublisherStoryEditor } from '../editors/PublisherStoryEditor.js';

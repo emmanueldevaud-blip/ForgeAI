@@ -22,7 +22,7 @@ import {
   getSuggestedPhotos,
 } from '../services/sportApi.js?v=16';
 import { createStoryStudioPage } from './StoryStudioPage.js?v=1';
-import { createCommunityPublisherPage } from './CommunityPublisherPage.js?v=1';
+import { createCommunityPublisherPage } from './CommunityPublisherPage.js?v=2';
 
 const MONTHS = [
   'Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin',
@@ -397,12 +397,7 @@ export class CommunityManagerCalendarPage {
           <p class="page-subtitle">Publications sportives et suggestions de stories</p>
         </div>
         <div class="page-header-right">
-          <div class="calendar-create-actions" aria-label="Créer une publication">
-            <button class="btn btn-primary btn-sm" data-action="create-format" data-format="post">＋ Publication</button>
-            <button class="btn btn-secondary btn-sm" data-action="create-format" data-format="carousel">＋ Carrousel</button>
-            <button class="btn btn-secondary btn-sm" data-action="create-format" data-format="reel">＋ Reel</button>
-            <button class="btn btn-secondary btn-sm" data-action="create-format" data-format="story">＋ Story</button>
-          </div>
+          <button class="btn btn-primary" data-action="create-publication">＋ Créer une publication</button>
           ${this.canGenerate ? `<button class="btn btn-secondary" data-action="generate-suggestions">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
@@ -574,7 +569,7 @@ export class CommunityManagerCalendarPage {
         else if (action === 'next') { this.view === 'month' ? this._nextMonth() : this._nextWeek(); }
         else if (action === 'today') { this._todayBtn(); }
         else if (action === 'generate-suggestions') { this._generateSuggestions(); }
-        else if (action === 'create-format') { this._openPublisher({ format: btn.dataset.format, freshDraft: true }); }
+        else if (action === 'create-publication') { this._openPublisher({ format: 'post', freshDraft: true }); }
       });
     });
 

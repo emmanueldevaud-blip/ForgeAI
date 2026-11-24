@@ -10,6 +10,7 @@ export class PublisherPostEditor {
   constructor(options = {}) {
     this.onSave = options.onSave || (() => {});
     this.onBack = options.onBack || (() => {});
+    this.format = options.format || options.draft?.format || publisherStore.draft.format || 'post';
     this.element = null;
     this.mediaElements = new Map();
     this.selectedMediaId = null;
@@ -20,7 +21,7 @@ export class PublisherPostEditor {
 
   mount(host) {
     this.element = document.createElement('div');
-    this.element.className = 'publisher-post-editor';
+    this.element.className = `publisher-post-editor publisher-post-editor--${this.format}`;
     this.element.innerHTML = this._render();
     host.appendChild(this.element);
 

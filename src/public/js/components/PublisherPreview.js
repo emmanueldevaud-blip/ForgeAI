@@ -192,12 +192,26 @@ export class PublisherPreview {
         </div>
 
         <div class="pp-story-viewport" data-story-viewport>
-          ${(slides.length || media.length) > 0 ? (slides.length > 0 ? slides.map((slide, i) => `
+          ${(slides.length || media.length) > 0 ? (slides.length > 0 ? slides.map((slide, i) => {
+            const design = designs[i] || {};
+            const photoId = design.background?.type === 'photo'
+              ? design.background.photo_id
+              : design.carousel?.[0];
+            const normalizedId = String(photoId ?? '').replace(/^photo_/, '');
+            const matchingMedia = media.find(item => String(item.id).replace(/^photo_/, '') === normalizedId)
+              || media[slide.photo_indices?.[0] ?? i];
+            // StoryEditorView resolves photo ids through this endpoint. Reuse that
+            // path so the final preview does not depend on a stale picker URL.
+            const imageUrl = photoId
+              ? `/photos/${encodeURIComponent(normalizedId)}/file?size=medium`
+              : (matchingMedia?.url || matchingMedia?.thumbnail_url || '');
+            return `
             <div class="pp-story-slide ${i === 0 ? 'active' : ''}" data-slide="${i}" style="background: ${designs[i]?.background?.color || '#000'}">
-              ${designs[i]?.background?.type === 'photo' && media[i] ? `<img src="${media[i].url || media[i].thumbnail_url || ''}" alt="Slide ${i+1}">` : ''}
+              ${imageUrl ? `<img src="${this._esc(imageUrl)}" alt="Story ${i + 1}">` : ''}
               ${designs[i]?.elements?.map(el => this._renderStoryElement(el)).join('') || ''}
             </div>
-          `).join('') : media.map((m, i) => `
+          `;
+          }).join('') : media.map((m, i) => `
             <div class="pp-story-slide ${i === 0 ? 'active' : ''}" data-slide="${i}">
               <img src="${m.url || m.thumbnail_url || ''}" alt="Story ${i+1}">
             </div>
@@ -212,7 +226,8 @@ export class PublisherPreview {
   _renderStoryElement(el) {
     // StoryEditorView stocke les positions en pixels sur une toile 1080×1920.
     // Le preview doit convertir ces coordonnées dans le viewport affiché.
-    const position = `left:${(Number(el.x) / 1080) * 100}%;top:${(Number(el.y) / 1920) * 100}%;`;
+    const x = Math.max(0, Math.min(90, (Number(el.x) / 1080) * 100));
+    const position = `left:${x}%;top:${Math.max(0, Math.min(96, (Number(el.y) / 1920) * 100))}%;max-width:${100 - x - 2}%;`;
     if (el.type === 'text') {
       return `<div class="pp-story-text" style="${position}font-size:${(Number(el.size) / 1080) * 100}cqw;color:${el.color};font-weight:${el.bold?'bold':'normal'};text-align:${el.align};${el.shadow?'text-shadow:0 2px 4px rgba(0,0,0,0.5)':''}">${this._esc(el.text)}</div>`;
     }

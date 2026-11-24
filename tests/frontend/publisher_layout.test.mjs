@@ -31,6 +31,11 @@ assert.match(css, /\.pmp-check\[hidden\][\s\S]*?\.pmp-order\[hidden\]\s*\{\s*dis
 assert.match(css, /\.ppe-crop-panel\s*\{[^}]*position:\s*fixed;/s);
 assert.match(css, /@media\s*\(min-width:\s*768px\)\s*\{\s*\.ppe-crop-panel\s*\{[^}]*left:\s*50%;[^}]*transform:\s*translate\(-50%,\s*-50%\);/s);
 assert.match(css, /@media\s*\(hover:\s*none\),\s*\(pointer:\s*coarse\)\s*\{\s*\.ppe-media-actions\s*\{\s*opacity:\s*1;/s);
-assert.match(indexHtml, /publisher\.css\?v=2/);
+assert.match(css, /\.publisher-media-picker\s*\{[^}]*left:\s*var\(--sidebar-width,\s*260px\);/s);
+assert.match(css, /\.pmp-preview-stage\s*\{[^}]*aspect-ratio:\s*4\s*\/\s*5;/s);
+assert.match(css, /\.publisher-media-picker--story \.pmp-preview-stage,[\s\S]*?aspect-ratio:\s*9\s*\/\s*16;/);
+assert.match(css, /\.ppe-media-item\s*\{[^}]*aspect-ratio:\s*4\s*\/\s*5;/s);
+assert.match(css, /\.publisher-post-editor--story \.ppe-media-item[\s\S]*?aspect-ratio:\s*9\s*\/\s*16;/);
+assert.match(indexHtml, /publisher\.css\?v=4/);
 
 console.log('Styles du sélecteur/ajustement et formats de recadrage OK.');

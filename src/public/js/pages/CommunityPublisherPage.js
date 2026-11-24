@@ -12,7 +12,7 @@
  */
 
 import { publisherStore } from '../stores/publisherStore.js';
-import { publisherDraftService } from '../services/publisherDraftService.js';
+import { publisherDraftService } from '../services/publisherDraftService.js?v=2';
 import { createPublisherMediaPicker } from '../components/PublisherMediaPicker.js';
 import { createPublisherCaptionEditor } from '../components/PublisherCaptionEditor.js';
 import { createPublisherPreview } from '../components/PublisherPreview.js?v=3';
@@ -177,7 +177,10 @@ export class CommunityPublisherPage {
 
   async _loadExistingPublication(publicationId) {
     try {
-      await publisherDraftService.load(publicationId);
+      await publisherDraftService.load(
+        publicationId,
+        this.format === 'story' ? 'story' : null,
+      );
       // Le service met à jour le store
       // Rafraîchir le media picker si on est sur l'étape media
       if (this.currentStep === 'media' && this.mediaPicker) {

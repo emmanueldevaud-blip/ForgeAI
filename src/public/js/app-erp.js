@@ -25,7 +25,7 @@ import { createProfilePage } from './pages/ProfilePage.js?v=2';
 import { createSettingsPage } from './pages/UserSettingsPage.js?v=19';
 import { createCommunityManagerCalendarPage } from './pages/CommunityManagerCalendarPage.js?v=10';
 import { createAnalyticsIntelligencePage } from './pages/AnalyticsIntelligencePage.js?v=2';
-import { createCommunityPublisherPage } from './pages/CommunityPublisherPage.js?v=3';
+import { createCommunityPublisherPage } from './pages/CommunityPublisherPage.js?v=4';
 import { createCleaningVolunteersPage } from './pages/CleaningVolunteersPage.js?v=5';
 import { createAdministrativeProgramsPage } from './pages/AdministrativeProgramsPage.js';
 import { createSportDashboardPage } from './pages/SportDashboardPage.js?v=5';

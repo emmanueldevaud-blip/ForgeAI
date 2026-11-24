@@ -43,6 +43,7 @@ export class PublisherDraftService {
   constructor() {
     this.currentDraftType = null; // 'studio' | 'story'
     this.currentDraftId = null;
+    this.currentFormatOverride = null;
   }
 
   // ========== Création ==========
@@ -60,6 +61,7 @@ export class PublisherDraftService {
       if (!res?.publication_id) throw new Error(res?.detail || 'Création impossible');
       this.currentDraftType = 'studio';
       this.currentDraftId = res.publication_id;
+      this.currentFormatOverride = format;
       // Sync avec le store local (post | carousel | reel | story)
       publisherStore.resetDraft(format, calendarEntryId);
       return await this.load(res.publication_id);
@@ -81,6 +83,7 @@ export class PublisherDraftService {
       if (!res?.id) throw new Error(res?.detail || 'Création Story impossible');
       this.currentDraftType = 'story';
       this.currentDraftId = res.id;
+      this.currentFormatOverride = null;
       publisherStore.resetDraft('story', calendarEntryId);
       return await this.loadStory(res.id);
     } catch (error) {
@@ -96,22 +99,28 @@ export class PublisherDraftService {
     publisherStore.resetDraft(format);
     this.currentDraftType = format === 'story' ? 'story' : 'studio';
     this.currentDraftId = null;
+    this.currentFormatOverride = null;
     return publisherStore.getState().draft;
   }
 
   // ========== Chargement ==========
 
-  async load(draftId) {
+  async load(draftId, formatOverride = null) {
+    if (this.currentDraftId !== draftId) this.currentFormatOverride = null;
+    if (['post', 'carousel', 'reel', 'story'].includes(formatOverride)) {
+      this.currentFormatOverride = formatOverride;
+    }
     this.currentDraftType = 'studio';
     this.currentDraftId = draftId;
     const pub = await getStudioDraft(draftId);
-    this._syncStoreFromStudio(pub);
+    this._syncStoreFromStudio(pub, this.currentFormatOverride);
     return publisherStore.getState().draft;
   }
 
   async loadStory(draftId) {
     this.currentDraftType = 'story';
     this.currentDraftId = draftId;
+    this.currentFormatOverride = null;
     const draft = await getStoryDraft(draftId);
     this._syncStoreFromStory(draft);
     return publisherStore.getState().draft;
@@ -119,7 +128,7 @@ export class PublisherDraftService {
 
   // ========== Synchronisation Store ↔ API ==========
 
-  _syncStoreFromStudio(pub) {
+  _syncStoreFromStudio(pub, formatOverride = null) {
     const design = pub?.design || {};
     const media = [];
     if (design.carousel && design.carousel.length) {
@@ -144,12 +153,18 @@ export class PublisherDraftService {
       });
     }
 
+    const detectedFormat = pub.content_type === 'reel' || pub.visual_type === 'reel'
+      ? 'reel'
+      : (pub.visual_type === 'story'
+        ? 'story'
+        : (pub.visual_type === 'carousel' ? 'carousel' : 'post'));
+
     publisherStore.draft = {
       ...publisherStore.draft,
       id: pub.id,
-      format: pub.content_type === 'reel' || pub.visual_type === 'reel'
-        ? 'reel'
-        : (pub.visual_type === 'carousel' ? 'carousel' : 'post'),
+      format: ['post', 'carousel', 'reel', 'story'].includes(formatOverride)
+        ? formatOverride
+        : detectedFormat,
       media,
       design: design,
       caption: {
@@ -373,6 +388,7 @@ export class PublisherDraftService {
   clearCurrent() {
     this.currentDraftType = null;
     this.currentDraftId = null;
+    this.currentFormatOverride = null;
   }
 }
 

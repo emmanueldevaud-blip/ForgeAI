@@ -4,7 +4,7 @@
  */
 
 import { publisherStore } from '../stores/publisherStore.js';
-import { publisherDraftService } from '../services/publisherDraftService.js';
+import { publisherDraftService } from '../services/publisherDraftService.js?v=2';
 
 export class PublisherPreview {
   constructor(options = {}) {

@@ -1136,7 +1136,7 @@
   overflow-y: auto;
   z-index: 100;
   box-shadow: 0 -4px 20px rgba(0,0,0,0.3);
-  animation: slideUp 0.3s ease;
+  animation: publisherBottomSheetEnter 0.3s ease;
 }
 
 .pce-ai-header {
@@ -1990,7 +1990,12 @@
   overflow-y: auto;
   z-index: 100;
   box-shadow: 0 -4px 20px rgba(0,0,0,0.3);
-  animation: slideUp 0.3s ease;
+  animation: publisherBottomSheetEnter 0.3s ease;
+}
+
+@keyframes publisherBottomSheetEnter {
+  from { opacity: 0; transform: translateY(20px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 
 @media (min-width: 768px) {
@@ -2004,8 +2009,14 @@
     border: 1px solid var(--publisher-border);
     border-radius: 16px;
     transform: translate(-50%, -50%);
+    animation-name: publisherCenteredModalEnter;
     box-shadow: 0 16px 48px rgba(0,0,0,0.55);
   }
+}
+
+@keyframes publisherCenteredModalEnter {
+  from { opacity: 0; transform: translate(-50%, calc(-50% + 20px)); }
+  to { opacity: 1; transform: translate(-50%, -50%); }
 }
 
 .ppe-crop-header {

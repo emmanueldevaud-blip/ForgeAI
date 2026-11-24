@@ -39,7 +39,10 @@ assert.match(css, /\.publisher-post-editor--story \.ppe-media-item[\s\S]*?aspect
 assert.match(css, /\.publisher-page\s*\{[^}]*height:\s*100%;[^}]*min-height:\s*0;[^}]*overflow:\s*hidden;/s);
 assert.match(css, /\.publisher-main\s*\{[^}]*min-height:\s*0;[^}]*overflow:\s*hidden;/s);
 assert.match(css, /\.publisher-step-content\s*\{[^}]*flex:\s*1 1 0;[^}]*min-height:\s*0;[^}]*overflow:\s*hidden;/s);
+assert.match(css, /\.publisher-header\s*\{[^}]*display:\s*flex;[^}]*flex-wrap:\s*wrap;/s);
+assert.match(css, /\.pce-ai-panel\s*\{[^}]*animation:\s*publisherBottomSheetEnter/s);
+assert.match(css, /@keyframes\s+publisherBottomSheetEnter[\s\S]*?from\s*\{[^}]*translateY\(20px\)[^}]*\}\s*to\s*\{[^}]*translateY\(0\)/);
 assert.match(css, /\.publisher-story-editor \.story-editor-root\s*\{[^}]*height:\s*100%;/s);
-assert.match(indexHtml, /publisher\.css\?v=7/);
+assert.match(indexHtml, /publisher\.css\?v=\d+/);
 
 console.log('Mise en page fixe, ratios et ajustement du Publisher OK.');

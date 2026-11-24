@@ -2973,6 +2973,13 @@
   flex-shrink: 0;
 }
 
+.calendar-create-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--spacing-2);
+  align-items: center;
+}
+
 .page-filters {
   display: flex;
   flex-wrap: wrap;

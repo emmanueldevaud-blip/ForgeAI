@@ -216,7 +216,7 @@ export class CommunityManagerCalendarPage {
     }
   }
 
-  _openPublisher({ entryId = null, draftId = null, pubId = null, format = 'post', garminActivityId = null } = {}) {
+  _openPublisher({ entryId = null, draftId = null, pubId = null, format = 'post', garminActivityId = null, freshDraft = false } = {}) {
     if (draftId) {
       // Ouvre un brouillon Story existant
       this.showStoryStudio = true;
@@ -263,6 +263,7 @@ export class CommunityManagerCalendarPage {
       entryId,
       format,
       garminActivityId,
+      freshDraft,
       onBack: () => {
         this.showPublisher = false;
         this.publisherPage?.destroy();
@@ -396,6 +397,12 @@ export class CommunityManagerCalendarPage {
           <p class="page-subtitle">Publications sportives et suggestions de stories</p>
         </div>
         <div class="page-header-right">
+          <div class="calendar-create-actions" aria-label="Créer une publication">
+            <button class="btn btn-primary btn-sm" data-action="create-format" data-format="post">＋ Publication</button>
+            <button class="btn btn-secondary btn-sm" data-action="create-format" data-format="carousel">＋ Carrousel</button>
+            <button class="btn btn-secondary btn-sm" data-action="create-format" data-format="reel">＋ Reel</button>
+            <button class="btn btn-secondary btn-sm" data-action="create-format" data-format="story">＋ Story</button>
+          </div>
           ${this.canGenerate ? `<button class="btn btn-secondary" data-action="generate-suggestions">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
@@ -567,6 +574,7 @@ export class CommunityManagerCalendarPage {
         else if (action === 'next') { this.view === 'month' ? this._nextMonth() : this._nextWeek(); }
         else if (action === 'today') { this._todayBtn(); }
         else if (action === 'generate-suggestions') { this._generateSuggestions(); }
+        else if (action === 'create-format') { this._openPublisher({ format: btn.dataset.format, freshDraft: true }); }
       });
     });
 

@@ -203,6 +203,7 @@ class MetaPublishService:
         mime_type: Optional[str] = None,
         publication_id: Optional[int] = None,
         audio_configuration: Optional[dict] = None,
+        is_story: bool = False,
     ) -> str:
         """Crée un conteneur média sur Instagram (étape 1 de la publication).
 
@@ -231,13 +232,16 @@ class MetaPublishService:
             raise MetaPublishError("Aucun compte Instagram Business associé")
 
         url = f"{self._base_url}/{ig_account_id}/media"
-        params = {
-            "access_token": token,
-            "caption": caption,
-        }
+        params = {"access_token": token}
+        if not is_story:
+            params["caption"] = caption
 
         # Construction du payload selon le type de média
-        if is_reel:
+        if is_story:
+            params["media_type"] = "STORIES"
+            params["video_url" if is_video else "image_url"] = image_url
+            media_type_param = "STORIES"
+        elif is_reel:
             # Reels nécessitent media_type=REELS (pas VIDEO)
             params["media_type"] = "REELS"
             params["video_url"] = image_url
@@ -452,6 +456,26 @@ class MetaPublishService:
         )
         media_id = await self.publish_media_container(connection, container_id)
         return media_id
+
+    async def publish_story(
+        self,
+        connection,
+        media_url: str,
+        mime_type: Optional[str] = None,
+        is_video: bool = False,
+        publication_id: Optional[int] = None,
+    ) -> str:
+        """Publie une image ou vidéo comme Story Instagram."""
+        container_id = await self.create_media_container(
+            connection,
+            media_url,
+            "",
+            is_video=is_video,
+            mime_type=mime_type,
+            publication_id=publication_id,
+            is_story=True,
+        )
+        return await self.publish_media_container(connection, container_id)
 
     async def get_media_permalink(self, connection, media_id: str) -> Optional[str]:
         """Récupère le permalink d'un média publié."""

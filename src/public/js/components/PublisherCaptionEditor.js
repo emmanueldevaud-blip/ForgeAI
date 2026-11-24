@@ -89,6 +89,9 @@ export class PublisherCaptionEditor {
         <div class="pce-field">
           <label for="pce-content">Contenu</label>
           <textarea id="pce-content" name="content" rows="4" placeholder="Racontez votre histoire…">${this._esc(draft.caption.content)}</textarea>
+          <div class="pce-emoji-picker" aria-label="Ajouter un emoji">
+            ${['😀', '😍', '😂', '🥹', '🔥', '❤️', '👏', '🙌', '✨', '🎉', '💪', '🏃', '🌍', '☀️', '⛰️', '📍'].map(emoji => `<button type="button" data-emoji="${emoji}" aria-label="Ajouter ${emoji}">${emoji}</button>`).join('')}
+          </div>
         </div>
 
         <div class="pce-field">
@@ -169,6 +172,9 @@ export class PublisherCaptionEditor {
     [titleInput, contentInput, hashtagsInput].forEach(input => {
       input.addEventListener('input', () => this._updateCounter());
     });
+    this.element.querySelectorAll('[data-emoji]').forEach((button) => {
+      button.addEventListener('click', () => this._insertEmoji(button.dataset.emoji));
+    });
 
     // IA Panel
     this.element.querySelector('[data-action="ai-toggle"]').addEventListener('click', () => this._toggleAIPanel());
@@ -191,6 +197,18 @@ export class PublisherCaptionEditor {
 
   _getFullCaption(caption) {
     return [caption.title, caption.content, caption.hashtags].filter(Boolean).join('\n\n');
+  }
+
+  _insertEmoji(emoji) {
+    const input = this.element.querySelector('[name="content"]');
+    if (!input) return;
+    const start = input.selectionStart ?? input.value.length;
+    const end = input.selectionEnd ?? start;
+    input.value = `${input.value.slice(0, start)}${emoji}${input.value.slice(end)}`;
+    input.focus();
+    input.setSelectionRange(start + emoji.length, start + emoji.length);
+    publisherStore.updateCaption('content', input.value);
+    this._updateCounter();
   }
 
   _updateCounter() {
@@ -280,6 +298,7 @@ export class PublisherCaptionEditor {
         const res = await getMetaInstagramAccount();
         const account = res?.data?.platform ? res.data : res;
         this.instagramAccounts = account?.platform ? [account] : [];
+        this._syncAccountPresentation(account);
       } catch (e) {
         console.error('[PublisherCaptionEditor] Erreur chargement compte Instagram:', e);
         this.instagramAccounts = [];
@@ -298,12 +317,20 @@ export class PublisherCaptionEditor {
       const res = await getMetaInstagramAccount();
       const account = res?.data?.platform ? res.data : res;
       this.instagramAccounts = account?.platform ? [account] : [];
+      this._syncAccountPresentation(account);
       this._updateAccountUI();
     } catch (e) {
       console.error('[PublisherCaptionEditor] Erreur chargement compte Instagram:', e);
       this.instagramAccounts = [];
       this._updateAccountUI();
     }
+  }
+
+  _syncAccountPresentation(account) {
+    const username = account?.username || account?.account_name;
+    if (!username || publisherStore.draft.caption.accountUsername === username) return;
+    publisherStore.draft.caption.accountUsername = username;
+    publisherStore._notify();
   }
 
   _updateAccountUI() {
@@ -362,7 +389,10 @@ export class PublisherCaptionEditor {
 
   _confirmAccountSelection() {
     if (!this.instagramSelectedIds.length) return;
-    publisherStore.updateCaption('accountId', this.instagramSelectedIds[0]);
+    const accountId = this.instagramSelectedIds[0];
+    publisherStore.updateCaption('accountId', accountId);
+    const account = this.instagramAccounts.find(item => String(item.platform_account_id || item.username) === String(accountId));
+    this._syncAccountPresentation(account);
     const panel = this.element.querySelector('[data-account-panel]');
     if (panel) panel.hidden = true;
   }

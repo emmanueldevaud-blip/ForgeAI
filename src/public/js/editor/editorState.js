@@ -90,7 +90,12 @@ export function normalizeDesign(raw) {
       width: Number(raw.format.width) || base.format.width,
       height: Number(raw.format.height) || base.format.height,
     },
-    background: { color: raw.background?.color || '#111111' },
+    background: {
+      color: raw.background?.color || '#111111',
+      ...(raw.background?.type === 'photo' && raw.background.photo_id
+        ? { type: 'photo', photo_id: raw.background.photo_id, ...(raw.background.crop ? { crop: { ...raw.background.crop } } : {}) }
+        : {}),
+    },
     elements: Array.isArray(raw.elements)
       ? raw.elements.filter((e) => e && e.id && e.type).map((e) => ({ ...e }))
       : [],
@@ -300,7 +305,7 @@ export class EditorState {
 
   setBackground(color) {
     this._auto(() => {
-      this.design.background = { color };
+      this.design.background = { ...this.design.background, color };
     });
   }
 

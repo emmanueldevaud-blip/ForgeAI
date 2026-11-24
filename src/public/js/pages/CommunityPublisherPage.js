@@ -83,6 +83,7 @@ export class CommunityPublisherPage {
     this.format = FORMAT_CONFIG[options.format] ? options.format : 'post';
     this.garminActivityId = options.garminActivityId || null;
     this.preselectedMedia = options.preselectedMedia || [];
+    this.freshDraft = !!options.freshDraft;
     this.onBack = options.onBack || null;
     this.isExistingPublication = options.isExistingPublication || false;
 
@@ -110,6 +111,8 @@ export class CommunityPublisherPage {
       await this._loadFromCalendarEntry();
     } else if (this.garminActivityId) {
       await this._loadFromGarmin();
+    } else if (this.freshDraft) {
+      await publisherDraftService.createBlank(this.format);
     } else {
       this._restoreOrResetDraft();
     }
@@ -364,6 +367,7 @@ export class CommunityPublisherPage {
     }
     const config = this._config();
     this.mediaPicker = createPublisherMediaPicker({
+      format: this.format,
       multiSelect: true,
       maxSelection: config.maxMedia,
       minSelection: config.minMedia,

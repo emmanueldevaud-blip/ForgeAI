@@ -136,6 +136,16 @@ console.log('editorState');
   // normalize
   const n = normalizeDesign({ format: { type: 'ig_feed_11' }, elements: null });
   check('normalizeDesign répare', n && n.format.width === 1080 && Array.isArray(n.elements) && n.elements.length === 0);
+  const storyPhotoDesign = normalizeDesign({
+    version: 2,
+    format: { type: 'story_916', platform: 'instagram', width: 1080, height: 1920 },
+    background: { color: '#111111', type: 'photo', photo_id: 17, crop: { x: 0.1, y: 0.2, w: 0.7, h: 0.8 } },
+    elements: [],
+  });
+  check(
+    'normalizeDesign conserve la photo de fond et son recadrage Story',
+    storyPhotoDesign.background.photo_id === 17 && storyPhotoDesign.background.crop.x === 0.1
+  );
   check('normalizeDesign rejette le vide', normalizeDesign(null) === null && normalizeDesign({}) === null);
 
   check('FORMATS contient IG et FB', FORMATS.some((f) => f.platform === 'instagram') && FORMATS.some((f) => f.platform === 'facebook'));

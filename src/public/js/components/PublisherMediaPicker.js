@@ -25,6 +25,7 @@ export class PublisherMediaPicker {
     this.maxSelection = options.maxSelection || 10;
     this.minSelection = options.minSelection || 1;
     this.allowedTypes = options.allowedTypes || ['photo', 'video'];
+    this.format = options.format || 'post';
     this.element = null;
     this.view = 'library'; // 'library' | 'albums' | 'garmin' | 'upload'
     this.photos = [];
@@ -35,6 +36,7 @@ export class PublisherMediaPicker {
     this.searchQuery = '';
     this.garminActivities = [];
     this.selectedIds = new Set();
+    this.previewMediaId = null;
     this.dragItem = null;
     this.uploadQueue = [];
     this._unsubscribeStore = null;
@@ -42,7 +44,7 @@ export class PublisherMediaPicker {
 
   mount(host) {
     this.element = document.createElement('div');
-    this.element.className = 'publisher-media-picker';
+    this.element.className = `publisher-media-picker publisher-media-picker--${this.format}`;
     this.element.innerHTML = this._render();
     host.appendChild(this.element);
 
@@ -70,7 +72,7 @@ export class PublisherMediaPicker {
           </svg>
         </button>
         <div class="pmp-header-title">
-          <h2>Sélectionner des médias</h2>
+          <h2>Nouvelle publication</h2>
           <span class="pmp-counter" data-counter>0 / ${this.maxSelection}</span>
         </div>
         <button type="button" class="pmp-btn pmp-btn-primary" data-action="complete" disabled>
@@ -91,6 +93,10 @@ export class PublisherMediaPicker {
         <div class="pmp-panels">
           <!-- Bibliothèque Photos -->
           <div class="pmp-panel ${this.view === 'library' ? 'active' : ''}" role="tabpanel" data-panel="library">
+            <div class="pmp-preview" data-selection-preview hidden>
+              <div class="pmp-preview-stage" data-preview-stage></div>
+              <div class="pmp-preview-meta"><span data-preview-position></span><span>Appuyez pour sélectionner</span></div>
+            </div>
             <div class="pmp-search">
               <input type="search" class="form-control" placeholder="Rechercher…" data-search aria-label="Rechercher dans la bibliothèque">
               <button type="button" class="pmp-btn pmp-btn-filter" data-action="filter-date" title="Filtrer par date" aria-label="Filtrer par date">
@@ -516,10 +522,15 @@ export class PublisherMediaPicker {
 
     if (bar) bar.hidden = count === 0;
     if (!preview) return;
-    if (count === 0) { preview.innerHTML = ''; return; }
+    if (count === 0) {
+      preview.innerHTML = '';
+      this.previewMediaId = null;
+      this._renderActivePreview();
+      return;
+    }
 
     preview.innerHTML = publisherStore.draft.media.map((media, idx) => `
-      <div class="pmp-selected-item" data-media-id="${String(media.id)}" draggable="true">
+      <div class="pmp-selected-item" data-media-id="${String(media.id)}" data-preview-media="${String(media.id)}" draggable="true" role="button" tabindex="0" aria-label="Prévisualiser la photo ${idx + 1}">
         <img src="${media.thumbnail_url || media.url}" alt="">
         <span class="pmp-selected-index">${idx + 1}</span>
         <button type="button" class="pmp-selected-remove" data-remove="${String(media.id)}" aria-label="Retirer">
@@ -528,12 +539,50 @@ export class PublisherMediaPicker {
       </div>
     `).join('');
 
+    if (!publisherStore.draft.media.some(media => String(media.id) === String(this.previewMediaId))) {
+      this.previewMediaId = publisherStore.draft.media[0] ? String(publisherStore.draft.media[0].id) : null;
+    }
+    this._renderActivePreview();
+
     // Bind remove buttons
     preview.querySelectorAll('[data-remove]').forEach(btn => {
       btn.addEventListener('click', (e) => {
         e.stopPropagation();
         this._removeSelectedMedia(btn.dataset.remove);
       });
+    });
+    preview.querySelectorAll('[data-preview-media]').forEach((item) => {
+      const activate = (event) => {
+        if (event.target.closest('[data-remove]')) return;
+        this.previewMediaId = String(item.dataset.previewMedia);
+        this._renderActivePreview();
+      };
+      item.addEventListener('click', activate);
+      item.addEventListener('keydown', (event) => {
+        if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); activate(event); }
+      });
+    });
+  }
+
+  _renderActivePreview() {
+    const selected = publisherStore.draft.media || [];
+    const preview = this.element?.querySelector('[data-selection-preview]');
+    const stage = this.element?.querySelector('[data-preview-stage]');
+    const position = this.element?.querySelector('[data-preview-position]');
+    if (!preview || !stage) return;
+    preview.hidden = selected.length === 0;
+    if (!selected.length) { stage.innerHTML = ''; return; }
+    const index = selected.findIndex(media => String(media.id) === String(this.previewMediaId));
+    const media = selected[Math.max(index, 0)];
+    this.previewMediaId = String(media.id);
+    stage.innerHTML = `
+      <img class="pmp-preview-img" src="${this._esc(media.url || media.thumbnail_url || '')}" alt="Aperçu de la publication">
+      <button type="button" class="pmp-preview-remove" data-preview-remove aria-label="Retirer ce média">×</button>
+      ${media.type === 'video' ? '<span class="pmp-video-badge">Vidéo</span>' : ''}`;
+    stage.querySelector('[data-preview-remove]').addEventListener('click', () => this._removeSelectedMedia(media.id));
+    if (position) position.textContent = `${index + 1} / ${selected.length} · ${this.format === 'story' || this.format === 'reel' ? '9:16' : '4:5'}`;
+    this.element.querySelectorAll('[data-preview-media]').forEach((item) => {
+      item.classList.toggle('active', String(item.dataset.previewMedia) === this.previewMediaId);
     });
   }
 

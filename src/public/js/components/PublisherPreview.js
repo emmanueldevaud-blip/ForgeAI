@@ -55,6 +55,7 @@ export class PublisherPreview {
     const media = this.draft.media;
     const isCarousel = media.length > 1;
     const caption = this.draft.caption;
+    const accountName = this.draft.caption.accountUsername || 'Votre compte';
 
     return `
       <div class="pp-post">
@@ -62,7 +63,7 @@ export class PublisherPreview {
           <div class="pp-post-user">
             <div class="pp-avatar"></div>
             <div class="pp-user-info">
-              <strong>Votre compte</strong>
+              <strong>${this._esc(accountName)}</strong>
               <span>À l'instant</span>
             </div>
             <button type="button" class="pp-more">⋮</button>
@@ -72,7 +73,7 @@ export class PublisherPreview {
             ${isCarousel ? `
               <div class="pp-carousel" data-carousel>
                 ${media.map((m, i) => `
-                  <div class="pp-carousel-slide ${i === this.carouselIndex ? 'active' : ''}" style="background-image: url('${m.thumbnail_url || m.url || ''}')" aria-label="Photo ${i + 1} sur ${media.length}">
+                  <div class="pp-carousel-slide ${i === this.carouselIndex ? 'active' : ''}" style="background-image: url('${m.url || m.thumbnail_url || ''}')" aria-label="Photo ${i + 1} sur ${media.length}">
                     ${m.type === 'video' ? '<span class="pp-video-badge">▶</span>' : ''}
                   </div>
                 `).join('')}
@@ -84,7 +85,7 @@ export class PublisherPreview {
                 ${media.map((_, i) => `<button type="button" class="${i === this.carouselIndex ? 'active' : ''}" data-carousel-index="${i}" aria-label="Afficher la photo ${i + 1}"></button>`).join('')}
               </div>
             ` : `
-              <div class="pp-single-media" style="background-image: url('${media[0]?.thumbnail_url || media[0]?.url || ''}')">
+              <div class="pp-single-media" style="background-image: url('${media[0]?.url || media[0]?.thumbnail_url || ''}')">
                 ${media[0]?.type === 'video' ? '<span class="pp-video-badge">▶</span>' : ''}
                 ${media[0] ? '' : '<span class="pp-media-placeholder">Aucune photo sélectionnée</span>'}
               </div>
@@ -116,6 +117,7 @@ export class PublisherPreview {
     const media = this.draft.media;
     const firstMedia = media[0];
     const caption = this.draft.caption;
+    const accountName = this.draft.caption.accountUsername || 'Votre compte';
     const igAudio = this.draft.design?.ig_audio || {};
     const musicName = this.draft.music?.title || this.draft.music?.track?.title
       || igAudio.title || igAudio.name || this.draft.music?.trackId;
@@ -126,7 +128,7 @@ export class PublisherPreview {
           <div class="pp-reel-user">
             <div class="pp-avatar"></div>
             <div class="pp-user-info">
-              <strong>Votre compte</strong>
+              <strong>${this._esc(accountName)}</strong>
               <span>Reel · À l'instant</span>
             </div>
           </div>
@@ -134,11 +136,17 @@ export class PublisherPreview {
           <div class="pp-reel-player" data-reel-player>
             ${firstMedia ? `
               ${firstMedia.type === 'video'
-                ? `<video class="pp-reel-video" playsinline controls preload="metadata" poster="${firstMedia.thumbnail_url || ''}"><source src="${firstMedia.url}" type="video/mp4"></video>`
-                : `<img class="pp-reel-poster" src="${firstMedia.thumbnail_url || firstMedia.url || ''}" alt="Aperçu du Reel">`}
+                ? `<video class="pp-reel-video" playsinline muted loop preload="metadata" poster="${firstMedia.thumbnail_url || ''}"><source src="${firstMedia.url}" type="video/mp4"></video>`
+                : `<img class="pp-reel-poster" src="${firstMedia.url || firstMedia.thumbnail_url || ''}" alt="Aperçu du Reel">`}
             ` : '<div class="pp-reel-placeholder">Aucun média</div>'}
             <div class="pp-reel-design" aria-label="Texte et stickers du Reel">
               ${(this.draft.design?.elements || []).map(el => this._renderStudioElement(el)).join('')}
+            </div>
+            ${firstMedia?.type === 'video' ? '<button type="button" class="pp-reel-play" data-action="play-pause" aria-label="Lire la vidéo">▶</button>' : ''}
+            <div class="pp-reel-caption">
+              ${caption.title ? `<strong>${this._esc(caption.title)}</strong>` : ''}
+              ${caption.content ? `<span>${this._esc(caption.content)}</span>` : ''}
+              ${caption.hashtags ? `<div class="pp-hashtags">${this._esc(caption.hashtags)}</div>` : ''}
             </div>
           </div>
 
@@ -155,11 +163,6 @@ export class PublisherPreview {
           </div>
         </div>
 
-        <div class="pp-reel-caption">
-          ${caption.title ? `<strong>${this._esc(caption.title)}</strong>` : ''}
-          ${caption.content ? `<span>${this._esc(caption.content)}</span>` : ''}
-          ${caption.hashtags ? `<div class="pp-hashtags">${this._esc(caption.hashtags)}</div>` : ''}
-        </div>
       </div>
     `;
   }
@@ -168,12 +171,19 @@ export class PublisherPreview {
     const slides = this.draft.design?.slides || [];
     const designs = this.draft.design?.designDocuments || [];
     const media = this.draft.media;
+    const accountName = this.draft.caption.accountUsername || 'Votre compte';
 
     return `
       <div class="pp-story">
+        <div class="pp-story-progress" data-story-progress>
+          ${(slides.length || media.length) > 0 ? Array.from({ length: slides.length || media.length }, (_, i) => `<span class="${i === 0 ? 'active' : ''}"></span>`).join('') : ''}
+        </div>
         <div class="pp-story-header">
-          <button type="button" class="pp-btn pp-btn-back" data-action="back">✕</button>
-          <span class="pp-story-title">Aperçu Story (${slides.length || media.length} slide${slides.length > 1 ? 's' : ''})</span>
+          <div class="pp-story-user">
+            <div class="pp-avatar"></div>
+            <div class="pp-user-info"><strong>${this._esc(accountName)}</strong><span>À l’instant</span></div>
+          </div>
+          <button type="button" class="pp-story-close" data-action="back" aria-label="Fermer l’aperçu">×</button>
           <span class="pp-story-nav">
             <button type="button" class="pp-nav-btn" data-nav="prev" disabled>‹</button>
             <span class="pp-slide-indicator">1 / ${slides.length || media.length}</span>
@@ -184,21 +194,17 @@ export class PublisherPreview {
         <div class="pp-story-viewport" data-story-viewport>
           ${(slides.length || media.length) > 0 ? (slides.length > 0 ? slides.map((slide, i) => `
             <div class="pp-story-slide ${i === 0 ? 'active' : ''}" data-slide="${i}" style="background: ${designs[i]?.background?.color || '#000'}">
-              ${designs[i]?.background?.type === 'photo' && media[i] ? `<img src="${media[i].thumbnail_url || media[i].url || ''}" alt="Slide ${i+1}">` : ''}
+              ${designs[i]?.background?.type === 'photo' && media[i] ? `<img src="${media[i].url || media[i].thumbnail_url || ''}" alt="Slide ${i+1}">` : ''}
               ${designs[i]?.elements?.map(el => this._renderStoryElement(el)).join('') || ''}
             </div>
           `).join('') : media.map((m, i) => `
             <div class="pp-story-slide ${i === 0 ? 'active' : ''}" data-slide="${i}">
-              <img src="${m.thumbnail_url || m.url || ''}" alt="Story ${i+1}">
+              <img src="${m.url || m.thumbnail_url || ''}" alt="Story ${i+1}">
             </div>
           `).join('')) : '<div class="pp-story-empty">Aucun contenu</div>'}
         </div>
 
-        <div class="pp-story-footer">
-          <div class="pp-story-progress">
-            ${(slides.length || media.length) > 0 ? Array.from({ length: slides.length || media.length }, (_, i) => `<span class="${i === 0 ? 'active' : ''}"></span>`).join('') : ''}
-          </div>
-        </div>
+        <div class="pp-story-reply"><span>Répondre à ${this._esc(accountName)}…</span><span>♡</span></div>
       </div>
     `;
   }
@@ -243,6 +249,26 @@ export class PublisherPreview {
     const backBtn = this.element.querySelector('[data-action="back"]');
     if (backBtn) backBtn.addEventListener('click', () => this.onBack());
 
+    if (this.format === 'reel') {
+      const video = this.element.querySelector('.pp-reel-video');
+      const playButton = this.element.querySelector('[data-action="play-pause"]');
+      playButton?.addEventListener('click', async () => {
+        if (!video) return;
+        if (video.paused) {
+          try { await video.play(); } catch (_error) { return; }
+          playButton.textContent = 'Ⅱ';
+          playButton.setAttribute('aria-label', 'Mettre en pause');
+        } else {
+          video.pause();
+          playButton.textContent = '▶';
+          playButton.setAttribute('aria-label', 'Lire la vidéo');
+        }
+      });
+      video?.addEventListener('ended', () => {
+        if (playButton) { playButton.textContent = '▶'; playButton.setAttribute('aria-label', 'Lire la vidéo'); }
+      });
+    }
+
     // Story navigation
     if (this.format === 'story') {
       let currentSlide = 0;
@@ -257,6 +283,9 @@ export class PublisherPreview {
         if (indicator) indicator.textContent = `${currentSlide + 1} / ${slides.length}`;
         if (prevBtn) prevBtn.disabled = currentSlide === 0;
         if (nextBtn) nextBtn.disabled = currentSlide === slides.length - 1;
+        this.element.querySelectorAll('[data-story-progress] span').forEach((segment, i) => {
+          segment.classList.toggle('active', i <= currentSlide);
+        });
       };
 
       prevBtn?.addEventListener('click', () => updateSlide(currentSlide - 1));
@@ -345,7 +374,14 @@ export class PublisherPreview {
   }
 
   _updateReelCaption() {
-    this._updatePostCaption(); // Même logique pour la légende
+    const captionEl = this.element.querySelector('.pp-reel-caption');
+    if (!captionEl) return;
+    const caption = this.draft.caption;
+    captionEl.innerHTML = `
+      ${caption.title ? `<strong>${this._esc(caption.title)}</strong>` : ''}
+      ${caption.content ? `<span>${this._esc(caption.content)}</span>` : ''}
+      ${caption.hashtags ? `<div class="pp-hashtags">${this._esc(caption.hashtags)}</div>` : ''}
+    `;
   }
 
   _updateStoryCaption() {

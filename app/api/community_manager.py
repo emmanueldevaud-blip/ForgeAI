@@ -354,6 +354,16 @@ async def search_studio_music(
     return {"items": await search_ig_audio(service.db, query, limit=10)}
 
 
+@router.get("/instagram/music/search")
+async def search_instagram_music(
+    query: str = Query(..., min_length=2, max_length=80),
+    service: CommunityManagerStudioService = Depends(get_cm_studio_service),
+):
+    """Recherche le catalogue audio Instagram sans exiger un brouillon préalable."""
+    from app.services.community_manager.ig_music import search_ig_audio
+    return {"items": await search_ig_audio(service.db, query, limit=10)}
+
+
 @router.get("/studio/draft/{publication_id}/local-music")
 async def list_local_studio_music(
     publication_id: int,
@@ -1045,6 +1055,10 @@ async def validate_story_draft(
 
     if not draft.design_documents:
         raise HTTPException(status_code=422, detail="Aucune slide préparée")
+    if len(draft.slides or []) != len(draft.design_documents) or any(
+        not slide.get("published_photo_id") for slide in (draft.slides or [])
+    ):
+        raise HTTPException(status_code=422, detail="Exportez chaque slide depuis l'éditeur avant validation")
 
     draft.status = "awaiting_validation"
     draft.validated_at = datetime.now(timezone.utc)
@@ -1074,10 +1088,13 @@ async def publish_story_draft(
     if not draft.design_documents:
         raise HTTPException(status_code=422, detail="Aucune slide à publier")
 
-    # Vérifier les jobs de rendu terminés
-    incomplete = [j for j in (draft.render_jobs or []) if j.get("status") != "done"]
-    if incomplete:
-        raise HTTPException(status_code=422, detail=f"{len(incomplete)} slide(s) en cours de rendu")
+    slides = draft.slides or []
+    if len(slides) != len(draft.design_documents or []):
+        raise HTTPException(status_code=422, detail="Chaque Story doit avoir un design enregistré")
+    if any(not slide.get("published_photo_id") for slide in slides):
+        raise HTTPException(status_code=422, detail="Préparez et validez le rendu de chaque Story avant publication")
+    if not data.platforms or any(platform != "instagram" for platform in data.platforms):
+        raise HTTPException(status_code=422, detail="La publication Story est disponible sur Instagram uniquement")
 
     # Créer un job de publication pour chaque slide
     published_count = 0
@@ -1094,6 +1111,7 @@ async def publish_story_draft(
                 "kind": "story_slide_publish",
                 "draft_id": draft_id,
                 "slide_index": slide_index,
+                "photo_id": slide["published_photo_id"],
                 "design": design,
                 "caption": draft.caption,
                 "hashtags": draft.hashtags,

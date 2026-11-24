@@ -10,6 +10,7 @@ import { publisherStore } from '../stores/publisherStore.js';
 import { publisherDraftService } from '../services/publisherDraftService.js';
 import { createStudioEditorView } from '../editor/StudioEditorView.js?v=2';
 import { listPhotos, photoFileUrl, uploadPhotos } from '../services/photosApi.js?v=8';
+import { searchInstagramMusic } from '../services/sportApi.js?v=16';
 
 export class PublisherReelEditor {
   constructor(options = {}) {
@@ -18,16 +19,97 @@ export class PublisherReelEditor {
     this.element = null;
     this.editorView = null;
     this._unsubscribeStore = null;
+    this._musicItems = [];
   }
 
   mount(host) {
     this.element = document.createElement('div');
     this.element.className = 'publisher-reel-editor';
-    this.element.innerHTML = '<div class="pre-studio-host" data-studio-host></div>';
+    this.element.innerHTML = `
+      <div class="pre-music-tools">
+        <button type="button" class="pre-music-button" data-action="music-open">♫ Choisir une musique Instagram</button>
+        <span class="pre-music-selected" data-music-selected></span>
+      </div>
+      <section class="pre-music-panel" data-music-panel hidden aria-label="Catalogue de musiques Instagram">
+        <form class="pre-music-search" data-music-form>
+          <input type="search" minlength="2" maxlength="80" placeholder="Rechercher un titre ou un artiste" aria-label="Rechercher une musique">
+          <button type="submit">Rechercher</button>
+          <button type="button" data-action="music-close" aria-label="Fermer">✕</button>
+        </form>
+        <p class="pre-music-status" data-music-status></p>
+        <div class="pre-music-results" data-music-results></div>
+      </section>
+      <div class="pre-studio-host" data-studio-host></div>`;
     host.appendChild(this.element);
 
     this._subscribeStore();
+    this._bindMusicPicker();
+    this._syncMusicLabel();
     this._mountStudioEditor();
+  }
+
+  _bindMusicPicker() {
+    const panel = this.element.querySelector('[data-music-panel]');
+    const form = this.element.querySelector('[data-music-form]');
+    this.element.querySelector('[data-action="music-open"]').addEventListener('click', () => {
+      panel.hidden = !panel.hidden;
+      if (!panel.hidden) form.querySelector('input').focus();
+    });
+    this.element.querySelector('[data-action="music-close"]').addEventListener('click', () => { panel.hidden = true; });
+    form.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      const query = form.querySelector('input').value.trim();
+      if (query.length < 2) return;
+      const status = this.element.querySelector('[data-music-status]');
+      const results = this.element.querySelector('[data-music-results]');
+      status.textContent = 'Recherche…';
+      results.innerHTML = '';
+      try {
+        const response = await searchInstagramMusic(query);
+        this._musicItems = Array.isArray(response?.items) ? response.items : [];
+        status.textContent = this._musicItems.length ? `${this._musicItems.length} résultat(s)` : 'Aucune musique trouvée.';
+        results.innerHTML = this._musicItems.map((track, index) => `
+          <button type="button" class="pre-music-result" data-music-index="${index}">
+            <span class="pre-music-note">♫</span>
+            <span><strong>${this._esc(track.title || 'Titre inconnu')}</strong><small>${this._esc(track.display_artist || track.artist || 'Artiste inconnu')}</small></span>
+            <span aria-hidden="true">＋</span>
+          </button>`).join('');
+        results.querySelectorAll('[data-music-index]').forEach((button) => {
+          button.addEventListener('click', () => this._selectMusic(this._musicItems[Number(button.dataset.musicIndex)]));
+        });
+      } catch (error) {
+        status.textContent = error.message || 'Recherche de musique impossible.';
+      }
+    });
+  }
+
+  async _selectMusic(track) {
+    if (!track?.audio_id) return;
+    const igAudio = {
+      audio_id: String(track.audio_id),
+      title: track.title || '',
+      artist: track.display_artist || track.artist || '',
+      duration_in_ms: track.duration_in_ms || null,
+      start_time_ms: 0,
+    };
+    const design = { ...(publisherStore.draft.design || {}), ig_audio: igAudio };
+    try {
+      await this._updateDraft({ design });
+      this.element.querySelector('[data-music-panel]').hidden = true;
+      this._syncMusicLabel();
+    } catch (error) {
+      this.element.querySelector('[data-music-status]').textContent = error.message || 'Enregistrement impossible.';
+    }
+  }
+
+  _syncMusicLabel() {
+    const audio = publisherStore.draft.design?.ig_audio;
+    const label = this.element?.querySelector('[data-music-selected]');
+    if (label) label.textContent = audio?.title ? `${audio.title}${audio.artist ? ` · ${audio.artist}` : ''}` : '';
+  }
+
+  _esc(value) {
+    return String(value ?? '').replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
   }
 
   _subscribeStore() {

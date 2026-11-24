@@ -5,7 +5,7 @@
  * l'overlay de sélection (cadre + poignées) et produit l'export bitmap.
  */
 
-import { handlePoint, rotateHandlePoint, toGlobal, hitTest } from './editorGeometry.js?v=1';
+import { handlePoint, rotateHandlePoint, toGlobal, hitTest, coverCrop } from './editorGeometry.js?v=1';
 import { filterCss } from './editorState.js?v=1';
 
 const HANDLE_SCREEN = 9; // taille écran des poignées (px)
@@ -22,6 +22,8 @@ export class EditorCanvas {
     this._measureCanvas = null;
     this.images = new Map(); // src -> HTMLImageElement
     this.imageErrors = new Set();
+    this.backgroundImageSrc = null;
+    this.backgroundCrop = null;
     this.scale = 1;
     this.offsetX = 0;
     this.offsetY = 0;
@@ -54,12 +56,19 @@ export class EditorCanvas {
   }
 
   /** Précharge les images nécessaires au design puis rend. */
+  setBackgroundImage(src, crop = null) {
+    this.backgroundImageSrc = src || null;
+    this.backgroundCrop = crop || null;
+    return this.ensureImages();
+  }
+
   async ensureImages() {
     const d = this.state.design;
     const srcs = new Set();
     for (const el of d.elements) {
       if (el.type === 'image' && el.src) srcs.add(el.src);
     }
+    if (this.backgroundImageSrc) srcs.add(this.backgroundImageSrc);
     const jobs = [];
     for (const src of srcs) {
       if (this.images.has(src) || this.imageErrors.has(src)) continue;
@@ -130,6 +139,23 @@ export class EditorCanvas {
     // Fond du design
     ctx.fillStyle = d.background?.color || '#111111';
     ctx.fillRect(0, 0, d.format.width, d.format.height);
+
+    const backgroundImage = this.backgroundImageSrc && this.images.get(this.backgroundImageSrc);
+    if (backgroundImage?.naturalWidth) {
+      const storedCrop = this.backgroundCrop;
+      const hasStoredCrop = storedCrop && (storedCrop.x || storedCrop.y || storedCrop.w !== 1 || storedCrop.h !== 1);
+      const crop = hasStoredCrop
+        ? storedCrop
+        : coverCrop(backgroundImage.naturalWidth, backgroundImage.naturalHeight, d.format.width, d.format.height);
+      ctx.drawImage(
+        backgroundImage,
+        crop.x * backgroundImage.naturalWidth,
+        crop.y * backgroundImage.naturalHeight,
+        crop.w * backgroundImage.naturalWidth,
+        crop.h * backgroundImage.naturalHeight,
+        0, 0, d.format.width, d.format.height,
+      );
+    }
 
     for (const el of d.elements) {
       this._drawElement(ctx, el);
@@ -507,6 +533,17 @@ export class EditorCanvas {
     this.overlayMode = 'select';
     this.state.selectedId = null;
     try {
+      ctx.fillStyle = d.background?.color || '#111111';
+      ctx.fillRect(0, 0, d.format.width, d.format.height);
+      const backgroundImage = this.backgroundImageSrc && this.images.get(this.backgroundImageSrc);
+      if (backgroundImage?.naturalWidth) {
+        const crop = this.backgroundCrop && (this.backgroundCrop.x || this.backgroundCrop.y || this.backgroundCrop.w !== 1 || this.backgroundCrop.h !== 1)
+          ? this.backgroundCrop
+          : coverCrop(backgroundImage.naturalWidth, backgroundImage.naturalHeight, d.format.width, d.format.height);
+        ctx.drawImage(backgroundImage, crop.x * backgroundImage.naturalWidth, crop.y * backgroundImage.naturalHeight,
+          crop.w * backgroundImage.naturalWidth, crop.h * backgroundImage.naturalHeight,
+          0, 0, d.format.width, d.format.height);
+      }
       for (const el of d.elements) {
         this._drawElement(ctx, el);
       }

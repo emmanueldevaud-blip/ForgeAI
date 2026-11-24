@@ -4,6 +4,7 @@
  */
 
 import { createStoryEditorView } from '../editor/StoryEditorView.js?v=1';
+import { uploadPhotos, photoFileUrl } from '../services/photosApi.js';
 import {
   getStoryDraft,
   updateStoryDraft,
@@ -176,7 +177,7 @@ export class StoryStudioPage {
         <div class="story-studio-actions">
           ${status === 'ready' || status === 'editing' ? `
             <button type="button" class="btn btn-primary" data-action="validate" ${slideCount === 0 ? 'disabled' : ''}>
-              ✓ Valider pour publication
+              ✓ Ouvrir l'éditeur pour valider
             </button>
           ` : ''}
           ${status === 'awaiting_validation' ? `
@@ -273,19 +274,7 @@ export class StoryStudioPage {
 
     const validateBtn = this.element.querySelector('[data-action="validate"]');
     if (validateBtn) {
-      validateBtn.addEventListener('click', async () => {
-        validateBtn.disabled = true;
-        validateBtn.textContent = 'Validation…';
-        try {
-          await validateStoryDraft(this.draftId);
-          this.draft = await getStoryDraft(this.draftId);
-          this.render();
-        } catch (error) {
-          validateBtn.disabled = false;
-          validateBtn.textContent = '✓ Valider pour publication';
-          alert(error?.data?.detail || error?.message || 'Erreur de validation');
-        }
-      });
+      validateBtn.addEventListener('click', () => this._openEditor());
     }
 
     const publishBtn = this.element.querySelector('[data-action="publish"]');
@@ -429,6 +418,8 @@ export class StoryStudioPage {
         validateDraft: (id) => validateStoryDraft(id),
         publishDraft: (id, data) => publishStoryDraft(id, data),
         previewDraft: (id) => previewStoryDraft(id),
+        uploadPhotos,
+        photoFileUrl,
       },
       callbacks: {
         onClose: () => this._closeEditor(),
@@ -436,7 +427,12 @@ export class StoryStudioPage {
           this.draft = await getStoryDraft(draftId);
         },
         onPublish: async (draftId, data) => {
-          this.draft = await getStoryDraft(draftId);
+          await updateStoryDraft(draftId, data);
+          this.draft = await validateStoryDraft(draftId);
+          this.editorView?.destroy?.();
+          this.editorView = null;
+          this.editorOpen = false;
+          this.render();
         },
       },
     });

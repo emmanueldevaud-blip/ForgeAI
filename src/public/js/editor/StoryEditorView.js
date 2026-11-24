@@ -417,6 +417,13 @@ export class StoryEditorView {
     const canvasEl = this.root.querySelector('[data-canvas]');
     this.canvas = new EditorCanvas({ state: this.state, canvas: canvasEl });
     this.canvas.mount(this.canvasHost);
+    const backgroundPhotoId = design.background?.type === 'photo'
+      ? design.background.photo_id
+      : design.carousel?.[0];
+    if (backgroundPhotoId && this.deps.photoFileUrl) {
+      const backgroundSrc = this.deps.photoFileUrl(backgroundPhotoId, 'medium');
+      this.canvas.setBackgroundImage(backgroundSrc, design.background?.crop || null);
+    }
 
     // Interaction
     this.interaction = new EditorInteraction({
@@ -755,8 +762,89 @@ export class StoryEditorView {
   }
 
   _openCropTool() {
-    // TODO: Outil de recadrage 9:16
-    alert('Recadrage 9:16 : à implémenter avec editorGeometry.coverCrop');
+    const design = this.state?.design;
+    const photoId = design?.background?.type === 'photo'
+      ? design.background.photo_id
+      : design?.carousel?.[0];
+    if (!photoId || !this.deps.photoFileUrl || !this.canvas) return;
+
+    const src = this.deps.photoFileUrl(photoId, 'medium');
+    const modalHost = this.root.querySelector('[data-modals]');
+    const modal = document.createElement('div');
+    modal.className = 'story-crop-modal';
+    modal.innerHTML = `
+      <div class="story-crop-backdrop" data-crop-cancel>
+        <section class="story-crop-dialog" role="dialog" aria-modal="true" aria-label="Recadrer la photo">
+          <h3>Recadrer la photo · 9:16</h3>
+          <canvas width="270" height="480" data-crop-preview></canvas>
+          <label>Horizontal <input type="range" min="0" max="100" value="50" data-crop-x></label>
+          <label>Vertical <input type="range" min="0" max="100" value="50" data-crop-y></label>
+          <div class="story-crop-actions">
+            <button type="button" class="story-btn story-btn-secondary" data-crop-cancel>Annuler</button>
+            <button type="button" class="story-btn story-btn-primary" data-crop-apply>Appliquer</button>
+          </div>
+        </section>
+      </div>`;
+    modalHost.appendChild(modal);
+
+    const preview = modal.querySelector('[data-crop-preview]');
+    const ctx = preview.getContext('2d');
+    const xInput = modal.querySelector('[data-crop-x]');
+    const yInput = modal.querySelector('[data-crop-y]');
+    const previousCrop = design.background?.crop || null;
+    let image = null;
+    let crop = null;
+    let closed = false;
+    const drawPreview = () => {
+      if (!image || !crop) return;
+      ctx.clearRect(0, 0, preview.width, preview.height);
+      ctx.drawImage(image, crop.x * image.naturalWidth, crop.y * image.naturalHeight,
+        crop.w * image.naturalWidth, crop.h * image.naturalHeight, 0, 0, preview.width, preview.height);
+      this.canvas.setBackgroundImage(src, crop);
+    };
+    const close = (restore) => {
+      if (closed) return;
+      closed = true;
+      if (restore) this.canvas.setBackgroundImage(src, previousCrop);
+      modal.remove();
+    };
+    const updateCrop = () => {
+      if (!image) return;
+      const cover = coverCrop(image.naturalWidth, image.naturalHeight, STORY_FORMAT.width, STORY_FORMAT.height);
+      crop = {
+        ...cover,
+        x: cover.x + Number(xInput.value) / 100 * (1 - cover.w),
+        y: cover.y + Number(yInput.value) / 100 * (1 - cover.h),
+      };
+      drawPreview();
+    };
+    xInput.addEventListener('input', updateCrop);
+    yInput.addEventListener('input', updateCrop);
+    modal.querySelectorAll('[data-crop-cancel]').forEach(button => button.addEventListener('click', () => close(true)));
+    modal.querySelector('.story-crop-dialog').addEventListener('click', event => event.stopPropagation());
+    modal.querySelector('[data-crop-apply]').addEventListener('click', () => {
+      if (!crop) return;
+      design.background = { ...(design.background || {}), type: 'photo', photo_id: photoId, crop: { ...crop } };
+      this.designDocuments[this.currentSlideIndex] = design;
+      this.canvas.setBackgroundImage(src, crop);
+      this._pushHistory();
+      close(false);
+    });
+    this.canvas.ensureImages().then(() => {
+      if (closed) return;
+      image = this.canvas.images.get(src);
+      if (!image?.naturalWidth) {
+        modal.remove();
+        return;
+      }
+      const base = coverCrop(image.naturalWidth, image.naturalHeight, STORY_FORMAT.width, STORY_FORMAT.height);
+      const saved = previousCrop;
+      const xRange = saved && saved.w === base.w ? (saved.x - base.x) / Math.max(0.0001, 1 - base.w) : 0.5;
+      const yRange = saved && saved.h === base.h ? (saved.y - base.y) / Math.max(0.0001, 1 - base.h) : 0.5;
+      xInput.value = String(Math.round(Math.max(0, Math.min(1, xRange)) * 100));
+      yInput.value = String(Math.round(Math.max(0, Math.min(1, yRange)) * 100));
+      updateCrop();
+    });
   }
 
   // ----------------------------------------------------------
@@ -984,7 +1072,10 @@ export class StoryEditorView {
           <div class="story-preview-grid">
             ${this.designDocuments.map((design, i) => `
               <div class="story-preview-slide" data-slide="${i}">
-                <canvas class="story-preview-canvas" width="270" height="480"></canvas>
+                <div class="story-preview-canvas" style="background:${esc(design.background?.color || '#000000')}">
+                  ${this._storyBackgroundPhotoUrl(design) ? `<img class="story-preview-background" src="${esc(this._storyBackgroundPhotoUrl(design))}" alt="">` : ''}
+                  ${(design.elements || []).map(el => this._renderStoryPreviewElement(el)).join('')}
+                </div>
                 <div class="story-preview-info">
                   <span class="story-preview-num">${i + 1}/${this.slides.length}</span>
                   <span class="story-preview-type">${esc(this.slides[i].type || 'photo')}</span>
@@ -1001,16 +1092,6 @@ export class StoryEditorView {
     `;
     this.root.querySelector('[data-modals]').appendChild(modal);
 
-    // Rendre chaque slide dans le canvas de preview
-    this.designDocuments.forEach((design, i) => {
-      const canvas = modal.querySelector(`[data-slide="${i}"] canvas`);
-      const ctx = canvas.getContext('2d');
-      // Rendu simplifié : fond + éléments
-      ctx.fillStyle = design.background?.color || '#000000';
-      ctx.fillRect(0, 0, 270, 480);
-      // TODO: Rendu complet des éléments (texte, images, stickers)
-    });
-
     modal.querySelectorAll('[data-action="close-preview"]').forEach(btn => {
       btn.addEventListener('click', () => modal.remove());
     });
@@ -1020,17 +1101,71 @@ export class StoryEditorView {
     });
   }
 
-  _validateAndPublish() {
+  _storyBackgroundPhotoUrl(design) {
+    const photoId = design.background?.type === 'photo'
+      ? design.background.photo_id
+      : design.carousel?.[0];
+    return photoId && this.deps.photoFileUrl ? this.deps.photoFileUrl(photoId, 'medium') : '';
+  }
+
+  _renderStoryPreviewElement(el) {
+    const position = `left:${(Number(el.x) / STORY_FORMAT.width) * 100}%;top:${(Number(el.y) / STORY_FORMAT.height) * 100}%;`;
+    if (el.type === 'text') {
+      return `<div class="story-preview-element story-preview-text" style="${position}width:${(Number(el.w) / STORY_FORMAT.width) * 100}%;font-size:${(Number(el.size) / STORY_FORMAT.width) * 100}cqw;color:${esc(el.color || '#fff')};font-weight:${el.bold ? 'bold' : 'normal'};font-style:${el.italic ? 'italic' : 'normal'};text-align:${esc(el.align || 'center')};opacity:${Number(el.opacity ?? 1)};">${esc(el.text)}</div>`;
+    }
+    if (el.type === 'sticker') {
+      const size = (Math.min(Number(el.w) || 120, Number(el.h) || 120) / STORY_FORMAT.width) * 100;
+      return `<div class="story-preview-element story-preview-sticker" style="${position}font-size:${size}cqw;opacity:${Number(el.opacity ?? 1)};">${esc(el.text || el.sticker || '⭐')}</div>`;
+    }
+    if (el.type === 'sport_stats') {
+      return `<div class="story-preview-element story-preview-text" style="${position}font-size:${(Number(el.size) / STORY_FORMAT.width) * 100}cqw;color:${esc(el.color || '#fff')};font-weight:bold;text-align:${esc(el.align || 'center')};"><strong>${esc(el.value)} ${esc(el.unit)}</strong><br><small>${esc(el.label)}</small></div>`;
+    }
+    return '';
+  }
+
+  async _validateAndPublish() {
     // Sauvegarder tous les designs
     this.designDocuments[this.currentSlideIndex] = this.state.toJSON();
-
-    const payload = {
-      slides: this.slides,
-      design_documents: this.designDocuments,
-      status: 'awaiting_validation',
-    };
-
-    this.callbacks.onPublish?.(this.draft.id, payload);
+    const button = this.root.querySelector('[data-action="validate-publish"]');
+    if (button) { button.disabled = true; button.textContent = 'Préparation des Stories…'; }
+    try {
+      if (!this.deps.uploadPhotos || !this.deps.photoFileUrl) {
+        throw new Error("L'export des Stories n'est pas configuré.");
+      }
+      for (let index = 0; index < this.designDocuments.length; index++) {
+        this._switchSlide(index);
+        const design = this.state.toJSON();
+        const photoId = design.background?.type === 'photo'
+          ? design.background.photo_id
+          : design.carousel?.[0];
+        if (photoId) {
+          await this.canvas.setBackgroundImage(this.deps.photoFileUrl(photoId, 'original'), design.background?.crop || null);
+        }
+        await this.canvas.ensureImages();
+        const blob = await this.canvas.exportBlob('image/jpeg', 0.94);
+        if (!blob) throw new Error(`Impossible d'exporter la Story ${index + 1}.`);
+        const file = new File([blob], `story-${this.draft.id}-${index + 1}.jpg`, { type: 'image/jpeg' });
+        const result = await this.deps.uploadPhotos([file]);
+        const items = Array.isArray(result?.items) ? result.items : result;
+        const photo = items?.[0];
+        if (!photo?.id) throw new Error(`Impossible d'enregistrer la Story ${index + 1}.`);
+        this.slides[index] = { ...this.slides[index], published_photo_id: photo.id };
+        this.designDocuments[index] = design;
+      }
+      const payload = {
+        slides: this.slides,
+        design_documents: this.designDocuments,
+        status: 'editing',
+      };
+      await this.callbacks.onPublish?.(this.draft.id, payload);
+    } catch (error) {
+      if (button) { button.disabled = false; button.textContent = '✓ Valider et publier'; }
+      const message = error?.data?.detail || error?.message || "Impossible de préparer les Stories.";
+      const notice = document.createElement('p');
+      notice.className = 'story-export-error';
+      notice.textContent = message;
+      this.root.querySelector('[data-modals]')?.appendChild(notice);
+    }
   }
 
   _saveDraft() {

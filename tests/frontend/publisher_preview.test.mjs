@@ -19,8 +19,8 @@ const carouselHtml = carousel._render();
 assert.doesNotMatch(carouselHtml, /Format non supporté/);
 assert.match(carouselHtml, /Photo suivante/);
 assert.match(carouselHtml, /data-carousel-index="1"/);
-assert.match(carouselHtml, /\/photos\/10\/file\?size=small/);
-assert.match(carouselHtml, /\/photos\/11\/file\?size=small/);
+assert.match(carouselHtml, /\/photos\/10\/file/);
+assert.match(carouselHtml, /\/photos\/11\/file/);
 
 const makeClassList = () => ({ active: false, toggle(_name, value) { this.active = value; } });
 const slides = [{ classList: makeClassList() }, { classList: makeClassList() }];
@@ -59,8 +59,8 @@ assert.match(reel, /🎉/);
 assert.doesNotMatch(reel, /<source src="\/photos\/10\/file" type="image\/jpeg">/);
 
 const story = new PublisherPreview({ format: 'story', draft })._render();
-assert.match(story, /class="pp-story-title"[^>]*>Aperçu Story/);
-assert.doesNotMatch(story, /Aperçu Story[^<]*<\/button>/);
+assert.match(story, /class="pp-story-user"/);
+assert.match(story, /class="pp-story-reply"/);
 
 const storyOverlay = new PublisherPreview({ format: 'story', draft: {
   ...draft,

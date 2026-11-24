@@ -311,6 +311,10 @@ export async function searchStudioMusic(publicationId, query) {
   return cmApi.get(`/community-manager/studio/draft/${encodeURIComponent(publicationId)}/music`, { params: { query } });
 }
 
+export async function searchInstagramMusic(query) {
+  return cmApi.get('/community-manager/instagram/music/search', { params: { query } });
+}
+
 export async function getLocalStudioMusic(publicationId) {
   return cmApi.get(`/community-manager/studio/draft/${encodeURIComponent(publicationId)}/local-music`);
 }

@@ -720,6 +720,18 @@ export class CommunityPublisherPage {
       btn.disabled = true;
       btn.textContent = 'Publication…';
 
+      // Le sélecteur met à jour le store local. Persister les changements avant
+      // l'appel de publication, qui travaille sur le brouillon côté serveur.
+      const draft = publisherStore.draft;
+      if (publisherDraftService.currentDraftId && publisherDraftService.currentDraftType === 'studio') {
+        await publisherDraftService.save({
+          caption: draft.caption,
+          media: draft.media,
+          design: draft.design,
+          music: draft.music,
+        });
+      }
+
       await publisherDraftService.publish({
         platforms: ['instagram'],
       });

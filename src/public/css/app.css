@@ -10671,6 +10671,22 @@
   .ed-panel-toggle { display: none; }
 }
 
+/* Mobile : empiler les panneaux (Médias / stage / Propriétés) au lieu de la
+   grille 3 colonnes desktop (sinon l'editeur est trop large sur petit écran). */
+@media (max-width: 900px) {
+  .ed-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .ed-sidebar,
+  .ed-props {
+    position: static;
+    border-right: 0;
+    border-left: 0;
+    border-bottom: 1px solid var(--color-border-light, #2a2f3a);
+  }
+}
+
 /* --- Médias --- */
 .ed-media-actions {
   margin-bottom: var(--spacing-2);

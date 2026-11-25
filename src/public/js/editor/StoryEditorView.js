@@ -473,6 +473,12 @@ export class StoryEditorView {
     });
     this.panels.renderLayout();
 
+    // Mobile : ouvrir le tiroir Médias par défaut, sinon la sélection des
+    // photos reste hors écran (panneau coulissant fermé).
+    if (typeof window !== 'undefined' && window.matchMedia && window.matchMedia('(max-width: 900px)').matches) {
+      this.panels.sidebar?.classList.add('ed-open');
+    }
+
     // Timeline (simplifiée pour Story)
     const tlHost = this.root.querySelector('[data-slide-timeline]');
     this.timeline = new EditorTimeline({

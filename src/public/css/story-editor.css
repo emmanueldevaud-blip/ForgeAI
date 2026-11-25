@@ -794,8 +794,8 @@
     padding: env(safe-area-inset-top, 8px) 8px 8px;
   }
 
-  .story-topbar .story-btn,
-  .story-topbar .story-btn-icon {
+  .story-editor-topbar .story-btn,
+  .story-editor-topbar .story-btn-icon {
     width: 36px;
     height: 36px;
   }

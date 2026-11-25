@@ -6,7 +6,7 @@
  */
 
 import { publisherStore } from '../stores/publisherStore.js';
-import { createStoryEditorView } from '../editor/StoryEditorView.js?v=3';
+import { createStoryEditorView } from '../editor/StoryEditorView.js?v=4';
 import { listPhotos, uploadPhotos } from '../services/photosApi.js?v=8';
 import { searchInstagramMusic } from '../services/sportApi.js?v=16';
 
@@ -46,16 +46,25 @@ export class PublisherStoryEditor {
     const host = this.element.querySelector('[data-story-host]');
     const draft = publisherStore.draft;
 
+    // Les tableaux slides/designDocuments peuvent être présents mais vides
+    // (setFormat('story') / brouillon API sans slides). Un tableau vide est
+    // truthy : sans ce contrôle, le fallback depuis draft.media ne s'applique
+    // jamais et le Composer s'ouvre sans aucune photo.
+    const storedSlides = draft.design?.slides;
+    const storedDocs = draft.design?.designDocuments;
+    const useStored = Array.isArray(storedSlides) && storedSlides.length > 0
+      && Array.isArray(storedDocs) && storedDocs.length > 0;
+
     // Construire un StoryDraft compatible avec StoryEditorView
     const storyDraft = {
       id: draft.id || 'new',
-      slides: draft.design?.slides || draft.media.map((m, i) => ({
+      slides: useStored ? storedSlides : draft.media.map((m, i) => ({
         type: 'photo',
         photo_indices: [i],
         hook: i === 0 ? draft.caption.title : undefined,
         caption: i > 0 ? draft.caption.content : undefined,
       })),
-      design_documents: draft.design?.designDocuments || draft.media.map((m) => {
+      design_documents: useStored ? storedDocs : draft.media.map((m) => {
         const photoId = this._photoId(m);
         return {
           version: 2,

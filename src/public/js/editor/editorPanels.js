@@ -351,10 +351,15 @@ export class EditorPanels {
         el.innerHTML = `<div class="ed-empty">${esc(emptyMsg)}</div>`;
         return;
       }
+      const designSel = this.state?.design || {};
+      const selectedIds = new Set();
+      const bgSelId = designSel.background?.type === 'photo' ? designSel.background.photo_id : (designSel.carousel && designSel.carousel[0]) || null;
+      if (bgSelId) selectedIds.add(String(bgSelId));
+      (designSel.carousel || []).forEach((id) => selectedIds.add(String(id)));
       el.innerHTML = items
         .map(
           (p) => `
-        <div class="ed-media-item" data-photo-id="${p.id}">
+        <div class="ed-media-item ${selectedIds.has(String(p.id)) ? 'selected' : ''}" data-photo-id="${p.id}">
           <img src="${esc(this.deps.photoFileUrl(p.id, 'small'))}" alt="" loading="lazy">
           <div class="ed-media-item-actions">
             <button type="button" data-media-action="photo" title="Utiliser comme photo principale">📷</button>

@@ -6,7 +6,7 @@
  */
 
 import { publisherStore } from '../stores/publisherStore.js';
-import { createStoryEditorView } from '../editor/StoryEditorView.js?v=2';
+import { createStoryEditorView } from '../editor/StoryEditorView.js?v=3';
 import { listPhotos, uploadPhotos } from '../services/photosApi.js?v=8';
 import { searchInstagramMusic } from '../services/sportApi.js?v=16';
 

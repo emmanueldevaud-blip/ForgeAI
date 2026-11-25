@@ -18,7 +18,7 @@ import { createPublisherCaptionEditor } from '../components/PublisherCaptionEdit
 import { createPublisherPreview } from '../components/PublisherPreview.js?v=3';
 import { createPublisherPostEditor } from '../editors/PublisherPostEditor.js?v=3';
 import { createPublisherReelEditor } from '../editors/PublisherReelEditor.js';
-import { createPublisherStoryEditor } from '../editors/PublisherStoryEditor.js?v=2';
+import { createPublisherStoryEditor } from '../editors/PublisherStoryEditor.js?v=3';
 
 /**
  * Métadonnées des étapes (libellé + icône).

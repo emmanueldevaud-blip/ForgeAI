@@ -6,7 +6,7 @@
 import { EditorState, FORMATS, normalizeDesign } from './editorState.js?v=1';
 import { EditorCanvas } from './editorCanvas.js?v=1';
 import { EditorInteraction } from './editorInteraction.js?v=1';
-import { EditorPanels } from './editorPanels.js?v=2';
+import { EditorPanels } from './editorPanels.js?v=3';
 import { coverCrop } from './editorGeometry.js?v=1';
 import { EditorTimeline } from './editorTimeline.js?v=2';
 

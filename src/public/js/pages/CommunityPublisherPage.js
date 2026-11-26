@@ -13,8 +13,8 @@
 
 import { publisherStore } from '../stores/publisherStore.js';
 import { publisherDraftService } from '../services/publisherDraftService.js?v=3';
-import { createPublisherMediaPicker } from '../components/PublisherMediaPicker.js?v=1';
-import { createPublisherCaptionEditor } from '../components/PublisherCaptionEditor.js';
+import { createPublisherMediaPicker } from '../components/PublisherMediaPicker.js?v=2';
+import { createPublisherCaptionEditor } from '../components/PublisherCaptionEditor.js?v=2';
 import { createPublisherPreview } from '../components/PublisherPreview.js?v=4';
 import { createPublisherMusicStep } from '../components/PublisherMusicStep.js?v=1';
 import { createPublisherPostEditor } from '../editors/PublisherPostEditor.js?v=3';
@@ -557,6 +557,11 @@ export class CommunityPublisherPage {
   _mountPublish() {
     const host = this.element.querySelector('[data-publish-host]');
     const storyStatus = this.format === 'story' ? this._storyPublishStatus() : null;
+    const draft = publisherStore.draft;
+    const caption = draft.caption || {};
+    const shortCaption = (value) => value
+      ? `${this._esc(String(value).substring(0, 50))}${String(value).length > 50 ? '…' : ''}`
+      : '—';
     host.innerHTML = `
       <div class="publisher-publish">
         <h2>Prêt à publier</h2>
@@ -564,28 +569,32 @@ export class CommunityPublisherPage {
           ${storyStatus ? `
           <div class="publisher-publish-item">
             <label>Rendu Story</label>
-            <span>${storyStatus.label}</span>
+            <span>${this._esc(storyStatus.label)}</span>
           </div>` : ''}
+          <div class="publisher-publish-item">
+            <label>Compte Instagram</label>
+            <span>${this._esc(caption.accountUsername || 'Compte configuré')}</span>
+          </div>
           <div class="publisher-publish-item">
             <label>Format</label>
             <span>${this._config().icon} ${this._config().label}</span>
           </div>
           <div class="publisher-publish-item">
             <label>Médias</label>
-            <span>${publisherStore.draft.media.length} média${publisherStore.draft.media.length > 1 ? 's' : ''}</span>
+            <span>${draft.media.length} média${draft.media.length > 1 ? 's' : ''}</span>
           </div>
           <div class="publisher-publish-item">
             <label>Légende</label>
-            <span>${publisherStore.draft.caption.title ? publisherStore.draft.caption.title.substring(0, 50) + '…' : '—'}</span>
+            <span>${shortCaption(caption.title)}</span>
           </div>
           <div class="publisher-publish-item">
             <label>Hashtags</label>
-            <span>${publisherStore.draft.caption.hashtags ? publisherStore.draft.caption.hashtags.substring(0, 50) + '…' : '—'}</span>
+            <span>${shortCaption(caption.hashtags)}</span>
           </div>
-          ${publisherStore.draft.garmin.activityId ? `
+          ${draft.garmin.activityId ? `
             <div class="publisher-publish-item">
               <label>Activité Garmin</label>
-              <span>#${publisherStore.draft.garmin.activityId}</span>
+              <span>#${this._esc(draft.garmin.activityId)}</span>
             </div>
           ` : ''}
         </div>
@@ -689,7 +698,9 @@ export class CommunityPublisherPage {
     if (!FORMAT_CONFIG[format] || format === this.format) return;
     if (this.onBack) {
       // Publisher embarqué (ex : calendrier) : changer de format sur place,
-      // sans quitter le contexte courant.
+      // sans quitter le contexte courant. Le brouillon serveur courant porte le
+      // format précédent : le détacher avant de réinitialiser le store local.
+      publisherDraftService.clearCurrent?.();
       this._renderedStep = null; // force le remontage avec les nouvelles règles
       publisherStore.setFormat(format);
       this._enforceFormatLimits();
@@ -823,11 +834,17 @@ export class CommunityPublisherPage {
         });
       }
 
-      await publisherDraftService.publish({
+      const result = await publisherDraftService.publish({
         platforms: ['instagram'],
       });
 
-      this._showToast('Publié avec succès !');
+      // Le backend met en file le job de publication : le résultat Meta arrive
+      // plus tard. Ne pas annoncer une publication terminée trop tôt.
+      const queued = result?.status === 'queued'
+        || (Array.isArray(result?.jobs) && result.jobs.length > 0);
+      this._showToast(queued
+        ? 'Publication envoyée · traitement en cours'
+        : 'Publié avec succès !');
       publisherStore.clear();
       if (this.onBack) this.onBack();
     } catch (error) {

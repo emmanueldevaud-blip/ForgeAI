@@ -51,6 +51,7 @@ export class PublisherCaptionEditor {
       const value = draft.caption[key] ?? '';
       if (input.value !== value) input.value = value;
     }
+    this._updateCaptionPreview();
   }
 
   _render() {
@@ -79,6 +80,17 @@ export class PublisherCaptionEditor {
         </div>
       </div>
 
+      <div class="pce-live-preview" data-caption-preview aria-label="Aperçu Instagram de la légende">
+        <div class="pce-live-thumb" data-preview-thumb></div>
+        <div class="pce-live-copy">
+          <div class="pce-live-account">
+            <span class="pce-live-avatar"></span>
+            <strong data-preview-account>${this._esc(draft.caption.accountUsername || 'Votre compte')}</strong>
+          </div>
+          <p class="pce-live-text" data-preview-caption>${this._esc(fullCaption) || 'Votre légende apparaîtra ici…'}</p>
+        </div>
+      </div>
+
       <form class="pce-form" data-form>
         <div class="pce-field">
           <label for="pce-title">Titre (accroche)</label>
@@ -97,7 +109,10 @@ export class PublisherCaptionEditor {
         <div class="pce-field">
           <label for="pce-hashtags">Hashtags</label>
           <textarea id="pce-hashtags" name="hashtags" rows="2" placeholder="#trailrunning #montagne…">${this._esc(draft.caption.hashtags)}</textarea>
-          <span class="pce-hint">Séparez par des espaces</span>
+          <div class="pce-hashtag-suggestions" aria-label="Suggestions de hashtags">
+            ${['#trailrunning', '#running', '#montagne', '#outdoor'].map(tag => `<button type="button" data-hashtag="${tag}">${tag}</button>`).join('')}
+          </div>
+          <span class="pce-hint">Touchez un hashtag pour l’ajouter · séparez par des espaces</span>
         </div>
 
         <div class="pce-field">
@@ -175,6 +190,9 @@ export class PublisherCaptionEditor {
     this.element.querySelectorAll('[data-emoji]').forEach((button) => {
       button.addEventListener('click', () => this._insertEmoji(button.dataset.emoji));
     });
+    this.element.querySelectorAll('[data-hashtag]').forEach((button) => {
+      button.addEventListener('click', () => this._appendHashtag(button.dataset.hashtag));
+    });
 
     // IA Panel
     this.element.querySelector('[data-action="ai-toggle"]').addEventListener('click', () => this._toggleAIPanel());
@@ -211,6 +229,37 @@ export class PublisherCaptionEditor {
     this._updateCounter();
   }
 
+  /** Ajoute un hashtag suggéré sans doublon (gestion Instagram des tags). */
+  _appendHashtag(tag) {
+    const input = this.element?.querySelector?.('[name="hashtags"]');
+    if (!input || !tag) return;
+    const value = String(input.value || '').trim();
+    const existing = value.split(/\s+/).filter(Boolean);
+    if (existing.some(item => item.toLowerCase() === tag.toLowerCase())) return;
+    input.value = value ? `${value} ${tag}` : tag;
+    publisherStore.updateCaption('hashtags', input.value);
+    this._updateCounter();
+  }
+
+  /** Aperçu compact façon Instagram : vignette, compte et légende assemblée. */
+  _updateCaptionPreview() {
+    const card = this.element?.querySelector?.('[data-caption-preview]');
+    if (!card) return;
+    const caption = publisherStore.draft.caption || {};
+    const text = this._getFullCaption(caption);
+
+    const textEl = card.querySelector?.('[data-preview-caption]');
+    if (textEl) textEl.textContent = text || 'Votre légende apparaîtra ici…';
+    const accountEl = card.querySelector?.('[data-preview-account]');
+    if (accountEl) accountEl.textContent = caption.accountUsername || 'Votre compte';
+    const thumbEl = card.querySelector?.('[data-preview-thumb]');
+    if (thumbEl) {
+      const media = (publisherStore.draft.media || [])[0] || {};
+      const url = media.thumbnail_url || media.url || '';
+      thumbEl.style.backgroundImage = url ? `url("${String(url).replace(/"/g, '%22')}")` : '';
+    }
+  }
+
   _updateCounter() {
     const draft = publisherStore.draft;
     const fullCaption = this._getFullCaption(draft.caption);
@@ -230,6 +279,7 @@ export class PublisherCaptionEditor {
     const warn = this.element.querySelector('.pce-warning');
     if (err) err.hidden = !overLimit;
     if (warn) warn.hidden = !nearLimit;
+    this._updateCaptionPreview();
   }
 
   _updateAIButton() {

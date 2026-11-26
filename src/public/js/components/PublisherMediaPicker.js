@@ -44,6 +44,7 @@ export class PublisherMediaPicker {
     this.previewMediaId = null;
     this.dragItem = null;
     this.uploadQueue = [];
+    this.notice = '';
     this._unsubscribeStore = null;
   }
 
@@ -66,6 +67,30 @@ export class PublisherMediaPicker {
       this._updateCounter();
       this._updateGridSelection();
     });
+  }
+
+  /** Type Instagram d'un fichier : MIME réel, avec repli sur l'extension. */
+  _fileKind(file) {
+    const type = String(file?.type || '').toLowerCase();
+    if (type.startsWith('image/')) return 'photo';
+    if (type.startsWith('video/')) return 'video';
+    const name = String(file?.name || '').toLowerCase();
+    if (/\.(jpe?g|png|webp|gif|heic|heif|avif)$/.test(name)) return 'photo';
+    if (/\.(mp4|mov|m4v|webm)$/.test(name)) return 'video';
+    return null;
+  }
+
+  _allowedFile(file) {
+    const kind = this._fileKind(file);
+    return !!kind && this.allowedTypes.includes(kind);
+  }
+
+  _setNotice(message) {
+    this.notice = message || '';
+    const el = this.element?.querySelector?.('[data-notice]');
+    if (!el) return;
+    el.textContent = this.notice;
+    el.hidden = !this.notice;
   }
 
   _toggleFormatMenu(force) {
@@ -102,6 +127,7 @@ export class PublisherMediaPicker {
           </button>
         `).join('')}
       </div>
+      <div class="pmp-notice" data-notice role="status" aria-live="polite" hidden></div>
 
       <div class="pmp-body">
         <div class="pmp-panels">
@@ -406,7 +432,7 @@ export class PublisherMediaPicker {
       `;
     }).join('');
 
-    this._updateOrderBadges();
+    this._updateGridSelection();
   }
 
   async _loadAlbums() {
@@ -484,10 +510,30 @@ export class PublisherMediaPicker {
   }
 
   _handleFiles(files) {
-    const validFiles = files.filter(f => this.allowedTypes.some(t => f.type.startsWith(t)));
-    if (validFiles.length === 0) return;
+    const allFiles = Array.from(files || []);
+    if (!allFiles.length) return;
 
-    this.uploadQueue.push(...validFiles.map(f => ({ file: f, id: `upload_${Date.now()}_${Math.random()}`, progress: 0 })));
+    const validFiles = allFiles.filter(f => this._allowedFile(f));
+    if (validFiles.length === 0) {
+      const accepted = this.allowedTypes.includes('video') ? 'images ou vidéos' : 'images';
+      this._setNotice(`Seules les ${accepted} sont acceptées pour ce format.`);
+      return;
+    }
+
+    // La limite s'applique aussi à l'import direct (bypass du toggle).
+    const capacity = Math.max(0, this.maxSelection - (publisherStore.draft.media?.length || 0));
+    if (!capacity) {
+      this._setNotice(`Limite de ${this.maxSelection} médias atteinte pour ce format.`);
+      return;
+    }
+
+    const acceptedFiles = validFiles.slice(0, capacity);
+    const ignored = allFiles.length - acceptedFiles.length;
+    this._setNotice(ignored > 0
+      ? `${acceptedFiles.length} fichier(s) ajouté(s) · ${ignored} ignoré(s) (limite ${this.maxSelection}).`
+      : '');
+
+    this.uploadQueue.push(...acceptedFiles.map(f => ({ file: f, id: `upload_${Date.now()}_${Math.random()}`, progress: 0 })));
     this._renderUploadQueue();
     this._processUploadQueue();
   }
@@ -541,8 +587,12 @@ export class PublisherMediaPicker {
       this.selectedIds.delete(mediaId);
       if (itemEl) itemEl.classList.remove('selected');
       publisherStore.removeMedia(mediaId);
+      this._setNotice('');
     } else {
-      if (this.selectedIds.size >= this.maxSelection) return;
+      if (this.selectedIds.size >= this.maxSelection) {
+        this._setNotice(`Limite de ${this.maxSelection} médias atteinte pour ce format.`);
+        return;
+      }
       const photo = this.photos.find(p => String(p.id) === mediaId);
       if (!photo) return;
       this.selectedIds.add(mediaId);
@@ -557,7 +607,7 @@ export class PublisherMediaPicker {
     }
     this._updateSelectionUI();
     this._updateCounter();
-    this._updateOrderBadges();
+    this._updateGridSelection();
     this.onSelectionChange([...this.selectedIds]);
   }
 
@@ -646,10 +696,12 @@ export class PublisherMediaPicker {
 
   _updateGridSelection() {
     if (!this.element) return;
+    const full = this.selectedIds.size >= this.maxSelection;
     this.element.querySelectorAll('[data-photo-id]').forEach(item => {
       const selected = this.selectedIds.has(String(item.dataset.photoId));
       item.classList.toggle('selected', selected);
       item.setAttribute('aria-pressed', String(selected));
+      item.setAttribute('aria-disabled', String(full && !selected));
       const check = item.querySelector('.pmp-check');
       if (check) check.hidden = !selected;
     });
@@ -688,6 +740,7 @@ export class PublisherMediaPicker {
     this.selectedIds.clear();
     publisherStore.draft.media = [];
     publisherStore._notify();
+    this._setNotice('');
     this._updateGridSelection();
   }
 

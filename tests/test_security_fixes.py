@@ -204,3 +204,25 @@ class TestLoginRateLimit:
             assert all(s in (401, 429) for s in statuses), statuses
         finally:
             limiter.enabled = False
+
+    @pytest.mark.asyncio
+    async def test_login_not_rate_limited_when_disabled(self, client):
+        """Avec RATE_LIMIT_ENABLED=false (conftest), le middleware ne bloque rien."""
+        settings = get_settings()
+        assert settings.RATE_LIMIT_ENABLED is False, (
+            "La suite de tests doit désactiver le quota (voir tests/conftest.py)"
+        )
+        assert limiter.enabled is False
+
+        original_enabled = limiter.enabled
+        limiter.enabled = False
+        try:
+            statuses = []
+            for _ in range(settings.RATE_LIMIT_REQUESTS + 1):
+                response = await client.post(
+                    "/auth/login", json={"username": "unknown", "password": "bad"}
+                )
+                statuses.append(response.status_code)
+            assert statuses == [401] * (settings.RATE_LIMIT_REQUESTS + 1), statuses
+        finally:
+            limiter.enabled = original_enabled

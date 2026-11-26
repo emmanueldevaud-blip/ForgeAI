@@ -39,6 +39,9 @@ services:
       - CORS_ORIGINS=["http://localhost:8000"]
       - AUTH_LOCAL_ENABLED=true
       - AD_ENABLED=${AD_ENABLED:-true}
+      - RATE_LIMIT_ENABLED=${RATE_LIMIT_ENABLED:-true}
+      - RATE_LIMIT_REQUESTS=${RATE_LIMIT_REQUESTS:-10}
+      - RATE_LIMIT_WINDOW_SECONDS=${RATE_LIMIT_WINDOW_SECONDS:-60}
       - SPORT_AI_PROVIDER=${SPORT_AI_PROVIDER:-gemini}
       - SPORT_AI_BASE_URL=${SPORT_AI_BASE_URL:-https://generativelanguage.googleapis.com/v1beta/openai}
       - SPORT_AI_API_KEY=${SPORT_AI_API_KEY:-}

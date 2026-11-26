@@ -7,7 +7,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from slowapi import _rate_limit_exceeded_handler
+from slowapi import middleware as slowapi_middleware
 from slowapi.errors import RateLimitExceeded
+from slowapi.middleware import SlowAPIMiddleware
+from starlette.routing import Match
 
 from app.api import auth, audit, buildings, dashboard, development, domotique, equipment, housing, it_asset, maintenance, modules, admin, volunteer, sport, administrative, agenda, notifications, photos, ai, intendance, sport_publications, community_manager, meta_analytics
 from app.core.config import get_settings
@@ -346,8 +349,34 @@ async def _ensure_modules_registered():
     if not module_registry._modules:
         register_all_modules()
 
+# slowapi 0.1.10 ne sait pas résoudre les routeurs inclus « lazy » de FastAPI
+# 0.141 (objets _IncludedRouter sans attribut endpoint) : sans ce shim,
+# _find_route_handler renvoie None et _should_exempt exempt toutes les routes
+# de l'API, y compris /auth/login et /auth/refresh.
+_original_find_route_handler = slowapi_middleware._find_route_handler
+
+
+def _find_route_handler_compat(routes, scope):
+    handler = _original_find_route_handler(routes, scope)
+    if handler is not None:
+        return handler
+    for route in routes:
+        effective_routes = getattr(route, "effective_route_contexts", None)
+        if effective_routes is None:
+            continue
+        for context in effective_routes():
+            match, _ = context.matches(scope)
+            if match == Match.FULL and getattr(context, "endpoint", None):
+                return context.endpoint
+    return None
+
+
+slowapi_middleware._find_route_handler = _find_route_handler_compat
+
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+# Sans ce middleware, les default_limits du Limiter ne sont jamais évalués.
+app.add_middleware(SlowAPIMiddleware)
 
 
 async def _photo_service_error_handler(request: Request, exc: PhotoServiceError) -> JSONResponse:

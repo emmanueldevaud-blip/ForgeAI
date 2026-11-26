@@ -43,7 +43,7 @@ sys.stderr.flush()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global garmin_sync_task, ad_sync_task, domotique_task, sport_analysis_task, photo_job_task
+    global garmin_sync_task, ad_sync_task, domotique_task, sport_analysis_task, photo_job_task, meta_sync_task, surveillance_motion_task, monitoring_task
     await init_db()
     # register_all_modules() called at import time above
     register_dashboard_widgets()
@@ -104,6 +104,12 @@ async def lifespan(app: FastAPI):
         monitoring_task.cancel()
         try:
             await monitoring_task
+        except asyncio.CancelledError:
+            pass
+    if surveillance_motion_task:
+        surveillance_motion_task.cancel()
+        try:
+            await surveillance_motion_task
         except asyncio.CancelledError:
             pass
     await capture_manager.shutdown()

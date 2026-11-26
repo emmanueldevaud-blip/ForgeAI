@@ -5,10 +5,10 @@ services:
     image: mysql:8.4
     container_name: forgeai-mysql
     environment:
-      MYSQL_ROOT_PASSWORD: root_password_change_me
-      MYSQL_DATABASE: forgeai
-      MYSQL_USER: forgeai
-      MYSQL_PASSWORD: forgeai_password
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root_password_change_me}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-forgeai}
+      MYSQL_USER: ${MYSQL_USER:-forgeai}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-forgeai_password}
     ports:
       - "3306:3306"
     volumes:
@@ -19,7 +19,7 @@ services:
       - --character-set-server=utf8mb4
       - --collation-server=utf8mb4_unicode_ci
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-proot_password_change_me"]
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${MYSQL_ROOT_PASSWORD:-root_password_change_me}"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -33,9 +33,9 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     environment:
-      - DATABASE_URL=mysql://forgeai:forgeai_password@mysql:3306/forgeai
-      - SECRET_KEY=${SECRET_KEY:-your-super-secret-key-change-in-production-min-32-chars}
-      - DEBUG=true
+      - DATABASE_URL=mysql://${MYSQL_USER:-forgeai}:${MYSQL_PASSWORD:-forgeai_password}@mysql:3306/${MYSQL_DATABASE:-forgeai}
+      - SECRET_KEY=${SECRET_KEY:?SECRET_KEY manquant - definissez-le dans .env ou dans l'environnement}
+      - DEBUG=${DEBUG:-false}
       - CORS_ORIGINS=["http://localhost:8000"]
       - AUTH_LOCAL_ENABLED=true
       - AD_ENABLED=${AD_ENABLED:-true}

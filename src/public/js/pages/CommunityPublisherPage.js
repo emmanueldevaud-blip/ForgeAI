@@ -20,6 +20,7 @@ import { createPublisherMusicStep } from '../components/PublisherMusicStep.js?v=
 import { createPublisherPostEditor } from '../editors/PublisherPostEditor.js?v=3';
 import { createPublisherReelEditor } from '../editors/PublisherReelEditor.js';
 import { createPublisherStoryEditor } from '../editors/PublisherStoryEditor.js?v=5';
+import { storySlidesReady } from '../services/storyPublishPipeline.js';
 
 /**
  * Métadonnées des étapes (libellé + icône).
@@ -540,12 +541,31 @@ export class CommunityPublisherPage {
     this.preview.mount(host);
   }
 
+  _storyPublishStatus() {
+    const design = publisherStore.draft.design || {};
+    const slideCount = (design.slides || []).length;
+    if (slideCount === 0) {
+      return { canPublish: false, label: 'Aucune slide — revenez à « Composer ».' };
+    }
+    if (storySlidesReady(design)) {
+      return { canPublish: true, label: `${slideCount} slide(s) exportée(s), prête(s).` };
+    }
+    // Le pipeline final exporte les slides non préparées avant publication.
+    return { canPublish: true, label: `${slideCount} slide(s) à exporter à la publication.` };
+  }
+
   _mountPublish() {
     const host = this.element.querySelector('[data-publish-host]');
+    const storyStatus = this.format === 'story' ? this._storyPublishStatus() : null;
     host.innerHTML = `
       <div class="publisher-publish">
         <h2>Prêt à publier</h2>
         <div class="publisher-publish-summary">
+          ${storyStatus ? `
+          <div class="publisher-publish-item">
+            <label>Rendu Story</label>
+            <span>${storyStatus.label}</span>
+          </div>` : ''}
           <div class="publisher-publish-item">
             <label>Format</label>
             <span>${this._config().icon} ${this._config().label}</span>
@@ -571,7 +591,7 @@ export class CommunityPublisherPage {
         </div>
         <div class="publisher-publish-actions">
           <button type="button" class="publisher-btn publisher-btn-secondary" data-action="back">Annuler</button>
-          <button type="button" class="publisher-btn publisher-btn-success" data-action="publish-final">Publier maintenant</button>
+          <button type="button" class="publisher-btn publisher-btn-success" data-action="publish-final" ${storyStatus && !storyStatus.canPublish ? 'disabled' : ''}>Publier maintenant</button>
         </div>
       </div>
     `;

@@ -74,7 +74,7 @@ export class ProfilePage {
 
           <hr style="margin: 24px 0; border: 0; border-top: 1px solid var(--border-color);">
 
-          <div class="form-row" style="display: flex; gap: 12px;">
+          <div class="form-row profile-actions">
             <button class="btn btn-primary" data-action="edit-profile">Modifier mon profil</button>
             <button class="btn btn-secondary" data-action="change-password">Changer de mot de passe</button>
           </div>

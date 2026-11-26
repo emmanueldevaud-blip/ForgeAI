@@ -92,6 +92,9 @@ export class EditorCanvas {
   }
 
   requestRender() {
+    // Le rendu hors écran (export Story) utilise un canvas non monté :
+    // rien à peindre tant qu'aucun conteneur n'est attaché.
+    if (!this.container) return;
     if (this._renderQueued) return;
     this._renderQueued = true;
     requestAnimationFrame(() => {

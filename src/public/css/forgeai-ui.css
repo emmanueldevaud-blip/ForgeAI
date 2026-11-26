@@ -204,6 +204,70 @@ button, input, select, textarea { font: inherit; }
   :where(.modal-overlay) { padding: var(--spacing-2); }
 }
 
+/* Brand mark stays visible when the sidebar is hidden on tablets/phones. */
+.header-brand {
+  display: none;
+  align-items: center;
+  gap: var(--spacing-2);
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--color-primary);
+  cursor: pointer;
+}
+
+.header-brand-logo { flex: 0 0 auto; color: var(--color-primary); }
+
+.header-brand-name {
+  color: var(--color-header-text);
+  font-size: var(--font-size-base);
+  font-weight: var(--font-weight-semibold);
+  white-space: nowrap;
+}
+
+.profile-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--spacing-3);
+}
+
+@media (max-width: 1199px) {
+  .header-brand { display: flex; }
+}
+
+@media (max-width: 767px) {
+  .header-brand-name { display: none; }
+  .header {
+    padding-left: calc(var(--spacing-3) + env(safe-area-inset-left, 0px));
+    padding-right: calc(var(--spacing-3) + env(safe-area-inset-right, 0px));
+  }
+  .main-content {
+    padding-left: calc(var(--spacing-4) + env(safe-area-inset-left, 0px));
+    padding-right: calc(var(--spacing-4) + env(safe-area-inset-right, 0px));
+  }
+}
+
+@media (max-width: 639px) {
+  .profile-actions { display: grid; grid-template-columns: minmax(0, 1fr); }
+  .profile-actions .btn { width: 100%; }
+}
+
+/* Keep the auth hero (logo + short claim) legible on small screens. */
+@media (max-width: 480px) {
+  .login-header-brand { flex-wrap: nowrap; gap: var(--spacing-3); }
+  .login-header-brand svg { width: 52px; height: 52px; }
+  .login-header-brand h1 { font-size: var(--font-size-2xl); }
+  .login-header .subtitle { font-size: var(--font-size-base); line-height: var(--line-height-normal); }
+  .header-user-btn { gap: 0; padding: var(--spacing-1); }
+  .header-user-btn > svg:last-child { display: none; }
+}
+
+@media (max-width: 380px) {
+  /* The page title is repeated in the content: drop it to protect the search field. */
+  .header-page-title { display: none; }
+}
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; animation-duration: .01ms !important; }
 }

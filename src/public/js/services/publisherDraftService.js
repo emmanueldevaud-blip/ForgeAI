@@ -37,7 +37,10 @@ import {
   createStudioRender,
   getStudioRenderJob,
   cancelStudioRender,
+  uploadPhotos,
+  photoFileUrl,
 } from '../services/photosApi.js?v=8';
+import { publishStoryWithPipeline } from '../services/storyPublishPipeline.js';
 
 export class PublisherDraftService {
   constructor() {
@@ -353,7 +356,26 @@ export class PublisherDraftService {
     if (!this.currentDraftId) throw new Error('Aucun brouillon');
 
     if (this.currentDraftType === 'story') {
-      const res = await publishStoryDraftApi(this.currentDraftId, { confirm: true, platforms });
+      // Même pipeline que le bouton « Valider et publier » de l'éditeur Story :
+      // les slides sont exportées/uploadées avant validation et publication.
+      const storyDesign = publisherStore.draft.design || {};
+      await publishStoryWithPipeline({
+        draftId: this.currentDraftId,
+        slides: storyDesign.slides || [],
+        designDocuments: storyDesign.designDocuments || [],
+        deps: { uploadPhotos, photoFileUrl },
+        draftData: {
+          caption: publisherStore.draft.caption?.content || '',
+          hashtags: publisherStore.draft.caption?.hashtags || '',
+          audio_configuration: publisherStore.draft.music || {},
+        },
+        api: {
+          save: (payload) => updateStoryDraft(this.currentDraftId, payload),
+          validate: (draftId) => validateStoryDraftApi(draftId, { status: 'awaiting_validation' }),
+          publish: (draftId, data) => publishStoryDraftApi(draftId, data),
+        },
+        platforms,
+      });
       return this.loadStory(this.currentDraftId);
     } else {
       let fn = publishStudioDraft;

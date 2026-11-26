@@ -1,5 +1,5 @@
 import { Sidebar } from './Sidebar.js?v=2';
-import { Header } from './Header.js?v=3';
+import { Header } from './Header.js?v=4';
 import { MainContent } from './MainContent.js';
 import { MobileSidebar } from './MobileSidebar.js?v=3';
 import { authStore } from '../stores/auth.js';

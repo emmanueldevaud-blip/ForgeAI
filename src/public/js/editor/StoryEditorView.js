@@ -13,6 +13,7 @@ import { EditorInteraction } from './editorInteraction.js?v=1';
 import { EditorPanels } from './editorPanels.js?v=3';
 import { EditorTimeline } from './editorTimeline.js?v=2';
 import { coverCrop } from './editorGeometry.js?v=1';
+import { exportStorySlides, storyPhotoId } from '../services/storyPublishPipeline.js';
 
 const esc = (t) =>
   String(t ?? '').replace(
@@ -1119,34 +1120,34 @@ export class StoryEditorView {
   }
 
   async _validateAndPublish() {
-    // Sauvegarder tous les designs
+    // Sauvegarder le design courant avant d'entrer dans le pipeline partagé.
     this.designDocuments[this.currentSlideIndex] = this.state.toJSON();
     const button = this.root.querySelector('[data-action="validate-publish"]');
     if (button) { button.disabled = true; button.textContent = 'Préparation des Stories…'; }
     try {
-      if (!this.deps.uploadPhotos || !this.deps.photoFileUrl) {
-        throw new Error("L'export des Stories n'est pas configuré.");
-      }
-      for (let index = 0; index < this.designDocuments.length; index++) {
-        this._switchSlide(index);
-        const design = this.state.toJSON();
-        const photoId = design.background?.type === 'photo'
-          ? design.background.photo_id
-          : design.carousel?.[0];
-        if (photoId) {
-          await this.canvas.setBackgroundImage(this.deps.photoFileUrl(photoId, 'original'), design.background?.crop || null);
-        }
-        await this.canvas.ensureImages();
-        const blob = await this.canvas.exportBlob('image/jpeg', 0.94);
-        if (!blob) throw new Error(`Impossible d'exporter la Story ${index + 1}.`);
-        const file = new File([blob], `story-${this.draft.id}-${index + 1}.jpg`, { type: 'image/jpeg' });
-        const result = await this.deps.uploadPhotos([file]);
-        const items = Array.isArray(result?.items) ? result.items : result;
-        const photo = items?.[0];
-        if (!photo?.id) throw new Error(`Impossible d'enregistrer la Story ${index + 1}.`);
-        this.slides[index] = { ...this.slides[index], published_photo_id: photo.id };
-        this.designDocuments[index] = design;
-      }
+      // Export -> upload -> published_photo_id via le pipeline commun. Le rendu
+      // est fait avec le canvas de l'éditeur, déjà monté et à jour.
+      const prepared = await exportStorySlides({
+        draftId: this.draft.id,
+        slides: this.slides,
+        designDocuments: this.designDocuments,
+        deps: this.deps,
+        renderSlide: async (design, index) => {
+          this._switchSlide(index);
+          const slideDesign = this.state.toJSON();
+          const photoId = storyPhotoId(slideDesign);
+          if (photoId) {
+            await this.canvas.setBackgroundImage(
+              this.deps.photoFileUrl(photoId, 'original'),
+              slideDesign.background?.crop || null,
+            );
+          }
+          await this.canvas.ensureImages();
+          return { blob: await this.canvas.exportBlob('image/jpeg', 0.94), design: slideDesign };
+        },
+      });
+      this.slides = prepared.slides;
+      this.designDocuments = prepared.design_documents;
       const payload = {
         slides: this.slides,
         design_documents: this.designDocuments,

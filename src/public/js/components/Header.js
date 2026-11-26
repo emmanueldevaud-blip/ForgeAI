@@ -170,6 +170,10 @@ export class Header {
         <button class="header-menu-btn" aria-label="Ouvrir le menu" data-action="menu">
           <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="12" x2="21" y2="12"></line><line x1="3" y1="6" x2="21" y2="6"></line><line x1="3" y1="18" x2="21" y2="18"></line></svg>
         </button>
+        <button class="header-brand" type="button" aria-label="Accueil ForgeAI" data-action="brand">
+          <svg class="header-brand-logo" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" aria-hidden="true"><path d="M12 2L2 7l10 5 10-5-10-5z"></path><path d="M2 17l10 5 10-5"></path><path d="M2 12l10 5 10-5"></path></svg>
+          <span class="header-brand-name">ForgeAI</span>
+        </button>
         <div class="header-title-area">
           <h1 class="header-page-title"></h1>
           <nav class="header-breadcrumbs" aria-label="Fil d'Ariane"></nav>
@@ -191,6 +195,7 @@ export class Header {
     `;
 
     this.element.querySelector('[data-action="menu"]')?.addEventListener('click', () => this.onMenuClick());
+    this.element.querySelector('[data-action="brand"]')?.addEventListener('click', () => this.onNavigate('/dashboard'));
 
     const searchInput = this.element.querySelector('.header-search-input');
     const searchClear = this.element.querySelector('.header-search-clear');

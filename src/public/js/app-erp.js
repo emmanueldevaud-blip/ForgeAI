@@ -1,7 +1,7 @@
 import { router, createAuthGuard, createNotFoundPage, createForbiddenPage } from './router/router.js?v=2';
 import { authStore } from './stores/auth.js';
 import { modulesStore } from './stores/modules.js';
-import { AppShell } from './components/AppShell.js?v=10';
+import { AppShell } from './components/AppShell.js?v=11';
 import { createModulePlaceholderPage } from './pages/ModulePlaceholder.js?v=3';
 import { createLoginPage } from './pages/LoginPage.js?v=1';
 import { createRegisterPage } from './pages/RegisterPage.js';
@@ -21,7 +21,7 @@ import { createMaintenanceRefsPage } from './pages/MaintenanceRefsPage.js';
 import { createMaintenanceCalendarPage } from './pages/MaintenanceCalendarPage.js';
 import { createAIAssistantPage } from './pages/AIAssistantPage.js?v=31';
 import { createHousingPage } from './pages/HousingPage.js?v=1';
-import { createProfilePage } from './pages/ProfilePage.js?v=2';
+import { createProfilePage } from './pages/ProfilePage.js?v=3';
 import { createSettingsPage } from './pages/UserSettingsPage.js?v=19';
 import { createCommunityManagerCalendarPage } from './pages/CommunityManagerCalendarPage.js?v=13';
 import { createAnalyticsIntelligencePage } from './pages/AnalyticsIntelligencePage.js?v=2';

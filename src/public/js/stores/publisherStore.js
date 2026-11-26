@@ -41,7 +41,7 @@ export const FORMAT_CONFIG = {
   story: {
     label: 'Story',
     icon: '📖',
-    steps: ['media', 'adjust', 'compose', 'caption', 'preview', 'publish'],
+    steps: ['media', 'adjust', 'compose', 'music', 'caption', 'preview', 'publish'],
     maxMedia: 10,
     minMedia: 1,
     allowedTypes: ['photo'],

@@ -234,7 +234,9 @@ export class PublisherDraftService {
       updates.photo_ids = data.media.map(m => parseInt(m.id.replace('photo_', ''))).filter(id => !isNaN(id));
     }
     if (data.design) updates.design = data.design;
-    if (data.music) updates.design = { ...(updates.design || {}), ig_audio: data.music };
+    if (data.music && this.currentDraftType === 'story') {
+      updates.audio_configuration = data.music;
+    }
     if (data.photoId !== undefined && data.photoId !== null) {
       updates.photo_id = Number(data.photoId);
     }

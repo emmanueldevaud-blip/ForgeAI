@@ -4,7 +4,8 @@
  */
 
 import { publisherStore } from '../stores/publisherStore.js';
-import { publisherDraftService } from '../services/publisherDraftService.js?v=2';
+import { publisherDraftService } from '../services/publisherDraftService.js?v=3';
+import { resolveDraftMusic } from './PublisherMusicStep.js?v=1';
 
 export class PublisherPreview {
   constructor(options = {}) {
@@ -172,6 +173,7 @@ export class PublisherPreview {
     const designs = this.draft.design?.designDocuments || [];
     const media = this.draft.media;
     const accountName = this.draft.caption.accountUsername || 'Votre compte';
+    const music = resolveDraftMusic(this.draft);
 
     return `
       <div class="pp-story">
@@ -190,6 +192,11 @@ export class PublisherPreview {
             <button type="button" class="pp-nav-btn" data-nav="next" ${(slides.length || media.length) <= 1 ? 'disabled' : ''} ›</button>
           </span>
         </div>
+        ${music ? `
+        <div class="pp-story-music">
+          <span class="pp-story-music-track">♫ ${this._esc(music.title || 'Piste sans titre')}${music.artist ? ` · ${this._esc(music.artist)}` : ''}</span>
+          <span class="pp-story-music-status">Sélectionnée · non intégrable à la publication actuelle</span>
+        </div>` : ''}
 
         <div class="pp-story-viewport" data-story-viewport>
           ${(slides.length || media.length) > 0 ? (slides.length > 0 ? slides.map((slide, i) => {

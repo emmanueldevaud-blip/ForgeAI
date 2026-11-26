@@ -6,7 +6,14 @@ const file = new URL('../../src/public/js/components/PublisherPreview.js', impor
 let source = fs.readFileSync(file, 'utf8');
 source = source.replace(/^import\s[\s\S]*?from\s+['"][^'"]+['"];?\s*$/gm, '');
 source = source.replace(/export class/g, 'class').replace(/export function/g, 'function');
-const { PublisherPreview } = new Function('publisherStore', 'publisherDraftService', `${source}\nreturn { PublisherPreview };`)({}, {});
+
+const musicFile = new URL('../../src/public/js/components/PublisherMusicStep.js', import.meta.url);
+let musicSource = fs.readFileSync(musicFile, 'utf8');
+musicSource = musicSource.replace(/^import\s[\s\S]*?from\s+['"][^'"]+['"];?\s*$/gm, '');
+musicSource = musicSource.replace(/export class/g, 'class').replace(/export function/g, 'function');
+const { resolveDraftMusic } = new Function('publisherStore', 'searchInstagramMusic', `${musicSource}\nreturn { resolveDraftMusic };`)({}, async () => ({ items: [] }));
+
+const { PublisherPreview } = new Function('publisherStore', 'publisherDraftService', 'resolveDraftMusic', `${source}\nreturn { PublisherPreview };`)({}, {}, resolveDraftMusic);
 
 const media = [
   { id: '10', url: '/photos/10/file', thumbnail_url: '/photos/10/file?size=small', type: 'photo' },
@@ -61,6 +68,22 @@ assert.doesNotMatch(reel, /<source src="\/photos\/10\/file" type="image\/jpeg">/
 const story = new PublisherPreview({ format: 'story', draft })._render();
 assert.match(story, /class="pp-story-user"/);
 assert.match(story, /class="pp-story-reply"/);
+assert.doesNotMatch(story, /pp-story-music/);
+
+const storyWithMusic = new PublisherPreview({ format: 'story', draft: {
+  ...draft,
+  music: { trackId: 'a1', title: 'Run Free', artist: 'DJ X', source: 'instagram' },
+} })._render();
+assert.match(storyWithMusic, /class="pp-story-music"/);
+assert.match(storyWithMusic, /Run Free/);
+assert.match(storyWithMusic, /Sélectionnée · non intégrable à la publication actuelle/);
+
+const storyLegacy = new PublisherPreview({ format: 'story', draft: {
+  ...draft,
+  design: { slides: [{}], designDocuments: [{ ig_audio: { audio_id: 'old1', title: 'Ancienne piste', artist: 'Avant' }, elements: [] }] },
+} })._render();
+assert.match(storyLegacy, /Ancienne piste/);
+assert.match(storyLegacy, /non intégrable à la publication actuelle/);
 
 const storyOverlay = new PublisherPreview({ format: 'story', draft: {
   ...draft,

@@ -3,7 +3,7 @@
  * S'ouvre depuis le calendrier éditorial sur un StoryDraft.
  */
 
-import { createStoryEditorView } from '../editor/StoryEditorView.js?v=4';
+import { createStoryEditorView } from '../editor/StoryEditorView.js?v=5';
 import { uploadPhotos, photoFileUrl } from '../services/photosApi.js';
 import {
   getStoryDraft,

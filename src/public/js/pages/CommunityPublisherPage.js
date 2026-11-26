@@ -12,13 +12,14 @@
  */
 
 import { publisherStore } from '../stores/publisherStore.js';
-import { publisherDraftService } from '../services/publisherDraftService.js?v=2';
+import { publisherDraftService } from '../services/publisherDraftService.js?v=3';
 import { createPublisherMediaPicker } from '../components/PublisherMediaPicker.js?v=1';
 import { createPublisherCaptionEditor } from '../components/PublisherCaptionEditor.js';
-import { createPublisherPreview } from '../components/PublisherPreview.js?v=3';
+import { createPublisherPreview } from '../components/PublisherPreview.js?v=4';
+import { createPublisherMusicStep } from '../components/PublisherMusicStep.js?v=1';
 import { createPublisherPostEditor } from '../editors/PublisherPostEditor.js?v=3';
 import { createPublisherReelEditor } from '../editors/PublisherReelEditor.js';
-import { createPublisherStoryEditor } from '../editors/PublisherStoryEditor.js?v=4';
+import { createPublisherStoryEditor } from '../editors/PublisherStoryEditor.js?v=5';
 
 /**
  * Métadonnées des étapes (libellé + icône).
@@ -27,6 +28,7 @@ const STEP_META = {
   media: { label: 'Médias', icon: '📷' },
   adjust: { label: 'Ajuster', icon: '✂️' },
   compose: { label: 'Composer', icon: '✨' },
+  music: { label: 'Musique', icon: '🎵' },
   caption: { label: 'Légende', icon: '📝' },
   preview: { label: 'Aperçu', icon: '👁️' },
   publish: { label: 'Publier', icon: '🚀' },
@@ -67,7 +69,7 @@ const FORMAT_CONFIG = {
   story: {
     label: 'Story',
     icon: '📖',
-    steps: ['media', 'adjust', 'compose', 'caption', 'preview', 'publish'],
+    steps: ['media', 'adjust', 'compose', 'music', 'caption', 'preview', 'publish'],
     maxMedia: 10,
     minMedia: 1,
     allowedTypes: ['photo'],
@@ -93,6 +95,7 @@ export class CommunityPublisherPage {
     this.preview = null;
     this.formatEditor = null; // Post/Reel/Story editor
     this.adjustEditor = null; // PublisherPostEditor (recadrage / réorganisation)
+    this.musicStep = null; // Étape Musique (Story)
     this.currentStep = 'media';
     this.loading = false;
     this.error = null;
@@ -101,6 +104,7 @@ export class CommunityPublisherPage {
     this._garminListener = null;
     this._navLocked = false;
     this._mediaRestored = false;
+    this._subscribeStore();
   }
 
   async initialize() {
@@ -223,7 +227,6 @@ export class CommunityPublisherPage {
     if (this.element.children.length === 0) {
       this.element.innerHTML = this._renderShell();
       this._bindEvents();
-      this._subscribeStore();
       this._renderStep();
       this._updateChrome();
       this._updateStepIndicator();
@@ -242,6 +245,7 @@ export class CommunityPublisherPage {
   }
 
   _subscribeStore() {
+    if (this._unsubscribeStore) return;
     this._unsubscribeStore = publisherStore.subscribe(state => {
       this.format = FORMAT_CONFIG[state.draft.format] ? state.draft.format : 'post';
       this.currentStep = state.ui.currentStep;
@@ -345,6 +349,8 @@ export class CommunityPublisherPage {
         return '<div class="publisher-adjust-host" data-adjust-host></div>';
       case 'compose':
         return '<div class="publisher-compose-host" data-compose-host></div>';
+      case 'music':
+        return '<div class="publisher-music-host" data-music-host></div>';
       case 'caption':
         return '<div class="publisher-caption-host" data-caption-host></div>';
       case 'preview':
@@ -366,6 +372,9 @@ export class CommunityPublisherPage {
         break;
       case 'compose':
         this._mountComposeEditor();
+        break;
+      case 'music':
+        this._mountMusicStep();
         break;
       case 'caption':
         this._mountCaptionEditor();
@@ -490,6 +499,17 @@ export class CommunityPublisherPage {
       // Post/Carrousel ne passent pas par compose ; sécurité
       publisherStore.nextStep();
     }
+  }
+
+  _mountMusicStep() {
+    const host = this.element.querySelector('[data-music-host]');
+    if (!host) return;
+    if (this.musicStep) {
+      this.musicStep.destroy();
+      this.musicStep = null;
+    }
+    this.musicStep = createPublisherMusicStep();
+    this.musicStep.mount(host);
   }
 
   _mountCaptionEditor() {
@@ -704,6 +724,7 @@ export class CommunityPublisherPage {
   }
 
   _updateStepContent() {
+    if (!this.element) return;
     this._renderStep();
     this._updateChrome();
     this._updateStepIndicator();
@@ -857,6 +878,7 @@ export class CommunityPublisherPage {
     if (this.preview) this.preview.destroy();
     if (this.formatEditor) this.formatEditor.destroy();
     if (this.adjustEditor) this.adjustEditor.destroy();
+    if (this.musicStep) this.musicStep.destroy();
     if (this.element && this.element.parentNode) this.element.parentNode.removeChild(this.element);
   }
 }

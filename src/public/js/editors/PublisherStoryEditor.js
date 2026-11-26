@@ -6,9 +6,8 @@
  */
 
 import { publisherStore } from '../stores/publisherStore.js';
-import { createStoryEditorView } from '../editor/StoryEditorView.js?v=4';
+import { createStoryEditorView } from '../editor/StoryEditorView.js?v=5';
 import { listPhotos, uploadPhotos } from '../services/photosApi.js?v=8';
-import { searchInstagramMusic } from '../services/sportApi.js?v=16';
 
 export class PublisherStoryEditor {
   constructor(options = {}) {
@@ -85,7 +84,6 @@ export class PublisherStoryEditor {
         uploadPhotos: (files) => uploadPhotos(files),
         listPhotos: (params) => listPhotos(params),
         getSuggestedPhotos: () => Promise.resolve([]),
-        searchInstagramMusic: (query) => searchInstagramMusic(query),
       },
       callbacks: {
         onClose: () => this.onBack(),

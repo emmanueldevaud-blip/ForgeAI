@@ -2408,6 +2408,35 @@
 .pmc-handle--sw { bottom: -8px; left: -8px; cursor: nesw-resize; }
 .pmc-handle--se { bottom: -8px; right: -8px; cursor: nwse-resize; }
 
+/* Poignée de déplacement, au-dessus du texte : cible tactile large et
+   position enregistrée dans le design (x/y) pour l'export Story. */
+.pmc-move-handle {
+  position: absolute;
+  display: none;
+  top: -30px;
+  left: 50%;
+  min-width: 32px;
+  min-height: 32px;
+  transform: translateX(-50%);
+  border: 1px solid rgba(255, 255, 255, 0.9);
+  border-radius: 50%;
+  background: rgba(0, 149, 246, 0.92);
+  box-shadow: 0 1px 5px rgba(0, 0, 0, 0.75);
+  color: #fff;
+  cursor: grab;
+  font-size: 15px;
+  line-height: 30px;
+  text-align: center;
+  /* Icône en pseudo-élément : jamais incluse dans textContent du calque. */
+  pointer-events: auto;
+  user-select: none;
+  touch-action: none;
+  z-index: 3;
+}
+
+.pmc-overlay.active .pmc-move-handle { display: block; }
+.pmc-move-handle::before { content: '✥'; }
+
 /* Mini-barre d'outils : couleurs, polices, G/I/S, alignement et fond.
    Elle suit le calque actif, reste dans la largeur de la photo et ne défile pas. */
 .pmc-action-row { display: flex; gap: 4px; }
@@ -2545,6 +2574,8 @@
 .pmc-layer-add:disabled { opacity: 0.45; cursor: default; }
 .pmc-layer-limit { flex: 1 1 100%; margin: 0; color: #ffb4b4; font-size: 11px; }
 .pmc-layer-limit[hidden] { display: none; }
+/* Repère historique : les positions inline (x/y du design) prennent le pas sur ces
+   valeurs par défaut dès que l'utilisateur déplace un calque. */
 .pmc-overlay--slot-1, .pmc-overlay-actions.pmc-overlay--slot-1 { top: 40%; }
 .pmc-overlay--slot-2, .pmc-overlay-actions.pmc-overlay--slot-2 { top: 60%; }
 
@@ -2588,6 +2619,7 @@
   .pmc-overlay { padding: 8px 6px; font-size: clamp(20px, 7cqw, 34px); }
   .pmc-overlay-btn { min-width: 40px; min-height: 40px; font-size: 17px; }
   .pmc-handle { width: 18px; height: 18px; }
+  .pmc-move-handle { top: -34px; min-width: 36px; min-height: 36px; line-height: 34px; font-size: 17px; }
   .pmc-swatch { width: 22px; height: 22px; }
   .pmc-style-btn { min-width: 32px; min-height: 32px; font-size: 12px; }
   .pmc-style-row { width: min(98cqw, 350px); gap: 5px; }

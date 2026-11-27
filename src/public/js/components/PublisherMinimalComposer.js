@@ -5,7 +5,8 @@
  *   - Story et Reel : plusieurs médias affichés, réordonnables et supprimables ;
  *   - jusqu'à 3 calques de texte par média, modifiés DIRECTEMENT sur la photo
  *     (sans champ de saisie dans le panneau) : tap sur le fond pour ajouter,
- *     tap sur un texte pour l'éditer, poignées d'angle pour taille/rotation ;
+ *     tap sur un texte pour l'éditer, poignée de déplacement et poignées
+ *     d'angle pour taille/rotation ;
  *   - Story uniquement : mini-barre couleur/police/gras/italique/souligné/
  *     alignement/fond, rendue fidèlement dans l'export JPEG du canvas ;
  *   - aucun outil annexe (stickers, dessin, timeline, audio, éditeur lourd, etc.).
@@ -25,6 +26,11 @@ const TEXT_LAYER_IDS = [TEXT_ID, `${TEXT_ID}-2`, `${TEXT_ID}-3`];
 // Positions fixes par emplacement : réordonner un calque change son empilement, pas sa place.
 const TEXT_LAYER_Y = [960, 760, 1160];
 const DESIGN_WIDTH = 1080;
+const DESIGN_HEIGHT = 1920;
+const X_MIN = 100;
+const X_MAX = DESIGN_WIDTH - 100;
+const Y_MIN = 120;
+const Y_MAX = DESIGN_HEIGHT - 120;
 
 /** Outils « fun » mais bornés : peu de choix, tous tactiles, aucun éditeur lourd. */
 const COLOR_SWATCHES = ['#ffffff', '#000000', '#ff3b5c', '#ffcc00', '#34c759', '#0a84ff', '#ff9f0a', '#bf5af2'];
@@ -114,6 +120,8 @@ function normalizeStyle(value = {}) {
     backgroundColor: hex(raw.backgroundColor, DEFAULT_STYLE.backgroundColor),
     size: clamp(raw.size ?? DEFAULT_STYLE.size, 24, 220),
     rotation: clamp(raw.rotation ?? 0, -180, 180),
+    x: clamp(raw.x ?? 540, X_MIN, X_MAX),
+    y: clamp(raw.y ?? TEXT_LAYER_Y[asLayerSlot(raw.id) ?? 0] ?? TEXT_LAYER_Y[0], Y_MIN, Y_MAX),
   };
 }
 
@@ -121,7 +129,10 @@ function normalizeStyle(value = {}) {
 function styleCss(style) {
   const s = normalizeStyle(style);
   const size = (s.size / DESIGN_WIDTH * 100).toFixed(2);
-  return `font-size:${size}cqw;`
+  const left = (s.x / DESIGN_WIDTH * 100).toFixed(3);
+  const top = (s.y / DESIGN_HEIGHT * 100).toFixed(3);
+  return `left:${left}%;top:${top}%;`
+    + `font-size:${size}cqw;`
     + `font-family:${FONT_CSS[s.font]};`
     + `font-weight:${s.bold ? 700 : 400};`
     + `font-style:${s.italic ? 'italic' : 'normal'};`
@@ -143,7 +154,14 @@ export function normalizeTextLayers(value) {
     const isObject = entry !== null && typeof entry === 'object';
     const id = isObject && entry.id ? String(entry.id) : TEXT_LAYER_IDS[index];
     const text = String((isObject ? entry.text : entry) ?? '');
-    const style = isObject ? normalizeStyle(entry.style || entry) : { ...DEFAULT_STYLE };
+    const base = isObject ? (entry.style || entry) : {};
+    const slot = asLayerSlot(id) ?? index;
+    // Position : explicitement déplacée > style persisté > emplacement du slot.
+    const style = normalizeStyle({
+      ...(isObject ? base : DEFAULT_STYLE),
+      x: entry?.x ?? base.x ?? 540,
+      y: entry?.y ?? base.y ?? TEXT_LAYER_Y[slot] ?? TEXT_LAYER_Y[0],
+    });
     return { id, text, style };
   });
 }
@@ -151,13 +169,13 @@ export function normalizeTextLayers(value) {
 /** Élément de design v2 d'un calque, centré sur le média (slot 0 = centre). */
 export function buildOverlayTextElement(text, slot = 0, style = {}) {
   const index = Number.isInteger(slot) && slot >= 0 && slot < MAX_TEXT_LAYERS ? slot : 0;
-  const s = normalizeStyle(style);
+  const s = normalizeStyle({ ...style, x: style?.x ?? 540, y: style?.y ?? TEXT_LAYER_Y[index] });
   return {
     id: TEXT_LAYER_IDS[index],
     type: 'text',
     text: cleanText(text),
-    x: 540,
-    y: TEXT_LAYER_Y[index],
+    x: s.x,
+    y: s.y,
     w: 864,
     h: 180,
     size: s.size,
@@ -358,7 +376,8 @@ export class PublisherMinimalComposer {
       // le DOM (le focus du texte reste intact). Le Reel est exclu : son rendu
       // vidéo FFmpeg n'intègre pas les éléments texte du design.
       const handles = this.format === 'story'
-        ? CORNERS.map((corner) => `<span class="pmc-handle pmc-handle--${corner}" data-pmc-handle data-corner="${corner}" contenteditable="false" aria-hidden="true"></span>`).join('')
+        ? `<span class="pmc-move-handle" data-pmc-move contenteditable="false" aria-hidden="true"></span>`
+          + CORNERS.map((corner) => `<span class="pmc-handle pmc-handle--${corner}" data-pmc-handle data-corner="${corner}" contenteditable="false" aria-hidden="true"></span>`).join('')
         : '';
       return `<div class="pmc-overlay pmc-overlay--layer pmc-overlay--slot-${slot}${text ? '' : ' pmc-overlay--placeholder'}${active ? ' active' : ''}"
                 data-pmc-overlay data-layer-index="${index}" data-index="${index}"
@@ -505,7 +524,7 @@ export class PublisherMinimalComposer {
         && window.matchMedia('(hover: none), (max-width: 899px)').matches;
       if (!touch) return;
       const target = event?.target;
-      if (target?.closest?.('[data-pmc-overlay], [data-pmc-overlay-actions], [data-style], [data-pmc-handle], [data-action], [data-pmc-media-count], video')) return;
+      if (target?.closest?.('[data-pmc-overlay], [data-pmc-overlay-actions], [data-style], [data-pmc-handle], [data-pmc-move], [data-action], [data-pmc-media-count], video')) return;
       if (this._addLayer()) this._focusLayer(this.activeLayerIndex);
     });
 
@@ -534,7 +553,11 @@ export class PublisherMinimalComposer {
       });
     });
 
-    // Poignées aux angles du texte actif : agrandir et tourner au doigt.
+    // Poignée de déplacement + poignées d'angle du texte actif : déplacer,
+    // agrandir et tourner au doigt, sans quitter l'édition directe.
+    this.element?.querySelectorAll?.('[data-pmc-move]')?.forEach((node) => {
+      node.addEventListener?.('pointerdown', (event) => this._startMove(event, node));
+    });
     this.element?.querySelectorAll?.('[data-pmc-handle]')?.forEach((node) => {
       node.addEventListener?.('pointerdown', (event) => this._startTransform(event, node));
     });
@@ -650,7 +673,10 @@ export class PublisherMinimalComposer {
     const layer = this.layers[this.activeLayerIndex];
     if (!layer) return;
     const style = normalizeStyle(layer.style);
-    if (key === 'color' && /^#[0-9a-f]{6}$/i.test(String(value))) style.color = value;
+    if (key === 'position' && value && Number.isFinite(Number(value.x)) && Number.isFinite(Number(value.y))) {
+      style.x = clamp(value.x, X_MIN, X_MAX);
+      style.y = clamp(value.y, Y_MIN, Y_MAX);
+    } else if (key === 'color' && /^#[0-9a-f]{6}$/i.test(String(value))) style.color = value;
     else if (key === 'font' && FONT_CSS[value]) style.font = value;
     else if (key === 'bold') style.bold = !style.bold;
     else if (key === 'italic') style.italic = !style.italic;
@@ -690,6 +716,34 @@ export class PublisherMinimalComposer {
       node.classList?.toggle?.('active', pressed);
       node.setAttribute?.('aria-pressed', String(pressed));
     });
+  }
+
+  /** Déplacement du texte actif : conversion écran → design v2, puis persistance. */
+  _startMove(event, node) {
+    if (this.format !== 'story') return;
+    const layer = this.layers[this.activeLayerIndex];
+    const stage = this.element?.querySelector?.('[data-pmc-stage]');
+    const rect = stage?.getBoundingClientRect?.();
+    const win = typeof window !== 'undefined' ? window : null;
+    if (!layer || !rect || !rect.width || !rect.height || !win?.addEventListener) return;
+    event.preventDefault?.();
+    event.stopPropagation?.();
+    const style = normalizeStyle(layer.style);
+    const origin = { x: style.x, y: style.y, clientX: event.clientX, clientY: event.clientY };
+    const move = (ev) => {
+      if (!ev || typeof ev.clientX !== 'number') return;
+      const x = origin.x + (ev.clientX - origin.clientX) / rect.width * DESIGN_WIDTH;
+      const y = origin.y + (ev.clientY - origin.clientY) / rect.height * DESIGN_HEIGHT;
+      this._applyStyle('position', { x, y });
+    };
+    const end = () => {
+      win.removeEventListener?.('pointermove', move);
+      win.removeEventListener?.('pointerup', end);
+      win.removeEventListener?.('pointercancel', end);
+    };
+    win.addEventListener('pointermove', move);
+    win.addEventListener('pointerup', end);
+    win.addEventListener('pointercancel', end);
   }
 
   /** Poignée d'angle du texte : taille par la distance, rotation par l'angle. */
@@ -786,7 +840,7 @@ export class PublisherMinimalComposer {
       // Ne pas réécrire le noeud en cours de frappe : cela casserait le curseur.
       // Les poignées sont conservées lors de la réécriture d'un calque inactif.
       if (node !== activeNode) {
-        const handles = Array.from(node.querySelectorAll?.('[data-pmc-handle]') || []);
+        const handles = Array.from(node.querySelectorAll?.('[data-pmc-handle], [data-pmc-move]') || []);
         node.textContent = text;
         handles.forEach((handle) => node.appendChild(handle));
       }

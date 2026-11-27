@@ -124,7 +124,7 @@ console.log('3. Câblage et styles');
   assert.match(css, /touch-action: manipulation/);
   assert.match(css, /@media \(hover: none\), \(max-width: 899px\)/);
   assert.match(css, /@media \(min-width: 900px\) and \(min-height: 620px\)/);
-  assert.match(read('src/public/index.html'), /publisher\.css\?v=24/);
+  assert.match(read('src/public/index.html'), /publisher\.css\?v=26/);
 }
 
 console.log('UX Composer Instagram OK.');

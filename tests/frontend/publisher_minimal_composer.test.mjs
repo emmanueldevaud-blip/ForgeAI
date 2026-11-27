@@ -335,9 +335,10 @@ console.log('13. Outils Story : style complet dans l’élément de design v2');
   assert.deepEqual(layer.style, {
     color: '#ff3b5c', font: 'Georgia', bold: false, italic: true, underline: true,
     align: 'right', background: true, backgroundColor: '#123456', size: 110, rotation: -25,
+    x: 540, y: 960,
   });
   const element = buildOverlayTextElement(layer.text, 0, layer.style);
-  for (const key of ['font', 'color', 'bold', 'italic', 'underline', 'align', 'background', 'backgroundColor', 'size', 'rotation']) {
+  for (const key of ['font', 'color', 'bold', 'italic', 'underline', 'align', 'background', 'backgroundColor', 'size', 'rotation', 'x', 'y']) {
     assert.equal(element[key], layer.style[key], `${key} est exporté dans le design`);
   }
   assert.equal(buildOverlayTextElement('x', 0, { font: 'Comic Sans', color: 'red', size: 9999 }).font, 'Arial', 'police inconnue repliée');
@@ -390,6 +391,16 @@ console.log('15. Story : mini-barre et poignées présentes, Reel : outils masqu
   assert.match(story.element.innerHTML, /data-style="underline"/);
   assert.match(story.element.innerHTML, /data-style="background"/);
   assert.equal((story.element.innerHTML.match(/data-pmc-handle/g) || []).length, 4, '4 poignées sur le calque');
+  assert.match(story.element.innerHTML, /data-pmc-move/, 'poignée de déplacement sur le calque');
+  assert.match(
+    story.element.innerHTML,
+    /<span class="pmc-move-handle" data-pmc-move[^>]*><\/span>/,
+    'poignée vide : son icône ne doit pas entrer dans le texte du calque',
+  );
+  const css = read('src/public/css/publisher.css');
+  assert.match(css, /\.pmc-move-handle\s*\{/, 'cible tactile de déplacement stylée');
+  assert.match(css, /\.pmc-move-handle::before\s*\{\s*content:\s*'✥'/, 'icône en pseudo-élément');
+  assert.match(css, /\.pmc-overlay\.active \.pmc-move-handle\s*\{/, 'poignée visible seulement sur le calque actif');
 
   const reelStore = makeStore([{ id: 'video_1', type: 'video', url: '/v/1', order: 0 }], 'reel');
   const reelClass = loadComposer(reelStore, { createElement: () => makeElement() }).PublisherMinimalComposer;
@@ -397,6 +408,7 @@ console.log('15. Story : mini-barre et poignées présentes, Reel : outils masqu
   reel.mount({ appendChild(el) { el.parentNode = this; } });
   assert.doesNotMatch(reel.element.innerHTML, /data-pmc-style-row/, 'aucun outil sans rendu final Reel');
   assert.doesNotMatch(reel.element.innerHTML, /data-pmc-handle/);
+  assert.doesNotMatch(reel.element.innerHTML, /data-pmc-move/, 'aucun déplacement sans rendu final Reel');
   assert.match(reel.element.innerHTML, /data-pmc-overlay-actions/, 'l’ordre/suppression des calques reste disponible');
 }
 
@@ -435,6 +447,66 @@ console.log('16. Export Story : souligné et fond réellement dessinés dans le 
   assert.ok(calls.some(([name, text]) => name === 'text' && text === 'Ligne'), 'texte dessiné');
   assert.equal(calls.filter(([name]) => name === 'stroke').length, 1, 'souligné dessiné');
   assert.equal(calls.filter(([name]) => name === 'stroke')[0][1], '#ffffff', 'souligné de la couleur du texte');
+}
+
+console.log('17. Story : déplacement du texte persisté dans x/y et borné au design');
+{
+  const store = makeStore(makeMedia().slice(0, 1));
+  const { PublisherMinimalComposer } = loadComposer(store, { createElement: () => makeElement() });
+  const composer = new PublisherMinimalComposer({ format: 'story' });
+  composer.mount({ appendChild(el) { el.parentNode = this; } });
+  composer.layers[0].text = 'Déplacé';
+  composer._applyStyle('position', { x: 320, y: 700 });
+  assert.deepEqual(
+    { x: composer.layers[0].style.x, y: composer.layers[0].style.y },
+    { x: 320, y: 700 },
+    'position retenue sur le calque',
+  );
+  let element = store.draft.design.designDocuments[0].elements[0];
+  assert.deepEqual({ x: element.x, y: element.y }, { x: 320, y: 700 }, 'position exportée dans le design v2');
+
+  composer._applyStyle('position', { x: -200, y: 9999 });
+  element = store.draft.design.designDocuments[0].elements[0];
+  assert.deepEqual({ x: element.x, y: element.y }, { x: 100, y: 1800 }, 'position bornée à la zone utile');
+}
+
+console.log('18. Story : glisser la poignée de déplacement met à jour x/y du design');
+{
+  const store = makeStore(makeMedia().slice(0, 1));
+  const { PublisherMinimalComposer } = loadComposer(store, { createElement: () => makeElement() });
+  const composer = new PublisherMinimalComposer({ format: 'story' });
+  const handlers = {};
+  const previousWindow = globalThis.window;
+  globalThis.window = {
+    addEventListener(type, fn) { handlers[type] = fn; },
+    removeEventListener(type, fn) { if (handlers[type] === fn) delete handlers[type]; },
+  };
+  const stage = { getBoundingClientRect: () => ({ left: 0, top: 0, width: 360, height: 640 }) };
+  const overlay = { style: { setProperty() {}, cssText: '' } };
+  const element = {
+    innerHTML: '', parentNode: null,
+    querySelector(sel) {
+      if (sel === '[data-pmc-stage]') return stage;
+      if (sel === '[data-pmc-layer-text="0"]') return overlay;
+      return null;
+    },
+    querySelectorAll() { return []; },
+  };
+  composer.element = element;
+  composer.layers[0].text = 'Glissé';
+  composer._startMove(
+    { clientX: 100, clientY: 100, preventDefault() {}, stopPropagation() {} },
+    { closest: () => overlay },
+  );
+  assert.ok(handlers.pointermove, 'un écouteur de glisser est installé');
+  handlers.pointermove({ clientX: 136, clientY: 132 });
+  const moved = store.draft.design.designDocuments[0].elements[0];
+  assert.deepEqual({ x: moved.x, y: moved.y }, { x: 648, y: 1056 }, 'écran → design v2');
+  assert.match(overlay.style.cssText, /left:60(?:\.0+)?%/, 'aperçu déplacé sans reconstruire le DOM');
+  assert.match(overlay.style.cssText, /top:55(?:\.0+)?%/);
+  handlers.pointerup();
+  assert.equal(handlers.pointermove, undefined, 'les écouteurs sont retirés à la fin du geste');
+  globalThis.window = previousWindow;
 }
 
 console.log('\nCompositeur minimal (médias multiples + calques de texte) OK.');

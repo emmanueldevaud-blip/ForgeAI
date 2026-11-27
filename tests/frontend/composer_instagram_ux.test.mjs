@@ -122,9 +122,16 @@ console.log('3. Câblage et styles');
   assert.match(css, /\.pmc-preview\s*\{/);
   assert.match(css, /\.pmc-overlay-actions\s*\{/);
   assert.match(css, /touch-action: manipulation/);
-  assert.match(css, /@media \(hover: none\), \(max-width: 899px\)/);
+  // iPad (≥ 900 px, tactile) doit utiliser la grille PC : le bloc mobile ne doit plus
+  // s'y cumuler, sinon le panneau reste absolu et recouvre la photo.
+  assert.match(css, /@media \(max-width: 899px\)/);
+  assert.doesNotMatch(css, /@media \(hover: none\), \(max-width: 899px\)/);
+  assert.match(css, /@media \(min-width: 900px\) and \(min-height: 620px\) and \(hover: none\)/);
   assert.match(css, /@media \(min-width: 900px\) and \(min-height: 620px\)/);
-  assert.match(read('src/public/index.html'), /publisher\.css\?v=31/);
+  const pcBlock = css.indexOf('@media (min-width: 900px) and (min-height: 620px) {');
+  const touchBlock = css.indexOf('@media (min-width: 900px) and (min-height: 620px) and (hover: none) {');
+  assert.ok(touchBlock > pcBlock, 'les cibles tactiles iPad doivent surcharger la grille PC');
+  assert.match(read('src/public/index.html'), /publisher\.css\?v=32/);
 }
 
 console.log('UX Composer Instagram OK.');

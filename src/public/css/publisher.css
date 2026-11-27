@@ -2661,8 +2661,11 @@
 .pmc-overlay--slot-2, .pmc-overlay-actions.pmc-overlay--slot-2 { top: 60%; }
 
 /* Mobile : la photo occupe l'écran, les contrôles se superposent en barres
-   fines (plus de défilement parasite) et les cibles restent larges. */
-@media (hover: none), (max-width: 899px) {
+   fines (plus de défilement parasite) et les cibles restent larges.
+   Un iPad en paysage (ou un iPad Pro en portrait) dépasse 899 px : il doit
+   utiliser la grille PC ci-dessous, sinon les deux blocs se cumulent et le
+   panneau reste positionné en absolu par-dessus la photo. */
+@media (max-width: 899px) {
   .publisher-minimal-composer { gap: 0; padding: 8px; }
   .pmc-preview { display: flex; justify-content: center; align-items: center; }
   .pmc-stage { width: min(100%, 360px); height: auto; max-height: 100%; aspect-ratio: 9 / 16; }
@@ -2758,6 +2761,18 @@
   .pmc-layer-preview { max-width: none; }
   .pmc-layer-add { align-self: stretch; min-height: 40px; }
   .pmc-overlay-btn { min-width: 34px; min-height: 34px; }
+}
+
+/* Tablettes tactiles larges : même grille que le PC, mais cibles élargies
+   pour le doigt (le bloc mobile ne s'applique plus au-delà de 899 px). */
+@media (min-width: 900px) and (min-height: 620px) and (hover: none) {
+  .pmc-tool-btn { min-width: 44px; min-height: 44px; border-radius: 14px; font-size: 18px; }
+  .pmc-overlay-btn { min-width: 40px; min-height: 40px; font-size: 17px; }
+  .pmc-handle { width: 18px; height: 18px; }
+  .pmc-move-handle { top: -34px; min-width: 36px; min-height: 36px; line-height: 34px; font-size: 17px; }
+  .pmc-swatch { width: 22px; height: 22px; }
+  .pmc-style-btn { min-width: 32px; min-height: 32px; font-size: 12px; }
+  .pmc-sticker-btn { min-width: 40px; min-height: 40px; font-size: 19px; }
 }
 
 .publisher-publish {

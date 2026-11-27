@@ -11,7 +11,7 @@ function loadComposer(store, doc) {
   src = src.replace(/^import\s[\s\S]*?from\s+['"][^'"]+['"];?\s*$/gm, '');
   src = src.replace(/export function/g, 'function').replace(/export class/g, 'class');
   return new Function('publisherStore', 'document',
-    `${src}\nreturn { normalizeTextLayers, buildOverlayTextElement, buildStoryDesign, buildReelDesign, PublisherMinimalComposer };`
+    `${src}\nreturn { normalizeTextLayers, buildOverlayTextElement, buildStoryDesign, buildReelDesign, stickerText, PublisherMinimalComposer };`
   )(store, doc);
 }
 
@@ -20,7 +20,7 @@ function fakeNode() {
     value: '', textContent: '', disabled: false, hidden: false, dataset: {},
     classList: { toggle() {}, add() {}, remove() {} },
     addEventListener(type, fn) { (this.handlers ||= {})[type] = fn; },
-    focus() {}, setAttribute() {},
+    focus() {}, setAttribute(key, value) { (this.attributes ||= {})[key] = value; },
     click() { this.handlers?.click?.(); },
   };
 }
@@ -507,6 +507,97 @@ console.log('18. Story : glisser la poignée de déplacement met à jour x/y du 
   handlers.pointerup();
   assert.equal(handlers.pointermove, undefined, 'les écouteurs sont retirés à la fin du geste');
   globalThis.window = previousWindow;
+}
+
+console.log('19. Story : barre façon Instagram et palette de stickers, Reel inchangé');
+{
+  const store = makeStore(makeMedia().slice(0, 1));
+  const { PublisherMinimalComposer } = loadComposer(store, { createElement: () => makeElement() });
+  const story = new PublisherMinimalComposer({ format: 'story' });
+  story.mount({ appendChild(el) { el.parentNode = this; } });
+  const html = story.element.innerHTML;
+  assert.match(html, /data-pmc-toolbar/, 'barre d’outils haute sur la photo');
+  assert.match(html, /data-action="pmc-tool-text"/, 'outil texte façon Instagram');
+  assert.match(html, /data-action="pmc-stickers"/, 'icône sticker');
+  assert.match(html, /data-pmc-sticker-palette[^>]*\shidden/, 'palette fermée par défaut');
+  for (const kind of ['emoji', 'mention', 'hashtag', 'date', 'time']) {
+    assert.match(html, new RegExp(`data-sticker="${kind}"`), `sticker ${kind} proposé`);
+  }
+  const css = read('src/public/css/publisher.css');
+  assert.match(css, /\.pmc-toolbar\s*\{/, 'barre haute stylée');
+  assert.match(css, /\.pmc-sticker-palette\[hidden\]\s*\{/, 'palette masquable');
+
+  const reelStore = makeStore([{ id: 'video_1', type: 'video', url: '/v/1', order: 0 }], 'reel');
+  const reel = new (loadComposer(reelStore, { createElement: () => makeElement() }).PublisherMinimalComposer)({ format: 'reel' });
+  reel.mount({ appendChild(el) { el.parentNode = this; } });
+  assert.doesNotMatch(reel.element.innerHTML, /data-pmc-toolbar/, 'pas d’outils Story en Reel');
+  assert.doesNotMatch(reel.element.innerHTML, /data-pmc-sticker-palette/);
+}
+
+console.log('20. Stickers locaux : calques texte avec pastille, limite de 3 respectée');
+{
+  const { PublisherMinimalComposer, stickerText } = loadComposer(makeStore([]));
+  assert.equal(stickerText('mention'), '@');
+  assert.equal(stickerText('hashtag'), '#');
+  assert.equal(stickerText('emoji', '🔥'), '🔥');
+  assert.equal(stickerText('date', new Date(2026, 10, 27)), '27/11/2026');
+  assert.match(stickerText('time', new Date(2026, 10, 27, 9, 5)), /^\d{2}:\d{2}$/, 'heure courte');
+  assert.equal(stickerText('unknown'), '', 'aucun sticker arbitraire');
+
+  const store = makeStore(makeMedia().slice(0, 1));
+  const composer = new (loadComposer(store, { createElement: () => makeElement() }).PublisherMinimalComposer)({ format: 'story' });
+  composer.mount({ appendChild(el) { el.parentNode = this; } });
+  assert.equal(composer._addSticker('emoji', '🔥'), true);
+  assert.equal(composer.layers[0].text, '🔥');
+  assert.equal(composer.layers[0].style.background, true, 'pastille claire');
+  assert.equal(composer.layers[0].style.backgroundColor, '#ffffff');
+  assert.equal(composer.layers[0].style.size, 96);
+  assert.equal(composer._addSticker('mention'), true);
+  assert.equal(composer.layers[1].text, '@');
+  assert.equal(composer._addSticker('hashtag'), true);
+  assert.equal(composer.layers[2].text, '#');
+  assert.equal(composer._addSticker('date'), false, 'quatrième sticker refusé');
+  assert.match(composer.element.innerHTML, /data-sticker="date"[^>]*disabled/, 'palette désactivée à la limite');
+  const elements = store.draft.design.designDocuments[0].elements;
+  assert.deepEqual(elements.map((el) => el.text), ['🔥', '@', '#']);
+  assert.ok(elements.every((el) => el.type === 'text' && el.background === true), 'export design v2 fidèle');
+}
+
+console.log('21. Palette de stickers : ouverture sans reconstruire le DOM');
+{
+  const composer = new (loadComposer(makeStore(makeMedia().slice(0, 1)), {
+    createElement: () => makeElement(),
+  }).PublisherMinimalComposer)({ format: 'story' });
+  composer.mount({ appendChild(el) { el.parentNode = this; } });
+  const palette = composer.element.querySelector('[data-pmc-sticker-palette]');
+  const button = composer.element.querySelector('[data-action="pmc-stickers"]');
+  assert.match(composer.element.innerHTML, /data-pmc-sticker-palette[^>]*\shidden/, 'palette fermée au rendu');
+  palette.hidden = true; // le DOM factice ne reflète pas l’attribut HTML
+  composer._toggleStickers(true);
+  assert.equal(composer.stickersOpen, true);
+  assert.equal(palette.hidden, false);
+  assert.equal(button.attributes['aria-expanded'], 'true', 'aria-expanded suit la palette');
+  composer._toggleStickers(false);
+  assert.equal(palette.hidden, true, 'fermeture sans re-render');
+}
+
+console.log('22. Un calque vide parmi trois est réutilisé (outils non bloqués)');
+{
+  const store = makeStore(makeMedia().slice(0, 1));
+  const { PublisherMinimalComposer } = loadComposer(store, { createElement: () => makeElement() });
+  const composer = new PublisherMinimalComposer({ format: 'story' });
+  composer.mount({ appendChild(el) { el.parentNode = this; } });
+  composer._addSticker('emoji', '🔥');
+  composer._addSticker('mention');
+  composer._addLayer({ text: 'B' });
+  assert.equal(composer.layers.length, 3);
+  composer.layers[1].text = '';
+  composer._render();
+  assert.equal(composer._hasLayerSlot(), true);
+  assert.doesNotMatch(composer.element.innerHTML, /data-action="pmc-tool-text"[^>]*disabled/, 'outil texte non bloqué à tort');
+  assert.equal(composer._addSticker('hashtag'), true);
+  assert.equal(composer.layers.length, 3, 'aucun quatrième calque créé');
+  assert.equal(composer.layers[1].text, '#', 'emplacement vide réutilisé');
 }
 
 console.log('\nCompositeur minimal (médias multiples + calques de texte) OK.');

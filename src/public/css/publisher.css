@@ -2191,6 +2191,80 @@
   object-fit: cover;
 }
 
+/* Barre haute façon Story Instagram : deux outils, toujours au-dessus de la photo. */
+.pmc-toolbar {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 35;
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+  padding: 8px;
+  background: linear-gradient(to bottom, rgba(0, 0, 0, 0.5), rgba(0, 0, 0, 0));
+  pointer-events: none;
+}
+
+.pmc-tool-btn {
+  min-width: 40px;
+  min-height: 40px;
+  padding: 0 11px;
+  border: 1px solid rgba(255, 255, 255, 0.45);
+  border-radius: 12px;
+  background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(6px);
+  color: #fff;
+  cursor: pointer;
+  font-size: 16px;
+  font-weight: 700;
+  line-height: 1;
+  pointer-events: auto;
+}
+
+.pmc-tool-btn--text { font-family: Georgia, serif; }
+.pmc-tool-btn--sticker span { font-size: 20px; }
+.pmc-tool-btn:disabled { opacity: 0.45; cursor: default; }
+
+/* Palette de stickers locaux : émojis, @, #, date. Aucun champ ni défilement. */
+.pmc-sticker-palette {
+  position: absolute;
+  top: 56px;
+  left: 50%;
+  z-index: 36;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 6px;
+  width: min(94%, 340px);
+  padding: 8px;
+  transform: translateX(-50%);
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  border-radius: 14px;
+  background: rgba(0, 0, 0, 0.82);
+  backdrop-filter: blur(8px);
+}
+
+.pmc-sticker-palette[hidden] { display: none; }
+.pmc-sticker-label { flex: 1 1 100%; color: rgba(255, 255, 255, 0.7); font-size: 11px; text-align: center; }
+.pmc-sticker-group { display: inline-flex; flex-wrap: wrap; justify-content: center; gap: 5px; }
+
+.pmc-sticker-btn {
+  min-width: 36px;
+  min-height: 36px;
+  padding: 0 6px;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+  cursor: pointer;
+  font-size: 17px;
+  line-height: 1;
+}
+
+.pmc-sticker-btn:hover { background: rgba(255, 255, 255, 0.2); }
+.pmc-sticker-btn:disabled { opacity: 0.45; cursor: default; }
+
 .pmc-media-count {
   position: absolute;
   left: 8px;
@@ -2623,6 +2697,9 @@
   .pmc-swatch { width: 22px; height: 22px; }
   .pmc-style-btn { min-width: 32px; min-height: 32px; font-size: 12px; }
   .pmc-style-row { width: min(98cqw, 350px); gap: 5px; }
+  .pmc-tool-btn { min-width: 44px; min-height: 44px; border-radius: 14px; font-size: 18px; }
+  .pmc-sticker-btn { min-width: 40px; min-height: 40px; font-size: 19px; }
+  .pmc-sticker-palette { top: 62px; }
   .pmc-media-btn { min-height: 34px; }
   .pmc-media-count { z-index: 40; }
 }

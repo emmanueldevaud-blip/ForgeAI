@@ -18,7 +18,7 @@ import { createPublisherCaptionEditor } from '../components/PublisherCaptionEdit
 import { createPublisherPreview } from '../components/PublisherPreview.js?v=4';
 import { createPublisherMusicStep } from '../components/PublisherMusicStep.js?v=1';
 import { createPublisherPostEditor } from '../editors/PublisherPostEditor.js?v=3';
-import { createPublisherMinimalComposer } from '../components/PublisherMinimalComposer.js?v=9';
+import { createPublisherMinimalComposer } from '../components/PublisherMinimalComposer.js?v=12';
 import { storySlidesReady } from '../services/storyPublishPipeline.js';
 
 /**

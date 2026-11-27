@@ -22,7 +22,7 @@ import {
   getSuggestedPhotosForActivity,
 } from '../services/sportApi.js?v=16';
 import { createStoryStudioPage } from './StoryStudioPage.js?v=1';
-import { createCommunityPublisherPage } from './CommunityPublisherPage.js?v=19';
+import { createCommunityPublisherPage } from './CommunityPublisherPage.js?v=22';
 
 const MONTHS = [
   'Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin',

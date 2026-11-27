@@ -7,9 +7,11 @@
  *     (sans champ de saisie dans le panneau) : tap sur le fond pour ajouter,
  *     tap sur un texte pour l'éditer, poignée de déplacement et poignées
  *     d'angle pour taille/rotation ;
- *   - Story uniquement : mini-barre couleur/police/gras/italique/souligné/
- *     alignement/fond, rendue fidèlement dans l'export JPEG du canvas ;
- *   - aucun outil annexe (stickers, dessin, timeline, audio, éditeur lourd, etc.).
+ *   - Story uniquement : barre d'outils façon Story Instagram (texte + stickers),
+ *     mini-barre couleur/police/gras/italique/souligné/alignement/fond, rendue
+ *     fidèlement dans l'export JPEG du canvas ;
+ *   - stickers locaux bornés (émojis, @mention, #hashtag, date/heure) stockés
+ *     comme calques texte : aucun dessin, timeline, audio ni éditeur lourd.
  *
  * La sélection des médias reste dans l'étape « Médias » (déjà multi-sélection).
  * Ce composant gère l'aperçu, l'ordre, la suppression et la synchronisation du
@@ -53,6 +55,9 @@ const ALIGNMENTS = [
 ];
 const CORNERS = ['nw', 'ne', 'sw', 'se'];
 
+/** Set local et borné : pas de GIF, sondage ni lien (éditeur lourd exclu). */
+const EMOJI_STICKERS = ['❤️', '🔥', '👍', '🎉', '✨', '😀', '🏃', '📍'];
+
 const DEFAULT_STYLE = {
   color: '#ffffff',
   font: 'Arial',
@@ -64,6 +69,15 @@ const DEFAULT_STYLE = {
   backgroundColor: '#000000',
   size: 72,
   rotation: 0,
+};
+
+/** Pastille claire façon sticker : le texte reste un calque de design v2. */
+const STICKER_STYLE = {
+  ...DEFAULT_STYLE,
+  color: '#111111',
+  background: true,
+  backgroundColor: '#ffffff',
+  size: 96,
 };
 
 const FORMATS = {
@@ -101,6 +115,25 @@ function cleanText(value) {
 function clamp(value, min, max) {
   const number = Number(value);
   return Number.isFinite(number) ? Math.min(Math.max(number, min), max) : min;
+}
+
+/** Contenu d'un sticker local. Date et heure sont calculées à l'ajout. */
+export function stickerText(kind, arg) {
+  if (kind === 'emoji') return EMOJI_STICKERS.includes(String(arg)) ? String(arg) : '';
+  if (kind === 'mention') return '@';
+  if (kind === 'hashtag') return '#';
+  const now = arg instanceof Date && !Number.isNaN(arg.getTime()) ? arg : new Date();
+  if (kind === 'date') {
+    return new Intl.DateTimeFormat('fr-FR', {
+      day: '2-digit', month: '2-digit', year: 'numeric',
+    }).format(now);
+  }
+  if (kind === 'time') {
+    return new Intl.DateTimeFormat('fr-FR', {
+      hour: '2-digit', minute: '2-digit',
+    }).format(now);
+  }
+  return '';
 }
 
 /** Style d'un calque, toujours normalisé avant lecture/écriture. */
@@ -260,6 +293,7 @@ export class PublisherMinimalComposer {
     this.element = null;
     this.activeIndex = 0;
     this.activeLayerIndex = 0;
+    this.stickersOpen = false;
     // Un jeu de calques par média : sélectionner une photo change de jeu.
     this.mediaLayers = [];
     this.layers = [blankLayer()];
@@ -290,6 +324,12 @@ export class PublisherMinimalComposer {
     if (!media.length) return null;
     this.activeIndex = Math.min(Math.max(this.activeIndex, 0), media.length - 1);
     return media[this.activeIndex];
+  }
+
+  /** Place disponible : un calque encore vide est réutilisé avant d'atteindre 3. */
+  _hasLayerSlot() {
+    return this.layers.length < MAX_TEXT_LAYERS
+      || this.layers.some((layer) => !cleanText(layer.text));
   }
 
   /** Calques déjà présents dans le design d'un média (utile au retour arrière). */
@@ -350,6 +390,39 @@ export class PublisherMinimalComposer {
           </span>
         </div>`;
     }).join('');
+  }
+
+  /** Barre haute façon Story Instagram : texte et stickers, Story seulement. */
+  _renderToolbar() {
+    if (this.format !== 'story' || !this._activeMedia()) return '';
+    const full = !this._hasLayerSlot();
+    return `<div class="pmc-toolbar" data-pmc-toolbar role="toolbar" aria-label="Outils Story">
+        <button type="button" class="pmc-tool-btn pmc-tool-btn--text" data-action="pmc-tool-text"
+                aria-label="Ajouter du texte" title="Texte" ${full ? 'disabled' : ''}>Aa</button>
+        <button type="button" class="pmc-tool-btn pmc-tool-btn--sticker" data-action="pmc-stickers"
+                aria-label="Ajouter un sticker" aria-expanded="${this.stickersOpen}"
+                title="Stickers" ${full ? 'disabled' : ''}><span aria-hidden="true">☺</span></button>
+      </div>`;
+  }
+
+  /** Palette locale : émojis, @, #, date et heure — jamais d'éditeur lourd. */
+  _renderStickerPalette() {
+    if (this.format !== 'story' || !this._activeMedia()) return '';
+    const full = !this._hasLayerSlot();
+    const emojis = EMOJI_STICKERS.map((value) => `
+      <button type="button" class="pmc-sticker-btn pmc-sticker-btn--emoji" data-sticker="emoji"
+              data-value="${esc(value)}" aria-label="Sticker ${esc(value)}" ${full ? 'disabled' : ''}>${esc(value)}</button>`).join('');
+    return `<div class="pmc-sticker-palette" data-pmc-sticker-palette role="group" aria-label="Stickers"
+                ${this.stickersOpen ? '' : 'hidden'}>
+        <span class="pmc-sticker-label">Stickers</span>
+        <span class="pmc-sticker-group">${emojis}</span>
+        <span class="pmc-sticker-group">
+          <button type="button" class="pmc-sticker-btn" data-sticker="mention" aria-label="Mention" ${full ? 'disabled' : ''}>@</button>
+          <button type="button" class="pmc-sticker-btn" data-sticker="hashtag" aria-label="Hashtag" ${full ? 'disabled' : ''}>#</button>
+          <button type="button" class="pmc-sticker-btn" data-sticker="date" aria-label="Date du jour" ${full ? 'disabled' : ''}>📅</button>
+          <button type="button" class="pmc-sticker-btn" data-sticker="time" aria-label="Heure actuelle" ${full ? 'disabled' : ''}>🕒</button>
+        </span>
+      </div>`;
   }
 
   _renderStage() {
@@ -461,12 +534,14 @@ export class PublisherMinimalComposer {
   _render() {
     if (!this.element) return;
     const media = this._media();
-    const limitReached = this.layers.length >= MAX_TEXT_LAYERS;
+    const limitReached = !this._hasLayerSlot();
     const mediaLabel = media.length ? `Média ${this.activeIndex + 1} / ${media.length}` : 'Aucun média';
     this.element.innerHTML = `
       <div class="pmc-preview" data-pmc-preview>
         <div class="pmc-stage" data-pmc-stage>
           ${this._renderStage()}
+          ${this._renderToolbar()}
+          ${this._renderStickerPalette()}
           ${this._renderOverlays()}
           ${this._renderLayerActions()}
           <span class="pmc-media-count" data-pmc-media-count aria-live="polite">${mediaLabel}</span>
@@ -524,7 +599,7 @@ export class PublisherMinimalComposer {
         && window.matchMedia('(hover: none), (max-width: 899px)').matches;
       if (!touch) return;
       const target = event?.target;
-      if (target?.closest?.('[data-pmc-overlay], [data-pmc-overlay-actions], [data-style], [data-pmc-handle], [data-pmc-move], [data-action], [data-pmc-media-count], video')) return;
+      if (target?.closest?.('[data-pmc-overlay], [data-pmc-overlay-actions], [data-style], [data-pmc-handle], [data-pmc-move], [data-action], [data-sticker], [data-pmc-toolbar], [data-pmc-sticker-palette], [data-pmc-media-count], video')) return;
       if (this._addLayer()) this._focusLayer(this.activeLayerIndex);
     });
 
@@ -544,6 +619,25 @@ export class PublisherMinimalComposer {
 
     const add = this.element?.querySelector?.('[data-action="pmc-add-layer"]');
     if (add) add.addEventListener('click', () => this._addLayer());
+
+    // Barre haute façon Story : les deux points d'entrée restent explicites
+    // (tap sur le fond réservé au mobile), la palette ne reconstruit pas le DOM.
+    const toolText = this.element?.querySelector?.('[data-action="pmc-tool-text"]');
+    if (toolText) toolText.addEventListener('click', (event) => {
+      event?.stopPropagation?.();
+      this._addLayer();
+    });
+    const stickerTool = this.element?.querySelector?.('[data-action="pmc-stickers"]');
+    if (stickerTool) stickerTool.addEventListener('click', (event) => {
+      event?.stopPropagation?.();
+      this._toggleStickers();
+    });
+    this.element?.querySelectorAll?.('[data-sticker]')?.forEach((node) => {
+      node.addEventListener?.('click', (event) => {
+        event?.stopPropagation?.();
+        this._addSticker(node.dataset?.sticker, node.dataset?.value);
+      });
+    });
 
     // Outils de style du calque actif (mini-barre sur la photo).
     this.element?.querySelectorAll?.('[data-style]')?.forEach((node) => {
@@ -790,20 +884,56 @@ export class PublisherMinimalComposer {
     return node;
   }
 
+  /** Ouvre/ferme la palette sans toucher au texte en cours d'édition. */
+  _toggleStickers(open = !this.stickersOpen) {
+    if (this.format !== 'story') return;
+    this.stickersOpen = Boolean(open);
+    const palette = this.element?.querySelector?.('[data-pmc-sticker-palette]');
+    if (palette) palette.hidden = !this.stickersOpen;
+    const button = this.element?.querySelector?.('[data-action="pmc-stickers"]');
+    button?.setAttribute?.('aria-expanded', String(this.stickersOpen));
+  }
+
+  /** Un sticker est un simple calque texte avec style de pastille claire. */
+  _addSticker(kind, value) {
+    if (this.format !== 'story') return false;
+    const text = stickerText(kind, value);
+    if (!text) return false;
+    const added = this._addLayer({
+      text,
+      style: { ...STICKER_STYLE },
+      focus: kind === 'mention' || kind === 'hashtag',
+    });
+    if (added) this._toggleStickers(false);
+    return added;
+  }
+
   /** Ajoute un calque libre, sans dépasser la limite de 3. */
-  _addLayer() {
+  _addLayer({ text = '', style = null, focus = true } = {}) {
     this._syncTextsFromDom();
+    // Un calque vide (le premier au montage) est réutilisé : un sticker posé
+    // avant toute frappe ne gaspille pas une des 3 places.
+    const empty = this.layers.findIndex((layer) => !cleanText(layer.text));
+    if (empty >= 0) {
+      this.layers[empty].text = text;
+      this.layers[empty].style = style ? normalizeStyle(style) : { ...DEFAULT_STYLE };
+      this.activeLayerIndex = empty;
+      this._render();
+      if (focus) this._focusLayer(empty);
+      this._writeDesign();
+      return true;
+    }
     if (this.layers.length >= MAX_TEXT_LAYERS) return false;
     const used = new Set(this.layers.map((layer) => layer.id));
     const slot = TEXT_LAYER_IDS.findIndex((id) => !used.has(id));
     this.layers.push({
       id: TEXT_LAYER_IDS[slot < 0 ? this.layers.length : slot],
-      text: '',
-      style: { ...DEFAULT_STYLE },
+      text,
+      style: style ? normalizeStyle(style) : { ...DEFAULT_STYLE },
     });
     this.activeLayerIndex = this.layers.length - 1;
     this._render();
-    this._focusLayer(this.activeLayerIndex);
+    if (focus) this._focusLayer(this.activeLayerIndex);
     this._writeDesign();
     return true;
   }

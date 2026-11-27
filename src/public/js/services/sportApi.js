@@ -343,6 +343,10 @@ export async function getStudioAudioProposals(publicationId, exclude = []) {
   return cmApi.get(`/community-manager/studio/draft/${encodeURIComponent(publicationId)}/audio-proposals`, { params: { exclude: exclude.join(',') } });
 }
 
+export async function getStoryAudioProposals(draftId) {
+  return cmApi.get(`/community-manager/story-studio/draft/${encodeURIComponent(draftId)}/audio-proposals`);
+}
+
 // --------------------------------------------------------------------------- #
 // Community Manager V4 - Calendrier mensuel/hebdomadaire + Suggestions
 // --------------------------------------------------------------------------- #

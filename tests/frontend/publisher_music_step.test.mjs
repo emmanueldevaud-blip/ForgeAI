@@ -89,8 +89,9 @@ const sharedStore = {
 const { resolveDraftMusic, PublisherMusicStep } = new Function(
   'publisherStore',
   'searchInstagramMusic',
+  'getStoryAudioProposals',
   `${musicSrc}\nreturn { resolveDraftMusic, PublisherMusicStep };`,
-)(sharedStore, async () => ({ items: [] }));
+)(sharedStore, async () => ({ items: [] }), async () => ({ items: [] }));
 
 {
   console.log('T3: resolveDraftMusic — draft.music, legacy et cleared');
@@ -366,6 +367,100 @@ function makeEl() {
   check('T7: Reel — compose minimal (plus de StudioEditorView)',
     /createPublisherMinimalComposer\(/.test(pageSrc) && !/createPublisherReelEditor\(/.test(pageSrc));
   check('T7: pas de music step pour reel/post/carrousel', !extractSteps(pageSrc, 'reel').includes('music') && !extractSteps(pageSrc, 'post').includes('music') && !extractSteps(pageSrc, 'carousel').includes('music'));
+}
+
+// ---------- T8 : présélection IA à l'ouverture ----------
+{
+  console.log('T8: présélection IA à l’ouverture de l’étape Musique');
+  const apiRaw = read('../../src/public/js/services/sportApi.js');
+  check('T8: wrapper Story audio-proposals', apiRaw.includes('/story-studio/draft/${encodeURIComponent(draftId)}/audio-proposals'));
+  const pageSrc = read('../../src/public/js/pages/CommunityPublisherPage.js');
+  check('T8: page passe publicationId au composant', /publicationId:\s*publisherDraftService\.currentDraftType === 'story'/.test(pageSrc));
+  check('T8: endpoint backend Story', read('../../app/api/community_manager.py').includes('/story-studio/draft/{draft_id}/audio-proposals'));
+
+  const calls = [];
+  const suggest = async (id) => {
+    calls.push(id);
+    return {
+      items: [{ audio_id: 'ai1', title: 'Photo Mix', display_artist: 'IA', duration_in_ms: 120000 }],
+      reason: 'Analyse IA des photos de la Story',
+    };
+  };
+  const fresh = (id = 42) => ({
+    id,
+    format: 'story',
+    music: { trackId: null, start: 0, end: 0, volume: 1, source: null },
+    design: { slides: [], designDocuments: [{ elements: [] }] },
+  });
+  const flush = async () => { for (let i = 0; i < 5; i += 1) await Promise.resolve(); };
+
+  sharedStore.draft = fresh();
+  const host = makeEl();
+  const step = new PublisherMusicStep({ getStoryAudioProposals: suggest, publicationId: 42 });
+  step.mount(host);
+  await flush();
+  check('T8: endpoint appelé avec le brouillon', calls.length === 1 && calls[0] === 42);
+  check('T8: première piste présélectionnée', sharedStore.draft.music.trackId === 'ai1' && sharedStore.draft.music.preselectedBy === 'ai');
+  check('T8: libellé Présélection IA', host.__subs.get('[data-music-current]').innerHTML.includes('Présélection IA'));
+  check('T8: message masqué après succès', host.__subs.get('[data-music-suggestion]').hidden === true);
+
+  step._select({ audio_id: 'manual', title: 'Manual', display_artist: 'Moi' });
+  check('T8: remplacement manuel efface le drapeau IA', sharedStore.draft.music.trackId === 'manual' && sharedStore.draft.music.preselectedBy === null);
+
+  sharedStore.draft = fresh();
+  sharedStore.draft.music = { trackId: 'kept', title: 'Déjà choisi', source: 'instagram' };
+  const keptHost = makeEl();
+  const keptStep = new PublisherMusicStep({ getStoryAudioProposals: suggest, publicationId: 42 });
+  keptStep.mount(keptHost);
+  await flush();
+  check('T8: choix existant non écrasé', calls.length === 1 && sharedStore.draft.music.trackId === 'kept');
+
+  sharedStore.draft = fresh();
+  sharedStore.draft.music = { cleared: true, trackId: null };
+  const clearedHost = makeEl();
+  const clearedStep = new PublisherMusicStep({ getStoryAudioProposals: suggest, publicationId: 42 });
+  clearedStep.mount(clearedHost);
+  await flush();
+  check('T8: retrait explicite non réouvert', calls.length === 1);
+
+  sharedStore.draft = fresh(null);
+  const noIdHost = makeEl();
+  const noIdStep = new PublisherMusicStep({ getStoryAudioProposals: suggest });
+  noIdStep.mount(noIdHost);
+  await flush();
+  check('T8: sans brouillon serveur, aucun appel', calls.length === 1);
+
+  sharedStore.draft = fresh();
+  const slowHost = makeEl();
+  let resolveSlow;
+  const slowStep = new PublisherMusicStep({
+    getStoryAudioProposals: () => new Promise((resolve) => { resolveSlow = resolve; }),
+    publicationId: 42,
+  });
+  slowStep.mount(slowHost);
+  slowHost.__subs.get('[data-action="music-open"]').__fire('click');
+  resolveSlow({ items: [{ audio_id: 'tardive', title: 'Trop tard' }] });
+  await flush();
+  check('T8: interaction manuelle annule une présélection tardive', sharedStore.draft.music.trackId === null);
+
+  sharedStore.draft = fresh();
+  const failHost = makeEl();
+  const failStep = new PublisherMusicStep({
+    getStoryAudioProposals: async () => { throw new Error('IA indisponible'); },
+    publicationId: 42,
+  });
+  failStep.mount(failHost);
+  await flush();
+  check('T8: échec IA message visible',
+    failHost.__subs.get('[data-music-suggestion]').hidden === false
+    && failHost.__subs.get('[data-music-suggestion]').textContent === 'IA indisponible');
+
+  step.destroy();
+  keptStep.destroy();
+  clearedStep.destroy();
+  noIdStep.destroy();
+  slowStep.destroy();
+  failStep.destroy();
 }
 
 console.log(failures.length === 0 ? '\nTOUS LES TESTS PASSENT' : `\n${failures.length} ECHEC(S)`);

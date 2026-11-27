@@ -17,7 +17,7 @@ import {
   refuseSuggestion,
   getSuggestedPhotos,
   publicationPhotoUrl,
-} from '../services/sportApi.js?v=16';
+} from '../services/sportApi.js?v=17';
 
 export class CommunityManagerStudioPage {
   constructor(router, publicationId, options = {}, onBack = null) {

@@ -1,5 +1,5 @@
 import { publisherStore } from '../stores/publisherStore.js';
-import { searchInstagramMusic } from '../services/sportApi.js?v=16';
+import { getStoryAudioProposals, searchInstagramMusic } from '../services/sportApi.js?v=17';
 
 /**
  * Résout la sélection musicale d'un brouillon Publisher.
@@ -72,10 +72,15 @@ export function resolveDraftMusic(draft) {
 export class PublisherMusicStep {
   constructor(options = {}) {
     this.search = options.searchInstagramMusic || searchInstagramMusic;
+    this.suggest = options.getStoryAudioProposals || getStoryAudioProposals;
+    this.publicationId = options.publicationId ?? null;
     this.host = null;
     this.element = null;
     this._items = [];
     this._unsubscribe = null;
+    this._suggestionRun = 0;
+    this._suggestionMessage = '';
+    this._autoSelected = false;
   }
 
   mount(host) {
@@ -83,6 +88,7 @@ export class PublisherMusicStep {
     host.innerHTML = `
       <div class="music-step">
         <div class="music-step-current" data-music-current></div>
+        <p class="music-step-suggestion" data-music-suggestion hidden></p>
         <div class="pre-music-tools">
           <button type="button" class="pre-music-button" data-action="music-open" aria-haspopup="dialog" aria-expanded="false">♫ Choisir une musique Instagram</button>
         </div>
@@ -100,9 +106,11 @@ export class PublisherMusicStep {
     this._bind();
     this._renderCurrent();
     this._unsubscribe = publisherStore.subscribe((state) => this._renderCurrent(state));
+    this._suggestInitialMusic();
   }
 
   destroy() {
+    this._suggestionRun += 1;
     if (this._unsubscribe) {
       this._unsubscribe();
       this._unsubscribe = null;
@@ -116,6 +124,9 @@ export class PublisherMusicStep {
   _bind() {
     const root = this.element;
     root.querySelector('[data-action="music-open"]').addEventListener('click', () => {
+      // Toute intervention manuelle annule une présélection encore en vol.
+      this._suggestionRun += 1;
+      this._setSuggestionMessage('');
       const panel = root.querySelector('[data-music-panel]');
       panel.hidden = !panel.hidden;
       if (!panel.hidden) {
@@ -139,6 +150,47 @@ export class PublisherMusicStep {
     });
   }
 
+  _setSuggestionMessage(message = '') {
+    this._suggestionMessage = String(message || '');
+    const el = this.element?.querySelector?.('[data-music-suggestion]');
+    if (!el) return;
+    el.textContent = this._suggestionMessage;
+    el.hidden = !this._suggestionMessage;
+  }
+
+  /**
+   * À l'ouverture de l'étape, présélectionne la première piste proposée par
+   * l'analyse IA des photos du brouillon Story. Un choix explicite (ou un
+   * retrait) n'est jamais écrasé, y compris si la réponse arrive tard.
+   */
+  async _suggestInitialMusic() {
+    const draft = publisherStore.draft || {};
+    if (draft.format && draft.format !== 'story') return;
+    if (draft.music?.cleared || resolveDraftMusic(draft)) return;
+    const publicationId = this.publicationId ?? draft.id;
+    if (!publicationId) return;
+
+    const run = ++this._suggestionRun;
+    this._setSuggestionMessage('Présélection IA en cours…');
+    try {
+      const response = await this.suggest(publicationId);
+      if (run !== this._suggestionRun || !this.element) return;
+      const items = Array.isArray(response?.items) ? response.items : [];
+      const track = items.find((item) => item?.audio_id);
+      const current = publisherStore.draft || {};
+      if (track && !current.music?.cleared && !resolveDraftMusic(current)) {
+        this._autoSelected = true;
+        this._select(track, { auto: true });
+        this._setSuggestionMessage('');
+        return;
+      }
+      this._setSuggestionMessage(track ? '' : (response?.reason || 'Aucune présélection IA disponible.'));
+    } catch (error) {
+      if (run !== this._suggestionRun || !this.element) return;
+      this._setSuggestionMessage(error?.message || 'Présélection IA indisponible.');
+    }
+  }
+
   async _onSearch(event) {
     if (event && typeof event.preventDefault === 'function') event.preventDefault();
     const root = this.element;
@@ -146,6 +198,8 @@ export class PublisherMusicStep {
     const input = form ? form.querySelector('input') : null;
     const query = String(input?.value || '').trim();
     if (query.length < 2) return;
+    this._suggestionRun += 1;
+    this._setSuggestionMessage('');
     const status = root.querySelector('[data-music-status]');
     const results = root.querySelector('[data-music-results]');
     if (status) status.textContent = 'Recherche…';
@@ -168,8 +222,9 @@ export class PublisherMusicStep {
     }
   }
 
-  _select(track) {
+  _select(track, { auto = false } = {}) {
     if (!track?.audio_id) return;
+    this._autoSelected = Boolean(auto);
     publisherStore.setMusic({
       trackId: String(track.audio_id),
       title: track.title || '',
@@ -177,12 +232,14 @@ export class PublisherMusicStep {
       duration_in_ms: track.duration_in_ms ?? null,
       source: 'instagram',
       cleared: false,
+      preselectedBy: auto ? 'ai' : null,
     });
     const panel = this.element?.querySelector('[data-music-panel]');
     if (panel) panel.hidden = true;
   }
 
   _remove() {
+    this._autoSelected = false;
     publisherStore.setMusic({
       trackId: null,
       title: null,
@@ -190,18 +247,26 @@ export class PublisherMusicStep {
       duration_in_ms: null,
       source: null,
       cleared: true,
+      preselectedBy: null,
     });
   }
 
   _renderCurrent(state) {
     const host = this.element?.querySelector('[data-music-current]');
     if (!host) return;
-    const selection = resolveDraftMusic((state && state.draft) || publisherStore.draft);
+    const draft = (state && state.draft) || publisherStore.draft;
+    const selection = resolveDraftMusic(draft);
     if (!selection) {
       host.innerHTML = '<div class="music-step-empty">Aucune musique sélectionnée — vous pouvez continuer sans musique.</div>';
       return;
     }
-    const sourceLabel = selection.source === 'local' ? 'Piste locale' : 'Catalogue Instagram';
+    const auto = this._autoSelected || draft?.music?.preselectedBy === 'ai';
+    const sourceLabel = auto
+      ? 'Présélection IA · Instagram'
+      : (selection.source === 'local' ? 'Piste locale' : 'Catalogue Instagram');
+    const note = auto
+      ? 'Présélection IA basée sur les photos de la Story : vérifiez ou remplacez le morceau. Piste sélectionnée, non intégrable à la publication actuelle : elle ne sera pas publiée avec la Story.'
+      : 'Brouillon créatif : piste sélectionnée, non intégrable à la publication actuelle. Elle ne sera pas publiée avec la Story.';
     host.innerHTML = `
       <div class="music-step-selected">
         <span class="pre-music-note" aria-hidden="true">♫</span>
@@ -209,7 +274,7 @@ export class PublisherMusicStep {
         <span class="music-step-source">${sourceLabel}</span>
         <button type="button" class="pre-music-button" data-action="music-remove">Retirer</button>
       </div>
-      <p class="music-step-note">Brouillon créatif : piste sélectionnée, non intégrable à la publication actuelle. Elle ne sera pas publiée avec la Story.</p>`;
+      <p class="music-step-note">${note}</p>`;
   }
 
   _esc(value) {

@@ -600,4 +600,37 @@ console.log('22. Un calque vide parmi trois est réutilisé (outils non bloqués
   assert.equal(composer.layers[1].text, '#', 'emplacement vide réutilisé');
 }
 
+console.log('23. Outils et placeholder repliés à l’arrivée, dépliés seulement par Aa');
+{
+  const store = makeStore(makeMedia().slice(0, 1));
+  const { PublisherMinimalComposer } = loadComposer(store, { createElement: () => makeElement() });
+  const composer = new PublisherMinimalComposer({ format: 'story' });
+  composer.mount({ appendChild(el) { el.parentNode = this; } });
+  const css = read('src/public/css/publisher.css');
+  assert.match(css, /\.pmc-style-row\[hidden\]\s*\{/, 'masquage CSS des outils');
+  assert.match(css, /\.pmc-overlay--dormant::before\s*\{\s*content:\s*none/, 'placeholder masqué CSS');
+  assert.match(composer.element.innerHTML, /data-pmc-style-row[^>]*\shidden/, 'outils repliés à l’arrivée');
+  assert.match(composer.element.innerHTML, /data-action="pmc-tool-text"[^>]*aria-expanded="false"/);
+  assert.match(composer.element.innerHTML, /pmc-overlay--dormant/, 'aucun placeholder visible avant Aa');
+
+  const aa = composer.element.querySelector('[data-action="pmc-tool-text"]');
+  aa.click();
+  assert.equal(composer.textToolsOpen, true);
+  assert.doesNotMatch(composer.element.innerHTML, /data-pmc-style-row[^>]*\shidden/, 'outils dépliés par Aa');
+  assert.doesNotMatch(composer.element.innerHTML, /pmc-overlay--dormant/, 'placeholder révélé par Aa');
+  assert.match(composer.element.innerHTML, /data-action="pmc-tool-text"[^>]*aria-expanded="true"/);
+
+  aa.click();
+  assert.equal(composer.textToolsOpen, false, 'Aa referme comme le sticker');
+  assert.match(composer.element.innerHTML, /data-pmc-style-row[^>]*\shidden/);
+  assert.match(composer.element.innerHTML, /pmc-overlay--dormant/, 'placeholder replié avec les outils');
+  assert.match(composer.element.innerHTML, /data-action="pmc-tool-text"[^>]*aria-expanded="false"/);
+
+  const stickerBtn = composer.element.querySelector('[data-action="pmc-stickers"]');
+  stickerBtn.click();
+  composer._toggleTextTools(true);
+  assert.match(composer.element.innerHTML, /data-pmc-sticker-palette[^>]*\shidden/, 'exclusion mutuelle des palettes');
+  assert.doesNotMatch(composer.element.innerHTML, /pmc-overlay--dormant/, 'Aa rouvre le placeholder');
+}
+
 console.log('\nCompositeur minimal (médias multiples + calques de texte) OK.');

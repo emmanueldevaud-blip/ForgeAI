@@ -20,9 +20,9 @@ import {
   regeneratePublicationContent,
   createStoryDraft,
   getSuggestedPhotosForActivity,
-} from '../services/sportApi.js?v=16';
+} from '../services/sportApi.js?v=17';
 import { createStoryStudioPage } from './StoryStudioPage.js?v=1';
-import { createCommunityPublisherPage } from './CommunityPublisherPage.js?v=22';
+import { createCommunityPublisherPage } from './CommunityPublisherPage.js?v=26';
 
 const MONTHS = [
   'Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin',

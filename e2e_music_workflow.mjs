@@ -72,6 +72,15 @@ async function setupPage(seedFn) {
   await page.route((url) => url.pathname === '/community-manager/instagram/music/search', (route) =>
     route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ items: TRACKS }) })
   );
+  // Présélection IA : par défaut aucune proposition, pour ne pas transformer
+  // le scénario S2 « Story sans musique » en Story avec musique.
+  await page.route((url) => /\/community-manager\/story-studio\/draft\/\d+\/audio-proposals$/.test(url.pathname), (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ items: [], eligible_count: 0, source: 'instagram', local_render: false, reason: 'Aucune proposition IA (mock e2e)' }),
+    })
+  );
   await page.route((url) => /\/albums|\/suggested|\/activities/.test(url.pathname), (route) =>
     route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ items: [] }) })
   );

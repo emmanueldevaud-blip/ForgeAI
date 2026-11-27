@@ -33,7 +33,7 @@ import {
   // Calendar
   getMonthCalendar,
   getWeekCalendar,
-} from '../services/sportApi.js?v=16';
+} from '../services/sportApi.js?v=17';
 import {
   createStudioRender,
   getStudioRenderJob,

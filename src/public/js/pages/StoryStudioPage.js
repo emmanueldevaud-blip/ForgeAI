@@ -16,7 +16,7 @@ import {
   deleteStoryDraft,
   previewStoryDraft,
   listStoryDrafts,
-} from '../services/sportApi.js?v=16';
+} from '../services/sportApi.js?v=17';
 
 export class StoryStudioPage {
   constructor(router, draftId, onBack = null) {

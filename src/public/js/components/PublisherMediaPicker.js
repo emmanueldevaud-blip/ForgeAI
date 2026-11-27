@@ -7,7 +7,7 @@
 
 import { publisherStore } from '../stores/publisherStore.js';
 import { listPhotos, uploadPhotos, listAlbums } from '../services/photosApi.js?v=8';
-import { listSportActivities, getSuggestedPhotos, getSuggestedPhotosForActivity } from '../services/sportApi.js?v=16';
+import { listSportActivities, getSuggestedPhotos, getSuggestedPhotosForActivity } from '../services/sportApi.js?v=17';
 
 const VIEW_MODES = {
   library: { label: 'Bibliothèque', short: 'Photos' },

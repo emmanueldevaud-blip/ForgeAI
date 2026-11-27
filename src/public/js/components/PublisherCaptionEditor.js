@@ -4,7 +4,7 @@
  */
 
 import { publisherStore } from '../stores/publisherStore.js';
-import { getMetaInstagramAccount } from '../services/sportApi.js?v=16';
+import { getMetaInstagramAccount } from '../services/sportApi.js?v=17';
 
 const MAX_LENGTH = 2200;
 

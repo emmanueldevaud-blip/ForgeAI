@@ -12,13 +12,13 @@
 
 import { publisherStore } from '../stores/publisherStore.js';
 import { publisherDraftService } from '../services/publisherDraftService.js?v=3';
-import { getSuggestedPhotosForActivity } from '../services/sportApi.js?v=16';
+import { getSuggestedPhotosForActivity } from '../services/sportApi.js?v=17';
 import { createPublisherMediaPicker } from '../components/PublisherMediaPicker.js?v=2';
 import { createPublisherCaptionEditor } from '../components/PublisherCaptionEditor.js?v=2';
 import { createPublisherPreview } from '../components/PublisherPreview.js?v=4';
-import { createPublisherMusicStep } from '../components/PublisherMusicStep.js?v=1';
+import { createPublisherMusicStep } from '../components/PublisherMusicStep.js?v=2';
 import { createPublisherPostEditor } from '../editors/PublisherPostEditor.js?v=3';
-import { createPublisherMinimalComposer } from '../components/PublisherMinimalComposer.js?v=12';
+import { createPublisherMinimalComposer } from '../components/PublisherMinimalComposer.js?v=15';
 import { storySlidesReady } from '../services/storyPublishPipeline.js';
 
 /**
@@ -662,7 +662,13 @@ export class CommunityPublisherPage {
       this.musicStep.destroy();
       this.musicStep = null;
     }
-    this.musicStep = createPublisherMusicStep();
+    this.musicStep = createPublisherMusicStep({
+      // Seules les Story ont un brouillon serveur Story ; les autres formats
+      // ne passent pas par cette étape.
+      publicationId: publisherDraftService.currentDraftType === 'story'
+        ? publisherDraftService.currentDraftId
+        : null,
+    });
     this.musicStep.mount(host);
   }
 

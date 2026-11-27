@@ -919,6 +919,110 @@ async def get_story_draft(
     return StoryDraftResponse.model_validate(draft)
 
 
+@router.get("/story-studio/draft/{draft_id}/audio-proposals")
+async def suggest_story_audio_proposals(
+    draft_id: int,
+    orchestrator: StoryOrchestrator = Depends(get_story_orchestrator),
+):
+    """Proposer une musique Instagram à partir des photos du brouillon Story.
+
+    L'analyse vision est faite par `ig_music` sur les `selected_asset_ids`.
+    Aucune écriture n'est effectuée ici : le front décide de la présélection
+    et peut toujours la remplacer. En cas d'échec IA, un repli catalogue
+    contextuel est proposé et clairement mentionné dans `reason`.
+    """
+    draft = await orchestrator.get_draft(draft_id)
+    if not draft:
+        raise HTTPException(status_code=404, detail="Brouillon Story introuvable")
+
+    from app.services.community_manager.ig_music import (
+        pick_audio_for_photos_bounded,
+        search_ig_audio,
+    )
+
+    photo_ids: list[int] = []
+    for raw_id in (getattr(draft, "selected_asset_ids", None) or []):
+        try:
+            photo_id = int(raw_id)
+        except (TypeError, ValueError):
+            continue
+        if photo_id not in photo_ids and len(photo_ids) < 5:
+            photo_ids.append(photo_id)
+    if not photo_ids:
+        return {
+            "items": [],
+            "eligible_count": 0,
+            "source": "instagram",
+            "local_render": False,
+            "reason": "Aucune photo sélectionnée dans le brouillon Story",
+        }
+
+    result = await pick_audio_for_photos_bounded(
+        orchestrator.db,
+        orchestrator.current_user,
+        photo_ids,
+        title=str(getattr(draft, "caption", None) or ""),
+        hashtags=getattr(draft, "hashtags", None),
+        timeout_seconds=25.0,
+    )
+    suggestions = list((result or {}).get("suggestions") or [])
+    reason = "Analyse IA des photos de la Story"
+    if not suggestions:
+        reason = "Repli catalogue Instagram (analyse IA indisponible)"
+        seen: set[str] = set()
+        started = time.perf_counter()
+        queries = [
+            query for query in (
+                str(getattr(draft, "caption", None) or "").strip()[:80],
+                str(getattr(draft, "hashtags", None) or "").replace("#", " ").strip()[:80],
+                "trail running motivation",
+            ) if query
+        ]
+        for query in queries[:3]:
+            try:
+                candidates = await search_ig_audio(orchestrator.db, query, limit=10)
+            except Exception as exc:
+                logger.warning("[IG-MUSIC] Repli Story échoué (%s): %s", query, exc)
+                continue
+            for candidate in candidates:
+                audio_id = str(candidate.get("audio_id") or "")
+                if audio_id and audio_id not in seen:
+                    seen.add(audio_id)
+                    suggestions.append(candidate)
+            if len(suggestions) >= 10:
+                break
+        logger.info(
+            "[IG-MUSIC] Story audio-proposals durée=%.2fs uniques=%s affichés=%s",
+            time.perf_counter() - started, len(seen), min(10, len(suggestions)),
+        )
+
+    items = []
+    for item in suggestions:
+        audio_id = str(item.get("audio_id") or "")
+        if not audio_id:
+            continue
+        items.append({
+            **item,
+            "source": "instagram",
+            "status": "available_on_meta",
+            "reason": reason,
+            "preview_link": (
+                item.get("preview_link")
+                or item.get("on_platform_audio_preview_link")
+                or item.get("on_platform_audio_preview_url")
+                or item.get("preview_url")
+                or item.get("preview")
+            ),
+        })
+    return {
+        "items": items[:10],
+        "eligible_count": len(items[:10]),
+        "source": "instagram",
+        "local_render": False,
+        "reason": reason if items else "Aucune réponse exploitable du catalogue Instagram Meta",
+    }
+
+
 @router.patch("/story-studio/draft/{draft_id}", response_model=StoryDraftResponse)
 async def update_story_draft(
     draft_id: int,

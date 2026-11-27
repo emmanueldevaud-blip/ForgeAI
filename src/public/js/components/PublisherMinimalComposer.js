@@ -293,6 +293,7 @@ export class PublisherMinimalComposer {
     this.element = null;
     this.activeIndex = 0;
     this.activeLayerIndex = 0;
+    this.textToolsOpen = false;
     this.stickersOpen = false;
     // Un jeu de calques par média : sélectionner une photo change de jeu.
     this.mediaLayers = [];
@@ -398,7 +399,8 @@ export class PublisherMinimalComposer {
     const full = !this._hasLayerSlot();
     return `<div class="pmc-toolbar" data-pmc-toolbar role="toolbar" aria-label="Outils Story">
         <button type="button" class="pmc-tool-btn pmc-tool-btn--text" data-action="pmc-tool-text"
-                aria-label="Ajouter du texte" title="Texte" ${full ? 'disabled' : ''}>Aa</button>
+                aria-label="Ajouter du texte" aria-expanded="${this.textToolsOpen}" title="Texte"
+                ${full ? 'disabled' : ''}>Aa</button>
         <button type="button" class="pmc-tool-btn pmc-tool-btn--sticker" data-action="pmc-stickers"
                 aria-label="Ajouter un sticker" aria-expanded="${this.stickersOpen}"
                 title="Stickers" ${full ? 'disabled' : ''}><span aria-hidden="true">☺</span></button>
@@ -444,6 +446,9 @@ export class PublisherMinimalComposer {
       const text = cleanText(layer.text);
       const slot = asLayerSlot(layer.id) ?? index;
       const active = index === this.activeLayerIndex;
+      // Tant que Aa n'a pas été tapé, un calque vide reste invisible : ni
+      // placeholder « Touchez pour écrire », ni cadre d'édition.
+      const dormant = !text && !this.textToolsOpen;
       // Poignées sur tous les calques ; seules celles du calque actif sont
       // affichées en CSS. Ainsi un changement de sélection n'a pas à reconstruire
       // le DOM (le focus du texte reste intact). Le Reel est exclu : son rendu
@@ -452,7 +457,7 @@ export class PublisherMinimalComposer {
         ? `<span class="pmc-move-handle" data-pmc-move contenteditable="false" aria-hidden="true"></span>`
           + CORNERS.map((corner) => `<span class="pmc-handle pmc-handle--${corner}" data-pmc-handle data-corner="${corner}" contenteditable="false" aria-hidden="true"></span>`).join('')
         : '';
-      return `<div class="pmc-overlay pmc-overlay--layer pmc-overlay--slot-${slot}${text ? '' : ' pmc-overlay--placeholder'}${active ? ' active' : ''}"
+      return `<div class="pmc-overlay pmc-overlay--layer pmc-overlay--slot-${slot}${text ? '' : ' pmc-overlay--placeholder'}${dormant ? ' pmc-overlay--dormant' : ''}${active ? ' active' : ''}"
                 data-pmc-overlay data-layer-index="${index}" data-index="${index}"
                 data-pmc-layer-text="${index}"
                 ${index === 0 ? 'data-pmc-text ' : ''}contenteditable="true" spellcheck="false"
@@ -485,7 +490,8 @@ export class PublisherMinimalComposer {
               data-style="align" data-value="${align.value}"
               aria-label="Aligner ${align.value === 'left' ? 'à gauche' : align.value === 'right' ? 'à droite' : 'au centre'}"
               aria-pressed="${style.align === align.value}">${align.label}</button>`).join('');
-    return `<div class="pmc-style-row" data-pmc-style-row role="group" aria-label="Style du calque">
+    return `<div class="pmc-style-row" data-pmc-style-row role="group" aria-label="Style du calque"
+                ${this.textToolsOpen ? '' : 'hidden'}>
         <span class="pmc-style-group" data-pmc-colors>${swatches}</span>
         <span class="pmc-style-group" data-pmc-fonts>${fonts}</span>
         <span class="pmc-style-group" data-pmc-format>
@@ -588,8 +594,9 @@ export class PublisherMinimalComposer {
     editable.forEach((node) => bindText(node, Number(node.dataset?.index ?? 0)));
     if (!editable.length) bindText(this.element?.querySelector?.('[data-pmc-text]'), 0);
 
-    // Mobile uniquement : tap sur le fond = nouveau calque directement focusé.
-    // Sur desktop, le bouton "+" du panneau est le seul point d'entrée (pas de doublon).
+    // Mobile uniquement : tap sur le fond = nouveau calque directement focusé,
+    // mais seulement après Aa : au chargement, aucun placeholder ne doit apparaître.
+    // Sur desktop, le bouton "+" du panneau reste le point d'entrée historique.
     // Le test est fait au clic (et non au montage) pour suivre les changements
     // de viewport sans dépendre du cache du navigateur.
     const stage = this.element?.querySelector?.('[data-pmc-stage]');
@@ -597,7 +604,7 @@ export class PublisherMinimalComposer {
       const touch = typeof window !== 'undefined'
         && typeof window.matchMedia === 'function'
         && window.matchMedia('(hover: none), (max-width: 899px)').matches;
-      if (!touch) return;
+      if (!touch || !this.textToolsOpen) return;
       const target = event?.target;
       if (target?.closest?.('[data-pmc-overlay], [data-pmc-overlay-actions], [data-style], [data-pmc-handle], [data-pmc-move], [data-action], [data-sticker], [data-pmc-toolbar], [data-pmc-sticker-palette], [data-pmc-media-count], video')) return;
       if (this._addLayer()) this._focusLayer(this.activeLayerIndex);
@@ -625,6 +632,12 @@ export class PublisherMinimalComposer {
     const toolText = this.element?.querySelector?.('[data-action="pmc-tool-text"]');
     if (toolText) toolText.addEventListener('click', (event) => {
       event?.stopPropagation?.();
+      if (this.textToolsOpen) {
+        this._toggleTextTools(false);
+        return;
+      }
+      if (!this._hasLayerSlot()) return;
+      this._toggleTextTools(true);
       this._addLayer();
     });
     const stickerTool = this.element?.querySelector?.('[data-action="pmc-stickers"]');
@@ -884,6 +897,16 @@ export class PublisherMinimalComposer {
     return node;
   }
 
+  /** Ouvre/ferme les outils et le placeholder, comme la palette de stickers. */
+  _toggleTextTools(open = !this.textToolsOpen) {
+    if (this.format !== 'story') return;
+    const next = Boolean(open);
+    if (this.textToolsOpen === next) return;
+    this.textToolsOpen = next;
+    if (this.textToolsOpen) this._toggleStickers(false);
+    this._render();
+  }
+
   /** Ouvre/ferme la palette sans toucher au texte en cours d'édition. */
   _toggleStickers(open = !this.stickersOpen) {
     if (this.format !== 'story') return;
@@ -892,6 +915,7 @@ export class PublisherMinimalComposer {
     if (palette) palette.hidden = !this.stickersOpen;
     const button = this.element?.querySelector?.('[data-action="pmc-stickers"]');
     button?.setAttribute?.('aria-expanded', String(this.stickersOpen));
+    if (this.stickersOpen) this._toggleTextTools(false);
   }
 
   /** Un sticker est un simple calque texte avec style de pastille claire. */

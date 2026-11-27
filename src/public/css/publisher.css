@@ -2430,6 +2430,11 @@
 
 .pmc-overlay:not(.pmc-overlay--placeholder)::before { content: none; }
 
+/* Avant le premier tap sur Aa : aucun placeholder ni cadre d'édition visible. */
+.pmc-overlay--dormant::before { content: none; }
+.pmc-overlay--dormant.active,
+.pmc-overlay--dormant:focus { border-color: transparent; background: transparent; }
+
 /* Une seule barre d'actions, attachée au calque actif. */
 .pmc-overlay-actions {
   position: absolute;
@@ -2530,6 +2535,8 @@
   background: rgba(0, 0, 0, 0.82);
   backdrop-filter: blur(6px);
 }
+
+.pmc-style-row[hidden] { display: none; }
 
 .pmc-style-group { display: inline-flex; align-items: center; gap: 3px; }
 
@@ -2801,6 +2808,8 @@
 .music-step-source { font-size:12px; color:var(--publisher-text-muted); white-space:nowrap; }
 .music-step-note { margin:0; font-size:12px; color:var(--publisher-text-muted); }
 .music-step-empty { margin:0; font-size:13px; color:var(--publisher-text-muted); }
+.music-step-suggestion { margin:0; font-size:12px; color:var(--publisher-primary); }
+.music-step-suggestion[hidden] { display:none; }
 .pre-studio-host { flex:1; min-height:0; overflow:auto; }
 
 /* =========================================================

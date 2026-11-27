@@ -107,6 +107,13 @@ function esc(value) {
 }
 
 /** Texte non vide uniquement : un calque vide ne produit pas d'élément de design. */
+/** Vrai pour iPhone/iPad tactiles et petits écrans, sans dépendre du cache CSS. */
+function isTouchLayout() {
+  return typeof window !== 'undefined'
+    && typeof window.matchMedia === 'function'
+    && window.matchMedia('(hover: none), (max-width: 899px)').matches;
+}
+
 function cleanText(value) {
   const raw = String(value ?? '');
   return raw.trim() ? raw : '';
@@ -589,7 +596,21 @@ export class PublisherMinimalComposer {
         if (index !== this.activeLayerIndex) this._selectLayer(index);
         else this._refreshLayerState();
       });
-      node.addEventListener?.('click', () => this._selectLayer(index));
+      // iPad Safari : un tap direct sur un contenteditable ne déclenche pas
+      // toujours le clavier. Le focus est donc demandé dans le geste tactile,
+      // sans empêcher le navigateur de placer le curseur sous le doigt.
+      node.addEventListener?.('pointerdown', (event) => {
+        if (!isTouchLayout()) return;
+        if (event?.target?.closest?.('[data-pmc-move], [data-pmc-handle]')) return;
+        if (!cleanText(node.textContent) && !this.textToolsOpen) return;
+        this._focusLayer(index);
+      });
+      node.addEventListener?.('click', (event) => {
+        this._selectLayer(index);
+        if (isTouchLayout() && !event?.target?.closest?.('[data-pmc-move], [data-pmc-handle]')) {
+          this._focusLayer(index);
+        }
+      });
     };
     editable.forEach((node) => bindText(node, Number(node.dataset?.index ?? 0)));
     if (!editable.length) bindText(this.element?.querySelector?.('[data-pmc-text]'), 0);
@@ -601,10 +622,7 @@ export class PublisherMinimalComposer {
     // de viewport sans dépendre du cache du navigateur.
     const stage = this.element?.querySelector?.('[data-pmc-stage]');
     stage?.addEventListener?.('click', (event) => {
-      const touch = typeof window !== 'undefined'
-        && typeof window.matchMedia === 'function'
-        && window.matchMedia('(hover: none), (max-width: 899px)').matches;
-      if (!touch || !this.textToolsOpen) return;
+      if (!isTouchLayout() || !this.textToolsOpen) return;
       const target = event?.target;
       if (target?.closest?.('[data-pmc-overlay], [data-pmc-overlay-actions], [data-style], [data-pmc-handle], [data-pmc-move], [data-action], [data-sticker], [data-pmc-toolbar], [data-pmc-sticker-palette], [data-pmc-media-count], video')) return;
       if (this._addLayer()) this._focusLayer(this.activeLayerIndex);

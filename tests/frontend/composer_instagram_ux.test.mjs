@@ -131,7 +131,15 @@ console.log('3. Câblage et styles');
   const pcBlock = css.indexOf('@media (min-width: 900px) and (min-height: 620px) {');
   const touchBlock = css.indexOf('@media (min-width: 900px) and (min-height: 620px) and (hover: none) {');
   assert.ok(touchBlock > pcBlock, 'les cibles tactiles iPad doivent surcharger la grille PC');
-  assert.match(read('src/public/index.html'), /publisher\.css\?v=32/);
+  // iPad : tap direct sur le texte = focus explicite + sélection tactile large.
+  assert.match(css, /-webkit-user-select: text/);
+  const component = read('src/public/js/components/PublisherMinimalComposer.js');
+  assert.match(component, /function isTouchLayout\(\)/);
+  assert.match(component, /addEventListener\?\.\('pointerdown'/);
+  const pageSrc = read('src/public/js/pages/CommunityPublisherPage.js');
+  assert.match(pageSrc, /PublisherMinimalComposer\.js\?v=16/);
+  assert.match(pageSrc, /PublisherMusicStep\.js\?v=4/);
+  assert.match(read('src/public/index.html'), /publisher\.css\?v=33/);
 }
 
 console.log('UX Composer Instagram OK.');

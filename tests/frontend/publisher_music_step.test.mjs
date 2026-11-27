@@ -86,11 +86,11 @@ const sharedStore = {
     this._listeners.forEach(fn => fn({ draft: this.draft }));
   },
 };
-const { resolveDraftMusic, PublisherMusicStep } = new Function(
+const { resolveDraftMusic, PublisherMusicStep, previewUrlFor } = new Function(
   'publisherStore',
   'searchInstagramMusic',
   'getStoryAudioProposals',
-  `${musicSrc}\nreturn { resolveDraftMusic, PublisherMusicStep };`,
+  `${musicSrc}\nreturn { resolveDraftMusic, PublisherMusicStep, previewUrlFor };`,
 )(sharedStore, async () => ({ items: [] }), async () => ({ items: [] }));
 
 {
@@ -162,8 +162,8 @@ function makeEl() {
 }
 
 {
-  console.log('T4: PublisherMusicStep — recherche, selection, retrait, aucun faux lecteur');
-  check('T4: aucun lecteur audio dans la source', !musicRaw.includes('<audio') && !musicRaw.includes('new Audio'));
+  console.log('T4: PublisherMusicStep — recherche, selection, retrait, aperçu local');
+  check('T4: aucun lecteur audio injecté dans le brouillon', !musicRaw.includes('<audio') && !musicRaw.includes('new Audio('));
 
   const store = sharedStore;
   store.draft.music = { trackId: null, start: 0, end: 0, volume: 1, source: null };
@@ -171,7 +171,7 @@ function makeEl() {
   const searchCalls = [];
   const searchOk = async (query) => {
     searchCalls.push(query);
-    return { items: [{ audio_id: 'a1', title: 'Run Free', display_artist: 'DJ X', duration_in_ms: 90000 }] };
+    return { items: [{ audio_id: 'a1', title: 'Run Free', display_artist: 'DJ X', duration_in_ms: 90000, preview_link: 'https://audio.example/preview.mp3' }] };
   };
 
   const step = new PublisherMusicStep({ searchInstagramMusic: searchOk });
@@ -191,6 +191,7 @@ function makeEl() {
   await form.__fire('submit', { preventDefault() {} });
   check('T4: recherche effectuee', searchCalls.length === 1 && searchCalls[0] === 'run music');
   check('T4: resultats rendus', host.__subs.get('[data-music-results]').innerHTML.includes('Run Free'));
+  check('T4: aperçu proposé dans les résultats', host.__subs.get('[data-music-results]').innerHTML.includes('data-music-preview'));
   check('T4: compteur de resultats', host.__subs.get('[data-music-status]').textContent === '1 résultat(s)');
 
   const designBefore = JSON.stringify(store.draft.design);
@@ -199,11 +200,12 @@ function makeEl() {
   });
   check('T4: selection ecrite dans draft.music', store.draft.music.trackId === 'a1' && store.draft.music.source === 'instagram' && store.draft.music.cleared === false);
   check('T4: selection rendue avec statut', current.innerHTML.includes('Run Free') && current.innerHTML.includes('non intégrable à la publication actuelle'));
+  check('T4: aperçu disponible après selection', current.innerHTML.includes('data-action="music-preview"'));
   check('T4: panneau referme apres selection', host.__subs.get('[data-music-panel]').hidden === true);
   check('T4: design documents non modifies par la selection', JSON.stringify(store.draft.design) === designBefore);
   check('T4: aucune ecriture ig_audio dans le design', !JSON.stringify(store.draft.design).includes('ig_audio'));
 
-  await current.__fire('click', { target: { closest: () => ({ dataset: {} }) } });
+  await current.__fire('click', { target: { closest: () => ({ dataset: { action: 'music-remove' } }) } });
   check('T4: retrait -> cleared', store.draft.music.cleared === true);
   check('T4: retrait -> rendu vide', current.innerHTML.includes('Aucune musique sélectionnée'));
   check('T4: retrait -> resolveDraftMusic null', resolveDraftMusic(store.draft) === null);
@@ -227,6 +229,26 @@ function makeEl() {
   step.destroy();
   failingStep.destroy();
   emptyStep.destroy();
+}
+
+// ---------- T4b : aperçu audio local, jamais dans le brouillon ----------
+{
+  console.log('T4b: URL d\'aperçu validée et lecture locale sans écriture du brouillon');
+  check('T4b: preview_link accepté', previewUrlFor({ preview_link: 'https://audio.example/a.mp3' }) === 'https://audio.example/a.mp3');
+  check('T4b: on_platform_audio_preview_link accepté', previewUrlFor({ on_platform_audio_preview_link: 'https://audio.example/b.mp3' }).includes('/b.mp3'));
+  check('T4b: javascript: refusé', previewUrlFor({ preview_link: 'javascript:alert(1)' }) === '');
+  check('T4b: aucun aperçu sans URL', previewUrlFor({ audio_id: 'x' }) === '');
+
+  const store = sharedStore;
+  store.draft = { music: { trackId: null }, design: {} };
+  const step = new PublisherMusicStep({ searchInstagramMusic: async () => ({ items: [] }) });
+  const host = makeEl();
+  step.mount(host);
+  const before = JSON.stringify(store.draft);
+  step._togglePreview({ audio_id: 'a1', preview_link: 'https://audio.example/a.mp3' });
+  check('T4b: lecture locale sans URL injectée dans draft.music', JSON.stringify(store.draft) === before);
+  check('T4b: URL mémorisée en mémoire uniquement', step._previews.get('a1') === 'https://audio.example/a.mp3');
+  step.destroy();
 }
 
 // ---------- T5 : persistance publisherDraftService (API) ----------

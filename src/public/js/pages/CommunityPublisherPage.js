@@ -16,9 +16,9 @@ import { getSuggestedPhotosForActivity } from '../services/sportApi.js?v=17';
 import { createPublisherMediaPicker } from '../components/PublisherMediaPicker.js?v=2';
 import { createPublisherCaptionEditor } from '../components/PublisherCaptionEditor.js?v=2';
 import { createPublisherPreview } from '../components/PublisherPreview.js?v=4';
-import { createPublisherMusicStep } from '../components/PublisherMusicStep.js?v=2';
+import { createPublisherMusicStep } from '../components/PublisherMusicStep.js?v=4';
 import { createPublisherPostEditor } from '../editors/PublisherPostEditor.js?v=3';
-import { createPublisherMinimalComposer } from '../components/PublisherMinimalComposer.js?v=15';
+import { createPublisherMinimalComposer } from '../components/PublisherMinimalComposer.js?v=16';
 import { storySlidesReady } from '../services/storyPublishPipeline.js';
 
 /**

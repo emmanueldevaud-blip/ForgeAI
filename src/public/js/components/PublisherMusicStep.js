@@ -1,6 +1,24 @@
 import { publisherStore } from '../stores/publisherStore.js';
 import { getStoryAudioProposals, searchInstagramMusic } from '../services/sportApi.js?v=17';
 
+/** URL d'aperçu Meta, vérifiée : jamais de javascript: ni de données arbitrary. */
+export function previewUrlFor(track) {
+  const raw = track?.preview_link
+    || track?.preview_url
+    || track?.on_platform_audio_preview_link
+    || track?.on_platform_audio_preview_url;
+  if (typeof raw !== 'string' || !raw.trim()) return '';
+  try {
+    const base = typeof window !== 'undefined' && window.location?.href
+      ? window.location.href
+      : 'http://localhost/';
+    const url = new URL(raw.trim(), base);
+    return url.protocol === 'http:' || url.protocol === 'https:' ? url.href : '';
+  } catch (error) {
+    return '';
+  }
+}
+
 /**
  * Résout la sélection musicale d'un brouillon Publisher.
  * Priorité : draft.music → design.ig_audio (anciens brouillons) →
@@ -81,6 +99,11 @@ export class PublisherMusicStep {
     this._suggestionRun = 0;
     this._suggestionMessage = '';
     this._autoSelected = false;
+    // Les aperçus restent en mémoire : ils ne sont jamais écrits dans le
+    // brouillon ni envoyés à publish() (A07 = brouillon créatif seulement).
+    this._previews = new Map();
+    this._audio = null;
+    this._previewTrackId = null;
   }
 
   mount(host) {
@@ -111,6 +134,7 @@ export class PublisherMusicStep {
 
   destroy() {
     this._suggestionRun += 1;
+    this._stopPreview();
     if (this._unsubscribe) {
       this._unsubscribe();
       this._unsubscribe = null;
@@ -140,13 +164,26 @@ export class PublisherMusicStep {
     root.querySelector('[data-music-form]').addEventListener('submit', (event) => this._onSearch(event));
     root.querySelector('[data-music-results]').addEventListener('click', (event) => {
       const button = event.target && event.target.closest ? event.target.closest('[data-music-result]') : null;
-      if (!button) return;
-      const track = this._items[Number(button.dataset.musicIndex)];
-      if (track) this._select(track);
+      if (button) {
+        const track = this._items[Number(button.dataset.musicIndex)];
+        if (track) this._select(track);
+        return;
+      }
+      const preview = event.target && event.target.closest ? event.target.closest('[data-music-preview]') : null;
+      if (!preview) return;
+      const track = this._items[Number(preview.dataset.musicIndex)];
+      if (track) this._togglePreview(track);
     });
     root.querySelector('[data-music-current]').addEventListener('click', (event) => {
-      const button = event.target && event.target.closest ? event.target.closest('[data-action="music-remove"]') : null;
-      if (button) this._remove();
+      const closest = event.target && event.target.closest ? event.target.closest.bind(event.target) : () => null;
+      const preview = closest('[data-action="music-preview"]');
+      if (preview?.dataset?.action === 'music-preview') {
+        const trackId = String(publisherStore.draft?.music?.trackId || '');
+        this._togglePreview({ audio_id: trackId, preview_link: this._previews.get(trackId) });
+        return;
+      }
+      const button = closest('[data-action="music-remove"]');
+      if (button?.dataset?.action === 'music-remove') this._remove();
     });
   }
 
@@ -210,12 +247,20 @@ export class PublisherMusicStep {
       this._items = items;
       if (status) status.textContent = items.length ? `${items.length} résultat(s)` : 'Aucune musique trouvée.';
       if (results) {
-        results.innerHTML = items.map((track, index) => `
-          <button type="button" class="pre-music-result" data-music-result data-music-index="${index}">
-            <span class="pre-music-note">♫</span>
-            <span><strong>${this._esc(track.title || 'Titre inconnu')}</strong><small>${this._esc(track.display_artist || track.artist || 'Artiste inconnu')}</small></span>
-            <span aria-hidden="true">＋</span>
-          </button>`).join('');
+        results.innerHTML = items.map((track, index) => {
+          const preview = previewUrlFor(track);
+          if (preview) this._previews.set(String(track.audio_id), preview);
+          return `
+          <div class="pre-music-item">
+            <button type="button" class="pre-music-result" data-music-result data-music-index="${index}">
+              <span class="pre-music-note">♫</span>
+              <span><strong>${this._esc(track.title || 'Titre inconnu')}</strong><small>${this._esc(track.display_artist || track.artist || 'Artiste inconnu')}</small></span>
+              <span aria-hidden="true">＋</span>
+            </button>
+            ${preview ? `<button type="button" class="pre-music-preview" data-music-preview data-music-index="${index}"
+                aria-label="Écouter l'aperçu de ${this._esc(track.title || 'cette piste')}" aria-pressed="false">▶</button>` : ''}
+          </div>`;
+        }).join('');
       }
     } catch (error) {
       if (status) status.textContent = error?.message || 'Recherche de musique impossible.';
@@ -225,6 +270,10 @@ export class PublisherMusicStep {
   _select(track, { auto = false } = {}) {
     if (!track?.audio_id) return;
     this._autoSelected = Boolean(auto);
+    const trackId = String(track.audio_id);
+    const preview = previewUrlFor(track);
+    if (preview) this._previews.set(trackId, preview);
+    this._stopPreview();
     publisherStore.setMusic({
       trackId: String(track.audio_id),
       title: track.title || '',
@@ -240,6 +289,7 @@ export class PublisherMusicStep {
 
   _remove() {
     this._autoSelected = false;
+    this._stopPreview();
     publisherStore.setMusic({
       trackId: null,
       title: null,
@@ -248,6 +298,75 @@ export class PublisherMusicStep {
       source: null,
       cleared: true,
       preselectedBy: null,
+    });
+  }
+
+  /** Aperçu local uniquement : aucun octet audio n'entre dans le brouillon. */
+  _togglePreview(track) {
+    const trackId = String(track?.audio_id || '');
+    const url = previewUrlFor(track) || this._previews.get(trackId);
+    if (url) this._previews.set(trackId, url);
+    const status = this.element?.querySelector?.('[data-music-status]');
+    if (!trackId || !url) {
+      if (status) status.textContent = 'Aperçu audio indisponible pour cette piste.';
+      return;
+    }
+    if (this._previewTrackId === trackId && this._audio && !this._audio.paused) {
+      this._stopPreview();
+      return;
+    }
+    this._stopPreview();
+    const doc = typeof document !== 'undefined' ? document : null;
+    if (!doc || typeof doc.createElement !== 'function') return;
+    const audio = doc.createElement('audio');
+    audio.preload = 'none';
+    audio.src = url;
+    audio.addEventListener?.('ended', () => {
+      if (this._audio === audio) this._stopPreview();
+    });
+    audio.addEventListener?.('error', () => {
+      if (this._audio === audio) {
+        this._stopPreview();
+        if (status) status.textContent = 'Aperçu audio indisponible.';
+      }
+    });
+    this._audio = audio;
+    this._previewTrackId = trackId;
+    this._syncPreviewButtons();
+    const play = audio.play?.();
+    this._syncPreviewButtons();
+    if (play && typeof play.catch === 'function') {
+      play.catch(() => {
+        if (this._audio === audio) {
+          this._stopPreview();
+          if (status) status.textContent = 'Aperçu audio indisponible.';
+        }
+      });
+    }
+  }
+
+  _stopPreview() {
+    if (this._audio) {
+      try { this._audio.pause?.(); } catch (error) { /* lecteur déjà arrêté */ }
+      this._audio = null;
+    }
+    this._previewTrackId = null;
+    this._syncPreviewButtons();
+  }
+
+  _syncPreviewButtons() {
+    const playing = Boolean(this._audio && !this._audio.paused);
+    this.element?.querySelectorAll?.('[data-music-preview], [data-action="music-preview"]')?.forEach((node) => {
+      const index = node.dataset?.musicIndex;
+      const trackId = index !== undefined
+        ? String(this._items[Number(index)]?.audio_id || '')
+        : String(publisherStore.draft?.music?.trackId || '');
+      const active = playing && Boolean(trackId) && trackId === this._previewTrackId;
+      node.setAttribute?.('aria-pressed', String(active));
+      node.classList?.toggle?.('is-playing', active);
+      if (typeof node.textContent === 'string') {
+        node.textContent = active ? '❚❚' : (node.dataset?.action === 'music-preview' ? '▶ Écouter' : '▶');
+      }
     });
   }
 
@@ -267,11 +386,13 @@ export class PublisherMusicStep {
     const note = auto
       ? 'Présélection IA basée sur les photos de la Story : vérifiez ou remplacez le morceau. Piste sélectionnée, non intégrable à la publication actuelle : elle ne sera pas publiée avec la Story.'
       : 'Brouillon créatif : piste sélectionnée, non intégrable à la publication actuelle. Elle ne sera pas publiée avec la Story.';
+    const preview = this._previews.get(String(selection.trackId || ''));
     host.innerHTML = `
       <div class="music-step-selected">
         <span class="pre-music-note" aria-hidden="true">♫</span>
         <span class="music-step-info"><strong>${this._esc(selection.title || 'Piste sans titre')}</strong>${selection.artist ? `<small>${this._esc(selection.artist)}</small>` : ''}</span>
         <span class="music-step-source">${sourceLabel}</span>
+        ${preview ? `<button type="button" class="pre-music-button pre-music-preview" data-action="music-preview" aria-pressed="false" aria-label="Écouter l'aperçu">▶ Écouter</button>` : ''}
         <button type="button" class="pre-music-button" data-action="music-remove">Retirer</button>
       </div>
       <p class="music-step-note">${note}</p>`;

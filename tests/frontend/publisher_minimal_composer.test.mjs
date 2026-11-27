@@ -125,7 +125,14 @@ console.log('5. Non-régression Étape 1 : quatre formats, anti-double-clic, auc
   assert.match(page, /_navLock\(/);
   assert.match(page, /createPublisherMinimalComposer\(/);
   assert.doesNotMatch(page, /createPublisherStoryEditor\(|createPublisherReelEditor\(/);
-  assert.match(read('src/public/css/publisher.css'), /\.pmc-media-strip\s*\{/);
+  assert.match(page, /_saveCompose\(\);\s*publisherStore\.prevStep\(\)/, 'Précédent sauvegarde le compose');
+  assert.match(page, /_goBack\(\)\s*\{\s*this\._saveCompose\(\)/, 'Retour sauvegarde le compose');
+  assert.match(page, /async _saveDraft\(\)\s*\{\s*try\s*\{\s*this\._saveCompose\(\)/, 'Brouillon sauvegarde le compose');
+  const css = read('src/public/css/publisher.css');
+  assert.match(css, /\.pmc-media-strip\s*\{/);
+  assert.match(css, /\.pmc-media-count\s*\{/, 'badge de média positionné');
+  assert.doesNotMatch(css, /\.pmc-textarea\s*\{/, 'aucun style de champ de saisie mort');
+  assert.doesNotMatch(css, /\.pmc-panel-footer\s*\{/, 'aucun pied de panneau mort');
 }
 
 console.log('6. Story : trois médias -> trois slides dans l’ordre, identifiants conservés');
@@ -159,6 +166,14 @@ console.log('7. Composer Story : aperçu, ordre et suppression resynchronisent l
   assert.doesNotMatch(composer.element.innerHTML, /<textarea/, 'aucun champ de saisie dans le Composer');
   assert.match(composer.element.innerHTML, /contenteditable="true"/, 'le texte est édité sur la photo');
   assert.match(composer.element.innerHTML, /data-pmc-overlay-actions/, 'actions tactiles sur le calque');
+  assert.equal(
+    (composer.element.innerHTML.match(/data-pmc-overlay-actions/g) || []).length,
+    1,
+    'une seule barre d’actions, pas une par calque',
+  );
+  assert.doesNotMatch(composer.element.innerHTML, /data-action="pmc-clear"/, 'pas de double action « effacer »');
+  assert.match(composer.element.innerHTML, /aria-multiline="true"/);
+  assert.match(composer.element.innerHTML, /Média 1 \/ 3/, 'compteur de média visible dans l’aperçu');
 
   composer.element.querySelector('[data-pmc-text]').value = 'Trail du dimanche';
   composer.save();
@@ -266,6 +281,13 @@ console.log('11. Composer Story : ajout, limite, ordre d’empilement, aperçu e
   )).map((match) => match[2]);
   assert.deepEqual(overlays, ['Un', 'Deux', 'Trois'], 'tous les calques sont dans l’aperçu');
 
+  composer._selectLayer(1);
+  assert.equal(composer.activeLayerIndex, 1);
+  assert.equal(
+    composer.element.querySelector('[data-pmc-overlay-actions]').dataset.index,
+    '1',
+    'la barre d’actions suit le calque actif',
+  );
   composer._selectLayer(0);
   assert.equal(composer.activeLayerIndex, 0);
   composer._moveLayer(0, 1);
@@ -288,6 +310,7 @@ console.log('12. Composer Reel : calques multiples sans altérer ig_audio ni le 
   const { PublisherMinimalComposer } = loadComposer(store, { createElement: () => makeElement() });
   const composer = new PublisherMinimalComposer({ format: 'reel' });
   composer.mount({ appendChild(el) { el.parentNode = this; } });
+  assert.match(composer.element.innerHTML, /data-pmc-media-strip hidden/, 'un seul média : bande masquée');
   composer.layers[0].text = 'Alpes';
   composer._addLayer();
   composer.layers[1].text = 'Dimanche';

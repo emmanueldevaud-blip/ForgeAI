@@ -175,11 +175,10 @@ export class PublisherMinimalComposer {
       ? draft.design?.designDocuments?.[0]?.elements || []
       : draft.design?.elements || [];
     if (!Array.isArray(elements)) return [{ id: TEXT_LAYER_IDS[0], text: '' }];
-    const layers = elements
-      .filter((el) => el && asLayerSlot(el.id) !== null)
-      .slice(0, MAX_TEXT_LAYERS)
-      .map((el) => ({ id: String(el.id), text: String(el.text ?? '') }));
-    return layers.length ? layers : [{ id: TEXT_LAYER_IDS[0], text: '' }];
+    const layers = normalizeTextLayers(
+      elements.filter((el) => el && asLayerSlot(el.id) !== null).slice(0, MAX_TEXT_LAYERS),
+    ).filter((layer) => asLayerSlot(layer.id) !== null);
+    return layers.length ? layers : normalizeTextLayers(['']);
   }
 
   /** Met en mémoire les textes édités sur la photo ; le repli sert à save(). */
@@ -232,39 +231,46 @@ export class PublisherMinimalComposer {
     const item = this._activeMedia();
     if (!item) return '<div class="pmc-empty">Aucun média sélectionné</div>';
     if (item.type === 'video') {
-      return `<video class="pmc-media" src="${esc(item.url)}" poster="${esc(item.thumbnail_url)}" muted playsinline preload="metadata"></video>`;
+      return `<video class="pmc-media" src="${esc(item.url)}" poster="${esc(item.thumbnail_url)}" muted playsinline controls preload="metadata"></video>`;
     }
     return `<img class="pmc-media" src="${esc(item.url || item.thumbnail_url)}" alt="Média à composer">`;
   }
 
   /**
-   * Calques éditables DIRECTEMENT sur la photo : chaque texte est contenteditable
-   * et porte sa propre barre d'actions tactile (ordre + suppression). Le panneau
-   * latéral ne contient aucun champ de saisie.
+   * Calques éditables DIRECTEMENT sur la photo : chaque texte est contenteditable.
+   * Une seule barre d'actions tactile suit le calque actif (ordre + suppression).
+   * Le panneau latéral ne contient aucun champ de saisie.
    */
   _renderOverlays() {
-    const parts = this.layers.map((layer, index) => {
+    return this.layers.map((layer, index) => {
       const text = cleanText(layer.text);
       const slot = asLayerSlot(layer.id) ?? index;
       const active = index === this.activeLayerIndex;
-      const overlay = `<div class="pmc-overlay pmc-overlay--layer pmc-overlay--slot-${slot}${text ? '' : ' pmc-overlay--placeholder'}${active ? ' active' : ''}"
+      return `<div class="pmc-overlay pmc-overlay--layer pmc-overlay--slot-${slot}${text ? '' : ' pmc-overlay--placeholder'}${active ? ' active' : ''}"
                 data-pmc-overlay data-layer-index="${index}" data-index="${index}"
                 data-pmc-layer-text="${index}"
                 ${index === 0 ? 'data-pmc-text ' : ''}contenteditable="true" spellcheck="false"
-                role="textbox" aria-label="Texte du calque ${index + 1}" data-placeholder="Touchez pour écrire"
+                role="textbox" aria-label="Texte du calque ${index + 1}"
+                aria-multiline="true" aria-placeholder="Touchez pour écrire"
+                data-placeholder="Touchez pour écrire"
                 style="z-index:${10 + index}">${esc(text)}</div>`;
-      const actions = `<div class="pmc-overlay-actions pmc-overlay--slot-${slot}${active ? ' active' : ''}"
-                data-pmc-overlay-actions data-layer-index="${index}" style="z-index:${20 + index}">
-          <button type="button" class="pmc-overlay-btn" data-action="pmc-layer-up" data-index="${index}"
-                  aria-label="Monter le calque ${index + 1}" ${index === this.layers.length - 1 ? 'disabled' : ''}>↑</button>
-          <button type="button" class="pmc-overlay-btn" data-action="pmc-layer-down" data-index="${index}"
-                  aria-label="Descendre le calque ${index + 1}" ${index === 0 ? 'disabled' : ''}>↓</button>
-          <button type="button" class="pmc-overlay-btn pmc-overlay-btn--remove" data-action="pmc-layer-remove"
-                  data-index="${index}" aria-label="Supprimer le calque ${index + 1}">×</button>
-        </div>`;
-      return overlay + actions;
-    });
-    return parts.join('');
+    }).join('');
+  }
+
+  /** Une seule barre d'actions, attachée au calque actif (plus de doublon par calque). */
+  _renderLayerActions() {
+    const index = this.activeLayerIndex;
+    const slot = asLayerSlot(this.layers[index]?.id) ?? index;
+    return `<div class="pmc-overlay-actions pmc-overlay--slot-${slot} active"
+                data-pmc-overlay-actions data-layer-index="${index}" data-index="${index}"
+                style="z-index:${20 + this.layers.length}">
+        <button type="button" class="pmc-overlay-btn" data-action="pmc-layer-up" data-index="${index}"
+                aria-label="Monter le calque ${index + 1}" ${index === this.layers.length - 1 ? 'disabled' : ''}>↑</button>
+        <button type="button" class="pmc-overlay-btn" data-action="pmc-layer-down" data-index="${index}"
+                aria-label="Descendre le calque ${index + 1}" ${index === 0 ? 'disabled' : ''}>↓</button>
+        <button type="button" class="pmc-overlay-btn pmc-overlay-btn--remove" data-action="pmc-layer-remove"
+                data-index="${index}" aria-label="Supprimer le calque ${index + 1}">×</button>
+      </div>`;
   }
 
   /** Puces de sélection uniquement : aucun champ d'édition dans le panneau. */
@@ -285,29 +291,25 @@ export class PublisherMinimalComposer {
     if (!this.element) return;
     const media = this._media();
     const limitReached = this.layers.length >= MAX_TEXT_LAYERS;
+    const mediaLabel = media.length ? `Média ${this.activeIndex + 1} / ${media.length}` : 'Aucun média';
     this.element.innerHTML = `
       <div class="pmc-preview" data-pmc-preview>
         <div class="pmc-stage" data-pmc-stage>
           ${this._renderStage()}
           ${this._renderOverlays()}
+          ${this._renderLayerActions()}
+          <span class="pmc-media-count" data-pmc-media-count aria-live="polite">${mediaLabel}</span>
         </div>
-        <div class="pmc-media-strip" data-pmc-media-strip>
-          <div class="pmc-media-strip-head">
-            <span class="pmc-media-count" data-pmc-media-count>Média ${media.length ? this.activeIndex + 1 : 0} / ${media.length}</span>
-            <span class="pmc-media-hint">Ordre de publication</span>
-          </div>
+        <div class="pmc-media-strip" data-pmc-media-strip ${media.length > 1 ? '' : 'hidden'}>
           <div class="pmc-media-list" data-pmc-media-list>${this._renderMediaStrip()}</div>
         </div>
       </div>
-      <div class="pmc-panel">
-        <label class="pmc-label" for="pmc-layer-text-0">Calques de texte (${this.layers.length} / ${MAX_TEXT_LAYERS})</label>
+      <div class="pmc-panel" role="group" aria-labelledby="pmc-layer-label">
+        <span class="pmc-label" id="pmc-layer-label">Calques de texte (${this.layers.length} / ${MAX_TEXT_LAYERS})</span>
         <div class="pmc-layer-list" data-pmc-layer-list>${this._renderLayerList()}</div>
-        <button type="button" class="pmc-layer-add" data-action="pmc-add-layer" ${limitReached ? 'disabled' : ''}>+ Ajouter un calque</button>
+        <button type="button" class="pmc-layer-add" data-action="pmc-add-layer"
+                aria-label="Ajouter un calque" ${limitReached ? 'disabled' : ''}>+</button>
         <p class="pmc-layer-limit" data-pmc-layer-limit ${limitReached ? '' : 'hidden'}>Limite de 3 calques atteinte</p>
-        <div class="pmc-panel-footer">
-          <p class="pmc-hint">Touchez la photo pour ajouter un texte (3 max), touchez un texte pour l’éditer directement. ↑/↓ changent l’empilement, × supprime.</p>
-          <button type="button" class="pmc-clear" data-action="pmc-clear" ${cleanText(this.layers[this.activeLayerIndex]?.text) ? '' : 'disabled'}>Effacer ce calque</button>
-        </div>
       </div>
     `;
     this._bindEvents();
@@ -327,6 +329,9 @@ export class PublisherMinimalComposer {
         }
         if (this.layers[index]) this.layers[index].text = text;
         this._updatePreview();
+        // Écriture continue : aucune frappe ne doit être perdue si l'utilisateur
+        // quitte l'étape par Précédent, Retour, Brouillon ou un changement de format.
+        this._writeDesign();
       });
       node.addEventListener?.('focus', () => {
         if (index !== this.activeLayerIndex) this._selectLayer(index);
@@ -337,18 +342,20 @@ export class PublisherMinimalComposer {
     editable.forEach((node) => bindText(node, Number(node.dataset?.index ?? 0)));
     if (!editable.length) bindText(this.element?.querySelector?.('[data-pmc-text]'), 0);
 
-    // Tap sur le fond de la photo : nouveau calque directement focusé (clavier mobile).
+    // Mobile uniquement : tap sur le fond = nouveau calque directement focusé.
+    // Sur desktop, le bouton "+" du panneau est le seul point d'entrée (pas de doublon).
+    // Le test est fait au clic (et non au montage) pour suivre les changements
+    // de viewport sans dépendre du cache du navigateur.
     const stage = this.element?.querySelector?.('[data-pmc-stage]');
     stage?.addEventListener?.('click', (event) => {
+      const touch = typeof window !== 'undefined'
+        && typeof window.matchMedia === 'function'
+        && window.matchMedia('(hover: none), (max-width: 899px)').matches;
+      if (!touch) return;
       const target = event?.target;
-      if (target?.closest?.('[data-pmc-overlay], [data-pmc-overlay-actions], [data-action]')) return;
+      if (target?.closest?.('[data-pmc-overlay], [data-pmc-overlay-actions], [data-action], [data-pmc-media-count], video')) return;
       if (this._addLayer()) this._focusLayer(this.activeLayerIndex);
     });
-
-    const clear = this.element?.querySelector?.('[data-action="pmc-clear"]');
-    if (clear) {
-      clear.addEventListener('click', () => this._clearLayer(this.activeLayerIndex));
-    }
 
     const bindAll = (selector, handler) => {
       this.element?.querySelectorAll?.(selector).forEach((node) => {
@@ -422,14 +429,42 @@ export class PublisherMinimalComposer {
 
   /** Active un calque sans reconstruire le DOM (le focus doit rester sur le texte). */
   _refreshLayerState() {
-    ['[data-pmc-overlay]', '[data-pmc-overlay-actions]', '[data-pmc-layer-chip]'].forEach((selector) => {
-      Array.from(this.element?.querySelectorAll?.(selector) || []).forEach((node, index) => {
-        node.classList?.toggle?.('active', index === this.activeLayerIndex);
-        node.setAttribute?.('aria-pressed', String(index === this.activeLayerIndex));
-      });
+    const index = this.activeLayerIndex;
+    Array.from(this.element?.querySelectorAll?.('[data-pmc-overlay]') || []).forEach((node, nodeIndex) => {
+      node.classList?.toggle?.('active', nodeIndex === index);
     });
-    const clear = this.element?.querySelector?.('[data-action="pmc-clear"]');
-    if (clear) clear.disabled = !cleanText(this.layers[this.activeLayerIndex]?.text);
+    Array.from(this.element?.querySelectorAll?.('[data-pmc-layer-chip]') || []).forEach((node, nodeIndex) => {
+      node.classList?.toggle?.('active', nodeIndex === index);
+      node.setAttribute?.('aria-pressed', String(nodeIndex === index));
+    });
+
+    // Une seule barre d'actions : elle suit le calque actif au lieu d'être
+    // désactivée parce qu'elle est la première de la liste.
+    const actions = this.element?.querySelector?.('[data-pmc-overlay-actions]');
+    if (actions) {
+      const slot = asLayerSlot(this.layers[index]?.id) ?? index;
+      actions.className = `pmc-overlay-actions pmc-overlay--slot-${slot} active`;
+      actions.dataset.index = String(index);
+      actions.dataset.layerIndex = String(index);
+      const up = actions.querySelector?.('[data-action="pmc-layer-up"]');
+      const down = actions.querySelector?.('[data-action="pmc-layer-down"]');
+      const remove = actions.querySelector?.('[data-action="pmc-layer-remove"]');
+      if (up) {
+        up.disabled = index === this.layers.length - 1;
+        up.dataset.index = String(index);
+        up.setAttribute?.('aria-label', `Monter le calque ${index + 1}`);
+      }
+      if (down) {
+        down.disabled = index === 0;
+        down.dataset.index = String(index);
+        down.setAttribute?.('aria-label', `Descendre le calque ${index + 1}`);
+      }
+      if (remove) {
+        remove.dataset.index = String(index);
+        remove.setAttribute?.('aria-label', `Supprimer le calque ${index + 1}`);
+      }
+    }
+
   }
 
   /** Donne le focus au texte éditable d'un calque (clavier mobile). */
@@ -473,15 +508,6 @@ export class PublisherMinimalComposer {
     this.activeLayerIndex = Math.min(index, this.layers.length - 1);
     this._render();
     this._writeDesign();
-  }
-
-  _clearLayer(index) {
-    this._syncTextsFromDom();
-    if (!this.layers[index]) return;
-    this.layers[index].text = '';
-    this._render();
-    this._writeDesign();
-    this._focusLayer(index);
   }
 
   _updatePreview() {

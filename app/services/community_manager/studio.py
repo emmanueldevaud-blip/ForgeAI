@@ -692,6 +692,12 @@ class CommunityManagerStudioService:
         self.db.add(publication)
         await self.db.flush()
         await self.db.commit()
+        # `created_at`/`updated_at` ont un server_default SQL : après le flush,
+        # SQLAlchemy les laisse expirés pour les relire en base. La session étant
+        # en `expire_on_commit=False`, un commit ne les recharge pas. Sans ce
+        # refresh, la validation Pydantic de PublicationDraftResponse accède à
+        # ces attributs en synchrone et déclenche MissingGreenlet (422).
+        await self.db.refresh(publication)
         return publication
 
     async def get_draft(self, publication_id: int) -> Optional[SportPublication]:

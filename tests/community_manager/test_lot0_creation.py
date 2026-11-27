@@ -57,6 +57,10 @@ async def test_create_standalone_draft_service(studio_service, athlete):
     studio_service.db.add.assert_called_once_with(pub)
     studio_service.db.flush.assert_awaited_once()
     studio_service.db.commit.assert_awaited_once()
+    # Régression MissingGreenlet : les colonnes `server_default` (created_at /
+    # updated_at) restent expirées après le commit ; sans refresh, la réponse
+    # Pydantic les lit en synchrone et renvoie 422 au lieu du brouillon créé.
+    studio_service.db.refresh.assert_awaited_once_with(pub)
 
 
 async def test_create_standalone_draft_requires_strategy(studio_service):

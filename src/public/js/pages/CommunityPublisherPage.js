@@ -18,7 +18,7 @@ import { createPublisherCaptionEditor } from '../components/PublisherCaptionEdit
 import { createPublisherPreview } from '../components/PublisherPreview.js?v=4';
 import { createPublisherMusicStep } from '../components/PublisherMusicStep.js?v=1';
 import { createPublisherPostEditor } from '../editors/PublisherPostEditor.js?v=3';
-import { createPublisherMinimalComposer } from '../components/PublisherMinimalComposer.js?v=3';
+import { createPublisherMinimalComposer } from '../components/PublisherMinimalComposer.js?v=6';
 import { storySlidesReady } from '../services/storyPublishPipeline.js';
 
 /**
@@ -788,7 +788,10 @@ export class CommunityPublisherPage {
 
     // Footer
     this.element.querySelector('[data-action="prev-step"]').addEventListener('click', () => {
-      this._navLock(() => publisherStore.prevStep());
+      this._navLock(() => {
+        this._saveCompose();
+        publisherStore.prevStep();
+      });
     });
     this.element.querySelector('[data-action="next-step"]').addEventListener('click', async () => {
       const stepOrder = this._config().steps;
@@ -825,6 +828,16 @@ export class CommunityPublisherPage {
     this.element.addEventListener('click', () => this._toggleFormatMenu(false));
   }
 
+  /** Sauvegarde le compose quel que soit le chemin de sortie de l'étape. */
+  _saveCompose() {
+    if (this.currentStep !== 'compose' || !this.formatEditor?.save) return;
+    try {
+      this.formatEditor.save();
+    } catch (error) {
+      console.error('[Publisher] sauvegarde du compose impossible', error);
+    }
+  }
+
   /**
    * Verrou anti double-transition : un second clic rapproché pendant que
    * l'étape change est ignoré. Si l'étape n'a pas bougé (rien à faire),
@@ -858,6 +871,7 @@ export class CommunityPublisherPage {
   _switchFormat(format) {
     this._toggleFormatMenu(false);
     if (!FORMAT_CONFIG[format] || format === this.format) return;
+    this._saveCompose();
     if (this.onBack) {
       // Publisher embarqué (ex : calendrier) : changer de format sur place,
       // sans quitter le contexte courant. Le brouillon serveur courant porte le
@@ -960,6 +974,7 @@ export class CommunityPublisherPage {
 
   async _saveDraft() {
     try {
+      this._saveCompose();
       const draft = publisherStore.draft;
       if (!publisherDraftService.currentDraftId && publisherDraftService.currentDraftType === 'story') {
         // Brouillon local : une Story standalone n'a pas encore de brouillon serveur (A01 hors périmètre).
@@ -1061,6 +1076,7 @@ export class CommunityPublisherPage {
   }
 
   _goBack() {
+    this._saveCompose();
     if (this.onBack) {
       this.onBack();
     } else {
@@ -1099,6 +1115,7 @@ export class CommunityPublisherPage {
   }
 
   destroy() {
+    this._saveCompose();
     if (this._unsubscribeStore) this._unsubscribeStore();
     if (this._garminListener && this.element) this.element.removeEventListener('pmp:garmin-select', this._garminListener);
     if (this.mediaPicker) this.mediaPicker.destroy();

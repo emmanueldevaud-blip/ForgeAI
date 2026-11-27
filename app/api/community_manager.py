@@ -5,7 +5,7 @@ import logging
 import time
 from datetime import datetime, date, timedelta, timezone
 from pathlib import Path
-from typing import Any, Optional, List, Dict
+from typing import Any, Optional, List, Dict, Literal
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
 from fastapi.responses import FileResponse
@@ -110,7 +110,19 @@ class StoryDraftStatusUpdate(BaseModel):
 
 class StoryDraftPublishRequest(BaseModel):
     confirm: bool = True
-    platforms: List[str] = ["instagram"]  # instagram, facebook, both, List, Dict, Any
+    # Lot 1 / A06 : une seule vérité, la règle métier autorise Instagram uniquement.
+    # facebook / both sont rejetés par Pydantic avant même d'atteindre le handler.
+    platforms: List[Literal["instagram"]] = ["instagram"]
+
+
+# Lot 1 / A04 : la programmation n'est pas exécutée (aucun worker ne consomme
+# le statut « scheduled »). Le code de service est conservé pour un futur
+# scheduler idempotent, mais l'endpoint et l'export client sont désactivés.
+SCHEDULING_DISABLED_MESSAGE = (
+    "La programmation de publications est désactivée : aucun worker n'exécute les "
+    "publications planifiées. Utilisez « Publier maintenant » ou attendez un "
+    "scheduler idempotent (Europe/Paris)."
+)
 
 logger = logging.getLogger(__name__)
 
@@ -566,14 +578,16 @@ async def schedule_draft(
     scheduled_at: datetime = Query(..., description="Date/heure de publication planifiée"),
     service: CommunityManagerStudioService = Depends(get_cm_studio_write_service),
 ):
-    """Planifier une publication validée."""
-    try:
-        publication = await service.schedule_publication(publication_id, scheduled_at)
-        if not publication:
-            raise HTTPException(status_code=404, detail="Publication introuvable")
-        return {"publication_id": publication.id, "status": publication.status, "scheduled_at": publication.scheduled_at}
-    except ValueError as exc:
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    """Désactivé (Lot 1 / A04) : aucune file n'exécute les publications planifiées.
+
+    Le service ``schedule_publication`` reste en place comme proposition
+    documentée pour un futur scheduler, mais cette route n'écrit plus de statut
+    « scheduled » et ne promet aucune publication à venir.
+    """
+    raise HTTPException(
+        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+        detail=SCHEDULING_DISABLED_MESSAGE,
+    )
 
 
 @router.post("/studio/draft/{publication_id}/preview", response_model=PublicationPreviewResponse)
@@ -744,6 +758,9 @@ async def publish_draft(
         publication = await service.pub_service.get_publication(publication_id)
         if not publication:
             raise HTTPException(status_code=404, detail="Publication introuvable")
+        # Lot 1 / A05 : refuser le carrousel avant d'enfile un job qui n'enverrait
+        # qu'une seule photo à Meta (le guard vit dans le service, source de vérité).
+        service.assert_publishable_format(publication)
         active = await service.db.execute(
             select(PhotoJob).where(
                 PhotoJob.type == "community_publish",
@@ -1113,7 +1130,11 @@ async def publish_story_draft(
     background_tasks: BackgroundTasks,
     orchestrator: StoryOrchestrator = Depends(get_story_orchestrator_write),
 ):
-    """Publier les Stories validées sur Instagram (et/ou Facebook)."""
+    """Publier les Stories validées sur Instagram uniquement (Lot 1 / A06).
+
+    A07 : une musique éventuellement sélectionnée reste un brouillon créatif ;
+    aucun paramètre audio n'est transmis à Meta.
+    """
     from app.services.photo.jobs import enqueue_job, run_pending_jobs_now
     from app.models.photo import PhotoJob
 
@@ -1150,11 +1171,13 @@ async def publish_story_draft(
                 "kind": "story_slide_publish",
                 "draft_id": draft_id,
                 "slide_index": slide_index,
-                "photo_id": slide["published_photo_id"],
+                # Correction minimaliste : la boucle itère sur les designs ;
+                # le visuel validé correspond à la même position dans `slides`.
+                "photo_id": slides[slide_index]["published_photo_id"],
                 "design": design,
                 "caption": draft.caption,
                 "hashtags": draft.hashtags,
-                "platforms": data.platforms,
+                # Pas de champ « platforms » : le handler est Instagram uniquement.
                 "user_id": orchestrator.current_user.id,
             },
         )
@@ -1170,7 +1193,10 @@ async def publish_story_draft(
         "draft_id": draft_id,
         "published_slides": published_count,
         "jobs": results,
-        "message": f"{published_count} Story(s) en file de publication",
+        "message": (
+            f"{published_count} Story(s) Instagram en file de publication · "
+            "musique sélectionnée : brouillon créatif uniquement, non publiée"
+        ),
     }
 
 

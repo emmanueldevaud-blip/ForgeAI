@@ -107,6 +107,10 @@ export async function publishStoryWithPipeline({
   platforms = ['instagram'],
   draftData = {},
 } = {}) {
+  // Lot 1 / A06 : refuser toute autre plateforme avant même l'export des slides.
+  if (platforms.some((platform) => platform !== 'instagram')) {
+    throw new Error('La publication Story est disponible sur Instagram uniquement.');
+  }
   const prepared = await exportStorySlides({ draftId, slides, designDocuments, deps, renderSlide });
   const payload = {
     slides: prepared.slides,
@@ -114,6 +118,8 @@ export async function publishStoryWithPipeline({
   };
   if (draftData.caption !== undefined) payload.caption = draftData.caption;
   if (draftData.hashtags !== undefined) payload.hashtags = draftData.hashtags;
+  // Lot 1 / A07 : la musique est une donnée de brouillon créatif. Elle n'est
+  // jamais envoyée à l'API de publication (pas de paramètre Meta Story supporté).
   if (draftData.audio_configuration !== undefined) {
     payload.audio_configuration = draftData.audio_configuration;
   }

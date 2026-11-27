@@ -1807,6 +1807,7 @@
 
 .pp-story-music { position:absolute; top:54px; left:12px; right:12px; z-index:5; display:grid; gap:2px; padding:6px 10px; border-radius:8px; background:rgba(0,0,0,.45); color:#fff; font-size:12px; pointer-events:none; }
 .pp-story-music-status { opacity:.8; font-size:11px; }
+.pp-story-music-note { opacity:.7; font-size:10px; }
 
 .pp-story-progress {
   display: flex;
@@ -2137,6 +2138,434 @@
 
 .publisher-story-editor .pse-story-host { flex: 1; min-height: 0; }
 
+/* =========================================================
+   COMPOSE MINIMAL (texte superposé uniquement)
+   ========================================================= */
+
+.publisher-minimal-composer {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  height: 100%;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 16px;
+  background: #000;
+}
+
+/* Aperçu (photo + bande de médias) : gardé groupé pour passer à droite du
+   panneau de calques sur grand écran, sans modifier la structure du wizard. */
+.pmc-preview {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  width: 100%;
+  min-height: 0;
+}
+
+.pmc-stage {
+  position: relative;
+  width: min(360px, 100%);
+  aspect-ratio: 9 / 16;
+  flex: 0 0 auto;
+  overflow: hidden;
+  border-radius: 12px;
+  background: #111;
+  container-type: inline-size;
+  /* Mobile : un tap sur le fond ajoute un calque, sans zoom ni sélection parasite. */
+  touch-action: manipulation;
+  user-select: none;
+}
+
+.pmc-media {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+/* Bande des médias sélectionnés (ordre de publication) */
+.pmc-media-strip {
+  width: min(360px, 100%);
+  flex: 0 0 auto;
+}
+
+.pmc-media-strip-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
+  color: rgba(255, 255, 255, 0.7);
+  font-size: 12px;
+}
+
+.pmc-media-list {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding: 2px 2px 8px;
+}
+
+.pmc-media-item {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  flex: 0 0 auto;
+  width: 68px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 8px;
+  background: #111;
+}
+
+.pmc-media-item.active {
+  border-color: #fff;
+  box-shadow: 0 0 0 1px #fff inset;
+}
+
+.pmc-media-select {
+  display: block;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+}
+
+.pmc-thumb {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 54px;
+  overflow: hidden;
+  border-radius: 7px 7px 0 0;
+  background: #000;
+}
+
+.pmc-thumb-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.pmc-thumb-icon { font-size: 22px; }
+
+.pmc-media-index {
+  position: absolute;
+  top: 4px;
+  left: 4px;
+  min-width: 16px;
+  padding: 1px 4px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.65);
+  color: #fff;
+  font-size: 10px;
+  text-align: center;
+}
+
+.pmc-media-controls {
+  display: flex;
+  justify-content: space-between;
+  gap: 2px;
+  padding: 3px;
+}
+
+.pmc-media-btn {
+  flex: 1 1 0;
+  min-width: 0;
+  padding: 2px 0;
+  border: 0;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.12);
+  color: #fff;
+  cursor: pointer;
+  font-size: 12px;
+  line-height: 1.2;
+}
+
+.pmc-media-btn--remove { background: rgba(255, 90, 90, 0.22); }
+.pmc-media-btn:disabled { opacity: 0.3; cursor: default; }
+
+.pmc-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  color: rgba(255, 255, 255, 0.55);
+  font-size: 14px;
+}
+
+/* Le texte est édité sur la photo (contenteditable), pas dans un champ du panneau. */
+.pmc-overlay {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 86%;
+  transform: translate(-50%, -50%);
+  padding: 3px 5px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  color: #fff;
+  font-size: clamp(18px, 6cqw, 30px);
+  font-weight: 700;
+  line-height: 1.2;
+  text-align: center;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  text-shadow: 0 2px 8px rgba(0, 0, 0, 0.8);
+  pointer-events: auto;
+  cursor: text;
+  outline: none;
+  user-select: text;
+}
+
+.pmc-overlay.active,
+.pmc-overlay:focus {
+  border-color: rgba(255, 255, 255, 0.75);
+  background: rgba(0, 0, 0, 0.32);
+}
+
+.pmc-overlay--placeholder {
+  color: rgba(255, 255, 255, 0.55);
+  font-weight: 400;
+}
+
+/* Placeholder en CSS : il ne fait jamais partie du texte enregistré. */
+.pmc-overlay--placeholder:empty::before {
+  content: attr(data-placeholder);
+  color: rgba(255, 255, 255, 0.55);
+}
+
+/* Barre d'actions tactile attachée au calque sélectionné. */
+.pmc-overlay-actions {
+  position: absolute;
+  top: 50%;
+  right: 3%;
+  display: flex;
+  gap: 3px;
+  transform: translateY(-50%);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 120ms ease;
+}
+
+.pmc-overlay-actions.active,
+.pmc-overlay-actions:focus-within {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.pmc-overlay-btn {
+  min-width: 30px;
+  min-height: 30px;
+  padding: 0;
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.65);
+  color: #fff;
+  cursor: pointer;
+  font-size: 15px;
+  line-height: 1;
+}
+
+.pmc-overlay-btn--remove { border-color: rgba(255, 90, 90, 0.7); }
+.pmc-overlay-btn:disabled { opacity: 0.3; cursor: default; }
+
+.pmc-panel {
+  width: min(520px, 100%);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.04);
+  color: #fff;
+}
+
+.pmc-label {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.pmc-textarea {
+  width: 100%;
+  min-height: 96px;
+  resize: vertical;
+  padding: 10px 12px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.45);
+  color: #fff;
+  font: inherit;
+  line-height: 1.4;
+}
+
+.pmc-textarea:focus {
+  outline: 2px solid var(--publisher-primary, #0095f6);
+  outline-offset: 1px;
+}
+
+.pmc-panel-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.pmc-hint {
+  margin: 0;
+  color: rgba(255, 255, 255, 0.6);
+  font-size: 12px;
+}
+
+.pmc-clear {
+  flex: 0 0 auto;
+  padding: 6px 12px;
+  border: 1px solid rgba(255, 255, 255, 0.24);
+  border-radius: 999px;
+  background: transparent;
+  color: #fff;
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+}
+
+.pmc-clear:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+/* Le panneau ne garde que des puces de sélection : l'édition se fait sur la photo. */
+.pmc-layer-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  width: 100%;
+}
+
+.pmc-layer-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  padding: 5px 10px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.25);
+  color: #fff;
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.pmc-layer-chip.active { border-color: var(--publisher-primary, #0095f6); }
+.pmc-layer-index {
+  display: inline-grid;
+  place-items: center;
+  min-width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.18);
+  font-weight: 700;
+}
+.pmc-layer-preview {
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pmc-layer-add {
+  align-self: flex-start;
+  padding: 7px 14px;
+  border: 1px dashed rgba(255, 255, 255, 0.35);
+  border-radius: 999px;
+  background: transparent;
+  color: #fff;
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+}
+
+.pmc-layer-add:disabled { opacity: 0.4; cursor: default; }
+.pmc-layer-limit { margin: 0; color: #ffb4b4; font-size: 12px; }
+.pmc-layer-limit[hidden] { display: none; }
+.pmc-overlay--slot-1, .pmc-overlay-actions.pmc-overlay--slot-1 { top: 40%; }
+.pmc-overlay--slot-2, .pmc-overlay-actions.pmc-overlay--slot-2 { top: 60%; }
+
+/* Mobile : zones tactiles larges et actions du calque actif toujours visibles. */
+@media (hover: none), (max-width: 899px) {
+  .pmc-overlay { padding: 8px 6px; font-size: clamp(20px, 7cqw, 34px); }
+  .pmc-overlay-actions.active { opacity: 1; pointer-events: auto; }
+  .pmc-overlay-btn { min-width: 36px; min-height: 36px; font-size: 17px; }
+  .pmc-media-btn { min-height: 26px; }
+  .pmc-layer-chip { min-height: 34px; }
+  .pmc-panel { padding: 10px; gap: 6px; }
+}
+
+/* Ecran PC : aperçu à gauche, calques à droite, le tout dans la hauteur du
+   wizard (plus de défilement de page). La photo suit la hauteur disponible. */
+@media (min-width: 900px) and (min-height: 620px) {
+  .publisher-minimal-composer {
+    flex-direction: row;
+    align-items: stretch;
+    justify-content: center;
+    gap: 24px;
+    padding: 12px 16px;
+    overflow: hidden;
+  }
+
+  .pmc-preview {
+    flex: 0 1 auto;
+    width: auto;
+    height: 100%;
+    justify-content: center;
+    gap: 10px;
+  }
+
+  .pmc-stage {
+    flex: 1 1 0;
+    width: auto;
+    height: auto;
+    min-height: 0;
+    max-width: 100%;
+    max-height: 100%;
+  }
+
+  .pmc-media-strip {
+    width: min(100%, 360px);
+    flex: 0 0 auto;
+  }
+
+  .pmc-media-item { width: 56px; }
+  .pmc-thumb { height: 42px; }
+
+  .pmc-panel {
+    flex: 0 1 380px;
+    width: auto;
+    min-width: 300px;
+    max-width: 380px;
+    height: 100%;
+    min-height: 0;
+    padding: 10px;
+    gap: 6px;
+    overflow-y: auto;
+  }
+
+  .pmc-label { font-size: 12px; }
+  .pmc-layer-list { gap: 5px; }
+  .pmc-layer-chip { padding: 4px 8px; font-size: 11px; }
+  .pmc-layer-preview { max-width: 150px; }
+  .pmc-layer-add { padding: 5px 10px; font-size: 11px; }
+  .pmc-panel-footer { gap: 6px; }
+  .pmc-hint, .pmc-clear { font-size: 11px; }
+  .pmc-clear { padding: 5px 8px; }
+}
+
 .publisher-publish {
   display: flex;
   flex-direction: column;
@@ -2150,6 +2579,14 @@
 }
 
 .publisher-publish h2 { margin: 0; }
+.publisher-publish-warning {
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--publisher-warning);
+  border-radius: 8px;
+  color: var(--publisher-warning);
+  font-size: 13px;
+}
 .publisher-publish-summary { display: grid; gap: 12px; }
 .publisher-publish-item { display: flex; justify-content: space-between; gap: 12px; min-width: 0; }
 .publisher-publish-item span { min-width: 0; text-align: right; overflow-wrap: anywhere; }

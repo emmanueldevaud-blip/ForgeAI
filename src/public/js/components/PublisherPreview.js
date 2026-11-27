@@ -196,6 +196,7 @@ export class PublisherPreview {
         <div class="pp-story-music">
           <span class="pp-story-music-track">♫ ${this._esc(music.title || 'Piste sans titre')}${music.artist ? ` · ${this._esc(music.artist)}` : ''}</span>
           <span class="pp-story-music-status">Sélectionnée · non intégrable à la publication actuelle</span>
+          <span class="pp-story-music-note">Brouillon créatif uniquement · la musique ne sera pas publiée avec cette Story.</span>
         </div>` : ''}
 
         <div class="pp-story-viewport" data-story-viewport>

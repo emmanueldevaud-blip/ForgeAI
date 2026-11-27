@@ -247,9 +247,15 @@ export async function validateStudioDraft(publicationId, data) {
   return cmApi.post(`/community-manager/studio/draft/${encodeURIComponent(publicationId)}/validate`, data);
 }
 
-// V2 : Planifier une publication
+// V2 : Planifier une publication — DÉSACTIVÉ (Lot 1 / A04).
+// Aucun worker ne consomme le statut « scheduled » : l'export est conservé pour
+// documenter le futur scheduler, mais il échoue immédiatement avec un message
+// clair au lieu d'envoyer une requête qui donnerait l'illusion d'une publication.
 export async function scheduleStudioDraft(publicationId, scheduledAt) {
-  return cmApi.post(`/community-manager/studio/draft/${encodeURIComponent(publicationId)}/schedule`, { scheduled_at: scheduledAt });
+  throw new Error(
+    'La programmation de publications est désactivée : aucun worker n\'exécute les publications planifiées. '
+    + 'Utilisez « Publier maintenant ».',
+  );
 }
 
 // V2 : Prévisualiser le rendu Instagram

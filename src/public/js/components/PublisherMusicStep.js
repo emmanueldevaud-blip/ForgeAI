@@ -209,7 +209,7 @@ export class PublisherMusicStep {
         <span class="music-step-source">${sourceLabel}</span>
         <button type="button" class="pre-music-button" data-action="music-remove">Retirer</button>
       </div>
-      <p class="music-step-note">Piste sélectionnée · non intégrable à la publication actuelle.</p>`;
+      <p class="music-step-note">Brouillon créatif : piste sélectionnée, non intégrable à la publication actuelle. Elle ne sera pas publiée avec la Story.</p>`;
   }
 
   _esc(value) {

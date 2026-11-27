@@ -1,4 +1,4 @@
-version: '3.8'
+﻿version: '3.8'
 
 services:
   app:
@@ -13,5 +13,15 @@ services:
       - IT_ARP_RESOLVER_COMMUNITY=design
       - AI_GATEWAY_ENABLED=false
     volumes:
-      - /mnt/synology-medias/PHOTOS:/mnt/synology-medias/PHOTOS
+      - nas-photos:/mnt/synology-medias/PHOTOS
       - ./data:/app/data
+
+volumes:
+  nas-photos:
+    driver: local
+    driver_opts:
+      type: nfs
+      o: "addr=192.168.100.250,nfsvers=4,ro"
+      device: ":/volume1/MEDIAS/PHOTOS"
+
+

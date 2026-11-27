@@ -107,8 +107,7 @@ const createPublisherMediaPickerStub = () => {
 };
 const createPublisherCaptionEditorStub = () => ({ mount: () => {}, destroy: () => {} });
 const createPublisherPreviewStub = () => ({ mount: () => {}, destroy: () => {} });
-const createPublisherReelEditorStub = () => ({ mount: () => {}, destroy: () => {} });
-const createPublisherStoryEditorStub = () => ({ mount: () => {}, destroy: () => {} });
+const createPublisherMinimalComposerStub = () => ({ mount: () => {}, destroy: () => {}, save: async () => true });
 const createPublisherMusicStepStub = () => {
   calls.musicMounted = true;
   return { mount: () => {}, destroy: () => {} };
@@ -118,14 +117,14 @@ const routerStub = { navigate: (to) => { calls.routerNavigate = to; } };
 const paramNames = [
   'publisherStore', 'publisherDraftService',
   'createPublisherMediaPicker', 'createPublisherCaptionEditor', 'createPublisherPreview',
-  'createPublisherReelEditor', 'createPublisherStoryEditor',
+  'createPublisherMinimalComposer',
   'document', 'router', 'createPublisherMusicStep',
 ];
 const factory = new Function(...paramNames, `${src}\nreturn { CommunityPublisherPage, FORMAT_CONFIG };`);
 const { CommunityPublisherPage, FORMAT_CONFIG } = factory(
   publisherStoreStub, publisherDraftServiceStub, createPublisherMediaPickerStub,
-  createPublisherCaptionEditorStub, createPublisherPreviewStub, createPublisherReelEditorStub,
-  createPublisherStoryEditorStub, documentStub, routerStub, createPublisherMusicStepStub,
+  createPublisherCaptionEditorStub, createPublisherPreviewStub, createPublisherMinimalComposerStub,
+  documentStub, routerStub, createPublisherMusicStepStub,
 );
 
 function makePage() {

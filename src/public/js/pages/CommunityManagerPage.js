@@ -765,7 +765,7 @@ export class CommunityManagerPage {
     const map = {
       draft: 'Brouillon',
       validated: 'Validée',
-      scheduled: 'Planifiée',
+      scheduled: 'Planifiée (non exécutée)',
       shared: 'Publiée',
       failed: 'Échec',
       publishing: 'Publication...',

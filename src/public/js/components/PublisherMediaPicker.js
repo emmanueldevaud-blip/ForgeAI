@@ -475,6 +475,8 @@ export class PublisherMediaPicker {
       const res = await listSportActivities({ page_size: 20 });
       const activities = res.items || [];
 
+      // A03 : le message d'état vide est porté uniquement par
+      // [data-garmin-empty] (template), pour éviter le doublon visuel.
       container.innerHTML = activities.map(a => `
         <button type="button" class="pmp-garmin-item" data-activity-id="${a.id}">
           <div class="pmp-garmin-info">
@@ -483,11 +485,16 @@ export class PublisherMediaPicker {
           </div>
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
         </button>
-      `).join('') || '<div class="pmp-empty">Aucune activité Garmin</div>';
+      `).join('');
 
-      this.element.querySelector('[data-garmin-empty]').hidden = activities.length > 0;
+      const empty = this.element.querySelector?.('[data-garmin-empty]');
+      if (empty) empty.hidden = activities.length > 0;
     } catch (error) {
-      container.innerHTML = '<div class="pmp-empty">Erreur chargement Garmin</div>';
+      container.innerHTML = '';
+      const empty = this.element.querySelector?.('[data-garmin-empty]');
+      if (empty) empty.hidden = true;
+      const detail = error?.data?.detail || error?.message || String(error);
+      this._setNotice(`Chargement des activités Garmin impossible : ${detail}`);
     }
   }
 
@@ -518,8 +525,9 @@ export class PublisherMediaPicker {
       if (toAdd.length > 0) publisherStore.addMedia(toAdd);
       this._notifyGarminSelection(activityId);
     } catch (error) {
-      console.error('[MediaPicker] Erreur photos Garmin:', error);
-      this._setNotice('Suggestions Garmin indisponibles pour cette activité.');
+      const detail = error?.data?.detail || error?.message || String(error);
+      console.error('[MediaPicker] Erreur photos Garmin:', detail);
+      this._setNotice(`Suggestions Garmin indisponibles pour cette activité : ${detail}`);
     }
   }
 

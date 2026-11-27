@@ -4,8 +4,7 @@
  *
  * Chrome unifié :
  *   - header (retour + sélecteur de format + sauvegarde) : masqué sur `media`
- *     (le sélecteur de médias possède son propre header) et sur `compose`
- *     (l'éditeur imbriqué possède le sien)
+ *     (le sélecteur de médias possède son propre header)
  *   - barre de progression segmentée : masquée avec le header
  *   - footer unique Précédent/Suivant : masqué sur `media` et sur `publish`
  *     (le CTA y est `publish-final` dans le contenu)
@@ -19,8 +18,7 @@ import { createPublisherCaptionEditor } from '../components/PublisherCaptionEdit
 import { createPublisherPreview } from '../components/PublisherPreview.js?v=4';
 import { createPublisherMusicStep } from '../components/PublisherMusicStep.js?v=1';
 import { createPublisherPostEditor } from '../editors/PublisherPostEditor.js?v=3';
-import { createPublisherReelEditor } from '../editors/PublisherReelEditor.js';
-import { createPublisherStoryEditor } from '../editors/PublisherStoryEditor.js?v=5';
+import { createPublisherMinimalComposer } from '../components/PublisherMinimalComposer.js?v=3';
 import { storySlidesReady } from '../services/storyPublishPipeline.js';
 
 /**
@@ -80,27 +78,83 @@ const FORMAT_CONFIG = {
 
 const CAPTION_MAX_LENGTH = 2200;
 
+/** Détail API lisible (FastAPI `detail`, message JS ou erreur réseau). */
+function errorDetail(error) {
+  const detail = error?.data?.detail ?? error?.detail ?? error?.message
+    ?? String(error ?? 'Erreur inconnue');
+  if (Array.isArray(detail)) {
+    return detail.map(d => `${d?.loc ? `${d.loc.join('.')}: ` : ''}${d?.msg || ''}`.trim()).join(' | ');
+  }
+  return String(detail);
+}
+
+/** Préfixe l'erreur avec son statut HTTP quand il est connu. */
+function errorLabel(error) {
+  const status = error?.status ?? error?.serverDraftError?.status;
+  return `${errorDetail(error)}${status ? ` (${status})` : ''}`;
+}
+
+/** Cause explicite d'un échec de création serveur de brouillon (A01). */
+function serverDraftErrorLabel(serverError, action) {
+  const detail = errorDetail(serverError || 'création serveur indisponible');
+  const status = serverError?.status ? ` (${serverError.status})` : '';
+  const hint = /stratégie/i.test(detail)
+    ? ' Configurez une stratégie éditoriale pour activer la sauvegarde serveur.'
+    : '';
+  return `${action} : ${detail}${status}. Le contenu reste conservé localement.${hint}`;
+}
+
+/** Normalise un identifiant d'URL (le segment peut être une chaîne). */
+function positiveId(value) {
+  if (value === null || value === undefined || value === '') return null;
+  const raw = String(value).trim();
+  if (!/^\d+$/.test(raw)) return null;
+  const id = Number(raw);
+  return Number.isSafeInteger(id) && id > 0 ? id : null;
+}
+
 export class CommunityPublisherPage {
   constructor(router, options = {}) {
     this.router = router;
-    this.entryId = options.entryId || null;
+    // A02 : publication_id (URL/calendrier) et calendar_entry_id (calendrier)
+    // sont deux identifiants distincts. `entryId` n'est conservé que comme
+    // alias historique pour les appelants pré-Lot 0.1.
+    // A02/A03 : un segment de route vide (ex. /publisher/post?garmin=1) ne
+    // doit pas activer le mode publication et court-circuiter le parcours
+    // Story Garmin. Seul un identifiant réellement fourni ou le flag explicite
+    // du calendrier ouvre une publication existante.
+    const publicationMode = (options.publicationId !== undefined
+      && options.publicationId !== null
+      && options.publicationId !== '')
+      || options.isExistingPublication === true;
+    this.publicationId = publicationMode ? (options.publicationId ?? options.entryId ?? null) : null;
+    this.calendarEntryId = options.calendarEntryId !== undefined
+      ? options.calendarEntryId
+      : (publicationMode ? null : (options.entryId ?? null));
+    this.entryId = options.entryId ?? null; // compatibilité (tests/anciens callers)
     this.format = FORMAT_CONFIG[options.format] ? options.format : 'post';
     this.garminActivityId = options.garminActivityId || null;
     this.preselectedMedia = options.preselectedMedia || [];
     this.freshDraft = !!options.freshDraft;
     this.onBack = options.onBack || null;
-    this.isExistingPublication = options.isExistingPublication || false;
+    this.isExistingPublication = publicationMode;
 
     this.element = null;
     this.mediaPicker = null;
     this.captionEditor = null;
     this.preview = null;
-    this.formatEditor = null; // Post/Reel/Story editor
+    this.formatEditor = null; // Compositeur minimal (texte superposé)
     this.adjustEditor = null; // PublisherPostEditor (recadrage / réorganisation)
     this.musicStep = null; // Étape Musique (Story)
     this.currentStep = 'media';
     this.loading = false;
     this.error = null;
+    // A02 : un échec de chargement est bloquant — on n'affiche jamais un
+    // brouillon vierge à la place d'une publication introuvable.
+    this.loadError = false;
+    this._loadErrorRendered = false;
+    this._pendingError = null;
+    this._shellRendered = false;
     this._renderedStep = null;
     this._unsubscribeStore = null;
     this._garminListener = null;
@@ -111,19 +165,27 @@ export class CommunityPublisherPage {
 
   async initialize() {
     // Charger le brouillon existant ou en créer un nouveau
-    if (this.isExistingPublication) {
-      await this._loadExistingPublication(this.entryId);
-    } else if (this.entryId) {
+    if (this.isExistingPublication || this.publicationId !== null) {
+      const id = positiveId(this.publicationId);
+      if (id === null) {
+        this._setLoadError('Identifiant de publication invalide.');
+      } else {
+        await this._loadExistingPublication(id);
+      }
+    } else if (this.calendarEntryId !== null) {
       await this._loadFromCalendarEntry();
     } else if (this.garminActivityId) {
       await this._loadFromGarmin();
     } else if (this.freshDraft) {
       await publisherDraftService.createBlank(this.format);
+      this._notifyServerDraftFallback('Création du brouillon');
     } else {
       await this._restoreOrResetDraft();
+      this._notifyServerDraftFallback('Création du brouillon');
     }
 
     // Appliquer les médias pré-sélectionnés
+    if (this.loadError) return;
     if (this.preselectedMedia.length) {
       publisherStore.draft.media = this.preselectedMedia.map((m, i) => ({
         ...m,
@@ -133,6 +195,27 @@ export class CommunityPublisherPage {
       }));
       publisherStore._notify();
     }
+  }
+
+  /** A01 : rend visible l'erreur serveur tout en conservant le repli local. */
+  _notifyServerDraftFallback(action = 'Création du brouillon') {
+    const serverError = publisherDraftService.serverDraftError;
+    if (!serverError) return;
+    this._queueError(serverDraftErrorLabel(serverError, action));
+  }
+
+  /** Erreur bloquante de chargement : aucune publication vierge affichée. */
+  _setLoadError(message) {
+    this.error = message;
+    this._pendingError = null;
+    this.loadError = true;
+  }
+
+  /** Erreur non bloquante : rendue dans l'alerte du Publisher. */
+  _queueError(message) {
+    this.error = message;
+    if (this._shellRendered && this.element && !this.loadError) this._showError(message);
+    else this._pendingError = message;
   }
 
   /**
@@ -188,17 +271,20 @@ export class CommunityPublisherPage {
         : this.format === 'reel' ? 'reel'
           : 'photo';
       await publisherDraftService.createFromCalendar({
-        calendarEntryId: this.entryId,
+        calendarEntryId: this.calendarEntryId,
         format: this.format,
         visualType,
       });
       // Le service met à jour le store
     } catch (error) {
-      this.error = error.message;
+      this._setLoadError(`Ouverture de l'entrée de calendrier impossible : ${errorLabel(error)}.`);
     }
   }
 
   async _loadFromGarmin() {
+    // A03 : un lien ?garmin=<id> impose Story, même si un brouillon Post existe
+    // déjà dans le store local (sans quoi l'UI resterait sur le format post).
+    if (publisherStore.draft.format !== 'story') publisherStore.setFormat('story');
     // Pour l'instant, on attend la sélection de photos via le MediaPicker
     // Le MediaPicker émettra un événement pmp:garmin-select
     publisherStore.setGarmin(this.garminActivityId, {}, []);
@@ -232,7 +318,9 @@ export class CommunityPublisherPage {
       }
       if (toAdd.length) publisherStore.addMedia(toAdd);
     } catch (error) {
-      console.warn('[Publisher] Suggestions Garmin indisponibles :', error?.message || error);
+      // A03 : l'erreur doit être visible, pas seulement dans la console.
+      console.warn('[Publisher] Suggestions Garmin indisponibles :', errorDetail(error));
+      this._queueError(`Suggestions Garmin indisponibles pour l'activité ${this.garminActivityId} : ${errorLabel(error)}.`);
     }
   }
 
@@ -250,7 +338,7 @@ export class CommunityPublisherPage {
         this.mediaPicker._updateGridSelection();
       }
     } catch (error) {
-      this.error = error.message;
+      this._setLoadError(`Publication #${publicationId} introuvable : ${errorLabel(error)}.`);
     }
   }
 
@@ -259,13 +347,29 @@ export class CommunityPublisherPage {
       this.element = document.createElement('div');
       this.element.className = 'publisher-page';
     }
+    // A02 : sur 404/erreur de chargement, afficher uniquement l'erreur.
+    // Le wizard vierge ne doit jamais être pris pour la publication demandée.
+    if (this.loadError) {
+      if (!this._loadErrorRendered) {
+        this.element.innerHTML = this._renderLoadError();
+        this._bindErrorEvents();
+        this._loadErrorRendered = true;
+      }
+      return this.element;
+    }
     if (this.element.children.length === 0) {
       this.element.innerHTML = this._renderShell();
+      this._shellRendered = true;
       this._bindEvents();
       this._renderStep();
       this._updateChrome();
       this._updateStepIndicator();
       this._updateFooterButtons();
+      if (this._pendingError) {
+        const pending = this._pendingError;
+        this._pendingError = null;
+        this._showError(pending);
+      }
     }
     return this.element;
   }
@@ -290,7 +394,7 @@ export class CommunityPublisherPage {
 
   _renderShell() {
     const config = FORMAT_CONFIG[this.format];
-    const canSwitchFormat = !this.entryId && !this.isExistingPublication;
+    const canSwitchFormat = !this.calendarEntryId && !this.publicationId && !this.isExistingPublication;
     return `
       <header class="publisher-header">
         <div class="publisher-header-bar">
@@ -337,6 +441,8 @@ export class CommunityPublisherPage {
       </header>
 
       <main class="publisher-main" data-main>
+        <!-- A01/A02/A03 : les erreurs sont rendues ici, pas seulement en console -->
+        <div class="publisher-alerts" data-alerts role="status" aria-live="polite"></div>
         <!-- Contenu dynamique par étape -->
         <div class="publisher-step-content" data-step-content></div>
       </main>
@@ -353,6 +459,32 @@ export class CommunityPublisherPage {
       <!-- Modales -->
       <div class="publisher-modals" data-modals></div>
     `;
+  }
+
+  /** Écran d'erreur bloquante : pas de wizard vierge sur un 404. */
+  _renderLoadError() {
+    return `
+      <header class="publisher-header">
+        <div class="publisher-header-bar">
+          <div class="publisher-header-left">
+            <button type="button" class="publisher-btn publisher-btn-back" data-action="back" aria-label="Retour">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/>
+              </svg>
+            </button>
+            <h1 class="publisher-header-title">Publication indisponible</h1>
+          </div>
+        </div>
+      </header>
+      <main class="publisher-main" data-main>
+        <div class="publisher-alert" role="alert" data-error-message>${this._esc(this.error || 'Chargement impossible')}</div>
+        <div class="publisher-empty">Aucune publication à afficher.</div>
+      </main>
+    `;
+  }
+
+  _bindErrorEvents() {
+    this.element.querySelector('[data-action="back"]')?.addEventListener('click', () => this._goBack());
   }
 
   _config() {
@@ -435,7 +567,7 @@ export class CommunityPublisherPage {
       this.mediaPicker = null;
     }
     const config = this._config();
-    const canSwitchFormat = !this.entryId && !this.isExistingPublication;
+    const canSwitchFormat = !this.calendarEntryId && !this.publicationId && !this.isExistingPublication;
     this.mediaPicker = createPublisherMediaPicker({
       format: this.format,
       multiSelect: true,
@@ -507,33 +639,20 @@ export class CommunityPublisherPage {
 
   _mountComposeEditor() {
     const host = this.element.querySelector('[data-compose-host]');
-    if (this.format === 'story') {
-      // StoryEditorView existe déjà
-      if (this.formatEditor) {
-        this.formatEditor.destroy();
-        this.formatEditor = null;
-      }
-      this.formatEditor = createPublisherStoryEditor({
-        draft: publisherStore.draft,
-        onSave: () => publisherStore.nextStep(),
-        onBack: () => publisherStore.prevStep(),
-      });
-      this.formatEditor.mount(host);
-    } else if (this.format === 'reel') {
-      if (this.formatEditor) {
-        this.formatEditor.destroy();
-        this.formatEditor = null;
-      }
-      this.formatEditor = createPublisherReelEditor({
-        draft: publisherStore.draft,
-        onSave: () => publisherStore.nextStep(),
-        onBack: () => publisherStore.prevStep(),
-      });
-      this.formatEditor.mount(host);
-    } else {
-      // Post/Carrousel ne passent pas par compose ; sécurité
+
+    // Refonte progressive : Story et Reel partagent le même compose minimal.
+    // Post/Carrousel ne passent pas par compose ; sécurité
+    if (this.format !== 'story' && this.format !== 'reel') {
       publisherStore.nextStep();
+      return;
     }
+
+    if (this.formatEditor) {
+      this.formatEditor.destroy();
+      this.formatEditor = null;
+    }
+    this.formatEditor = createPublisherMinimalComposer({ format: this.format });
+    this.formatEditor.mount(host);
   }
 
   _mountMusicStep() {
@@ -591,6 +710,9 @@ export class CommunityPublisherPage {
   _mountPublish() {
     const host = this.element.querySelector('[data-publish-host]');
     const storyStatus = this.format === 'story' ? this._storyPublishStatus() : null;
+    // Lot 1 / A05 : le carrousel ne peut pas encore être publié sans conteneur
+    // album Meta ; on désactive le bouton et on explique pourquoi.
+    const carouselBlocked = this.format === 'carousel';
     const draft = publisherStore.draft;
     const caption = draft.caption || {};
     const shortCaption = (value) => value
@@ -599,6 +721,11 @@ export class CommunityPublisherPage {
     host.innerHTML = `
       <div class="publisher-publish">
         <h2>Prêt à publier</h2>
+        ${carouselBlocked ? `
+        <p class="publisher-publish-warning" data-carousel-blocked role="status">
+          Le format carrousel ne peut pas encore être publié : Meta recevrait une seule photo au lieu d'un album.
+          Revenez à « Médias » et sélectionnez une photo unique.
+        </p>` : ''}
         <div class="publisher-publish-summary">
           ${storyStatus ? `
           <div class="publisher-publish-item">
@@ -634,7 +761,7 @@ export class CommunityPublisherPage {
         </div>
         <div class="publisher-publish-actions">
           <button type="button" class="publisher-btn publisher-btn-secondary" data-action="back">Annuler</button>
-          <button type="button" class="publisher-btn publisher-btn-success" data-action="publish-final" ${storyStatus && !storyStatus.canPublish ? 'disabled' : ''}>Publier maintenant</button>
+          <button type="button" class="publisher-btn publisher-btn-success" data-action="publish-final" ${(storyStatus && !storyStatus.canPublish) || carouselBlocked ? 'disabled' : ''}>Publier maintenant</button>
         </div>
       </div>
     `;
@@ -704,10 +831,11 @@ export class CommunityPublisherPage {
    * le verrou est relâché immédiatement. Supporte les fonctions async.
    */
   _navLock(fn) {
-    if (this._navLocked) return;
+    // Toujours renvoyer une promesse : les appelants enchaînent `.catch()`.
+    if (this._navLocked) return Promise.resolve();
     this._navLocked = true;
     const before = this.currentStep;
-    Promise.resolve(fn()).then(() => {
+    return Promise.resolve(fn()).then(() => {
       if (this.currentStep === before) {
         this._navLocked = false;
       } else {
@@ -846,7 +974,15 @@ export class CommunityPublisherPage {
         design: draft.design,
         music: draft.music,
       });
-      this._showToast('Brouillon sauvegardé');
+      if (publisherDraftService.serverDraftError) {
+        this._queueError(serverDraftErrorLabel(
+          publisherDraftService.serverDraftError,
+          'Sauvegarde serveur indisponible',
+        ));
+        this._showToast('Brouillon conservé localement · sauvegarde serveur indisponible');
+      } else {
+        this._showToast('Brouillon sauvegardé');
+      }
     } catch (error) {
       this._showError(error.message);
     }
@@ -870,6 +1006,14 @@ export class CommunityPublisherPage {
           design: draft.design,
           music: draft.music,
         });
+      }
+      // A01 : ne pas annoncer une publication qui n'a jamais été envoyée
+      // au serveur lorsque la création du brouillon a échoué (422).
+      if (publisherDraftService.serverDraftError || !publisherDraftService.currentDraftId) {
+        throw new Error(serverDraftErrorLabel(
+          publisherDraftService.serverDraftError || { detail: 'aucun brouillon serveur' },
+          'Publication impossible',
+        ));
       }
 
       const result = await publisherDraftService.publish({
@@ -934,11 +1078,20 @@ export class CommunityPublisherPage {
 
   _showError(message) {
     this.error = message;
+    this._pendingError = null;
+    if (!this.element || this.loadError) return;
     const alert = document.createElement('div');
     alert.className = 'publisher-alert';
-    alert.innerHTML = `<span>${this._esc(message)}</span><button data-dismiss>✕</button>`;
-    this.element.querySelector('[data-main]').prepend(alert);
-    alert.querySelector('[data-dismiss]').addEventListener('click', () => alert.remove());
+    if (typeof alert.setAttribute === 'function') alert.setAttribute('role', 'alert');
+    alert.innerHTML = `<span>${this._esc(message)}</span><button data-dismiss aria-label="Fermer">✕</button>`;
+    const host = this.element.querySelector('[data-alerts]') || this.element.querySelector('[data-main]');
+    if (!host) return;
+    if (typeof host.appendChild === 'function') host.appendChild(alert);
+    else if (typeof host.prepend === 'function') host.prepend(alert);
+    alert.querySelector('[data-dismiss]')?.addEventListener('click', () => {
+      if (typeof alert.remove === 'function') alert.remove();
+      else if (alert.parentNode) alert.parentNode.removeChild(alert);
+    });
   }
 
   _esc(text) {

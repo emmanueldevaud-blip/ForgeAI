@@ -22,7 +22,7 @@ import {
   getSuggestedPhotosForActivity,
 } from '../services/sportApi.js?v=16';
 import { createStoryStudioPage } from './StoryStudioPage.js?v=1';
-import { createCommunityPublisherPage } from './CommunityPublisherPage.js?v=11';
+import { createCommunityPublisherPage } from './CommunityPublisherPage.js?v=13';
 
 const MONTHS = [
   'Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin',
@@ -236,7 +236,7 @@ export class CommunityManagerCalendarPage {
       // Charge une publication existante (SportPublication)
       this.showPublisher = true;
       this.publisherPage = createCommunityPublisherPage(this.router, {
-        entryId: pubId,  // Pour compatibilité, mais on va charger la pub existante
+        publicationId: pubId, // A02 : identifiant de publication, pas entrée de calendrier
         format,
         isExistingPublication: true,
         onBack: () => {
@@ -248,8 +248,9 @@ export class CommunityManagerCalendarPage {
         },
       });
       // Charger la publication existante après l'initialisation
-      // (initialize() → _loadExistingPublication(entryId) charge le brouillon
-      // via publication_id — Lot 0 A02 : plus de re-création via calendar_entry_id).
+      // (initialize() → _loadExistingPublication(publicationId) charge le
+      // brouillon via publication_id — A02 : plus de confusion avec
+      // calendar_entry_id).
       this.publisherPage.initialize().catch(() => {});
       this.render();
       return;
@@ -258,7 +259,7 @@ export class CommunityManagerCalendarPage {
     // Ouvre le nouveau Publisher unifié pour créer un nouveau brouillon
     this.showPublisher = true;
     this.publisherPage = createCommunityPublisherPage(this.router, {
-      entryId,
+      calendarEntryId: entryId, // A02 : identifiant d'entrée de calendrier, jamais publication_id
       format,
       garminActivityId,
       freshDraft,

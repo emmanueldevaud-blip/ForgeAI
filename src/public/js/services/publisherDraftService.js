@@ -43,11 +43,33 @@ import {
 } from '../services/photosApi.js?v=8';
 import { publishStoryWithPipeline } from '../services/storyPublishPipeline.js';
 
+/** Détail lisible d'une erreur API (champ `detail` FastAPI, message, etc.). */
+function apiErrorDetail(error) {
+  const detail = error?.data?.detail ?? error?.detail ?? error?.message
+    ?? String(error ?? 'Erreur inconnue');
+  if (Array.isArray(detail)) {
+    return detail.map(d => `${d?.loc ? `${d.loc.join('.')}: ` : ''}${d?.msg || ''}`.trim()).join(' | ');
+  }
+  return String(detail);
+}
+
 export class PublisherDraftService {
   constructor() {
     this.currentDraftType = null; // 'studio' | 'story'
     this.currentDraftId = null;
     this.currentFormatOverride = null;
+    // A01 : dernière cause d'échec de création serveur. L'UI doit l'afficher
+    // et ne pas annoncer une sauvegarde réussie tant qu'elle est positionnée.
+    this.serverDraftError = null;
+  }
+
+  _recordServerDraftError(error) {
+    this.serverDraftError = {
+      status: error?.status ?? null,
+      detail: apiErrorDetail(error),
+    };
+    console.warn('[PublisherDraftService] Brouillon serveur différé :', this.serverDraftError.detail);
+    return this.serverDraftError;
   }
 
   // ========== Création ==========
@@ -66,6 +88,7 @@ export class PublisherDraftService {
       this.currentDraftType = 'studio';
       this.currentDraftId = res.publication_id;
       this.currentFormatOverride = format;
+      this.serverDraftError = null;
       // Sync avec le store local (post | carousel | reel | story)
       publisherStore.resetDraft(format, calendarEntryId);
       return await this.load(res.publication_id);
@@ -88,6 +111,7 @@ export class PublisherDraftService {
       this.currentDraftType = 'story';
       this.currentDraftId = res.id;
       this.currentFormatOverride = null;
+      this.serverDraftError = null;
       publisherStore.resetDraft('story', calendarEntryId);
       return await this.loadStory(res.id);
     } catch (error) {
@@ -102,8 +126,18 @@ export class PublisherDraftService {
    */
   async createStandaloneDraft(format = 'post') {
     const visualType = format === 'reel' ? 'reel' : format === 'carousel' ? 'carousel' : 'photo';
-    const created = await createStudioDraft({ visual_type: visualType });
-    if (!created?.id) throw new Error(created?.detail || 'Création du brouillon impossible');
+    let created;
+    try {
+      created = await createStudioDraft({ visual_type: visualType });
+    } catch (error) {
+      throw new Error(this._recordServerDraftError(error).detail);
+    }
+    if (!created?.id) {
+      const error = new Error(created?.detail || 'Création du brouillon impossible');
+      error.data = created;
+      throw new Error(this._recordServerDraftError(error).detail);
+    }
+    this.serverDraftError = null;
     this.currentDraftType = 'studio';
     this.currentDraftId = created.id;
     this.currentFormatOverride = format;
@@ -132,10 +166,10 @@ export class PublisherDraftService {
     }
     try {
       return await this.createStandaloneDraft(format);
-    } catch (error) {
-      // Lot 0 (A01) : on conserve le brouillon local si la création serveur
-      // échoue (réseau, permissions) — save()/publish() la retenteront.
-      console.warn('[PublisherDraftService] Brouillon standalone serveur différé :', error?.message || error);
+    } catch {
+      // A01 : on conserve le brouillon local si la création serveur échoue
+      // (réseau, 422 stratégie absente) — save()/publish() la retenteront.
+      // `serverDraftError` porte la cause et doit être affichée par l'UI.
       return publisherStore.getState().draft;
     }
   }
@@ -149,6 +183,7 @@ export class PublisherDraftService {
     }
     this.currentDraftType = 'studio';
     this.currentDraftId = draftId;
+    this.serverDraftError = null;
     const pub = await getStudioDraft(draftId);
     this._syncStoreFromStudio(pub, this.currentFormatOverride);
     return publisherStore.getState().draft;
@@ -158,6 +193,7 @@ export class PublisherDraftService {
     this.currentDraftType = 'story';
     this.currentDraftId = draftId;
     this.currentFormatOverride = null;
+    this.serverDraftError = null;
     const draft = await getStoryDraft(draftId);
     this._syncStoreFromStory(draft);
     return publisherStore.getState().draft;
@@ -279,10 +315,22 @@ export class PublisherDraftService {
   }
 
   async save(data) {
+    let serverDraftReady = true;
     if (!this.currentDraftId) {
       // Lot 0 (A01) : création serveur du brouillon standalone à la volée au premier save.
       if (this.currentDraftType === 'story') throw new Error('Aucun brouillon');
-      await this.createStandaloneDraft(this.currentFormatOverride || 'post');
+      try {
+        await this.createStandaloneDraft(this.currentFormatOverride || 'post');
+      } catch {
+        // A01 : garder la saisie locale et ne pas simuler une sauvegarde serveur.
+        serverDraftReady = false;
+      }
+    }
+
+    if (!serverDraftReady) {
+      publisherStore.draft.updatedAt = Date.now();
+      publisherStore._notify();
+      return publisherStore.getState().draft;
     }
 
     const updates = {};
@@ -418,11 +466,26 @@ export class PublisherDraftService {
   // ========== Publication ==========
 
   async publish({ platforms = ['instagram'] } = {}) {
+    // Lot 1 / A05 : le carrousel est sélectionnable mais Meta ne recevrait qu'une
+    // seule photo. Bloquer avant toute sauvegarde/enfilement, avec un message clair.
+    const draftFormat = publisherStore.draft?.format || this.currentFormatOverride;
+    if (this.currentFormatOverride === 'carousel' || draftFormat === 'carousel') {
+      throw new Error(
+        'Le format carrousel ne peut pas encore être publié : Meta recevrait une seule photo. '
+        + 'Choisissez une photo unique.',
+      );
+    }
+
     if (!this.currentDraftId) {
       // Lot 0 (A01) : un brouillon standalone sans ID serveur est créé à la
       // volée avant publication, puis le contenu local est persisté dessus.
       if (this.currentDraftType === 'story') throw new Error('Aucun brouillon');
-      await this.createStandaloneDraft(this.currentFormatOverride || 'post');
+      try {
+        await this.createStandaloneDraft(this.currentFormatOverride || 'post');
+      } catch {
+        // A01 : pas de publication réelle si le brouillon serveur n'existe pas.
+        throw new Error(`Publication impossible : ${apiErrorDetail(this.serverDraftError)}. Le brouillon reste local.`);
+      }
       const draft = publisherStore.draft;
       await this.save({
         caption: draft.caption,
@@ -433,6 +496,10 @@ export class PublisherDraftService {
     }
 
     if (this.currentDraftType === 'story') {
+      // Lot 1 / A06 : une seule vérité, la publication Story est Instagram uniquement.
+      if (platforms.some((platform) => platform !== 'instagram')) {
+        throw new Error('La publication Story est disponible sur Instagram uniquement.');
+      }
       // Même pipeline que le bouton « Valider et publier » de l'éditeur Story :
       // les slides sont exportées/uploadées avant validation et publication.
       const storyDesign = publisherStore.draft.design || {};

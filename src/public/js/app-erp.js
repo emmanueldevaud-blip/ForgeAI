@@ -25,7 +25,7 @@ import { createProfilePage } from './pages/ProfilePage.js?v=3';
 import { createSettingsPage } from './pages/UserSettingsPage.js?v=19';
 import { createCommunityManagerCalendarPage } from './pages/CommunityManagerCalendarPage.js?v=13';
 import { createAnalyticsIntelligencePage } from './pages/AnalyticsIntelligencePage.js?v=2';
-import { createCommunityPublisherPage } from './pages/CommunityPublisherPage.js?v=11';
+import { createCommunityPublisherPage } from './pages/CommunityPublisherPage.js?v=13';
 import { createCleaningVolunteersPage } from './pages/CleaningVolunteersPage.js?v=5';
 import { createAdministrativeProgramsPage } from './pages/AdministrativeProgramsPage.js';
 import { createSportDashboardPage } from './pages/SportDashboardPage.js?v=5';
@@ -368,7 +368,7 @@ async function initializeApp() {
     .addRoute('/publisher/:format', async (route) => {
       await showCommunityPublisherPage(route);
     }, { requiresAuth: true, permissions: ['community_manager.strategy_view'], module: 'community_manager' })
-    .addRoute('/publisher/:format/:entryId', async (route) => {
+    .addRoute('/publisher/:format/:publicationId', async (route) => {
       await showCommunityPublisherPage(route);
     }, { requiresAuth: true, permissions: ['community_manager.strategy_view'], module: 'community_manager' })
 
@@ -455,15 +455,21 @@ async function showCommunityPublisherPage(route) {
   appShell.showLoading();
 
   try {
-    const format = route.params.format || 'post';
-    const entryId = route.params.entryId ? parseInt(route.params.entryId, 10) : null;
+    const requestedFormat = route.params.format || 'post';
+    // A02 : le segment d'URL est un publication_id, jamais un calendar_entry_id.
+    // Les entrées de calendrier restent internes au calendrier (_openPublisher).
+    const publicationId = route.params.publicationId || null;
     const urlParams = new URLSearchParams(window.location.search);
-    const garminActivityId = urlParams.get('garmin') ? parseInt(urlParams.get('garmin'), 10) : null;
+    const garminParam = urlParams.get('garmin');
+    const garminActivityId = garminParam && /^\d+$/.test(garminParam) ? Number(garminParam) : null;
+    // A03 : un lien profond ?garmin=<id> ouvre toujours le parcours Story,
+    // même si le segment de format de l'URL dit « post ».
+    const format = garminActivityId ? 'story' : requestedFormat;
     if (communityPublisherPage) {
       communityPublisherPage.destroy();
       communityPublisherPage = null;
     }
-    const page = createCommunityPublisherPage(router, { format, entryId, garminActivityId });
+    const page = createCommunityPublisherPage(router, { format, publicationId, garminActivityId });
     communityPublisherPage = page;
     await page.initialize();
     const element = page.render();

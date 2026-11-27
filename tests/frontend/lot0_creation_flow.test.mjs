@@ -244,8 +244,7 @@ const pageDeps = {
   createPublisherCaptionEditor: () => ({ mount: noop, destroy: noop }),
   createPublisherPreview: () => ({ mount: noop, destroy: noop }),
   createPublisherMusicStep: () => ({ mount: noop, destroy: noop }),
-  createPublisherReelEditor: () => ({ mount: noop, destroy: noop }),
-  createPublisherStoryEditor: () => ({ mount: noop, destroy: noop }),
+  createPublisherMinimalComposer: () => ({ mount: noop, destroy: noop, save: async () => true }),
   document: { createElement: () => ({ innerHTML: '', appendChild: noop }) },
   router: { navigate: noop },
 };

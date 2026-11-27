@@ -196,6 +196,8 @@ class PublisherStore {
     const newItems = mediaItems.map((m, i) => ({
       // Id normalisé en chaîne : les dataset DOM sont toujours des chaînes
       id: String(m.id ?? `local_${Date.now()}_${i}`),
+      // Identifiant serveur conservé explicitement pour la sauvegarde et le design v2.
+      photoId: m.photoId ?? m.id ?? null,
       url: m.url || m.file_url || `/photos/${m.id}/file`,
       thumbnail_url: m.thumbnail_url || m.url || `/photos/${m.id}/file?size=small`,
       crop: { x: 0, y: 0, w: 1, h: 1 },

@@ -183,15 +183,15 @@ console.log('10. Médias vides (pas de crash, pas de slide fantôme)');
   check('idem avec tableaux stockés vides', d2.slides.length === 0 && d2.design_documents.length === 0);
 }
 
-console.log('11. Non-régression : seul le format story utilise PublisherStoryEditor');
+console.log('11. Refonte compose : Story et Reel utilisent le compositeur minimal');
 {
   const pageSrc = fs.readFileSync(
     new URL('../../src/public/js/pages/CommunityPublisherPage.js', import.meta.url), 'utf8'
   );
-  check('compose story -> createPublisherStoryEditor',
-    /format === 'story'[\s\S]{0,400}createPublisherStoryEditor\(/.test(pageSrc));
-  check('compose reel -> createPublisherReelEditor (inchangé)',
-    /format === 'reel'[\s\S]{0,400}createPublisherReelEditor\(/.test(pageSrc));
+  check('compose -> createPublisherMinimalComposer',
+    /createPublisherMinimalComposer\(/.test(pageSrc));
+  check('plus aucun appel aux éditeurs lourds depuis la page',
+    !/createPublisherStoryEditor\(|createPublisherReelEditor\(/.test(pageSrc));
   check('post/carrousel : aucun éditeur compose (auto-pass)',
     /Post\/Carrousel ne passent pas par compose/.test(pageSrc));
 }

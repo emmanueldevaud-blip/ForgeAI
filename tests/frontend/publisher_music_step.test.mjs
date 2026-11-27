@@ -363,7 +363,8 @@ function makeEl() {
   check('T7: apercu Reel — pp-reel-music conserve', previewSrc.includes('pp-reel-music'));
 
   const pageSrc = read('../../src/public/js/pages/CommunityPublisherPage.js');
-  check('T7: Reel — _mountComposeEditor inchange', /format === 'reel'[\s\S]{0,200}createPublisherReelEditor/.test(pageSrc));
+  check('T7: Reel — compose minimal (plus de StudioEditorView)',
+    /createPublisherMinimalComposer\(/.test(pageSrc) && !/createPublisherReelEditor\(/.test(pageSrc));
   check('T7: pas de music step pour reel/post/carrousel', !extractSteps(pageSrc, 'reel').includes('music') && !extractSteps(pageSrc, 'post').includes('music') && !extractSteps(pageSrc, 'carousel').includes('music'));
 }
 

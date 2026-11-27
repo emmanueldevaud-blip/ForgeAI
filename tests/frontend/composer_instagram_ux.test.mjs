@@ -115,7 +115,16 @@ console.log('3. Câblage et styles');
   assert.match(css, /\.pmp-notice\s*\{/);
   assert.match(css, /\.pce-live-preview\s*\{/);
   assert.match(css, /\.pce-hashtag-suggestions\s*\{/);
-  assert.match(read('src/public/index.html'), /publisher\.css\?v=14/);
+  assert.match(css, /\.pmc-media-strip\s*\{/);
+  assert.match(css, /\.pmc-layer-list\s*\{/);
+  assert.match(css, /\.pmc-layer-add\s*\{/);
+  assert.match(css, /\.pmc-overlay--slot-1\s*\{/);
+  assert.match(css, /\.pmc-preview\s*\{/);
+  assert.match(css, /\.pmc-overlay-actions\s*\{/);
+  assert.match(css, /touch-action: manipulation/);
+  assert.match(css, /@media \(hover: none\), \(max-width: 899px\)/);
+  assert.match(css, /@media \(min-width: 900px\) and \(min-height: 620px\)/);
+  assert.match(read('src/public/index.html'), /publisher\.css\?v=20/);
 }
 
 console.log('UX Composer Instagram OK.');

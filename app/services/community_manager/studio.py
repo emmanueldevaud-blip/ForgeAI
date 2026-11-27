@@ -48,6 +48,18 @@ logger = logging.getLogger(__name__)
 
 INSTAGRAM_CAPTION_MAX_LENGTH = 2200
 
+# Lot 1 / A05 : le format carrousel est sélectionnable dans le Publisher mais
+# Meta ne reçoit actuellement qu'une seule photo (pas de conteneur album).
+# Tant que `media_type=CAROUSEL` / `children` n'est pas implémenté et validé,
+# la publication est bloquée avec un message explicite plutôt que de laisser
+# croire à un carrousel publié.
+CAROUSEL_PUBLISH_BLOCKED_MESSAGE = (
+    "Le format carrousel ne peut pas encore être publié : Meta recevrait une seule photo "
+    "au lieu des albums. Choisissez une photo unique, ou attendez l'implémentation du "
+    "conteneur album (media_type=CAROUSEL, children)."
+)
+
+
 def build_full_caption(title: Optional[str], content: Optional[str], hashtags: Optional[str]) -> str:
     """Construit la légende Instagram complète : titre + hashtags.
     
@@ -1298,6 +1310,26 @@ class CommunityManagerStudioService:
         await self.db.refresh(pub)
         return pub
 
+    @staticmethod
+    def assert_publishable_format(pub: SportPublication) -> None:
+        """Lot 1 / A05 : bloque le carrousel avant toute validation/publication.
+
+        Vérifie le type visuel déclaré et, pour les anciens brouillons sans type
+        explicite, un design portant plusieurs photos. Les publications sportives
+        Garmin (Reel) et les Stories ne sont pas concernées.
+        """
+        design = pub.design if isinstance(pub.design, dict) else {}
+        carousel = design.get("carousel")
+        visual_type = getattr(pub, "visual_type", None)
+        is_carousel = visual_type == "carousel" or (
+            visual_type in (None, "", "photo")
+            and isinstance(carousel, list)
+            and len(carousel) > 1
+            and not _is_sport_publication(pub)
+        )
+        if is_carousel:
+            raise ValueError(CAROUSEL_PUBLISH_BLOCKED_MESSAGE)
+
     async def validate_for_publication(
         self, publication_id: int, data: PublicationValidateRequest
     ) -> Optional[SportPublication]:
@@ -1305,6 +1337,7 @@ class CommunityManagerStudioService:
         pub = await self.pub_service.get_publication(publication_id)
         if not pub:
             return None
+        self.assert_publishable_format(pub)
 
         if pub.status == "shared":
             raise ValueError("Cette publication est déjà publiée.")
@@ -1325,7 +1358,11 @@ class CommunityManagerStudioService:
     async def schedule_publication(
         self, publication_id: int, scheduled_at: datetime
     ) -> Optional[SportPublication]:
-        """Planifie une publication validée."""
+        """Planifie une publication validée (Lot 1 / A04 : non exposé).
+
+        Conservé comme proposition pour un futur scheduler idempotent ;
+        l'endpoint HTTP est désactivé tant qu'aucun worker ne consomme ce statut.
+        """
         pub = await self.pub_service.get_publication(publication_id)
         if not pub:
             return None
@@ -1918,6 +1955,7 @@ class CommunityManagerStudioService:
         pub = await self.pub_service.get_publication(publication_id)
         if not pub:
             raise ValueError("Publication introuvable")
+        self.assert_publishable_format(pub)
         # Charger le contexte calendrier pour détecter les publications sportives
         if pub.calendar_entry_id:
             entry_result = await self.db.execute(
@@ -2100,6 +2138,7 @@ class CommunityManagerStudioService:
         pub = await self.pub_service.get_publication(publication_id)
         if not pub:
             raise ValueError("Publication introuvable")
+        self.assert_publishable_format(pub)
         # Charger le contexte calendrier pour détecter les publications sportives
         if pub.calendar_entry_id:
             entry_result = await self.db.execute(
@@ -2271,6 +2310,7 @@ class CommunityManagerStudioService:
         pub = await self.pub_service.get_publication(publication_id)
         if not pub:
             raise ValueError("Publication introuvable")
+        self.assert_publishable_format(pub)
         # Charger le contexte calendrier
         if pub.calendar_entry_id:
             entry_result = await self.db.execute(

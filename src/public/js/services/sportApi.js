@@ -222,6 +222,11 @@ export async function createStudioDraftFromCalendar(data) {
   return cmApi.post('/community-manager/studio/from-calendar', data);
 }
 
+// V2 : Créer un brouillon de publication standalone (sans entrée de calendrier)
+export async function createStudioDraft(data) {
+  return cmApi.post('/community-manager/studio/draft', data);
+}
+
 // V2 : Récupérer un brouillon
 export async function getStudioDraft(publicationId) {
   return cmApi.get(`/community-manager/studio/draft/${encodeURIComponent(publicationId)}`);
@@ -297,6 +302,11 @@ export async function generateStudioDraftText(publicationId, data) {
 // V3 : Photos suggérées liées aux activités Garmin et dates
 export async function getSuggestedPhotos(publicationId, limit = 15) {
   return cmApi.get(`/community-manager/studio/draft/${encodeURIComponent(publicationId)}/suggested-photos`, { params: { limit } });
+}
+
+// V3 : Photos suggérées liées à une activité Garmin (targeting par activity_id)
+export async function getSuggestedPhotosForActivity(activityId, limit = 50) {
+  return cmApi.get(`/community-manager/studio/activity/${encodeURIComponent(activityId)}/suggested-photos`, { params: { limit } });
 }
 
 export async function getEditorialBrief(publicationId) {

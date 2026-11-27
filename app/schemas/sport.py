@@ -367,6 +367,20 @@ class PublicationDraftUpdate(BaseModel):
     quick_generation: bool = False
 
 
+class PublicationDraftCreateRequest(BaseModel):
+    """Création d'un brouillon standalone (sans entrée de calendrier).
+
+    Lot 0 (A01) : le parcours standalone (« Créer une publication ») doit
+    pouvoir aboutir à un brouillon serveur avant la sauvegarde/publication.
+    """
+    title: Optional[str] = Field(None, max_length=200)
+    content: Optional[str] = Field(None)
+    hashtags: Optional[str] = Field(None, max_length=200)
+    photo_id: Optional[int] = None
+    visual_type: str = Field("photo", pattern="^(photo|generated|carousel|reel)$")
+    styles: list[str] = Field(default_factory=list)
+
+
 class PublicationDraftResponse(SportPublicationResponse):
     """Réponse complète pour un brouillon (inclut toutes les propositions)."""
     pass

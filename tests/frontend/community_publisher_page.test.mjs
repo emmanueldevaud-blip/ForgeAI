@@ -156,8 +156,13 @@ function makePage() {
   publisherStoreStub._notify();
   const publishHost = page.element.querySelector('[data-publish-host]');
   const publishBtn = publishHost.querySelector('[data-action="publish-final"]');
+  // Le vrai _publish est asynchrone (Lot 0 A01 : save avant publish) ; ce test
+  // vérifie uniquement le câblage du bouton. Le parcours complet est couvert
+  // par tests/frontend/lot0_creation_flow.test.mjs.
+  let publishWired = 0;
+  page._publish = async () => { publishWired++; };
   publishBtn.click();
-  check('T2: bouton Publier declenche _publish', calls.publish === 1);
+  check('T2: bouton Publier declenche _publish', publishWired === 1);
 }
 
 {

@@ -13,6 +13,7 @@
 
 import { publisherStore } from '../stores/publisherStore.js';
 import { publisherDraftService } from '../services/publisherDraftService.js?v=3';
+import { getSuggestedPhotosForActivity } from '../services/sportApi.js?v=16';
 import { createPublisherMediaPicker } from '../components/PublisherMediaPicker.js?v=2';
 import { createPublisherCaptionEditor } from '../components/PublisherCaptionEditor.js?v=2';
 import { createPublisherPreview } from '../components/PublisherPreview.js?v=4';
@@ -119,7 +120,7 @@ export class CommunityPublisherPage {
     } else if (this.freshDraft) {
       await publisherDraftService.createBlank(this.format);
     } else {
-      this._restoreOrResetDraft();
+      await this._restoreOrResetDraft();
     }
 
     // Appliquer les médias pré-sélectionnés
@@ -127,6 +128,7 @@ export class CommunityPublisherPage {
       publisherStore.draft.media = this.preselectedMedia.map((m, i) => ({
         ...m,
         id: String(m.id ?? `media_${Date.now()}_${i}`),
+        photoId: m.photoId ?? m.id,
         order: i,
       }));
       publisherStore._notify();
@@ -138,7 +140,7 @@ export class CommunityPublisherPage {
    * sinon en crée un propre pour le format demandé.
    * Ne jamais écraser un brouillon en cours.
    */
-  _restoreOrResetDraft() {
+  async _restoreOrResetDraft() {
     const draft = publisherStore.draft;
     const caption = draft.caption || {};
     const hasData = (draft.media && draft.media.length > 0)
@@ -146,10 +148,10 @@ export class CommunityPublisherPage {
       || !!(draft.design && Object.keys(draft.design).length > 0);
 
     if (!hasData) {
-      // Nouveau brouillon : réinitialiser le service pour éviter toute
-      // sauvegarde sur un ancien currentDraftId résiduel.
-      publisherDraftService.clearCurrent();
-      publisherStore.resetDraft(this.format);
+      // Nouveau brouillon : créer un brouillon serveur standalone (Lot 0 A01).
+      // Le store local est réinitialisé puis le contenu sauvegardé dessus via
+      // la création serveur déjà liée au service.
+      await publisherDraftService.createBlank(this.format);
     } else if (draft.format !== this.format) {
       publisherStore.setFormat(this.format);
       // Le format conditionne la sélection : limiter le nombre et les types
@@ -200,6 +202,38 @@ export class CommunityPublisherPage {
     // Pour l'instant, on attend la sélection de photos via le MediaPicker
     // Le MediaPicker émettra un événement pmp:garmin-select
     publisherStore.setGarmin(this.garminActivityId, {}, []);
+
+    // Lot 0 (A03) : charger les photos suggérées pour l'activité Garmin au lieu
+    // d'ignorer le résultat — la sélection part des suggestions de l'activité.
+    const format = this.format;
+    const maxMedia = (FORMAT_CONFIG[format] || FORMAT_CONFIG.post).maxMedia || 10;
+    try {
+      const photos = await getSuggestedPhotosForActivity(this.garminActivityId, maxMedia);
+      const items = Array.isArray(photos) ? photos : (photos?.items || []);
+      const currentMedia = publisherStore.draft.media || [];
+      const existing = new Set(currentMedia.map(
+        m => String(m.photoId ?? String(m.id).replace(/^photo_/, '')),
+      ));
+      const remaining = Math.max(0, maxMedia - currentMedia.length);
+      const toAdd = [];
+      for (const p of (remaining > 0 ? items : [])) {
+        const key = String(p.id);
+        if (existing.has(key)) continue;
+        existing.add(key);
+        toAdd.push({
+          id: p.id,
+          photoId: p.id,
+          url: `/photos/${p.id}/file`,
+          thumbnail_url: p.thumbnail_url || `/photos/${p.id}/file?size=small`,
+          type: 'photo',
+          source: 'garmin',
+        });
+        if (toAdd.length >= remaining) break;
+      }
+      if (toAdd.length) publisherStore.addMedia(toAdd);
+    } catch (error) {
+      console.warn('[Publisher] Suggestions Garmin indisponibles :', error?.message || error);
+    }
   }
 
   async _loadExistingPublication(publicationId) {
@@ -799,18 +833,20 @@ export class CommunityPublisherPage {
   async _saveDraft() {
     try {
       const draft = publisherStore.draft;
-      if (publisherDraftService.currentDraftId) {
-        await publisherDraftService.save({
-          caption: draft.caption,
-          media: draft.media,
-          design: draft.design,
-          music: draft.music,
-        });
-        this._showToast('Brouillon sauvegardé');
-      } else {
-        // Brouillon local uniquement : le store est déjà à jour via _notify
+      if (!publisherDraftService.currentDraftId && publisherDraftService.currentDraftType === 'story') {
+        // Brouillon local : une Story standalone n'a pas encore de brouillon serveur (A01 hors périmètre).
         this._showToast('Brouillon sauvegardé localement');
+        return;
       }
+      // Lot 0 (A01) : sans brouillon serveur, le service crée le brouillon
+      // standalone puis persiste le contenu local (conservation en attendant).
+      await publisherDraftService.save({
+        caption: draft.caption,
+        media: draft.media,
+        design: draft.design,
+        music: draft.music,
+      });
+      this._showToast('Brouillon sauvegardé');
     } catch (error) {
       this._showError(error.message);
     }
@@ -825,7 +861,9 @@ export class CommunityPublisherPage {
       // Le sélecteur met à jour le store local. Persister les changements avant
       // l'appel de publication, qui travaille sur le brouillon côté serveur.
       const draft = publisherStore.draft;
-      if (publisherDraftService.currentDraftId && publisherDraftService.currentDraftType === 'studio') {
+      if (publisherDraftService.currentDraftType !== 'story') {
+        // Lot 0 (A01) : save() crée le brouillon standalone serveur si besoin,
+        // puis persiste le contenu (caption/médias/design) avant publication.
         await publisherDraftService.save({
           caption: draft.caption,
           media: draft.media,

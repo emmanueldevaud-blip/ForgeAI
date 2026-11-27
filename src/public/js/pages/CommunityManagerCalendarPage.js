@@ -19,7 +19,7 @@ import {
   publishStudioDraft,
   regeneratePublicationContent,
   createStoryDraft,
-  getSuggestedPhotos,
+  getSuggestedPhotosForActivity,
 } from '../services/sportApi.js?v=16';
 import { createStoryStudioPage } from './StoryStudioPage.js?v=1';
 import { createCommunityPublisherPage } from './CommunityPublisherPage.js?v=11';
@@ -248,11 +248,9 @@ export class CommunityManagerCalendarPage {
         },
       });
       // Charger la publication existante après l'initialisation
-      this.publisherPage.initialize().then(() => {
-        if (this.publisherPage) {
-          this.publisherPage._loadExistingPublication(pubId);
-        }
-      }).catch(() => {});
+      // (initialize() → _loadExistingPublication(entryId) charge le brouillon
+      // via publication_id — Lot 0 A02 : plus de re-création via calendar_entry_id).
+      this.publisherPage.initialize().catch(() => {});
       this.render();
       return;
     }
@@ -333,8 +331,9 @@ export class CommunityManagerCalendarPage {
           throw new Error('Activité Garmin non liée à cette entrée de calendrier');
         }
         // Récupérer les photos suggérées pour cette activité
-        const photoRes = await getSuggestedPhotos(null, 20);
-        const photoIds = (photoRes.items || []).map(p => p.id);
+        // Lot 0 (A03) : suggestions ciblées par activity_id (jamais null).
+        const photoRes = await getSuggestedPhotosForActivity(sourceActivityId, 20);
+        const photoIds = (Array.isArray(photoRes) ? photoRes : (photoRes?.items || [])).map(p => p.id);
         if (photoIds.length === 0) {
           throw new Error('Aucune photo disponible pour cette activité Garmin');
         }
@@ -357,7 +356,7 @@ export class CommunityManagerCalendarPage {
         if (!res?.publication_id) {
           throw new Error(res?.detail || 'Création du brouillon impossible.');
         }
-        this._openPublisher({ entryId: res.publication_id, format: 'post' });
+        this._openPublisher({ pubId: res.publication_id, format: 'post' });
       }
       this._loadMonth();
     } catch (error) {

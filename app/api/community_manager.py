@@ -25,6 +25,7 @@ from app.schemas.sport import (
     EditorialCalendarEntryResponse,
     EditorialCalendarEntryUpdate,
     PublicationDraftUpdate,
+    PublicationDraftCreateRequest,
     PublicationDraftResponse,
     PublicationGenerateFromCalendarRequest,
     PublicationGenerateFromCalendarResponse,
@@ -324,6 +325,27 @@ async def get_studio_draft(
     return PublicationDraftResponse.model_validate(publication)
 
 
+@router.post("/studio/draft", response_model=PublicationDraftResponse, status_code=status.HTTP_201_CREATED)
+async def create_standalone_draft(
+    data: PublicationDraftCreateRequest,
+    service: CommunityManagerStudioService = Depends(get_cm_studio_write_service),
+):
+    """Créer un brouillon standalone (sans entrée de calendrier ni activité Garmin).
+
+    Lot 0 (A01) : le parcours de création standalone (Publisher / « Créer une
+    publication ») passe par cette création serveur avant la sauvegarde puis la
+    publication.
+    """
+    try:
+        publication = await service.create_standalone_draft(data)
+        return PublicationDraftResponse.model_validate(publication)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.exception("[CM-STUDIO] Erreur création brouillon standalone")
+        raise HTTPException(status_code=503, detail="Création impossible") from exc
+
+
 @router.patch("/studio/draft/{publication_id}", response_model=PublicationDraftResponse)
 async def update_studio_draft(
     publication_id: int,
@@ -577,6 +599,23 @@ async def get_suggested_photos(
     """Récupérer les photos suggérées en liaison avec les activités sportives."""
     try:
         return await service.get_suggested_photos(publication_id, limit=limit)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@router.get("/studio/activity/{activity_id}/suggested-photos")
+async def get_suggested_photos_for_activity(
+    activity_id: int,
+    limit: int = Query(15, ge=1, le=50),
+    service: CommunityManagerStudioService = Depends(get_cm_studio_service),
+):
+    """Récupérer les photos suggérées pour une activité Garmin (targeting par activity_id).
+
+    Lot 0 (A03) : le parcours Garmin exige désormais un identifiant d'activité
+    réel (jamais null) pour obtenir des suggestions exploitables.
+    """
+    try:
+        return await service.get_suggested_photos_for_activity(activity_id, limit=limit)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 

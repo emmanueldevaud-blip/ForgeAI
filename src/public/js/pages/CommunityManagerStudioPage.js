@@ -257,7 +257,7 @@ export class CommunityManagerStudioPage {
     this.photoPickerOpen = true;
     this.error = null;
     try {
-      const res = await getSuggestedPhotos(null, 20);
+      const res = await getSuggestedPhotos(this.publicationId, 20);
       this.suggestedPhotos = Array.isArray(res) ? res : (res?.items || []);
     } catch (error) {
       this.suggestedPhotos = [];

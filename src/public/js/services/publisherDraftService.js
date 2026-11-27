@@ -7,6 +7,7 @@ import { publisherStore } from '../stores/publisherStore.js';
 import {
   // Studio V2 (post/reel)
   createStudioDraftFromCalendar,
+  createStudioDraft,
   getStudioDraft,
   updateStudioDraft,
   validateStudioDraft,
@@ -95,15 +96,48 @@ export class PublisherDraftService {
   }
 
   /**
-   * Crée un brouillon vierge (sans entrée calendrier)
+   * Crée un brouillon standalone (sans entrée de calendrier).
+   * Lot 0 (A01) : le brouillon est créé côté serveur ; le store local reste
+   * la source de contenu tant que le brouillon serveur n'existe pas.
+   */
+  async createStandaloneDraft(format = 'post') {
+    const visualType = format === 'reel' ? 'reel' : format === 'carousel' ? 'carousel' : 'photo';
+    const created = await createStudioDraft({ visual_type: visualType });
+    if (!created?.id) throw new Error(created?.detail || 'Création du brouillon impossible');
+    this.currentDraftType = 'studio';
+    this.currentDraftId = created.id;
+    this.currentFormatOverride = format;
+    // Ne pas recharger le brouillon vide depuis le serveur : le contenu local
+    // déjà saisi doit être conservé jusqu'au premier save() (Lot 0 A01).
+    publisherStore.draft = { ...publisherStore.draft, id: created.id };
+    publisherStore._notify();
+    return publisherStore.getState().draft;
+  }
+
+  /**
+   * Crée un brouillon vierge (sans entrée calendrier).
+   * Lot 0 (A01) : création serveur du brouillon standalone pour les formats
+   * Studio (post/carousel/reel) — le draft local est ensuite sauvegardé dessus.
+   * (Une Story standalone nécessite une activité source : non gérée à ce lot.)
    */
   async createBlank(format = 'post') {
-    // Pour l'instant, on crée via une entrée calendrier "manuelle" ou on utilise un brouillon local uniquement
+    // Brouillon local conservé en attendant : la création serveur est tentée à
+    // la volée (et retentée au premier save/publish si elle échoue ici).
     publisherStore.resetDraft(format);
     this.currentDraftType = format === 'story' ? 'story' : 'studio';
     this.currentDraftId = null;
     this.currentFormatOverride = null;
-    return publisherStore.getState().draft;
+    if (this.currentDraftType === 'story') {
+      return publisherStore.getState().draft;
+    }
+    try {
+      return await this.createStandaloneDraft(format);
+    } catch (error) {
+      // Lot 0 (A01) : on conserve le brouillon local si la création serveur
+      // échoue (réseau, permissions) — save()/publish() la retenteront.
+      console.warn('[PublisherDraftService] Brouillon standalone serveur différé :', error?.message || error);
+      return publisherStore.getState().draft;
+    }
   }
 
   // ========== Chargement ==========
@@ -137,6 +171,7 @@ export class PublisherDraftService {
     if (design.carousel && design.carousel.length) {
       design.carousel.forEach((id, i) => media.push({
         id: `photo_${id}`,
+        photoId: id,
         url: `/photos/${id}/file`,
         thumbnail_url: `/photos/${id}/file?size=small`,
         crop: { x: 0, y: 0, w: 1, h: 1 },
@@ -147,6 +182,7 @@ export class PublisherDraftService {
     } else if (pub?.photo_id) {
       media.push({
         id: `photo_${pub.photo_id}`,
+        photoId: pub.photo_id,
         url: `/photos/${pub.photo_id}/file`,
         thumbnail_url: `/photos/${pub.photo_id}/file?size=small`,
         crop: { x: 0, y: 0, w: 1, h: 1 },
@@ -189,6 +225,7 @@ export class PublisherDraftService {
     (draft.selected_asset_ids || []).forEach((id, i) => {
       media.push({
         id: `photo_${id}`,
+        photoId: id,
         url: `/photos/${id}/file`,
         thumbnail_url: `/photos/${id}/file?size=small`,
         crop: { x: 0, y: 0, w: 1, h: 1 },
@@ -224,8 +261,29 @@ export class PublisherDraftService {
 
   // ========== Sauvegarde ==========
 
+  /**
+   * Résout l'identifiant serveur d'un média pour la sauvegarde.
+   * Lot 0 (A14) : un `photoId` numérique explicite est conservé ; à défaut, on
+   * extrait l'entier du préfixe `photo_` de l'id d'affichage. Un média sans ID
+   * serveur numérique est signalé (erreur visible) plutôt que filtré silencieusement.
+   */
+  _resolveServerPhotoId(media) {
+    const explicit = media?.photoId;
+    if (explicit !== undefined && explicit !== null && explicit !== '') {
+      const raw = String(explicit).trim();
+      if (/^\d+$/.test(raw) && Number(raw) > 0) return Number(raw);
+    }
+    const raw = String(media?.id ?? '').replace(/^photo_/, '').trim();
+    if (/^\d+$/.test(raw) && Number(raw) > 0) return Number(raw);
+    return null;
+  }
+
   async save(data) {
-    if (!this.currentDraftId) throw new Error('Aucun brouillon chargé');
+    if (!this.currentDraftId) {
+      // Lot 0 (A01) : création serveur du brouillon standalone à la volée au premier save.
+      if (this.currentDraftType === 'story') throw new Error('Aucun brouillon');
+      await this.createStandaloneDraft(this.currentFormatOverride || 'post');
+    }
 
     const updates = {};
     if (data.caption) {
@@ -234,7 +292,14 @@ export class PublisherDraftService {
       updates.hashtags = data.caption.hashtags;
     }
     if (data.media) {
-      updates.photo_ids = data.media.map(m => parseInt(m.id.replace('photo_', ''))).filter(id => !isNaN(id));
+      const resolvedIds = data.media.map(m => this._resolveServerPhotoId(m));
+      const missing = data.media.filter((m, i) => resolvedIds[i] === null);
+      if (missing.length > 0) {
+        throw new Error(
+          `Média sans identifiant serveur : ${missing.map(m => String(m.id ?? m.photoId ?? 'inconnu')).join(', ')}. Sélectionnez une photo de la bibliothèque.`,
+        );
+      }
+      updates.photo_ids = resolvedIds;
     }
     if (data.design) updates.design = data.design;
     if (data.music && this.currentDraftType === 'story') {
@@ -353,7 +418,19 @@ export class PublisherDraftService {
   // ========== Publication ==========
 
   async publish({ platforms = ['instagram'] } = {}) {
-    if (!this.currentDraftId) throw new Error('Aucun brouillon');
+    if (!this.currentDraftId) {
+      // Lot 0 (A01) : un brouillon standalone sans ID serveur est créé à la
+      // volée avant publication, puis le contenu local est persisté dessus.
+      if (this.currentDraftType === 'story') throw new Error('Aucun brouillon');
+      await this.createStandaloneDraft(this.currentFormatOverride || 'post');
+      const draft = publisherStore.draft;
+      await this.save({
+        caption: draft.caption,
+        media: draft.media,
+        design: draft.design,
+        music: draft.music,
+      });
+    }
 
     if (this.currentDraftType === 'story') {
       // Même pipeline que le bouton « Valider et publier » de l'éditeur Story :

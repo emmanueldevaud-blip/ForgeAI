@@ -7,7 +7,7 @@
 
 import { publisherStore } from '../stores/publisherStore.js';
 import { listPhotos, uploadPhotos, listAlbums } from '../services/photosApi.js?v=8';
-import { listSportActivities, getSuggestedPhotos } from '../services/sportApi.js?v=16';
+import { listSportActivities, getSuggestedPhotos, getSuggestedPhotosForActivity } from '../services/sportApi.js?v=16';
 
 const VIEW_MODES = {
   library: { label: 'Bibliothèque', short: 'Photos' },
@@ -493,11 +493,33 @@ export class PublisherMediaPicker {
 
   async _openGarminActivity(activityId) {
     try {
-      await getSuggestedPhotos(null, 50); // Besoin d'un publication_id pour l'API actuelle
-      // Pour l'instant, on redirige vers l'activité
+      // Lot 0 (A03) : suggestions Garmin réellement liées à l'activité.
+      const photos = await getSuggestedPhotosForActivity(activityId, this.maxSelection);
+      const items = Array.isArray(photos) ? photos : (photos?.items || []);
+      const existing = new Set(publisherStore.draft.media.map(
+        m => String(m.photoId ?? String(m.id).replace(/^photo_/, '')),
+      ));
+      const remaining = Math.max(0, this.maxSelection - publisherStore.draft.media.length);
+      const toAdd = [];
+      for (const p of (remaining > 0 ? items : [])) {
+        const key = String(p.id);
+        if (existing.has(key)) continue;
+        existing.add(key);
+        toAdd.push({
+          id: p.id,
+          photoId: p.id,
+          url: `/photos/${p.id}/file`,
+          thumbnail_url: p.thumbnail_url || `/photos/${p.id}/file?size=small`,
+          type: 'photo',
+          source: 'garmin',
+        });
+        if (toAdd.length >= remaining) break;
+      }
+      if (toAdd.length > 0) publisherStore.addMedia(toAdd);
       this._notifyGarminSelection(activityId);
     } catch (error) {
       console.error('[MediaPicker] Erreur photos Garmin:', error);
+      this._setNotice('Suggestions Garmin indisponibles pour cette activité.');
     }
   }
 
@@ -599,6 +621,7 @@ export class PublisherMediaPicker {
       if (itemEl) itemEl.classList.add('selected');
       publisherStore.addMedia([{
         id: photo.id,
+        photoId: photo.id,
         url: photo.file_url || `/photos/${photo.id}/file`,
         thumbnail_url: photo.thumbnail_url || `/photos/${photo.id}/file?size=small`,
         type: photo.mime_type?.startsWith('video/') ? 'video' : 'photo',

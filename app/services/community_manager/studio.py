@@ -25,6 +25,7 @@ from app.models.sport import (
 )
 from app.models.user import User
 from app.schemas.sport import (
+    PublicationDraftCreateRequest,
     PublicationDraftUpdate,
     PublicationGenerateFromCalendarRequest,
     PublicationGenerateTextRequest,
@@ -652,6 +653,33 @@ class CommunityManagerStudioService:
             await self.db.commit()
             await self.db.refresh(publication)
 
+        return publication
+
+    async def create_standalone_draft(
+        self, data: PublicationDraftCreateRequest
+    ) -> SportPublication:
+        """Crée un brouillon standalone (sans entrée de calendrier, sans activité).
+
+        Lot 0 (A01) : permet à un utilisateur de créer une publication depuis
+        zéro (bibliothèque photos) et d'atteindre un état « sauvegardable » puis
+        « publishable » côté Studio/Publisher, sans passer par une entrée de
+        calendrier ou une activité Garmin.
+        """
+        athlete, _strategy = await self._get_athlete_and_strategy()
+        publication = SportPublication(
+            athlete_id=athlete.id,
+            status="draft",
+            created_from="standalone",
+            visual_type=data.visual_type or "photo",
+            title=data.title,
+            content=data.content,
+            hashtags=data.hashtags,
+            photo_id=data.photo_id,
+            styles=data.styles or [],
+        )
+        self.db.add(publication)
+        await self.db.flush()
+        await self.db.commit()
         return publication
 
     async def get_draft(self, publication_id: int) -> Optional[SportPublication]:
@@ -2473,7 +2501,42 @@ class CommunityManagerStudioService:
         if not pub:
             raise ValueError("Publication introuvable")
 
-        athlete, _ = await self._get_athlete_and_strategy()
+        target_date = None
+        if pub.calendar_entry_id:
+            entry_res = await self.db.execute(
+                select(EditorialCalendarEntry).where(EditorialCalendarEntry.id == pub.calendar_entry_id)
+            )
+            entry = entry_res.scalar_one_or_none()
+            if entry and entry.date:
+                target_date = entry.date
+
+        return await self._get_suggested_photos_for_date(target_date, limit=limit, current_photo_id=pub.photo_id)
+
+    async def get_suggested_photos_for_activity(self, activity_id: int, limit: int = 15) -> list[dict[str, Any]]:
+        """Récupère des photos suggérées pour une activité Garmin (targeting par activity_id).
+
+        Lot 0 (A03) : le parcours Garmin (calendrier, MediaPicker) doit pouvoir
+        demander des suggestions réellement liées à une activité et non plus un
+        identifiant de publication absent.
+        """
+        activity_res = await self.db.execute(
+            select(SportActivity).where(
+                SportActivity.id == activity_id,
+                SportActivity.athlete_id == (await self._get_athlete_and_strategy())[0].id,
+            )
+        )
+        activity = activity_res.scalar_one_or_none()
+        if not activity:
+            raise ValueError("Activité Garmin introuvable")
+
+        target_date = activity.started_at.date() if activity.started_at else None
+        return await self._get_suggested_photos_for_date(target_date, limit=limit)
+
+    async def _get_suggested_photos_for_date(
+        self, target_date: Optional[Any], limit: int = 15, current_photo_id: Optional[int] = None
+    ) -> list[dict[str, Any]]:
+        """Photos du user récentes mises en avant pour une date cible (jour éditorial / activité)."""
+        athlete, _strategy = await self._get_athlete_and_strategy()
 
         # Récupérer les activités récentes de l'athlète
         act_res = await self.db.execute(
@@ -2487,15 +2550,6 @@ class CommunityManagerStudioService:
         for act in recent_acts:
             if act.started_at:
                 activity_dates[act.started_at.date()] = act.activity_name or act.sport_type or "Activité Garmin"
-
-        target_date = None
-        if pub.calendar_entry_id:
-            entry_res = await self.db.execute(
-                select(EditorialCalendarEntry).where(EditorialCalendarEntry.id == pub.calendar_entry_id)
-            )
-            entry = entry_res.scalar_one_or_none()
-            if entry and entry.date:
-                target_date = entry.date
 
         # Récupérer les photos de l'utilisateur
         photos_res = await self.db.execute(
@@ -2534,7 +2588,7 @@ class CommunityManagerStudioService:
                 "preview_url": f"/photos/{photo.id}/file?size=large",
                 "match_reason": match_reason,
                 "badge_class": badge_class,
-                "is_current": (pub.photo_id == photo.id),
+                "is_current": (current_photo_id == photo.id),
             })
             if len(results) >= limit:
                 break

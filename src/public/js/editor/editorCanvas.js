@@ -245,22 +245,59 @@ export class EditorCanvas {
 
   _drawText(ctx, el) {
     const m = this.textMetrics(el);
+    const size = el.size || 32;
     ctx.font = m.font;
     ctx.fillStyle = el.color || '#ffffff';
     ctx.textBaseline = 'top';
     ctx.textAlign = el.align || 'left';
-    if (el.shadow) {
-      ctx.shadowColor = 'rgba(0,0,0,0.55)';
-      ctx.shadowBlur = Math.max(2, (el.size || 32) * 0.12);
-      ctx.shadowOffsetY = Math.max(1, (el.size || 32) * 0.05);
-    }
     const left = -el.w / 2;
     const top = -m.height / 2;
+
+    // Fond du texte (outil du Composer) : dessiné avant l'ombre pour ne pas
+    // propager le halo autour du rectangle.
+    if (el.background) {
+      const hex = /^#[0-9a-f]{6}$/i.test(String(el.backgroundColor || '')) ? el.backgroundColor : '#000000';
+      const r = parseInt(hex.slice(1, 3), 16);
+      const g = parseInt(hex.slice(3, 5), 16);
+      const b = parseInt(hex.slice(5, 7), 16);
+      ctx.save();
+      ctx.fillStyle = `rgba(${r},${g},${b},0.65)`;
+      ctx.beginPath();
+      const box = [left - size * 0.15, top - size * 0.08, el.w, m.height + size * 0.16];
+      const radius = Math.min(14, size * 0.2);
+      if (typeof ctx.roundRect === 'function') ctx.roundRect(...box, radius);
+      else ctx.rect(...box);
+      ctx.fill();
+      ctx.restore();
+      ctx.fillStyle = el.color || '#ffffff';
+    }
+
+    if (el.shadow) {
+      ctx.shadowColor = 'rgba(0,0,0,0.55)';
+      ctx.shadowBlur = Math.max(2, size * 0.12);
+      ctx.shadowOffsetY = Math.max(1, size * 0.05);
+    }
     let x = left;
     if (el.align === 'center') x = 0;
     else if (el.align === 'right') x = left + el.w;
     m.lines.forEach((line, i) => {
       ctx.fillText(line, x, top + i * m.lineH, el.w);
+      if (el.underline && line.length) {
+        const width = Math.min(el.w, ctx.measureText(line).width);
+        const start = el.align === 'center' ? x - width / 2
+          : el.align === 'right' ? x - width : x;
+        ctx.save();
+        ctx.shadowColor = 'transparent';
+        ctx.shadowBlur = 0;
+        ctx.shadowOffsetY = 0;
+        ctx.strokeStyle = ctx.fillStyle;
+        ctx.lineWidth = Math.max(1, size * 0.05);
+        ctx.beginPath();
+        ctx.moveTo(start, top + i * m.lineH + size * 1.02);
+        ctx.lineTo(start + width, top + i * m.lineH + size * 1.02);
+        ctx.stroke();
+        ctx.restore();
+      }
     });
     ctx.shadowColor = 'transparent';
     ctx.shadowBlur = 0;

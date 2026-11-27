@@ -12,7 +12,7 @@
  */
 
 import { EditorState } from '../editor/editorState.js?v=2';
-import { EditorCanvas } from '../editor/editorCanvas.js?v=1';
+import { EditorCanvas } from '../editor/editorCanvas.js?v=2';
 
 /** Identifiant de la photo de fond d'un design Story. */
 export function storyPhotoId(design) {

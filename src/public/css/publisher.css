@@ -2384,6 +2384,82 @@
 .pmc-overlay-btn--remove { border-color: rgba(255, 120, 120, 0.9); }
 .pmc-overlay-btn:disabled { opacity: 0.45; cursor: default; }
 
+/* Poignées des 4 coins : agrandir (distance) et tourner (angle) le texte actif.
+   Elles vivent dans le calque éditable mais n'entrent jamais dans son texte. */
+.pmc-handle {
+  position: absolute;
+  display: none;
+  width: 14px;
+  height: 14px;
+  border: 2px solid #fff;
+  border-radius: 50%;
+  background: rgba(0, 149, 246, 0.9);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.8);
+  cursor: grab;
+  pointer-events: auto;
+  user-select: none;
+  touch-action: none;
+  z-index: 3;
+}
+
+.pmc-overlay.active .pmc-handle { display: block; }
+.pmc-handle--nw { top: -8px; left: -8px; cursor: nwse-resize; }
+.pmc-handle--ne { top: -8px; right: -8px; cursor: nesw-resize; }
+.pmc-handle--sw { bottom: -8px; left: -8px; cursor: nesw-resize; }
+.pmc-handle--se { bottom: -8px; right: -8px; cursor: nwse-resize; }
+
+/* Mini-barre d'outils : couleurs, polices, G/I/S, alignement et fond.
+   Elle suit le calque actif, reste dans la largeur de la photo et ne défile pas. */
+.pmc-action-row { display: flex; gap: 4px; }
+
+.pmc-style-row {
+  position: absolute;
+  top: calc(100% + 5px);
+  right: 0;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 4px 6px;
+  width: min(96cqw, 330px);
+  padding: 5px 6px;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.82);
+  backdrop-filter: blur(6px);
+}
+
+.pmc-style-group { display: inline-flex; align-items: center; gap: 3px; }
+
+.pmc-swatch {
+  width: 17px;
+  height: 17px;
+  padding: 0;
+  border: 2px solid rgba(255, 255, 255, 0.35);
+  border-radius: 50%;
+  background: var(--swatch);
+  cursor: pointer;
+}
+
+.pmc-swatch.active { border-color: #fff; box-shadow: 0 0 0 2px rgba(0, 149, 246, 0.9); }
+
+.pmc-style-btn {
+  min-width: 26px;
+  min-height: 26px;
+  padding: 0 4px;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.08);
+  color: #fff;
+  cursor: pointer;
+  font-size: 11px;
+  line-height: 1;
+}
+
+.pmc-style-btn.active {
+  border-color: #fff;
+  background: rgba(0, 149, 246, 0.35);
+}
+
 .pmc-panel {
   width: min(100%, 360px);
   flex: 0 0 auto;
@@ -2511,6 +2587,10 @@
 
   .pmc-overlay { padding: 8px 6px; font-size: clamp(20px, 7cqw, 34px); }
   .pmc-overlay-btn { min-width: 40px; min-height: 40px; font-size: 17px; }
+  .pmc-handle { width: 18px; height: 18px; }
+  .pmc-swatch { width: 22px; height: 22px; }
+  .pmc-style-btn { min-width: 32px; min-height: 32px; font-size: 12px; }
+  .pmc-style-row { width: min(98cqw, 350px); gap: 5px; }
   .pmc-media-btn { min-height: 34px; }
   .pmc-media-count { z-index: 40; }
 }

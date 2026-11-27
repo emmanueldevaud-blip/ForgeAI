@@ -321,4 +321,120 @@ console.log('12. Composer Reel : calques multiples sans altérer ig_audio ni le 
   assert.equal(store.draft.design.format.height, 1920);
 }
 
+console.log('13. Outils Story : style complet dans l’élément de design v2');
+{
+  const { normalizeTextLayers, buildOverlayTextElement } = loadComposer(makeStore([]));
+  const layer = normalizeTextLayers([{
+    id: 'minimal-overlay-text',
+    text: 'Style',
+    style: {
+      color: '#ff3b5c', font: 'Georgia', bold: false, italic: true, underline: true,
+      align: 'right', background: true, backgroundColor: '#123456', size: 110, rotation: -25,
+    },
+  }])[0];
+  assert.deepEqual(layer.style, {
+    color: '#ff3b5c', font: 'Georgia', bold: false, italic: true, underline: true,
+    align: 'right', background: true, backgroundColor: '#123456', size: 110, rotation: -25,
+  });
+  const element = buildOverlayTextElement(layer.text, 0, layer.style);
+  for (const key of ['font', 'color', 'bold', 'italic', 'underline', 'align', 'background', 'backgroundColor', 'size', 'rotation']) {
+    assert.equal(element[key], layer.style[key], `${key} est exporté dans le design`);
+  }
+  assert.equal(buildOverlayTextElement('x', 0, { font: 'Comic Sans', color: 'red', size: 9999 }).font, 'Arial', 'police inconnue repliée');
+  assert.equal(buildOverlayTextElement('x', 0, { size: 9999 }).size, 220, 'taille bornée');
+}
+
+console.log('14. Story : 3 calques indépendants par photo, ordre et styles préservés');
+{
+  const store = makeStore(makeMedia());
+  const { PublisherMinimalComposer } = loadComposer(store, { createElement: () => makeElement() });
+  const composer = new PublisherMinimalComposer({ format: 'story' });
+  composer.mount({ appendChild(el) { el.parentNode = this; } });
+
+  composer.layers[0].text = 'Photo 1';
+  composer._applyStyle('color', '#34c759');
+  composer._selectMedia(1);
+  composer.layers[0].text = 'Photo 2';
+  composer._applyStyle('font', 'Impact');
+  composer._applyStyle('bold');
+  composer._selectMedia(0);
+  assert.equal(store.draft.design.designDocuments[0].elements[0].text, 'Photo 1');
+  assert.equal(store.draft.design.designDocuments[0].elements[0].color, '#34c759');
+  assert.equal(store.draft.design.designDocuments[1].elements[0].text, 'Photo 2');
+  assert.equal(store.draft.design.designDocuments[1].elements[0].font, 'Impact');
+  assert.equal(store.draft.design.designDocuments[1].elements[0].bold, false, 'bascule gras');
+  assert.equal(store.draft.design.designDocuments[2].elements.length, 0);
+
+  composer._addLayer();
+  composer.layers[1].text = 'P1-2';
+  composer._writeDesign();
+  assert.equal(store.draft.design.designDocuments[0].elements.length, 2);
+  assert.equal(store.draft.design.designDocuments[1].elements.length, 1, 'les calques des autres photos sont intacts');
+
+  // Le DOM factice ne expose pas les noeuds de calques : le repli de save()
+  // relit le premier calque depuis [data-pmc-text].
+  composer.element.querySelector('[data-pmc-text]').value = 'Photo 1';
+  composer._moveMedia(1, -1);
+  assert.equal(store.draft.design.designDocuments[0].elements[0].text, 'Photo 2', 'les calques suivent la photo déplacée');
+  assert.equal(store.draft.design.designDocuments[1].elements[0].text, 'Photo 1');
+}
+
+console.log('15. Story : mini-barre et poignées présentes, Reel : outils masqués');
+{
+  const storyStore = makeStore(makeMedia().slice(0, 1));
+  const storyClass = loadComposer(storyStore, { createElement: () => makeElement() }).PublisherMinimalComposer;
+  const story = new storyClass({ format: 'story' });
+  story.mount({ appendChild(el) { el.parentNode = this; } });
+  assert.match(story.element.innerHTML, /data-pmc-style-row/, 'barre d’outils sur la photo');
+  assert.match(story.element.innerHTML, /data-style="color"/);
+  assert.match(story.element.innerHTML, /data-style="underline"/);
+  assert.match(story.element.innerHTML, /data-style="background"/);
+  assert.equal((story.element.innerHTML.match(/data-pmc-handle/g) || []).length, 4, '4 poignées sur le calque');
+
+  const reelStore = makeStore([{ id: 'video_1', type: 'video', url: '/v/1', order: 0 }], 'reel');
+  const reelClass = loadComposer(reelStore, { createElement: () => makeElement() }).PublisherMinimalComposer;
+  const reel = new reelClass({ format: 'reel' });
+  reel.mount({ appendChild(el) { el.parentNode = this; } });
+  assert.doesNotMatch(reel.element.innerHTML, /data-pmc-style-row/, 'aucun outil sans rendu final Reel');
+  assert.doesNotMatch(reel.element.innerHTML, /data-pmc-handle/);
+  assert.match(reel.element.innerHTML, /data-pmc-overlay-actions/, 'l’ordre/suppression des calques reste disponible');
+}
+
+console.log('16. Export Story : souligné et fond réellement dessinés dans le canvas');
+{
+  let src = read('src/public/js/editor/editorCanvas.js');
+  src = src.replace(/^import\s[\s\S]*?from\s+['"][^'"]+['"];?\s*$/gm, '');
+  src = src.replace(/export class/g, 'class');
+  const EditorCanvas = new Function('filterCss', `${src}\nreturn EditorCanvas;`)(() => 'none');
+  const canvas = new EditorCanvas({ state: {} });
+  const calls = [];
+  const ctx = new Proxy({
+    fillStyle: '', strokeStyle: '', font: '', textBaseline: '', textAlign: '',
+    shadowColor: '', shadowBlur: 0, shadowOffsetY: 0, lineWidth: 1,
+    save() {}, restore() {}, translate() {}, rotate() {}, beginPath() {},
+    rect(...args) { calls.push(['rect', args]); },
+    roundRect(...args) { calls.push(['roundRect', args]); },
+    fill() { calls.push(['fill', this.fillStyle]); },
+    fillText(text, x, y) { calls.push(['text', text, x, y]); },
+    measureText(text) { return { width: String(text).length * 20 }; },
+    moveTo(x, y) { calls.push(['moveTo', x, y]); },
+    lineTo(x, y) { calls.push(['lineTo', x, y]); },
+    stroke() { calls.push(['stroke', this.strokeStyle]); },
+  }, {
+    set(target, key, value) { target[key] = value; return true; },
+  });
+  canvas._mctx = { font: '', measureText(text) { return { width: String(text).length * 20 }; } };
+  canvas._drawText(ctx, {
+    id: 'x', type: 'text', text: 'Ligne', x: 540, y: 960, w: 864, h: 180,
+    size: 72, font: 'Arial', color: '#ffffff', bold: true, italic: false,
+    underline: true, align: 'center', background: true, backgroundColor: '#123456',
+    shadow: true, opacity: 1, rotation: 0,
+  });
+  assert.ok(calls.some(([name]) => name === 'roundRect' || name === 'rect'), 'fond dessiné');
+  assert.ok(calls.some(([name, color]) => name === 'fill' && color === 'rgba(18,52,86,0.65)'), 'couleur de fond appliquée');
+  assert.ok(calls.some(([name, text]) => name === 'text' && text === 'Ligne'), 'texte dessiné');
+  assert.equal(calls.filter(([name]) => name === 'stroke').length, 1, 'souligné dessiné');
+  assert.equal(calls.filter(([name]) => name === 'stroke')[0][1], '#ffffff', 'souligné de la couleur du texte');
+}
+
 console.log('\nCompositeur minimal (médias multiples + calques de texte) OK.');

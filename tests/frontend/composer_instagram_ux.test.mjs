@@ -138,7 +138,7 @@ console.log('3. Câblage et styles');
   assert.match(component, /addEventListener\?\.\('pointerdown'/);
   const pageSrc = read('src/public/js/pages/CommunityPublisherPage.js');
   assert.match(pageSrc, /PublisherMinimalComposer\.js\?v=16/);
-  assert.match(pageSrc, /PublisherMusicStep\.js\?v=4/);
+  assert.match(pageSrc, /PublisherMusicStep\.js\?v=5/);
   assert.match(read('src/public/index.html'), /publisher\.css\?v=33/);
 }
 

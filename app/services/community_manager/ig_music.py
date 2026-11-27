@@ -21,6 +21,7 @@ import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
+from urllib.parse import urlparse
 
 import httpx
 
@@ -31,6 +32,39 @@ logger = logging.getLogger(__name__)
 IG_AUDIO_SEARCH_LIMIT = 10
 _MAX_IMAGE_SIDE = 768
 _FALLBACK_QUERY = "running motivation"
+
+
+def _is_instagram_page(url: str) -> bool:
+    """Différencie une page instagram.com d'un fichier audio lisible par <audio>."""
+    try:
+        host = (urlparse(url).hostname or "").lower()
+    except (TypeError, ValueError):
+        return False
+    return host == "instagram.com" or host.endswith(".instagram.com")
+
+
+def normalize_audio_result(item: dict) -> dict:
+    """Normalise un résultat `/ig_audio` pour l'aperçu audio du front.
+
+    Meta renvoie `download_url` (fichier MP3 temporaire, ~1,5 jour) pour la
+    lecture et `on_platform_audio_preview_link` (page instagram.com) pour
+    l'ouverture sur la plateforme : les deux ne sont pas interchangeables.
+    """
+    out = dict(item)
+    audio_url = ""
+    for key in ("download_url", "preview_link", "preview_url", "audio_url", "preview"):
+        value = out.get(key)
+        if isinstance(value, str) and value.strip() and not _is_instagram_page(value):
+            audio_url = value.strip()
+            break
+    platform = out.get("on_platform_audio_preview_link") or out.get("on_platform_audio_preview_url")
+    if audio_url:
+        out["preview_link"] = audio_url
+    else:
+        out.pop("preview_link", None)
+    if isinstance(platform, str) and platform.strip():
+        out["platform_preview_link"] = platform.strip()
+    return out
 
 
 def _extract_json(text: str) -> Optional[dict]:
@@ -130,7 +164,7 @@ async def search_ig_audio(db, query: str, limit: int = IG_AUDIO_SEARCH_LIMIT) ->
         )
         return []
     results = [a for a in (data.get("audio") or []) if isinstance(a, dict) and a.get("audio_id")]
-    return results[:limit]
+    return [normalize_audio_result(item) for item in results[:limit]]
 
 
 async def _analyze_photo(image_b64: str, title: Optional[str], hashtags: Optional[str]) -> Optional[dict]:
@@ -270,7 +304,8 @@ async def pick_audio_for_photo(
         "title": chosen.get("title") or "",
         "artist": chosen.get("display_artist") or "",
         "duration_in_ms": chosen.get("duration_in_ms"),
-        "preview_link": chosen.get("on_platform_audio_preview_link"),
+        "preview_link": chosen.get("preview_link") or chosen.get("download_url"),
+        "platform_preview_link": chosen.get("platform_preview_link") or chosen.get("on_platform_audio_preview_link"),
         "query": query,
         "scene": (analysis or {}).get("scene"),
         "ambiance": (analysis or {}).get("ambiance"),
@@ -284,7 +319,8 @@ async def pick_audio_for_photo(
                 "title": item.get("title") or "",
                 "artist": item.get("display_artist") or "",
                 "duration_in_ms": item.get("duration_in_ms"),
-                "preview_link": item.get("on_platform_audio_preview_link"),
+                "preview_link": item.get("preview_link") or item.get("download_url"),
+                "platform_preview_link": item.get("platform_preview_link") or item.get("on_platform_audio_preview_link"),
                 "start_time_ms": item.get("start_time_ms") or item.get("start_offset_ms") or 0,
             }
             for item in results[:10]
@@ -367,7 +403,8 @@ async def pick_audio_for_photos(
         "title": chosen.get("title") or "",
         "artist": chosen.get("display_artist") or "",
         "duration_in_ms": duration,
-        "preview_link": chosen.get("on_platform_audio_preview_link"),
+        "preview_link": chosen.get("preview_link") or chosen.get("download_url"),
+        "platform_preview_link": chosen.get("platform_preview_link") or chosen.get("on_platform_audio_preview_link"),
         "query": query,
         "scene": merged["scene"],
         "ambiance": merged["ambiance"],
@@ -378,7 +415,8 @@ async def pick_audio_for_photos(
                 "title": item.get("title") or "",
                 "artist": item.get("display_artist") or "",
                 "duration_in_ms": item.get("duration_in_ms"),
-                "preview_link": item.get("on_platform_audio_preview_link"),
+                "preview_link": item.get("preview_link") or item.get("download_url"),
+                "platform_preview_link": item.get("platform_preview_link") or item.get("on_platform_audio_preview_link"),
                 "start_time_ms": item.get("start_time_ms") or item.get("start_offset_ms") or 0,
             }
             for item in results[:10] if item.get("audio_id")

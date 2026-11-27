@@ -6,6 +6,7 @@ import pytest
 
 from app.api.community_manager import suggest_story_audio_proposals
 import app.services.community_manager.ig_music as ig_music
+from app.services.community_manager.ig_music import normalize_audio_result
 
 
 class FakeOrchestrator:
@@ -80,6 +81,26 @@ async def test_story_proposals_use_selected_photos(music_calls):
     assert result["items"][0]["status"] == "available_on_meta"
     assert "Analyse IA" in result["reason"]
     assert result["local_render"] is False
+
+
+def test_normalize_audio_result_separates_audio_and_platform_page():
+    item = {
+        "audio_id": "a1",
+        "download_url": "https://scontent.example/preview.mp3",
+        "on_platform_audio_preview_link": "https://www.instagram.com/reel/abc/",
+    }
+    out = normalize_audio_result(item)
+    assert out["preview_link"] == "https://scontent.example/preview.mp3"
+    assert out["platform_preview_link"] == "https://www.instagram.com/reel/abc/"
+
+
+def test_normalize_audio_result_never_uses_instagram_page_as_audio():
+    out = normalize_audio_result({
+        "audio_id": "a2",
+        "on_platform_audio_preview_link": "https://www.instagram.com/reel/abc/",
+    })
+    assert "preview_link" not in out
+    assert out["platform_preview_link"] == "https://www.instagram.com/reel/abc/"
 
 
 @pytest.mark.asyncio

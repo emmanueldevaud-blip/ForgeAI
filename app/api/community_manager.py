@@ -518,11 +518,10 @@ async def suggest_local_studio_audio_proposals(
             "reason": f"Proposition Instagram adaptée à l'ambiance {style} et aux photos sélectionnées.",
             "preview_link": (
                 item.get("preview_link")
-                or item.get("on_platform_audio_preview_link")
-                or item.get("on_platform_audio_preview_url")
+                or item.get("download_url")
                 or item.get("preview_url")
-                or item.get("preview")
             ),
+            "platform_preview_link": item.get("platform_preview_link"),
         })
     return {"items": items[:10], "eligible_count": len(items[:10]), "source": "instagram", "local_render": False, "reason": "Catalogue Instagram Meta" if items else "Aucune réponse exploitable du catalogue Instagram Meta"}
 
@@ -1008,11 +1007,10 @@ async def suggest_story_audio_proposals(
             "reason": reason,
             "preview_link": (
                 item.get("preview_link")
-                or item.get("on_platform_audio_preview_link")
-                or item.get("on_platform_audio_preview_url")
+                or item.get("download_url")
                 or item.get("preview_url")
-                or item.get("preview")
             ),
+            "platform_preview_link": item.get("platform_preview_link"),
         })
     return {
         "items": items[:10],

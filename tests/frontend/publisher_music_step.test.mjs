@@ -73,6 +73,7 @@ const LEGACY_5_STEPS = ['media', 'adjust', 'caption', 'preview', 'publish'];
 
 // ---------- T3 : resolveDraftMusic ----------
 const musicRaw = read('../../src/public/js/components/PublisherMusicStep.js');
+const musicCode = musicRaw.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
 const musicSrc = strip(musicRaw);
 const sharedStore = {
   draft: {
@@ -163,7 +164,7 @@ function makeEl() {
 
 {
   console.log('T4: PublisherMusicStep — recherche, selection, retrait, aperçu local');
-  check('T4: aucun lecteur audio injecté dans le brouillon', !musicRaw.includes('<audio') && !musicRaw.includes('new Audio('));
+  check('T4: aucun lecteur audio injecté dans le brouillon', !/<audio\b/i.test(musicCode) && !musicRaw.includes('new Audio('));
 
   const store = sharedStore;
   store.draft.music = { trackId: null, start: 0, end: 0, volume: 1, source: null };
@@ -171,7 +172,7 @@ function makeEl() {
   const searchCalls = [];
   const searchOk = async (query) => {
     searchCalls.push(query);
-    return { items: [{ audio_id: 'a1', title: 'Run Free', display_artist: 'DJ X', duration_in_ms: 90000, preview_link: 'https://audio.example/preview.mp3' }] };
+    return { items: [{ audio_id: 'a1', title: 'Run Free', display_artist: 'DJ X', duration_in_ms: 90000, download_url: 'https://audio.example/preview.mp3', on_platform_audio_preview_link: 'https://www.instagram.com/reel/abc/' }] };
   };
 
   const step = new PublisherMusicStep({ searchInstagramMusic: searchOk });
@@ -234,8 +235,9 @@ function makeEl() {
 // ---------- T4b : aperçu audio local, jamais dans le brouillon ----------
 {
   console.log('T4b: URL d\'aperçu validée et lecture locale sans écriture du brouillon');
-  check('T4b: preview_link accepté', previewUrlFor({ preview_link: 'https://audio.example/a.mp3' }) === 'https://audio.example/a.mp3');
-  check('T4b: on_platform_audio_preview_link accepté', previewUrlFor({ on_platform_audio_preview_link: 'https://audio.example/b.mp3' }).includes('/b.mp3'));
+  check('T4b: download_url Meta accepté', previewUrlFor({ download_url: 'https://audio.example/a.mp3' }) === 'https://audio.example/a.mp3');
+  check('T4b: preview_link accepté', previewUrlFor({ preview_link: 'https://audio.example/b.mp3' }).includes('/b.mp3'));
+  check('T4b: page instagram.com refusée comme audio', previewUrlFor({ on_platform_audio_preview_link: 'https://www.instagram.com/reel/abc/' }) === '');
   check('T4b: javascript: refusé', previewUrlFor({ preview_link: 'javascript:alert(1)' }) === '');
   check('T4b: aucun aperçu sans URL', previewUrlFor({ audio_id: 'x' }) === '');
 
@@ -245,7 +247,7 @@ function makeEl() {
   const host = makeEl();
   step.mount(host);
   const before = JSON.stringify(store.draft);
-  step._togglePreview({ audio_id: 'a1', preview_link: 'https://audio.example/a.mp3' });
+  step._togglePreview({ audio_id: 'a1', download_url: 'https://audio.example/a.mp3' });
   check('T4b: lecture locale sans URL injectée dans draft.music', JSON.stringify(store.draft) === before);
   check('T4b: URL mémorisée en mémoire uniquement', step._previews.get('a1') === 'https://audio.example/a.mp3');
   step.destroy();

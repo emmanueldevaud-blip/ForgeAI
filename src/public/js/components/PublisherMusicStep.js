@@ -1,19 +1,27 @@
 import { publisherStore } from '../stores/publisherStore.js';
 import { getStoryAudioProposals, searchInstagramMusic } from '../services/sportApi.js?v=17';
 
-/** URL d'aperçu Meta, vérifiée : jamais de javascript: ni de données arbitrary. */
+/**
+ * URL d'aperçu AUDIO lisible par <audio>.
+ * Meta fournit `download_url` pour le fichier MP3 temporaire ;
+ * `on_platform_audio_preview_link` est une page instagram.com, pas un flux audio.
+ */
 export function previewUrlFor(track) {
-  const raw = track?.preview_link
+  const raw = track?.download_url
+    || track?.preview_link
     || track?.preview_url
-    || track?.on_platform_audio_preview_link
-    || track?.on_platform_audio_preview_url;
+    || track?.audio_url
+    || track?.preview;
   if (typeof raw !== 'string' || !raw.trim()) return '';
   try {
     const base = typeof window !== 'undefined' && window.location?.href
       ? window.location.href
       : 'http://localhost/';
     const url = new URL(raw.trim(), base);
-    return url.protocol === 'http:' || url.protocol === 'https:' ? url.href : '';
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') return '';
+    const host = String(url.hostname || '').toLowerCase();
+    if (host === 'instagram.com' || host.endsWith('.instagram.com')) return '';
+    return url.href;
   } catch (error) {
     return '';
   }

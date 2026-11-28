@@ -467,6 +467,16 @@
   background: var(--publisher-bg);
 }
 
+/* iOS Safari : `bottom: 0` suit le viewport layout, pas le viewport visible
+   (barre d'outils rétractable). dvh garde la barre de sélection au fond de
+   l'écran réellement visible, sans chevauchement milieu de page. */
+@supports (height: 100dvh) {
+  .publisher-media-picker {
+    height: 100dvh;
+    bottom: auto;
+  }
+}
+
 .pmp-header {
   display: flex;
   align-items: center;
@@ -532,8 +542,9 @@
   overflow-y: hidden;
   border-bottom: 1px solid var(--publisher-border);
   background: var(--publisher-surface);
-  position: sticky;
-  top: 60px;
+  /* Les onglets sont déjà dans le flux : pas de sticky avec un top de 60px
+     arbitraire (faux sous iPhone avec `viewport-fit=cover`). */
+  position: relative;
   z-index: 9;
 }
 
@@ -838,8 +849,10 @@
   padding: 12px 16px max(12px, env(safe-area-inset-bottom, 0px));
   border-top: 1px solid var(--publisher-border);
   background: var(--publisher-surface);
-  position: sticky;
-  bottom: 0;
+  /* Dernier enfant flex de `.pmp-body` : le pin bas vient de la flexbox,
+     pas d'un sticky qui n'a aucun sens hors du conteneur qui défile. */
+  flex: 0 0 auto;
+  position: relative;
   z-index: 20;
 }
 
@@ -2906,15 +2919,23 @@
     inset: 0;
   }
 
+  @supports (height: 100dvh) {
+    .publisher-media-picker {
+      height: 100dvh;
+      bottom: auto;
+    }
+  }
+
+  /* L'aperçu après sélection ne doit pas manger la grille sur téléphone. */
   .pmp-preview-stage {
-    width: min(100%, 34dvh);
-    max-height: 52dvh;
+    width: min(100%, 22dvh);
+    max-height: 38dvh;
   }
 
   .publisher-media-picker--story .pmp-preview-stage,
   .publisher-media-picker--reel .pmp-preview-stage {
-    width: min(100%, 30dvh);
-    max-height: 54dvh;
+    width: min(100%, 16dvh);
+    max-height: 28dvh;
   }
 
   .pp-story {

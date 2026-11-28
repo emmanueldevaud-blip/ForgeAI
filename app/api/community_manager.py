@@ -51,9 +51,16 @@ from typing import Optional, List, Dict, Any
 
 
 class StoryDraftCreateRequest(BaseModel):
-    activity_id: int
-    photo_ids: List[int]
+    # `activity_id` est optionnel pour les Stories standalone composées depuis
+    # la bibliothèque : le Composer envoie alors ses slides et ses designs v2.
+    activity_id: Optional[int] = None
+    photo_ids: List[int] = []
     calendar_entry_id: Optional[int] = None
+    source: str = "garmin"
+    slides: List[Dict[str, Any]] = []
+    design_documents: List[Dict[str, Any]] = []
+    caption: Optional[str] = None
+    hashtags: Optional[str] = None
 
 
 class StoryDraftResponse(BaseModel):
@@ -799,12 +806,59 @@ async def get_publish_job(
     job_id: str,
     service: CommunityManagerStudioService = Depends(get_cm_studio_service),
 ):
+    """Statut réel d'un job de publication (Studio ou slide Story)."""
     from app.models.photo import PhotoJob
+
     job = await service.db.get(PhotoJob, job_id)
-    if not job or (job.payload_json or {}).get("user_id") != service.current_user.id:
+    payload = (job.payload_json or {}) if job else {}
+    if not job or payload.get("user_id") != service.current_user.id:
         raise HTTPException(status_code=404, detail="Job introuvable")
-    publication = await service.pub_service.get_publication(int((job.payload_json or {}).get("publication_id")))
-    return {"job_id": job.id, "status": job.status, "error": job.error, "publication_status": getattr(publication, "status", None)}
+
+    result = {
+        "job_id": job.id,
+        "status": job.status,
+        "error": job.error,
+        "kind": payload.get("kind"),
+        "attempts": job.attempts,
+        "progress": job.progress,
+    }
+
+    # Une Story publie une slide par job : son payload n'a pas de publication_id.
+    if payload.get("kind") == "story_slide_publish":
+        draft_id = payload.get("draft_id")
+        slide_index = payload.get("slide_index")
+        draft = await service.db.get(StoryDraft, draft_id) if draft_id else None
+        slide_result = None
+        if draft:
+            slide_result = next(
+                (item for item in (draft.publication_results or [])
+                 if item.get("slide_index") == slide_index),
+                None,
+            )
+        result.update({
+            "draft_id": draft_id,
+            "slide_index": slide_index,
+            "publication_status": getattr(draft, "status", None),
+            "error_message": getattr(draft, "error_message", None) or job.error,
+            "instagram_media_id": (slide_result or {}).get("media_id"),
+            "instagram_permalink": (slide_result or {}).get("permalink"),
+        })
+        return result
+
+    publication_id = payload.get("publication_id")
+    publication = (
+        await service.pub_service.get_publication(int(publication_id))
+        if publication_id else None
+    )
+    result.update({
+        "publication_id": publication_id,
+        "publication_status": getattr(publication, "status", None),
+        "error_message": getattr(publication, "error_message", None) or job.error,
+        "instagram_media_id": getattr(publication, "instagram_media_id", None),
+        "instagram_permalink": getattr(publication, "instagram_permalink", None),
+        "shared_at": getattr(publication, "shared_at", None),
+    })
+    return result
 
 
 @router.post("/studio/draft/{publication_id}/publish-facebook", response_model=PublicationPublishResponse)
@@ -873,13 +927,26 @@ async def create_story_draft(
     data: StoryDraftCreateRequest,
     orchestrator: StoryOrchestrator = Depends(get_story_orchestrator_write),
 ):
-    """Créer un brouillon Story Studio à partir d'une activité Garmin + photos sélectionnées."""
+    """Créer un brouillon Story Studio.
+
+    Deux sources sont acceptées : une activité Garmin (préparation IA) ou une
+    Story standalone déjà composée par le Composer (slides + designs v2).
+    """
     try:
-        draft = await orchestrator.create_draft_from_garmin(
-            activity_id=data.activity_id,
-            selected_photo_ids=data.photo_ids,
-            calendar_entry_id=data.calendar_entry_id,
-        )
+        if data.activity_id is not None:
+            draft = await orchestrator.create_draft_from_garmin(
+                activity_id=data.activity_id,
+                selected_photo_ids=data.photo_ids,
+                calendar_entry_id=data.calendar_entry_id,
+            )
+        else:
+            draft = await orchestrator.create_manual_draft(
+                photo_ids=data.photo_ids,
+                slides=data.slides,
+                design_documents=data.design_documents,
+                caption=data.caption,
+                hashtags=data.hashtags,
+            )
         return StoryDraftResponse.model_validate(draft)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
@@ -942,6 +1009,16 @@ async def _story_audio_proposals_response(
     reason = "Analyse IA des photos de la Story"
     if not suggestions:
         reason = "Repli catalogue Instagram (analyse IA indisponible)"
+        # Sans compte Meta configuré, ni l'analyse IA ni le catalogue ne peuvent
+        # renvoyer une piste. Le message doit le dire explicitement plutôt que
+        # laisser l'étape musique silencieusement vide.
+        from app.services.sport_instagram_publish import MetaPublishService
+
+        try:
+            if not await MetaPublishService(db).resolve_publish_context():
+                reason = "Compte Instagram non configuré · connectez Meta dans Paramètres > Meta"
+        except Exception:  # diagnostic best-effort : ne jamais casser les proposals
+            logger.debug("[CM-STORY] Impossible de vérifier le contexte Meta", exc_info=True)
         seen: set[str] = set()
         started = time.perf_counter()
         queries = [
@@ -991,7 +1068,9 @@ async def _story_audio_proposals_response(
         "eligible_count": len(items[:10]),
         "source": "instagram",
         "local_render": False,
-        "reason": reason if items else "Aucune réponse exploitable du catalogue Instagram Meta",
+        "reason": reason if items else (
+            reason if "non configuré" in reason else "Aucune réponse exploitable du catalogue Instagram Meta"
+        ),
     }
 
 
@@ -1061,7 +1140,14 @@ async def suggest_story_audio_proposals(
     if not draft:
         raise HTTPException(status_code=404, detail="Brouillon Story introuvable")
 
-    source_ids: list = photo_ids if photo_ids is not None else (getattr(draft, "selected_asset_ids", None) or [])
+    # Les tests appellent parfois la fonction directement : dans ce cas
+    # `photo_ids` reste le descripteur FastAPI `Query`, pas une chaîne. ne pas
+    # essayer de l'itérer (les appels HTTP reçoivent bien None ou une string).
+    source_ids: list = (
+        photo_ids.split(',')
+        if isinstance(photo_ids, str)
+        else (getattr(draft, "selected_asset_ids", None) or [])
+    )
     selected_photo_ids: list[int] = []
     for raw_id in source_ids:
         try:

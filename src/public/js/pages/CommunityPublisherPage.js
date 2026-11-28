@@ -11,12 +11,12 @@
  */
 
 import { publisherStore } from '../stores/publisherStore.js';
-import { publisherDraftService } from '../services/publisherDraftService.js?v=3';
-import { getSuggestedPhotosForActivity } from '../services/sportApi.js?v=17';
-import { createPublisherMediaPicker } from '../components/PublisherMediaPicker.js?v=2';
+import { publisherDraftService } from '../services/publisherDraftService.js?v=5';
+import { getInstagramConnectionStatus, getSuggestedPhotosForActivity } from '../services/sportApi.js?v=20';
+import { createPublisherMediaPicker } from '../components/PublisherMediaPicker.js?v=3';
 import { createPublisherCaptionEditor } from '../components/PublisherCaptionEditor.js?v=2';
-import { createPublisherPreview } from '../components/PublisherPreview.js?v=4';
-import { createPublisherMusicStep } from '../components/PublisherMusicStep.js?v=6';
+import { createPublisherPreview } from '../components/PublisherPreview.js?v=5';
+import { createPublisherMusicStep } from '../components/PublisherMusicStep.js?v=8';
 import { createPublisherPostEditor } from '../editors/PublisherPostEditor.js?v=3';
 import { createPublisherMinimalComposer } from '../components/PublisherMinimalComposer.js?v=16';
 import { storySlidesReady } from '../services/storyPublishPipeline.js';
@@ -1034,11 +1034,75 @@ export class CommunityPublisherPage {
     }
   }
 
+  /**
+   * Suite d'un POST « queued » : vérifie le vrai résultat Meta avant de
+   * considérer la publication terminée. Retourne true seulement si le
+   * brouillon local peut être effacé.
+   */
+  async _pollPublishOutcome(jobIds) {
+    const button = () => this.element?.querySelector?.('[data-action="publish-final"]');
+    if (!jobIds?.length || typeof publisherDraftService.waitForPublishJobs !== 'function') return true;
+    const btn = button();
+    if (btn) btn.textContent = 'Vérification…';
+
+    const outcome = await publisherDraftService.waitForPublishJobs(jobIds);
+    if (outcome?.status === 'failed') {
+      this._showError(outcome.error || 'Publication impossible');
+      this._pendingPublishJobIds = null;
+      const failedBtn = button();
+      if (failedBtn) {
+        failedBtn.disabled = false;
+        failedBtn.textContent = 'Publier maintenant';
+      }
+      return false;
+    }
+    if (outcome?.status === 'queued') {
+      // Jobs encore en cours : garder le brouillon et leurs IDs. Le bouton
+      // redevient « Vérifier le statut » : aucun nouvel enfilement possible.
+      this._pendingPublishJobIds = jobIds;
+      const waitingBtn = button();
+      if (waitingBtn) {
+        waitingBtn.disabled = false;
+        waitingBtn.textContent = 'Vérifier le statut';
+      }
+      this._showToast('Traitement en cours · vérifiez le statut dans un instant');
+      return false;
+    }
+    this._pendingPublishJobIds = null;
+    this._showToast('Publié sur Instagram !');
+    return true;
+  }
+
   async _publish() {
+    const button = () => this.element?.querySelector?.('[data-action="publish-final"]');
     try {
-      const btn = this.element.querySelector('[data-action="publish-final"]');
-      btn.disabled = true;
-      btn.textContent = 'Publication…';
+      // Des jobs déjà enfilement peuvent encore être en cours : reprendre le
+      // polling au lieu de publier une deuxième fois.
+      if (this._pendingPublishJobIds?.length) {
+        const resumed = await this._pollPublishOutcome(this._pendingPublishJobIds);
+        if (!resumed) return;
+        publisherStore.clear();
+        if (this.onBack) this.onBack();
+        return;
+      }
+
+      const btn = button();
+      if (btn) {
+        btn.disabled = true;
+        btn.textContent = 'Publication…';
+      }
+
+      // Préflight Meta : sans compte connecté, aucun job ne peut aboutir. On
+      // laisse passer un échec de permissions sur l'endpoint de statut, mais on
+      // bloque une absence de connexion avérée avec un message actionnable.
+      try {
+        const connection = await getInstagramConnectionStatus();
+        if (connection && connection.connected === false) {
+          throw new Error("Instagram n'est pas connecté · connectez Meta dans Paramètres > Meta");
+        }
+      } catch (error) {
+        if (/pas connecté|Paramètres > Meta/i.test(error?.message || '')) throw error;
+      }
 
       // Le sélecteur met à jour le store local. Persister les changements avant
       // l'appel de publication, qui travaille sur le brouillon côté serveur.
@@ -1055,7 +1119,10 @@ export class CommunityPublisherPage {
       }
       // A01 : ne pas annoncer une publication qui n'a jamais été envoyée
       // au serveur lorsque la création du brouillon a échoué (422).
-      if (publisherDraftService.serverDraftError || !publisherDraftService.currentDraftId) {
+      // Une Story standalone n'a pas encore d'ID : publish() crée son
+      // StoryDraft serveur à partir des slides du Composer.
+      if (publisherDraftService.serverDraftError
+        || (publisherDraftService.currentDraftType !== 'story' && !publisherDraftService.currentDraftId)) {
         throw new Error(serverDraftErrorLabel(
           publisherDraftService.serverDraftError || { detail: 'aucun brouillon serveur' },
           'Publication impossible',
@@ -1070,16 +1137,29 @@ export class CommunityPublisherPage {
       // plus tard. Ne pas annoncer une publication terminée trop tôt.
       const queued = result?.status === 'queued'
         || (Array.isArray(result?.jobs) && result.jobs.length > 0);
-      this._showToast(queued
-        ? 'Publication envoyée · traitement en cours'
-        : 'Publié avec succès !');
+      if (!queued) {
+        this._showToast('Publié avec succès !');
+        publisherStore.clear();
+        if (this.onBack) this.onBack();
+        return;
+      }
+
+      this._showToast('Publication envoyée · traitement en cours');
+      const jobIds = result?.job_id
+        ? [result.job_id]
+        : (Array.isArray(result?.jobs) ? result.jobs.map((job) => job.job_id).filter(Boolean) : []);
+      this._pendingPublishJobIds = jobIds;
+      const finished = await this._pollPublishOutcome(jobIds);
+      if (!finished) return;
       publisherStore.clear();
       if (this.onBack) this.onBack();
     } catch (error) {
       this._showError(error.message);
-      const btn = this.element.querySelector('[data-action="publish-final"]');
-      btn.disabled = false;
-      btn.textContent = 'Publier maintenant';
+      const btn = button();
+      if (btn) {
+        btn.disabled = false;
+        btn.textContent = 'Publier maintenant';
+      }
     }
   }
 

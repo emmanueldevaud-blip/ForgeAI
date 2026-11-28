@@ -138,8 +138,36 @@ console.log('3. Câblage et styles');
   assert.match(component, /addEventListener\?\.\('pointerdown'/);
   const pageSrc = read('src/public/js/pages/CommunityPublisherPage.js');
   assert.match(pageSrc, /PublisherMinimalComposer\.js\?v=16/);
-  assert.match(pageSrc, /PublisherMusicStep\.js\?v=6/);
-  assert.match(read('src/public/index.html'), /publisher\.css\?v=33/);
+  assert.match(pageSrc, /PublisherMusicStep\.js\?v=8/);
+  assert.match(pageSrc, /waitForPublishJobs\(jobIds\)/, 'le vrai statut du job est vérifié avant succès');
+  assert.match(pageSrc, /Instagram n'est pas connecté/, 'préflight Meta explicite avant publication');
+  const serviceSrc = read('src/public/js/services/publisherDraftService.js');
+  assert.match(serviceSrc, /waitForPublishJobs\(jobIds/, 'le service expose le polling des jobs');
+  const apiSrc = read('src/public/js/services/api.js');
+  assert.match(apiSrc, /Accept: 'application\/json'/, 'les appels API ne récupèrent pas le HTML du SPA');
+  assert.match(apiSrc, /cache = options\.cache \|\| 'no-store'/, 'les GET API ne sont pas mis en cache');
+  const sportApiSrc = read('src/public/js/services/sportApi.js');
+  assert.match(sportApiSrc, /Réponse inattendue du catalogue musical Instagram/, 'réponse HTML rejetée');
+  assert.match(sportApiSrc, /api\.js\?v=3/, 'api.js chargé dans une version de cache unifiée');
+  assert.match(sportApiSrc, /jsonGet\(\{ params \}\)/, 'Accept JSON forcé sur les proposals musique');
+  const pickerSrc = read('src/public/js/components/PublisherMediaPicker.js');
+  assert.match(pickerSrc, /_removeSelectedMedia\(mediaId\)/, 'méthode de retrait présente');
+  assert.ok(
+    (pickerSrc.match(/onSelectionChange\(\[\.\.\.this\.selectedIds\]\)/g) || []).length >= 2,
+    'le retrait d\'une photo recalcule la présélection musicale',
+  );
+  const cssMobile = css.slice(css.indexOf('@media (max-width: 767px)'));
+  assert.match(cssMobile, /height: 100dvh/, 'picker iPhone suit le viewport visible');
+  assert.match(cssMobile, /width: min\(100%, 16dvh\)/, 'aperçu Story compact après sélection');
+  const index = read('src/public/index.html');
+  assert.match(index, /publisher\.css\?v=34/);
+  assert.match(index, /api\.js\?v=3/);
+  assert.match(index, /app-erp\.js\?v=173/);
+  const appSrc = read('src/public/js/app-erp.js');
+  assert.match(appSrc, /CommunityManagerCalendarPage\.js\?v=14/, 'import Calendar rafraîchi après correction');
+  const swSrc = read('src/public/sw.js');
+  assert.match(swSrc, /forgeai-static-v31/, 'cache static purgé après correction');
+  assert.match(swSrc, /fetch\(request, \{ cache: 'reload' \}\)/, 'revalidation SW sans 304 périmé');
 }
 
 console.log('UX Composer Instagram OK.');

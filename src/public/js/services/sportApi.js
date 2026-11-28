@@ -1,8 +1,21 @@
-import { ApiClient } from './api.js?v=2';
+import { ApiClient } from './api.js?v=3';
 
 const sportApi = new ApiClient('/sport');
 // Routes Community Manager enregistrées sur /community-manager (sans préfixe /sport)
 const cmApi = new ApiClient('');
+
+// Le SW sert parfois une version en cache de api.js sans l'Accept JSON (le
+// fallback SPA renvoie alors index.html). On force ces en-têtes sur les GET
+// critiques : la fonction reste correcte même avec un module api.js périmé.
+const jsonGet = (extra = {}) => ({
+  ...extra,
+  headers: {
+    Accept: 'application/json',
+    'Content-Type': 'application/json',
+    ...(extra.headers || {}),
+  },
+  cache: 'no-store',
+});
 
 export async function listSportAnalyses(limit = 30) {
   return sportApi.get(`/analyses?limit=${encodeURIComponent(limit)}`);
@@ -66,7 +79,7 @@ export async function getInstagramPreflight() {
 }
 
 export async function getInstagramConnectionStatus() {
-  return sportApi.get('/publications/meta/status');
+  return sportApi.get('/publications/meta/status', jsonGet());
 }
 
 export async function disconnectInstagram() {
@@ -271,6 +284,11 @@ export async function publishStudioDraft(publicationId, data) {
   return cmApi.post(`/community-manager/studio/draft/${encodeURIComponent(publicationId)}/publish`, data);
 }
 
+// Statut réel d'un job de publication (la réponse POST ne fait que l'enfiler).
+export async function getPublishJobStatus(jobId) {
+  return cmApi.get(`/community-manager/studio/publish-job/${encodeURIComponent(jobId)}`, jsonGet());
+}
+
 // V2 : Publier sur Facebook Page
 export async function publishStudioDraftFacebook(publicationId, data) {
   return cmApi.post(`/community-manager/studio/draft/${encodeURIComponent(publicationId)}/publish-facebook`, data);
@@ -340,14 +358,14 @@ export async function getStudioAudioMatch(publicationId) {
 }
 
 export async function getStudioAudioProposals(publicationId, exclude = []) {
-  return cmApi.get(`/community-manager/studio/draft/${encodeURIComponent(publicationId)}/audio-proposals`, { params: { exclude: exclude.join(',') } });
+  return cmApi.get(`/community-manager/studio/draft/${encodeURIComponent(publicationId)}/audio-proposals`, jsonGet({ params: { exclude: exclude.join(',') } }));
 }
 
 export async function getStoryAudioProposals(draftId, photoIds = []) {
   const params = {};
   const ids = (photoIds || []).map((id) => parseInt(id, 10)).filter((n) => !Number.isNaN(n));
   if (ids.length) params.photo_ids = ids.join(',');
-  return cmApi.get(`/community-manager/story-studio/draft/${encodeURIComponent(draftId)}/audio-proposals`, { params });
+  return cmApi.get(`/community-manager/story-studio/draft/${encodeURIComponent(draftId)}/audio-proposals`, jsonGet({ params }));
 }
 
 // V3.1 : propositions IA musique pour des photos explicitement selectionnees
@@ -356,7 +374,13 @@ export async function getStoryAudioForPhotos(photoIds, title = '', hashtags = ''
   const params = { photo_ids: (photoIds || []).join(',') };
   if (title) params.title = title;
   if (hashtags) params.hashtags = hashtags;
-  return cmApi.get('/community-manager/story/photos/audio-proposals', { params });
+  const response = await cmApi.get('/community-manager/story/photos/audio-proposals', jsonGet({ params }));
+  // Une réponse HTML (fallback SPA, proxy, erreur) n'est pas un catalogue :
+  // le signaler au lieu de laisser l'étape musique silencieusement vide.
+  if (!response || typeof response !== 'object' || !Array.isArray(response.items)) {
+    throw new Error('Réponse inattendue du catalogue musical Instagram');
+  }
+  return response;
 }
 
 // --------------------------------------------------------------------------- #

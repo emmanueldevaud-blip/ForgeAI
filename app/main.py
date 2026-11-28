@@ -399,7 +399,7 @@ app.add_middleware(
 async def health_check():
     return {"status": "ok", "version": settings.APP_VERSION}
 
-SPA_PREFIXES = ("api/", "auth/", "admin/", "docs", "redoc", "openapi", "health/", "css/", "js/", "images/", "modules/", "dashboard/", "notifications/", "files/")
+SPA_PREFIXES = ("api/", "auth/", "admin/", "docs", "redoc", "openapi", "health/", "css/", "js/", "images/", "modules/", "dashboard/", "notifications/", "files/", "community-manager/")
 
 
 def _is_spa_navigation(request: Request) -> bool:

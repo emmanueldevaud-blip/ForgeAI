@@ -31,10 +31,17 @@ class ApiClient {
       }
     }
     const config = {
-      headers: { ...this.defaultHeaders, ...options.headers },
-      credentials: 'include',
       ...options,
+      // Une API ne doit jamais recevoir le HTML du fallback SPA : sans cet
+      // Accept, une redirection 401/404 est réécrite en index.html.
+      headers: { Accept: 'application/json', ...this.defaultHeaders, ...(options.headers || {}) },
+      credentials: 'include',
     };
+    // Les réponses API (surtout les proposals musique) ne doivent pas être
+    // servies depuis le cache HTTP du navigateur après un redéploiement.
+    if ((options.method || 'GET').toUpperCase() === 'GET') {
+      config.cache = options.cache || 'no-store';
+    }
 
     if (config.body instanceof FormData) {
       delete config.headers['Content-Type'];

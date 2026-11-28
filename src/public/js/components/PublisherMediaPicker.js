@@ -649,6 +649,9 @@ export class PublisherMediaPicker {
     this._updateSelectionUI();
     this._updateCounter();
     this._updateGridSelection();
+    // La sélection change aussi quand on retire une photo : la présélection
+    // musicale doit être recalculée si aucun choix explicite n'a été fait.
+    this.onSelectionChange([...this.selectedIds]);
   }
 
   _updateSelectionUI() {

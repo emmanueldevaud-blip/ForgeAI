@@ -118,6 +118,47 @@ class StoryOrchestrator:
         await self.db.refresh(draft)
         return draft
 
+    async def create_manual_draft(
+        self,
+        *,
+        photo_ids: list[int],
+        slides: list[dict],
+        design_documents: list[dict],
+        caption: str | None = None,
+        hashtags: str | None = None,
+    ) -> StoryDraft:
+        """Crée un StoryDraft standalone composé depuis la bibliothèque.
+
+        Le Composer a déjà produit les slides et les documents Studio v2 : on
+        n'appelle pas l'IA Composer ici. Le pipeline de publication exporte
+        ensuite chaque slide (published_photo_id) avant validation.
+        """
+        photos = await self._validate_photos(photo_ids)
+        if not photos:
+            raise ValueError("Aucune photo valide sélectionnée")
+        if not design_documents:
+            raise ValueError("Aucune slide Story à publier")
+        if len(slides or []) != len(design_documents):
+            raise ValueError("Chaque Story doit avoir un design enregistré")
+
+        athlete = await self._get_athlete()
+        draft = StoryDraft(
+            athlete_id=athlete.id,
+            source="manual",
+            source_activity_id=None,
+            calendar_entry_id=None,
+            selected_asset_ids=[p.id for p in photos],
+            slides=list(slides),
+            design_documents=list(design_documents),
+            caption=caption,
+            hashtags=hashtags,
+            status="ready",
+        )
+        self.db.add(draft)
+        await self.db.commit()
+        await self.db.refresh(draft)
+        return draft
+
     async def _validate_photos(self, photo_ids: list[int]) -> list[Photo]:
         """Filtre et valide les photos sélectionnées."""
         if not photo_ids:

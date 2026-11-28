@@ -98,9 +98,14 @@ const publisherStoreStub = {
   updateCaption() {},
 };
 const publisherDraftServiceStub = {
+  currentDraftType: 'studio',
+  currentDraftId: 77,
+  serverDraftError: null,
   save: async () => { calls.saveDraft++; return ({}); },
   publish: async () => { calls.publish++; return { status: 'published' }; },
+  waitForPublishJobs: async () => ({ status: 'published', jobs: [] }),
 };
+const getInstagramConnectionStatusStub = async () => ({ configured: true, connected: true });
 const createPublisherMediaPickerStub = () => {
   calls.pickerMounted = true;
   return { mount: () => {}, destroy: () => {} };
@@ -118,18 +123,23 @@ const paramNames = [
   'publisherStore', 'publisherDraftService',
   'createPublisherMediaPicker', 'createPublisherCaptionEditor', 'createPublisherPreview',
   'createPublisherMinimalComposer',
-  'document', 'router', 'createPublisherMusicStep',
+  'document', 'router', 'createPublisherMusicStep', 'getInstagramConnectionStatus',
 ];
 const factory = new Function(...paramNames, `${src}\nreturn { CommunityPublisherPage, FORMAT_CONFIG };`);
 const { CommunityPublisherPage, FORMAT_CONFIG } = factory(
   publisherStoreStub, publisherDraftServiceStub, createPublisherMediaPickerStub,
   createPublisherCaptionEditorStub, createPublisherPreviewStub, createPublisherMinimalComposerStub,
-  documentStub, routerStub, createPublisherMusicStepStub,
+  documentStub, routerStub, createPublisherMusicStepStub, getInstagramConnectionStatusStub,
 );
 
 function makePage() {
   calls.nextStep = 0; calls.prevStep = 0; calls.publish = 0; calls.saveDraft = 0;
   calls.routerNavigate = null; calls.pickerMounted = false; calls.musicMounted = false;
+  publisherDraftServiceStub.currentDraftType = 'studio';
+  publisherDraftServiceStub.currentDraftId = 77;
+  publisherDraftServiceStub.serverDraftError = null;
+  publisherDraftServiceStub.publish = async () => { calls.publish++; return { status: 'published' }; };
+  publisherDraftServiceStub.waitForPublishJobs = async () => ({ status: 'published', jobs: [] });
   return new CommunityPublisherPage(routerStub, { format: 'post' });
 }
 
@@ -162,6 +172,58 @@ function makePage() {
   page._publish = async () => { publishWired++; };
   publishBtn.click();
   check('T2: bouton Publier declenche _publish', publishWired === 1);
+}
+
+{
+  console.log('T2b: publication queued -> polling du job avant succès');
+  const page = makePage();
+  page.render();
+  calls.cleared = false;
+  let polled = null;
+  publisherDraftServiceStub.publish = async () => { calls.publish++; return { status: 'queued', job_id: 'job-1' }; };
+  publisherDraftServiceStub.waitForPublishJobs = async (ids) => {
+    polled = ids;
+    return { status: 'published', jobs: [{ job_id: 'job-1', status: 'done' }] };
+  };
+  await page._publish();
+  check('T2b: le job renvoyé par publish est interrogé', JSON.stringify(polled) === '["job-1"]');
+  check('T2b: succès annoncé seulement après le job', calls.cleared === true);
+}
+
+{
+  console.log('T2c: job failed -> erreur visible et brouillon conservé');
+  const page = makePage();
+  page.render();
+  calls.cleared = false;
+  const errors = [];
+  page._showError = (message) => { errors.push(message); };
+  publisherDraftServiceStub.publish = async () => { calls.publish++; return { status: 'queued', job_id: 'job-2' }; };
+  publisherDraftServiceStub.waitForPublishJobs = async () => ({ status: 'failed', error: 'Meta a refusé' });
+  await page._publish();
+  check('T2c: erreur réelle du job affichée', errors.some((message) => /Meta a refusé/.test(message)));
+  check('T2c: brouillon local conservé après échec', calls.cleared === false);
+}
+
+{
+  console.log('T2d: jobs encore en cours -> reprise du polling sans republier');
+  const page = makePage();
+  page.render();
+  calls.cleared = false;
+  calls.publish = 0;
+  let polls = 0;
+  publisherDraftServiceStub.publish = async () => { calls.publish++; return { status: 'queued', job_id: 'job-3' }; };
+  publisherDraftServiceStub.waitForPublishJobs = async () => {
+    polls += 1;
+    return polls === 1
+      ? { status: 'queued', jobs: [{ job_id: 'job-3', status: 'running' }] }
+      : { status: 'published', jobs: [{ job_id: 'job-3', status: 'done' }] };
+  };
+  await page._publish();
+  check('T2d: statut encore inconnu -> brouillon conservé', calls.cleared === false);
+  await page._publish();
+  check('T2d: second clic relance le polling', polls === 2);
+  check('T2d: aucun nouvel enfilement de publication', calls.publish === 1);
+  check('T2d: succès final -> brouillon effacé', calls.cleared === true);
 }
 
 {

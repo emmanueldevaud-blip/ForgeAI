@@ -1,5 +1,5 @@
 import { publisherStore } from '../stores/publisherStore.js';
-import { getStoryAudioForPhotos, getStoryAudioProposals, searchInstagramMusic } from '../services/sportApi.js?v=18';
+import { getStoryAudioForPhotos, getStoryAudioProposals, searchInstagramMusic } from '../services/sportApi.js?v=20';
 
 /**
  * URL d'aperçu AUDIO lisible par <audio>.

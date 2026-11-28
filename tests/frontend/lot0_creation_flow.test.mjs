@@ -175,7 +175,9 @@ console.log('A01 : une Story standalone ne dépend pas du brouillon serveur Stud
   assert.equal(calls.createStudioDraft.length, 0, 'pas de création serveur pour une Story');
   assert.equal(svc.currentDraftId, null);
   assert.equal(svc.currentDraftType, 'story');
-  await assert.rejects(() => svc.publish(), /Aucun brouillon/);
+  // La Story standalone crée maintenant son StoryDraft serveur au moment de
+  // publish() ; le stub de test ne renvoie pas d'ID, donc l'échec est explicite.
+  await assert.rejects(() => svc.publish(), /Publication impossible/);
 }
 
 console.log('A14 : normalisation robuste des IDs médias');

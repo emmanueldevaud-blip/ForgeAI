@@ -33,7 +33,8 @@ import {
   // Calendar
   getMonthCalendar,
   getWeekCalendar,
-} from '../services/sportApi.js?v=17';
+  getPublishJobStatus as getPublishJobStatusApi,
+} from '../services/sportApi.js?v=20';
 import {
   createStudioRender,
   getStudioRenderJob,
@@ -116,6 +117,40 @@ export class PublisherDraftService {
       return await this.loadStory(res.id);
     } catch (error) {
       throw new Error(error?.data?.detail || error?.message || 'Erreur création Story');
+    }
+  }
+
+  /**
+   * Crée un brouillon Story standalone depuis une composition du Composer.
+   * Contrairement au parcours Garmin, les slides et designs v2 sont déjà
+   * produits localement : le serveur n'a qu'à les enregistrer.
+   */
+  async createStandaloneStoryDraft() {
+    const draft = publisherStore.draft || {};
+    const design = draft.design || {};
+    const photoIds = (Array.isArray(draft.media) ? draft.media : [])
+      .map((media) => Number(media?.photoId ?? media?.id))
+      .filter((id) => Number.isFinite(id) && id > 0);
+    try {
+      const created = await createStoryDraft({
+        activity_id: null,
+        source: 'manual',
+        photo_ids: photoIds,
+        slides: design.slides || [],
+        design_documents: design.designDocuments || [],
+        caption: draft.caption?.content || '',
+        hashtags: draft.caption?.hashtags || '',
+      });
+      if (!created?.id) throw new Error(created?.detail || 'Création Story impossible');
+      this.serverDraftError = null;
+      this.currentDraftType = 'story';
+      this.currentDraftId = created.id;
+      this.currentFormatOverride = null;
+      publisherStore.draft = { ...publisherStore.draft, id: created.id };
+      publisherStore._notify?.();
+      return created;
+    } catch (error) {
+      throw new Error(this._recordServerDraftError(error).detail);
     }
   }
 
@@ -479,20 +514,29 @@ export class PublisherDraftService {
     if (!this.currentDraftId) {
       // Lot 0 (A01) : un brouillon standalone sans ID serveur est créé à la
       // volée avant publication, puis le contenu local est persisté dessus.
-      if (this.currentDraftType === 'story') throw new Error('Aucun brouillon');
-      try {
-        await this.createStandaloneDraft(this.currentFormatOverride || 'post');
-      } catch {
-        // A01 : pas de publication réelle si le brouillon serveur n'existe pas.
-        throw new Error(`Publication impossible : ${apiErrorDetail(this.serverDraftError)}. Le brouillon reste local.`);
+      if (this.currentDraftType === 'story') {
+        // Story standalone : le Composer a déjà composé les slides, on crée
+        // le StoryDraft serveur correspondant avant de lancer le pipeline.
+        try {
+          await this.createStandaloneStoryDraft();
+        } catch {
+          throw new Error(`Publication impossible : ${apiErrorDetail(this.serverDraftError)}. Le brouillon reste local.`);
+        }
+      } else {
+        try {
+          await this.createStandaloneDraft(this.currentFormatOverride || 'post');
+        } catch {
+          // A01 : pas de publication réelle si le brouillon serveur n'existe pas.
+          throw new Error(`Publication impossible : ${apiErrorDetail(this.serverDraftError)}. Le brouillon reste local.`);
+        }
+        const draft = publisherStore.draft;
+        await this.save({
+          caption: draft.caption,
+          media: draft.media,
+          design: draft.design,
+          music: draft.music,
+        });
       }
-      const draft = publisherStore.draft;
-      await this.save({
-        caption: draft.caption,
-        media: draft.media,
-        design: draft.design,
-        music: draft.music,
-      });
     }
 
     if (this.currentDraftType === 'story') {
@@ -503,7 +547,7 @@ export class PublisherDraftService {
       // Même pipeline que le bouton « Valider et publier » de l'éditeur Story :
       // les slides sont exportées/uploadées avant validation et publication.
       const storyDesign = publisherStore.draft.design || {};
-      await publishStoryWithPipeline({
+      const result = await publishStoryWithPipeline({
         draftId: this.currentDraftId,
         slides: storyDesign.slides || [],
         designDocuments: storyDesign.designDocuments || [],
@@ -520,14 +564,64 @@ export class PublisherDraftService {
         },
         platforms,
       });
-      return this.loadStory(this.currentDraftId);
+      return { ...(result || {}), draft: await this.loadStory(this.currentDraftId) };
     } else {
       let fn = publishStudioDraft;
       if (platforms.includes('facebook') && platforms.includes('instagram')) fn = publishStudioDraftBoth;
       else if (platforms.includes('facebook')) fn = publishStudioDraftFacebook;
-      await fn(this.currentDraftId, { confirm: true });
-      return this.load(this.currentDraftId);
+      const result = await fn(this.currentDraftId, { confirm: true });
+      return { ...(result || {}), draft: await this.load(this.currentDraftId) };
     }
+  }
+
+  /** Interroge le vrai résultat d'un job de publication (souvent asynchrone). */
+  async getPublishJobStatus(jobId) {
+    return getPublishJobStatusApi(jobId);
+  }
+
+  /**
+   * Attend un état terminal (ou un délai maximum) sur les jobs enfilemés par
+   * publish(). Le POST ne dit que « queued » : sans ce polling l'UI annonce
+   * une publication réussie même quand Meta a refusé la demande.
+   */
+  async waitForPublishJobs(jobIds, options = {}) {
+    const ids = [...new Set((Array.isArray(jobIds) ? jobIds : []).filter(Boolean))];
+    if (!ids.length) return { status: 'queued', jobs: [] };
+
+    const attempts = Math.max(1, Number(options.attempts) || 10);
+    const delayMs = Math.max(0, Number(options.delayMs) || 1200);
+    const sleep = options.sleep
+      || ((ms) => new Promise((resolve) => globalThis.setTimeout(resolve, ms)));
+    const terminal = new Set(['done', 'failed', 'cancelled', 'error']);
+    let jobs = [];
+
+    for (let attempt = 0; attempt < attempts; attempt += 1) {
+      jobs = await Promise.all(ids.map(async (jobId) => {
+        try {
+          return await this.getPublishJobStatus(jobId);
+        } catch (error) {
+          return { job_id: jobId, status: 'error', error_message: error?.message || 'Statut indisponible' };
+        }
+      }));
+      if (jobs.every((job) => terminal.has(job?.status))) break;
+      if (attempt < attempts - 1) await sleep(delayMs);
+    }
+
+    const failed = jobs.find((job) => ['failed', 'cancelled', 'error'].includes(job?.status));
+    if (failed) {
+      return {
+        status: 'failed',
+        jobs,
+        error: failed.error_message || failed.error || 'Publication impossible',
+        media: failed.instagram_media_id || null,
+      };
+    }
+    const published = jobs.length > 0 && jobs.every((job) => job?.status === 'done');
+    return {
+      status: published ? 'published' : 'queued',
+      jobs,
+      media: jobs.find((job) => job?.instagram_media_id)?.instagram_media_id || null,
+    };
   }
 
   // ========== Aperçu ==========

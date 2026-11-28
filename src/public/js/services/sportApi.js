@@ -343,8 +343,20 @@ export async function getStudioAudioProposals(publicationId, exclude = []) {
   return cmApi.get(`/community-manager/studio/draft/${encodeURIComponent(publicationId)}/audio-proposals`, { params: { exclude: exclude.join(',') } });
 }
 
-export async function getStoryAudioProposals(draftId) {
-  return cmApi.get(`/community-manager/story-studio/draft/${encodeURIComponent(draftId)}/audio-proposals`);
+export async function getStoryAudioProposals(draftId, photoIds = []) {
+  const params = {};
+  const ids = (photoIds || []).map((id) => parseInt(id, 10)).filter((n) => !Number.isNaN(n));
+  if (ids.length) params.photo_ids = ids.join(',');
+  return cmApi.get(`/community-manager/story-studio/draft/${encodeURIComponent(draftId)}/audio-proposals`, { params });
+}
+
+// V3.1 : propositions IA musique pour des photos explicitement selectionnees
+// (declenchement juste apres la selection, sans dependance au brouillon serveur).
+export async function getStoryAudioForPhotos(photoIds, title = '', hashtags = '') {
+  const params = { photo_ids: (photoIds || []).join(',') };
+  if (title) params.title = title;
+  if (hashtags) params.hashtags = hashtags;
+  return cmApi.get('/community-manager/story/photos/audio-proposals', { params });
 }
 
 // --------------------------------------------------------------------------- #

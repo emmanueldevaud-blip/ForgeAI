@@ -1,5 +1,5 @@
 import { publisherStore } from '../stores/publisherStore.js';
-import { getStoryAudioProposals, searchInstagramMusic } from '../services/sportApi.js?v=17';
+import { getStoryAudioForPhotos, getStoryAudioProposals, searchInstagramMusic } from '../services/sportApi.js?v=18';
 
 /**
  * URL d'aperçu AUDIO lisible par <audio>.
@@ -99,6 +99,7 @@ export class PublisherMusicStep {
   constructor(options = {}) {
     this.search = options.searchInstagramMusic || searchInstagramMusic;
     this.suggest = options.getStoryAudioProposals || getStoryAudioProposals;
+    this.suggestForPhotos = options.getStoryAudioForPhotos || getStoryAudioForPhotos;
     this.publicationId = options.publicationId ?? null;
     this.host = null;
     this.element = null;
@@ -214,11 +215,39 @@ export class PublisherMusicStep {
     if (draft.music?.cleared || resolveDraftMusic(draft)) return;
     const publicationId = this.publicationId ?? draft.id;
     if (!publicationId) return;
+    await this._requestSuggestion(publicationId, null);
+  }
 
+  /**
+   * Déclenche une présélection IA sur des photos explicitement choisies.
+   * C'est le chemin « juste après la sélection » : l'endpoint léger reçoit les
+   * photo_ids directement, sans dépendre du brouillon serveur (Story standalone).
+   * Exécution en arrière-plan : pas de blocage de l'UX, et jamais d'écriture
+   * dans le brouillon (le choix reste créatif, A07).
+   */
+  async suggestForPhotoIds(photoIds) {
+    const draft = publisherStore.draft || {};
+    if (draft.format && draft.format !== 'story') return;
+    if (draft.music?.cleared || resolveDraftMusic(draft)) return;
+    if (this._autoSelected) return;
+    const ids = (photoIds || []).map((id) => parseInt(id, 10)).filter((n) => !Number.isNaN(n));
+    if (!ids.length) return;
+    await this._requestSuggestion(null, ids);
+  }
+
+  /**
+   * Exécute la recherche de présélection (brouillon ou photos explicites).
+   * `draftId` : si fourni, la requête part sur le brouillon (contexte caption) ;
+   * sinon sur l'endpoint photos avec les ids transmis.
+   */
+  async _requestSuggestion(draftId, photoIds = null) {
     const run = ++this._suggestionRun;
-    this._setSuggestionMessage('Présélection IA en cours…');
+    const hasDraft = Boolean(draftId);
+    if (hasDraft) this._setSuggestionMessage('Présélection IA en cours…');
     try {
-      const response = await this.suggest(publicationId);
+      const response = photoIds && photoIds.length
+        ? await this.suggestForPhotos(photoIds)
+        : await this.suggest(draftId);
       if (run !== this._suggestionRun || !this.element) return;
       const items = Array.isArray(response?.items) ? response.items : [];
       const track = items.find((item) => item?.audio_id);

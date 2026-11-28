@@ -918,51 +918,25 @@ async def get_story_draft(
     return StoryDraftResponse.model_validate(draft)
 
 
-@router.get("/story-studio/draft/{draft_id}/audio-proposals")
-async def suggest_story_audio_proposals(
-    draft_id: int,
-    orchestrator: StoryOrchestrator = Depends(get_story_orchestrator),
-):
-    """Proposer une musique Instagram à partir des photos du brouillon Story.
-
-    L'analyse vision est faite par `ig_music` sur les `selected_asset_ids`.
-    Aucune écriture n'est effectuée ici : le front décide de la présélection
-    et peut toujours la remplacer. En cas d'échec IA, un repli catalogue
-    contextuel est proposé et clairement mentionné dans `reason`.
-    """
-    draft = await orchestrator.get_draft(draft_id)
-    if not draft:
-        raise HTTPException(status_code=404, detail="Brouillon Story introuvable")
-
-    from app.services.community_manager.ig_music import (
-        pick_audio_for_photos_bounded,
-        search_ig_audio,
-    )
-
-    photo_ids: list[int] = []
-    for raw_id in (getattr(draft, "selected_asset_ids", None) or []):
-        try:
-            photo_id = int(raw_id)
-        except (TypeError, ValueError):
-            continue
-        if photo_id not in photo_ids and len(photo_ids) < 5:
-            photo_ids.append(photo_id)
-    if not photo_ids:
-        return {
-            "items": [],
-            "eligible_count": 0,
-            "source": "instagram",
-            "local_render": False,
-            "reason": "Aucune photo sélectionnée dans le brouillon Story",
-        }
+async def _story_audio_proposals_response(
+    db,
+    current_user,
+    photo_ids: list[int],
+    *,
+    title: str = "",
+    hashtags: Optional[str] = None,
+    timeout_seconds: float = 25.0,
+) -> dict:
+    """Construit la réponse d'audio-proposals pour des photos de la Story."""
+    from app.services.community_manager.ig_music import pick_audio_for_photos_bounded, search_ig_audio
 
     result = await pick_audio_for_photos_bounded(
-        orchestrator.db,
-        orchestrator.current_user,
+        db,
+        current_user,
         photo_ids,
-        title=str(getattr(draft, "caption", None) or ""),
-        hashtags=getattr(draft, "hashtags", None),
-        timeout_seconds=25.0,
+        title=title,
+        hashtags=str(hashtags or ""),
+        timeout_seconds=timeout_seconds,
     )
     suggestions = list((result or {}).get("suggestions") or [])
     reason = "Analyse IA des photos de la Story"
@@ -972,14 +946,14 @@ async def suggest_story_audio_proposals(
         started = time.perf_counter()
         queries = [
             query for query in (
-                str(getattr(draft, "caption", None) or "").strip()[:80],
-                str(getattr(draft, "hashtags", None) or "").replace("#", " ").strip()[:80],
+                title.strip()[:80],
+                str(hashtags or "").replace("#", " ").strip()[:80],
                 "trail running motivation",
             ) if query
         ]
         for query in queries[:3]:
             try:
-                candidates = await search_ig_audio(orchestrator.db, query, limit=10)
+                candidates = await search_ig_audio(db, query, limit=10)
             except Exception as exc:
                 logger.warning("[IG-MUSIC] Repli Story échoué (%s): %s", query, exc)
                 continue
@@ -1019,6 +993,100 @@ async def suggest_story_audio_proposals(
         "local_render": False,
         "reason": reason if items else "Aucune réponse exploitable du catalogue Instagram Meta",
     }
+
+
+@router.get("/story/photos/audio-proposals")
+async def suggest_story_photo_audio_proposals(
+    photo_ids: str = Query(..., min_length=1, max_length=64),
+    title: str = Query("", max_length=200),
+    hashtags: str = Query("", max_length=200),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_permission("community_manager.calendar_generate")),
+):
+    """Proposer une musique Instagram via l'IA à partir de photos sélectionnées.
+
+    Endpoint léger pour le déclenchement « juste après la sélection » du
+    MediaPicker (Story) : les `photo_ids` sont transmis directement et aucune
+    dépendance au brouillon serveur n'est requise (Story standalone). Aucune
+    écriture n'est effectuée ici : le front décide de la présélection et peut
+    toujours la remplacer. En cas d'échec IA, un repli catalogue contextuel est
+    proposé et clairement mentionné dans `reason`.
+    """
+    ids: list[int] = []
+    for raw in (photo_ids or "").split(","):
+        raw = raw.strip()
+        if not raw:
+            continue
+        try:
+            photo_id = int(raw)
+        except (TypeError, ValueError):
+            continue
+        if photo_id not in ids and len(ids) < 5:
+            ids.append(photo_id)
+    if not ids:
+        return {
+            "items": [],
+            "eligible_count": 0,
+            "source": "instagram",
+            "local_render": False,
+            "reason": "Aucune photo sélectionnée dans la Story",
+        }
+    return await _story_audio_proposals_response(
+        db,
+        current_user,
+        ids,
+        title=title,
+        hashtags=hashtags,
+        timeout_seconds=25.0,
+    )
+
+
+@router.get("/story-studio/draft/{draft_id}/audio-proposals")
+async def suggest_story_audio_proposals(
+    draft_id: int,
+    orchestrator: StoryOrchestrator = Depends(get_story_orchestrator),
+    photo_ids: Optional[str] = Query(default=None),
+):
+    """Proposer une musique Instagram à partir des photos du brouillon Story.
+
+    `photo_ids` permet de cibler explicitement des photos (ex : présélection
+    déclenchée juste après une sélection) ; à défaut, les `selected_asset_ids`
+    du brouillon sont utilisés. L'analyse vision est faite par `ig_music`.
+    Aucune écriture n'est effectuée ici : le front décide de la présélection
+    et peut toujours la remplacer. En cas d'échec IA, un repli catalogue
+    contextuel est proposé et clairement mentionné dans `reason`.
+    """
+
+    draft = await orchestrator.get_draft(draft_id)
+    if not draft:
+        raise HTTPException(status_code=404, detail="Brouillon Story introuvable")
+
+    source_ids: list = photo_ids if photo_ids is not None else (getattr(draft, "selected_asset_ids", None) or [])
+    selected_photo_ids: list[int] = []
+    for raw_id in source_ids:
+        try:
+            photo_id = int(raw_id)
+        except (TypeError, ValueError):
+            continue
+        if photo_id not in selected_photo_ids and len(selected_photo_ids) < 5:
+            selected_photo_ids.append(photo_id)
+    if not selected_photo_ids:
+        return {
+            "items": [],
+            "eligible_count": 0,
+            "source": "instagram",
+            "local_render": False,
+            "reason": "Aucune photo sélectionnée dans le brouillon Story",
+        }
+
+    return await _story_audio_proposals_response(
+        orchestrator.db,
+        orchestrator.current_user,
+        selected_photo_ids,
+        title=str(getattr(draft, "caption", None) or ""),
+        hashtags=getattr(draft, "hashtags", None),
+        timeout_seconds=25.0,
+    )
 
 
 @router.patch("/story-studio/draft/{draft_id}", response_model=StoryDraftResponse)

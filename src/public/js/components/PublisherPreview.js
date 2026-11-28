@@ -5,7 +5,7 @@
 
 import { publisherStore } from '../stores/publisherStore.js';
 import { publisherDraftService } from '../services/publisherDraftService.js?v=3';
-import { resolveDraftMusic } from './PublisherMusicStep.js?v=5';
+import { resolveDraftMusic } from './PublisherMusicStep.js?v=6';
 
 export class PublisherPreview {
   constructor(options = {}) {

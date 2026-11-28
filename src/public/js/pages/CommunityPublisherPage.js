@@ -16,7 +16,7 @@ import { getSuggestedPhotosForActivity } from '../services/sportApi.js?v=17';
 import { createPublisherMediaPicker } from '../components/PublisherMediaPicker.js?v=2';
 import { createPublisherCaptionEditor } from '../components/PublisherCaptionEditor.js?v=2';
 import { createPublisherPreview } from '../components/PublisherPreview.js?v=4';
-import { createPublisherMusicStep } from '../components/PublisherMusicStep.js?v=5';
+import { createPublisherMusicStep } from '../components/PublisherMusicStep.js?v=6';
 import { createPublisherPostEditor } from '../editors/PublisherPostEditor.js?v=3';
 import { createPublisherMinimalComposer } from '../components/PublisherMinimalComposer.js?v=16';
 import { storySlidesReady } from '../services/storyPublishPipeline.js';
@@ -146,6 +146,7 @@ export class CommunityPublisherPage {
     this.formatEditor = null; // Compositeur minimal (texte superposé)
     this.adjustEditor = null; // PublisherPostEditor (recadrage / réorganisation)
     this.musicStep = null; // Étape Musique (Story)
+    this._pendingStoryMusicPhotoIds = []; // Photos sélectionnées en attente de présélection IA
     this.currentStep = 'media';
     this.loading = false;
     this.error = null;
@@ -577,7 +578,7 @@ export class CommunityPublisherPage {
       formats: FORMAT_CONFIG,
       canSwitchFormat,
       onFormatChange: (nextFormat) => this._switchFormat(nextFormat),
-      onSelectionChange: () => {},
+      onSelectionChange: (ids) => this._onMediaSelectionChange(ids),
       onComplete: () => publisherStore.nextStep(),
       onCancel: () => this._goBack(),
     });
@@ -670,6 +671,30 @@ export class CommunityPublisherPage {
         : null,
     });
     this.musicStep.mount(host);
+    const pending = this._pendingStoryMusicPhotoIds;
+    this._pendingStoryMusicPhotoIds = [];
+    // Déclenchement « juste après la sélection » en attente (arrière-plan).
+    if (pending && pending.length) {
+      this.musicStep.suggestForPhotoIds(pending).catch(() => {});
+    }
+  }
+
+  /**
+   * Déclenchement post-sélection : pour une Story, lance en arrière-plan la
+   * présélection musicale IA sur les photos désormais sélectionnées. Les
+   * protections (choix explicite, retrait, résultat tardif, limite IA) restent
+   * portées par le MusicStep.
+   */
+  _onMediaSelectionChange(ids) {
+    const selectedIds = Array.isArray(ids) ? ids.map((id) => String(id)) : [];
+    if (this.format !== 'story' || selectedIds.length === 0) return;
+    if (this.musicStep) {
+      this.musicStep.suggestForPhotoIds(selectedIds).catch(() => {});
+      return;
+    }
+    // L'étape Musique n'est pas encore montée (étape courante = média) : la
+    // présélection est mémorisée puis exécutée à l'ouverture de l'étape.
+    this._pendingStoryMusicPhotoIds = selectedIds;
   }
 
   _mountCaptionEditor() {

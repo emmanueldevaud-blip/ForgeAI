@@ -91,8 +91,9 @@ const { resolveDraftMusic, PublisherMusicStep, previewUrlFor } = new Function(
   'publisherStore',
   'searchInstagramMusic',
   'getStoryAudioProposals',
+  'getStoryAudioForPhotos',
   `${musicSrc}\nreturn { resolveDraftMusic, PublisherMusicStep, previewUrlFor };`,
-)(sharedStore, async () => ({ items: [] }), async () => ({ items: [] }));
+)(sharedStore, async () => ({ items: [] }), async () => ({ items: [] }), async () => ({ items: [] }));
 
 {
   console.log('T3: resolveDraftMusic — draft.music, legacy et cleared');
@@ -485,6 +486,55 @@ function makeEl() {
   noIdStep.destroy();
   slowStep.destroy();
   failStep.destroy();
+}
+
+// ---------- T8b : déclenchement IA juste après la sélection ----------
+{
+  console.log('T8b: déclenchement IA musique juste apres la selection');
+  const apiRaw = read('../../src/public/js/services/sportApi.js');
+  check('T8b: wrapper endpoint photos pour selection explicite', apiRaw.includes('/community-manager/story/photos/audio-proposals'));
+  check('T8b: MusicStep expose suggestForPhotoIds', /suggestForPhotoIds\(/.test(musicSrc));
+
+  const callsForPhotos = [];
+  const photoSuggest = async (ids) => {
+    callsForPhotos.push(ids);
+    return { items: [{ audio_id: 'ai2', title: 'Trail Mix', display_artist: 'IA', duration_in_ms: 90000 }], reason: 'Analyse IA des photos de la Story' };
+  };
+  const suggestTrigger = async () => ({ items: [] });
+  const flushLocal = async () => { for (let i = 0; i < 5; i += 1) await Promise.resolve(); };
+
+  sharedStore.draft = {
+    id: null,
+    format: 'story',
+    music: { trackId: null, start: 0, end: 0, volume: 1, source: null },
+    design: { slides: [], designDocuments: [{ elements: [] }] },
+  };
+  const triggerHost = makeEl();
+  const triggerStep = new PublisherMusicStep({ getStoryAudioProposals: suggestTrigger, getStoryAudioForPhotos: photoSuggest });
+  triggerStep.mount(triggerHost);
+  await triggerStep.suggestForPhotoIds([11, 12]);
+  await flushLocal();
+  check('T8b: endpoint photos appele avec les ids selectionnes', callsForPhotos.length === 1 && deepEq(callsForPhotos[0], [11, 12]));
+  check('T8b: piste IA proposee apres selection', sharedStore.draft.music.trackId === 'ai2' && sharedStore.draft.music.preselectedBy === 'ai');
+  check('T8b: design non ecrit par la selection IA', !JSON.stringify(sharedStore.draft.design).includes('ig_audio'));
+
+  sharedStore.draft = { ...sharedStore.draft, music: { trackId: 'keep', title: 'Déjà choisi', source: 'instagram' } };
+  const callsBefore = callsForPhotos.length;
+  const keptStep = new PublisherMusicStep({ getStoryAudioForPhotos: photoSuggest });
+  await keptStep.suggestForPhotoIds([13]);
+  await flushLocal();
+  check('T8b: choix existant non ecrase par le declenchement', callsForPhotos.length === callsBefore);
+
+  sharedStore.draft = { ...sharedStore.draft, music: { cleared: true, trackId: null } };
+  const clearedStep = new PublisherMusicStep({ getStoryAudioForPhotos: photoSuggest });
+  await clearedStep.suggestForPhotoIds([13]);
+  await flushLocal();
+  check('T8b: retrait explicite non rouvre la IA', callsForPhotos.length === callsBefore);
+
+  triggerStep.destroy();
+  triggerHost.innerHTML = '';
+  keptStep.destroy();
+  clearedStep.destroy();
 }
 
 console.log(failures.length === 0 ? '\nTOUS LES TESTS PASSENT' : `\n${failures.length} ECHEC(S)`);

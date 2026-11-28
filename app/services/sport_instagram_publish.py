@@ -639,6 +639,109 @@ class MetaPublishService:
                 )
                 raise MetaPublishError(f"Erreur réseau: {str(exc)}") from exc
 
+    async def publish_story_to_facebook_page(
+        self,
+        connection,
+        image_url: str,
+        mime_type: Optional[str] = None,
+        publication_id: Optional[int] = None,
+    ) -> str:
+        """Publie une image comme Story sur une Page Facebook.
+
+        Workflow officiel Facebook Stories API (Pages) :
+          1. POST /{page_id}/photos avec `published=false` -> photo_id non publié ;
+          2. POST /{page_id}/photo_stories avec `photo_id` -> post_id de la Story.
+
+        Le média d'une Story n'a pas de légende : aucun `caption` n'est envoyé à Meta,
+        conformément au comportement déjà retenu pour les Stories Instagram.
+        """
+        if mime_type:
+            self._validate_media_type_consistency(False, image_url, mime_type)
+
+        token = await self._get_facebook_page_token(connection)
+        fb_page_id = getattr(connection, "facebook_page_id", None)
+        if not token:
+            raise MetaPublishError("Aucun token valide disponible pour la publication")
+        if not fb_page_id:
+            raise MetaPublishError("Aucun ID de Page Facebook associé")
+
+        safe_url = image_url.split("?")[0] if "?" in image_url else image_url
+        logger.info(
+            "Meta publish_story_to_facebook_page: publication_id=%s, url=%s, fb_page_id=%s",
+            publication_id, safe_url, fb_page_id,
+        )
+
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            try:
+                upload_response = await client.post(
+                    f"{self._base_url}/{fb_page_id}/photos",
+                    params={
+                        "access_token": token,
+                        "url": image_url,
+                        "published": "false",
+                    },
+                )
+                upload_data = {}
+                try:
+                    upload_data = upload_response.json()
+                except Exception:
+                    pass
+                if not upload_response.is_success:
+                    error = upload_data.get("error", {})
+                    logger.error(
+                        "Meta story upload Facebook ERROR: publication_id=%s, http_status=%s, "
+                        "meta_code=%s, fbtrace_id=%s, message=%s",
+                        publication_id, upload_response.status_code, error.get("code"),
+                        upload_response.headers.get("fbtrace-id", "unknown"),
+                        error.get("message", str(upload_response.status_code)),
+                    )
+                    raise MetaPublishError(
+                        f"Erreur envoi Story Facebook: {error.get('message', str(upload_response.status_code))}",
+                        meta_error_code=error.get("code"),
+                        meta_error_subcode=error.get("error_subcode"),
+                    )
+                photo_id = upload_data.get("id")
+                if not photo_id:
+                    raise MetaPublishError("Meta n'a pas retourné d'ID de photo pour la Story Facebook")
+
+                story_response = await client.post(
+                    f"{self._base_url}/{fb_page_id}/photo_stories",
+                    params={"access_token": token, "photo_id": photo_id},
+                )
+                story_data = {}
+                try:
+                    story_data = story_response.json()
+                except Exception:
+                    pass
+                if not story_response.is_success:
+                    error = story_data.get("error", {})
+                    logger.error(
+                        "Meta story publication Facebook ERROR: publication_id=%s, http_status=%s, "
+                        "meta_code=%s, fbtrace_id=%s, message=%s",
+                        publication_id, story_response.status_code, error.get("code"),
+                        story_response.headers.get("fbtrace-id", "unknown"),
+                        error.get("message", str(story_response.status_code)),
+                    )
+                    raise MetaPublishError(
+                        f"Erreur publication Story Facebook: {error.get('message', str(story_response.status_code))}",
+                        meta_error_code=error.get("code"),
+                        meta_error_subcode=error.get("error_subcode"),
+                    )
+                post_id = story_data.get("post_id") or story_data.get("id")
+                if not post_id:
+                    raise MetaPublishError("Meta n'a pas retourné d'ID de Story Facebook")
+                logger.info(
+                    "Facebook Story publish succeeded: post_id=%s, publication_id=%s",
+                    post_id, publication_id,
+                )
+                return str(post_id)
+            except httpx.RequestError as exc:
+                logger.error(
+                    "Meta publish_story_to_facebook_page network error: publication_id=%s, error=%s",
+                    publication_id, str(exc),
+                )
+                raise MetaPublishError(f"Erreur réseau: {str(exc)}") from exc
+
     async def get_facebook_media_permalink(self, connection, media_id: str) -> Optional[str]:
         """Récupère le permalink d'un média publié sur Facebook Page."""
         token = await self._get_valid_token(connection)

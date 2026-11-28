@@ -7,7 +7,7 @@
  */
 
 import { publisherStore } from '../stores/publisherStore.js';
-import { publisherDraftService } from '../services/publisherDraftService.js?v=5';
+import { publisherDraftService } from '../services/publisherDraftService.js?v=6';
 import { createStudioEditorView } from '../editor/StudioEditorView.js?v=2';
 import { listPhotos, photoFileUrl, uploadPhotos } from '../services/photosApi.js?v=8';
 import { searchInstagramMusic } from '../services/sportApi.js?v=17';

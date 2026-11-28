@@ -162,11 +162,11 @@ console.log('3. Câblage et styles');
   const index = read('src/public/index.html');
   assert.match(index, /publisher\.css\?v=34/);
   assert.match(index, /api\.js\?v=3/);
-  assert.match(index, /app-erp\.js\?v=173/);
+  assert.match(index, /app-erp\.js\?v=175/);
   const appSrc = read('src/public/js/app-erp.js');
   assert.match(appSrc, /CommunityManagerCalendarPage\.js\?v=14/, 'import Calendar rafraîchi après correction');
   const swSrc = read('src/public/sw.js');
-  assert.match(swSrc, /forgeai-static-v31/, 'cache static purgé après correction');
+  assert.match(swSrc, /forgeai-static-v33/, 'cache static purgé après correction');
   assert.match(swSrc, /fetch\(request, \{ cache: 'reload' \}\)/, 'revalidation SW sans 304 périmé');
 }
 

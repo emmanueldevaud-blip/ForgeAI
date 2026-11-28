@@ -11,7 +11,8 @@
  */
 
 import { publisherStore } from '../stores/publisherStore.js';
-import { publisherDraftService } from '../services/publisherDraftService.js?v=5';
+import { publisherDraftService } from '../services/publisherDraftService.js?v=6';
+import { getMetaSettings } from '../services/adminApi.js';
 import { getInstagramConnectionStatus, getSuggestedPhotosForActivity } from '../services/sportApi.js?v=20';
 import { createPublisherMediaPicker } from '../components/PublisherMediaPicker.js?v=3';
 import { createPublisherCaptionEditor } from '../components/PublisherCaptionEditor.js?v=2';
@@ -19,7 +20,7 @@ import { createPublisherPreview } from '../components/PublisherPreview.js?v=5';
 import { createPublisherMusicStep } from '../components/PublisherMusicStep.js?v=8';
 import { createPublisherPostEditor } from '../editors/PublisherPostEditor.js?v=3';
 import { createPublisherMinimalComposer } from '../components/PublisherMinimalComposer.js?v=16';
-import { storySlidesReady } from '../services/storyPublishPipeline.js';
+import { storySlidesReady } from '../services/storyPublishPipeline.js?v=2';
 
 /**
  * Métadonnées des étapes (libellé + icône).
@@ -146,6 +147,7 @@ export class CommunityPublisherPage {
     this.formatEditor = null; // Compositeur minimal (texte superposé)
     this.adjustEditor = null; // PublisherPostEditor (recadrage / réorganisation)
     this.musicStep = null; // Étape Musique (Story)
+    this.storyPlatforms = ['instagram']; // Destinations Story : Instagram, Facebook ou les deux
     this._pendingStoryMusicPhotoIds = []; // Photos sélectionnées en attente de présélection IA
     this.currentStep = 'media';
     this.loading = false;
@@ -741,6 +743,9 @@ export class CommunityPublisherPage {
   _mountPublish() {
     const host = this.element.querySelector('[data-publish-host]');
     const storyStatus = this.format === 'story' ? this._storyPublishStatus() : null;
+    const storyPlatforms = this.format === 'story'
+      ? (this.storyPlatforms || ['instagram'])
+      : null;
     // Lot 1 / A05 : le carrousel ne peut pas encore être publié sans conteneur
     // album Meta ; on désactive le bouton et on explique pourquoi.
     const carouselBlocked = this.format === 'carousel';
@@ -762,6 +767,14 @@ export class CommunityPublisherPage {
           <div class="publisher-publish-item">
             <label>Rendu Story</label>
             <span>${this._esc(storyStatus.label)}</span>
+          </div>` : ''}
+          ${storyPlatforms ? `
+          <div class="publisher-publish-item">
+            <label>Destination</label>
+            <span class="publisher-platforms" data-story-platforms>
+              <label><input type="checkbox" value="instagram" ${storyPlatforms.includes('instagram') ? 'checked' : ''}> Instagram</label>
+              <label><input type="checkbox" value="facebook" ${storyPlatforms.includes('facebook') ? 'checked' : ''}> Facebook</label>
+            </span>
           </div>` : ''}
           <div class="publisher-publish-item">
             <label>Compte Instagram</label>
@@ -796,6 +809,12 @@ export class CommunityPublisherPage {
         </div>
       </div>
     `;
+    host.querySelectorAll('[data-story-platforms] input').forEach((input) => {
+      input.addEventListener('change', () => {
+        this.storyPlatforms = [...host.querySelectorAll('[data-story-platforms] input:checked')]
+          .map((element) => element.value);
+      });
+    });
     host.querySelector('[data-action="back"]').addEventListener('click', () => publisherStore.prevStep());
     host.querySelector('[data-action="publish-final"]').addEventListener('click', () => this._publish());
   }
@@ -1069,8 +1088,17 @@ export class CommunityPublisherPage {
       return false;
     }
     this._pendingPublishJobIds = null;
-    this._showToast('Publié sur Instagram !');
+    const labels = { instagram: 'Instagram', facebook: 'Facebook' };
+    const targets = (this.storyPlatforms || ['instagram']).map((key) => labels[key] || key);
+    this._showToast(`Publié sur ${targets.join(' + ')} !`);
     return true;
+  }
+
+  _selectedStoryPlatforms() {
+    const checked = [...(this.element?.querySelectorAll?.('[data-story-platforms] input:checked') || [])]
+      .map((input) => input.value)
+      .filter((value) => value === 'instagram' || value === 'facebook');
+    return checked.length ? checked : (this.storyPlatforms || ['instagram']);
   }
 
   async _publish() {
@@ -1092,16 +1120,31 @@ export class CommunityPublisherPage {
         btn.textContent = 'Publication…';
       }
 
+      const platforms = this.format === 'story' ? this._selectedStoryPlatforms() : ['instagram'];
+      this.storyPlatforms = platforms;
+
       // Préflight Meta : sans compte connecté, aucun job ne peut aboutir. On
       // laisse passer un échec de permissions sur l'endpoint de statut, mais on
       // bloque une absence de connexion avérée avec un message actionnable.
-      try {
-        const connection = await getInstagramConnectionStatus();
-        if (connection && connection.connected === false) {
-          throw new Error("Instagram n'est pas connecté · connectez Meta dans Paramètres > Meta");
+      if (platforms.includes('instagram')) {
+        try {
+          const connection = await getInstagramConnectionStatus();
+          if (connection && connection.connected === false) {
+            throw new Error("Instagram n'est pas connecté · connectez Meta dans Paramètres > Meta");
+          }
+        } catch (error) {
+          if (/pas connecté|Paramètres > Meta/i.test(error?.message || '')) throw error;
         }
-      } catch (error) {
-        if (/pas connecté|Paramètres > Meta/i.test(error?.message || '')) throw error;
+      }
+      if (platforms.includes('facebook')) {
+        try {
+          const settings = await getMetaSettings();
+          if (!settings?.facebook_page_id) {
+            throw new Error("Page Facebook non configurée · renseignez le Facebook Page ID dans Paramètres > Meta");
+          }
+        } catch (error) {
+          if (/Page Facebook non configurée/i.test(error?.message || '')) throw error;
+        }
       }
 
       // Le sélecteur met à jour le store local. Persister les changements avant
@@ -1129,9 +1172,7 @@ export class CommunityPublisherPage {
         ));
       }
 
-      const result = await publisherDraftService.publish({
-        platforms: ['instagram'],
-      });
+      const result = await publisherDraftService.publish({ platforms });
 
       // Le backend met en file le job de publication : le résultat Meta arrive
       // plus tard. Ne pas annoncer une publication terminée trop tôt.

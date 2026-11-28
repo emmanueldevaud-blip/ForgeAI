@@ -280,12 +280,14 @@ export class StoryStudioPage {
     const publishBtn = this.element.querySelector('[data-action="publish"]');
     if (publishBtn) {
       publishBtn.addEventListener('click', async () => {
-        if (!confirm('Publier toutes les Stories sur Instagram ?')) return;
+        const platforms = confirm('Publier aussi sur la Page Facebook ? (Annuler = Instagram uniquement)')
+          ? ['instagram', 'facebook']
+          : ['instagram'];
         publishBtn.disabled = true;
         publishBtn.textContent = 'Publication…';
         try {
-          const res = await publishStoryDraft(this.draftId, { confirm: true, platforms: ['instagram'] });
-          alert(`${res.published_slides} Story(s) en file de publication`);
+          const res = await publishStoryDraft(this.draftId, { confirm: true, platforms });
+          alert(`${res.published_slides} Story(s) en file de publication (${platforms.join(', ')})`);
           this.draft = await getStoryDraft(this.draftId);
           this.render();
         } catch (error) {

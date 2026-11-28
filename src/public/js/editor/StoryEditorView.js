@@ -13,7 +13,7 @@ import { EditorInteraction } from './editorInteraction.js?v=1';
 import { EditorPanels } from './editorPanels.js?v=3';
 import { EditorTimeline } from './editorTimeline.js?v=2';
 import { coverCrop } from './editorGeometry.js?v=1';
-import { exportStorySlides, storyPhotoId } from '../services/storyPublishPipeline.js';
+import { exportStorySlides, storyPhotoId } from '../services/storyPublishPipeline.js?v=2';
 
 const esc = (t) =>
   String(t ?? '').replace(

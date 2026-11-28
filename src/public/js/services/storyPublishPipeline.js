@@ -93,6 +93,20 @@ export function storySlidesReady(design = {}) {
     && slides.every((slide) => !!slide?.published_photo_id);
 }
 
+/** Plateformes Story acceptées, avec dépliage de `both`. */
+export function normalizeStoryPlatforms(values) {
+  const platforms = [];
+  for (const value of values || []) {
+    const targets = value === 'both' ? ['instagram', 'facebook'] : [value];
+    for (const platform of targets) {
+      if (['instagram', 'facebook'].includes(platform) && !platforms.includes(platform)) {
+        platforms.push(platform);
+      }
+    }
+  }
+  return platforms;
+}
+
 /**
  * Pipeline complet côté Composer final : export/upload, sauvegarde, validation,
  * publication. Les appels API sont injectés pour rester testable sans réseau.
@@ -107,9 +121,10 @@ export async function publishStoryWithPipeline({
   platforms = ['instagram'],
   draftData = {},
 } = {}) {
-  // Lot 1 / A06 : refuser toute autre plateforme avant même l'export des slides.
-  if (platforms.some((platform) => platform !== 'instagram')) {
-    throw new Error('La publication Story est disponible sur Instagram uniquement.');
+  // Refuser une cible inconnue avant même l'export des slides.
+  const targets = normalizeStoryPlatforms(platforms);
+  if (!targets.length) {
+    throw new Error('Choisissez au moins une plateforme de publication Story.');
   }
   const prepared = await exportStorySlides({ draftId, slides, designDocuments, deps, renderSlide });
   const payload = {
@@ -126,5 +141,5 @@ export async function publishStoryWithPipeline({
 
   await api.save(payload);
   await api.validate(draftId);
-  return api.publish(draftId, { confirm: true, platforms });
+  return api.publish(draftId, { confirm: true, platforms: targets });
 }

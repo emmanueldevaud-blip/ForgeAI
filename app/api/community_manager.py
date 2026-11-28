@@ -117,9 +117,20 @@ class StoryDraftStatusUpdate(BaseModel):
 
 class StoryDraftPublishRequest(BaseModel):
     confirm: bool = True
-    # Lot 1 / A06 : une seule vérité, la règle métier autorise Instagram uniquement.
-    # facebook / both sont rejetés par Pydantic avant même d'atteindre le handler.
-    platforms: List[Literal["instagram"]] = ["instagram"]
+    # Une Story peut cibler Instagram, une Page Facebook, ou les deux.
+    # `both` est normalisé en ["instagram", "facebook"] côté handler.
+    platforms: List[Literal["instagram", "facebook", "both"]] = ["instagram"]
+
+
+def _normalize_story_platforms(values: List[str]) -> List[str]:
+    """Déplie `both` et déduplique les plateformes de publication Story."""
+    platforms: List[str] = []
+    for value in values or []:
+        targets = ("instagram", "facebook") if value == "both" else (value,)
+        for platform in targets:
+            if platform in ("instagram", "facebook") and platform not in platforms:
+                platforms.append(platform)
+    return platforms
 
 
 # Lot 1 / A04 : la programmation n'est pas exécutée (aucun worker ne consomme
@@ -827,21 +838,31 @@ async def get_publish_job(
     if payload.get("kind") == "story_slide_publish":
         draft_id = payload.get("draft_id")
         slide_index = payload.get("slide_index")
+        platform = payload.get("platform") or "instagram"
         draft = await service.db.get(StoryDraft, draft_id) if draft_id else None
         slide_result = None
         if draft:
             slide_result = next(
                 (item for item in (draft.publication_results or [])
-                 if item.get("slide_index") == slide_index),
+                 if item.get("slide_index") == slide_index
+                 and (item.get("platform") == platform
+                      or (platform == "instagram" and not item.get("platform")))),
                 None,
             )
+        media_id = (slide_result or {}).get("media_id")
+        permalink = (slide_result or {}).get("permalink")
         result.update({
             "draft_id": draft_id,
             "slide_index": slide_index,
+            "platform": platform,
             "publication_status": getattr(draft, "status", None),
             "error_message": getattr(draft, "error_message", None) or job.error,
-            "instagram_media_id": (slide_result or {}).get("media_id"),
-            "instagram_permalink": (slide_result or {}).get("permalink"),
+            "media_id": media_id,
+            "permalink": permalink,
+            "instagram_media_id": media_id if platform == "instagram" else None,
+            "instagram_permalink": permalink if platform == "instagram" else None,
+            "facebook_media_id": media_id if platform == "facebook" else None,
+            "facebook_permalink": permalink if platform == "facebook" else None,
         })
         return result
 
@@ -1386,13 +1407,17 @@ async def publish_story_draft(
     background_tasks: BackgroundTasks,
     orchestrator: StoryOrchestrator = Depends(get_story_orchestrator_write),
 ):
-    """Publier les Stories validées sur Instagram uniquement (Lot 1 / A06).
+    """Publier les Stories validées sur Instagram, Facebook ou les deux.
 
     A07 : une musique éventuellement sélectionnée reste un brouillon créatif ;
     aucun paramètre audio n'est transmis à Meta.
     """
     from app.services.photo.jobs import enqueue_job, run_pending_jobs_now
     from app.models.photo import PhotoJob
+
+    platforms = _normalize_story_platforms(data.platforms)
+    if not platforms:
+        raise HTTPException(status_code=422, detail="Choisissez au moins une plateforme de publication Story")
 
     draft = await orchestrator.get_draft(draft_id)
     if not draft:
@@ -1409,36 +1434,40 @@ async def publish_story_draft(
         raise HTTPException(status_code=422, detail="Chaque Story doit avoir un design enregistré")
     if any(not slide.get("published_photo_id") for slide in slides):
         raise HTTPException(status_code=422, detail="Préparez et validez le rendu de chaque Story avant publication")
-    if not data.platforms or any(platform != "instagram" for platform in data.platforms):
-        raise HTTPException(status_code=422, detail="La publication Story est disponible sur Instagram uniquement")
-
-    # Créer un job de publication pour chaque slide
-    published_count = 0
+    # Un job indépendant par couple (slide, plateforme) : un échec Facebook ne
+    # rejoue pas une Story Instagram déjà publiée, et chaque job garde son propre
+    # statut pour le polling frontend.
+    job_count = 0
     results = []
 
     for slide_index, design in enumerate(draft.design_documents):
-        # Rendre la slide en MP4 si vidéo, sinon image
-        # Pour l'instant, on crée un job de publication par slide
-        job = await enqueue_job(
-            orchestrator.db,
-            type="community_publish",
-            photo_id=None,
-            payload={
-                "kind": "story_slide_publish",
-                "draft_id": draft_id,
+        for platform in platforms:
+            job = await enqueue_job(
+                orchestrator.db,
+                type="community_publish",
+                photo_id=None,
+                payload={
+                    "kind": "story_slide_publish",
+                    "draft_id": draft_id,
+                    "slide_index": slide_index,
+                    # La boucle itère sur les designs ; le visuel validé correspond
+                    # à la même position dans `slides`.
+                    "photo_id": slides[slide_index]["published_photo_id"],
+                    "design": design,
+                    "caption": draft.caption,
+                    "hashtags": draft.hashtags,
+                    "platform": platform,
+                    "expected_platforms": platforms,
+                    "user_id": orchestrator.current_user.id,
+                },
+            )
+            results.append({
                 "slide_index": slide_index,
-                # Correction minimaliste : la boucle itère sur les designs ;
-                # le visuel validé correspond à la même position dans `slides`.
-                "photo_id": slides[slide_index]["published_photo_id"],
-                "design": design,
-                "caption": draft.caption,
-                "hashtags": draft.hashtags,
-                # Pas de champ « platforms » : le handler est Instagram uniquement.
-                "user_id": orchestrator.current_user.id,
-            },
-        )
-        results.append({"slide_index": slide_index, "job_id": job.id, "status": "queued"})
-        published_count += 1
+                "platform": platform,
+                "job_id": job.id,
+                "status": "queued",
+            })
+            job_count += 1
 
     draft.status = "publishing"
     await orchestrator.db.commit()
@@ -1447,10 +1476,13 @@ async def publish_story_draft(
 
     return {
         "draft_id": draft_id,
-        "published_slides": published_count,
+        "published_slides": len(slides),
+        "job_count": job_count,
+        "platforms": platforms,
         "jobs": results,
         "message": (
-            f"{published_count} Story(s) Instagram en file de publication · "
+            f"{job_count} publication(s) Story en file de publication "
+            f"({', '.join(platforms)}) · "
             "musique sélectionnée : brouillon créatif uniquement, non publiée"
         ),
     }

@@ -42,7 +42,7 @@ import {
   uploadPhotos,
   photoFileUrl,
 } from '../services/photosApi.js?v=8';
-import { publishStoryWithPipeline } from '../services/storyPublishPipeline.js';
+import { publishStoryWithPipeline } from '../services/storyPublishPipeline.js?v=2';
 
 /** Détail lisible d'une erreur API (champ `detail` FastAPI, message, etc.). */
 function apiErrorDetail(error) {
@@ -540,10 +540,8 @@ export class PublisherDraftService {
     }
 
     if (this.currentDraftType === 'story') {
-      // Lot 1 / A06 : une seule vérité, la publication Story est Instagram uniquement.
-      if (platforms.some((platform) => platform !== 'instagram')) {
-        throw new Error('La publication Story est disponible sur Instagram uniquement.');
-      }
+      // Story : Instagram, une Page Facebook ou les deux. Le pipeline normalise
+      // les cibles et refuse une plateforme inconnue avant tout export.
       // Même pipeline que le bouton « Valider et publier » de l'éditeur Story :
       // les slides sont exportées/uploadées avant validation et publication.
       const storyDesign = publisherStore.draft.design || {};
@@ -613,14 +611,15 @@ export class PublisherDraftService {
         status: 'failed',
         jobs,
         error: failed.error_message || failed.error || 'Publication impossible',
-        media: failed.instagram_media_id || null,
+        media: failed.media_id || failed.instagram_media_id || failed.facebook_media_id || null,
       };
     }
     const published = jobs.length > 0 && jobs.every((job) => job?.status === 'done');
+    const withMedia = jobs.find((job) => job?.media_id || job?.instagram_media_id || job?.facebook_media_id);
     return {
       status: published ? 'published' : 'queued',
       jobs,
-      media: jobs.find((job) => job?.instagram_media_id)?.instagram_media_id || null,
+      media: withMedia?.media_id || withMedia?.instagram_media_id || withMedia?.facebook_media_id || null,
     };
   }
 

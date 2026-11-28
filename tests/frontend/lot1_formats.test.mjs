@@ -2,12 +2,15 @@
 // Exécution : node tests/frontend/lot1_formats.test.mjs
 //
 // Vérifie que le client n'annonce pas une programmation inexistante, bloque
-// le carrousel à la publication, n'offre qu'Instagram pour les Stories et
-// présente la musique Story comme brouillon créatif non publié.
+// le carrousel à la publication, publiant les Stories sur Instagram, Facebook
+// ou les deux, et présente la musique Story comme brouillon créatif non publié.
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 
-import { publishStoryWithPipeline } from '../../src/public/js/services/storyPublishPipeline.js';
+import {
+  normalizeStoryPlatforms,
+  publishStoryWithPipeline,
+} from '../../src/public/js/services/storyPublishPipeline.js';
 
 const root = new URL('../../', import.meta.url);
 const read = (relative) => fs.readFileSync(new URL(relative, root), 'utf8');
@@ -45,11 +48,16 @@ const strip = (source) => source
         validate: async () => {},
         publish: async () => {},
       },
-      platforms: ['facebook'],
+      platforms: ['tiktok'],
     }),
-    /Instagram uniquement/,
+    /Choisissez au moins une plateforme/,
   );
-  console.log('A06 : pipeline Story refuse facebook avant tout export');
+  assert.deepEqual(normalizeStoryPlatforms(['both']), ['instagram', 'facebook']);
+  assert.deepEqual(
+    normalizeStoryPlatforms(['facebook', 'instagram', 'facebook']),
+    ['facebook', 'instagram'],
+  );
+  console.log('A06 : pipeline Story refuse une cible inconnue et déplie both');
 }
 
 {
@@ -63,7 +71,8 @@ const strip = (source) => source
   assert.doesNotMatch(preview, /audio_configuration/, 'aucune promesse de paramètre Meta audio');
 
   const pipelineSrc = read('src/public/js/services/storyPublishPipeline.js');
-  assert.match(pipelineSrc, /Instagram uniquement/);
+  assert.match(pipelineSrc, /normalizeStoryPlatforms/);
+  assert.match(pipelineSrc, /Choisissez au moins une plateforme/);
   assert.doesNotMatch(
     pipelineSrc.match(/return api\.publish\([^\n]+/)?.[0] || '',
     /audio_configuration/,
@@ -143,10 +152,12 @@ const { PublisherDraftService } = new Function(
   svc.currentDraftId = 77;
   store.draft = { format: 'story', caption: { content: '', hashtags: '' }, design: {} };
 
-  await assert.rejects(() => svc.publish({ platforms: ['facebook'] }), /Instagram uniquement/);
-  await assert.rejects(() => svc.publish({ platforms: ['instagram', 'facebook'] }), /Instagram uniquement/);
-  assert.equal(calls.storyPipeline.length, 0, 'aucun pipeline Story lancé');
-  console.log('A06 : service refuse facebook/both pour une Story');
+  await svc.publish({ platforms: ['facebook'] });
+  await svc.publish({ platforms: ['instagram', 'facebook'] });
+  assert.equal(calls.storyPipeline.length, 2, 'les deux cibles Story lancent le pipeline');
+  assert.deepEqual(calls.storyPipeline[0][0].platforms, ['facebook']);
+  assert.deepEqual(calls.storyPipeline[1][0].platforms, ['instagram', 'facebook']);
+  console.log('A06 : service accepte Facebook et les deux pour une Story');
 }
 
 // ------------------------------------------------------------
@@ -158,4 +169,17 @@ const { PublisherDraftService } = new Function(
   assert.match(page, /data-carousel-blocked/, 'un message explicite est rendu');
   assert.match(page, /carrousel ne peut pas encore être publié/);
   console.log('A05 : UI Publisher désactive et explique la publication carrousel');
+}
+
+// ------------------------------------------------------------
+// A06 — sélecteur de destination Story dans l'UI
+// ------------------------------------------------------------
+{
+  const page = read('src/public/js/pages/CommunityPublisherPage.js');
+  assert.match(page, /data-story-platforms/, 'sélecteur de destination rendu');
+  assert.match(page, /value="facebook"/, 'case Facebook proposée');
+  assert.match(page, /_selectedStoryPlatforms/, 'les cases sont lues au clic Publier');
+  assert.match(page, /getMetaSettings/, 'préflight de la Page Facebook');
+  assert.match(page, /const platforms = this\.format === 'story' \? this\._selectedStoryPlatforms\(\) : \['instagram'\]/);
+  console.log('A06 : UI Story propose Instagram, Facebook et les deux avec préflight');
 }

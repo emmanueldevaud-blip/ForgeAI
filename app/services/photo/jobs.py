@@ -641,23 +641,45 @@ async def _community_publish(db: AsyncSession, photo: Photo | None, payload: dic
         if int(slides[slide_index].get("published_photo_id") or 0) != int(photo_id):
             raise PhotoJobError("Le visuel de cette slide ne correspond plus au brouillon")
 
+        # Une slide peut être publiée sur Instagram, Facebook, ou les deux.
+        # Les jobs créés avant cette évolution n'ont pas de plateforme : défaut Instagram.
+        platform = payload.get("platform") or "instagram"
+        if platform not in ("instagram", "facebook"):
+            raise PhotoJobError(f"Plateforme Story inconnue: {platform}")
+        expected_platforms = [
+            value for value in (payload.get("expected_platforms") or [platform])
+            if value in ("instagram", "facebook")
+        ] or [platform]
+
         try:
             meta_service = MetaPublishService(db)
-            connection = await meta_service.resolve_publish_context()
-            if not connection or not connection.instagram_business_account_id:
-                raise PhotoJobError("Compte Instagram Business non configuré")
             media_info = await MediaPublishService(db).prepare_media_for_publish(
                 int(photo_id), user.id, size="original"
             )
             if media_info.is_video:
                 raise PhotoJobError("Le rendu Story doit être une image JPEG")
-            media_id = await meta_service.publish_story(
-                connection,
-                media_info.url,
-                mime_type=media_info.mime_type,
-                publication_id=int(draft_id),
-            )
-            permalink = await meta_service.get_media_permalink(connection, media_id)
+            if platform == "facebook":
+                connection = await meta_service.resolve_facebook_publish_context()
+                if not connection or not connection.facebook_page_id:
+                    raise PhotoJobError("Page Facebook non configurée")
+                media_id = await meta_service.publish_story_to_facebook_page(
+                    connection,
+                    media_info.url,
+                    mime_type=media_info.mime_type,
+                    publication_id=int(draft_id),
+                )
+                permalink = await meta_service.get_facebook_media_permalink(connection, media_id)
+            else:
+                connection = await meta_service.resolve_publish_context()
+                if not connection or not connection.instagram_business_account_id:
+                    raise PhotoJobError("Compte Instagram Business non configuré")
+                media_id = await meta_service.publish_story(
+                    connection,
+                    media_info.url,
+                    mime_type=media_info.mime_type,
+                    publication_id=int(draft_id),
+                )
+                permalink = await meta_service.get_media_permalink(connection, media_id)
         except Exception as exc:
             draft.status = "failed"
             draft.error_message = str(exc)
@@ -667,16 +689,26 @@ async def _community_publish(db: AsyncSession, photo: Photo | None, payload: dic
         publication_results = list(draft.publication_results or [])
         publication_results.append({
             "slide_index": slide_index,
-            "platform": "instagram",
+            "platform": platform,
             "media_id": media_id,
             "permalink": permalink,
             "published_at": datetime.now(UTC).replace(tzinfo=None).isoformat(),
         })
         draft.publication_results = publication_results
-        published_slides = {r.get("slide_index") for r in publication_results if r.get("platform") == "instagram"}
-        if len(published_slides) >= len(slides):
+        published_targets = {
+            (item.get("slide_index"), item.get("platform"))
+            for item in publication_results
+            if item.get("platform") in expected_platforms
+        }
+        required_targets = {
+            (index, target)
+            for index in range(len(slides))
+            for target in expected_platforms
+        }
+        if required_targets and required_targets <= published_targets:
             draft.status = "published"
             draft.published_at = datetime.now(UTC).replace(tzinfo=None)
+            draft.error_message = None
 
         await db.commit()
         return

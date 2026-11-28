@@ -118,6 +118,26 @@ console.log('3. Pipeline complet : sauvegarde -> validation -> publication');
     calls[2][2].confirm === true && calls[2][2].platforms[0] === 'instagram');
 }
 
+console.log('3b. Pipeline complet : both est déplié pour le backend');
+{
+  const calls = [];
+  await publishStoryWithPipeline({
+    draftId: 8,
+    slides: [{}],
+    designDocuments: [design(11)],
+    deps: { uploadPhotos: async () => [{ id: 78 }] },
+    renderSlide: async () => new Blob(['jpeg'], { type: 'image/jpeg' }),
+    api: {
+      save: async () => { calls.push('save'); },
+      validate: async () => { calls.push('validate'); },
+      publish: async (_id, data) => { calls.push(data.platforms); return { jobs: [] }; },
+    },
+    platforms: ['both'],
+  });
+  check('both déplié en instagram + facebook',
+    JSON.stringify(calls.at(-1)) === JSON.stringify(['instagram', 'facebook']));
+}
+
 console.log('4. Échec d’export : aucun appel validate/publish');
 {
   const calls = [];

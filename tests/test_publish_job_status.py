@@ -79,6 +79,39 @@ async def test_story_slide_job_reports_real_meta_result():
 
 
 @pytest.mark.asyncio
+async def test_story_slide_job_reports_facebook_result():
+    """Un job Facebook expose son propre média sans usurper le champ Instagram."""
+    draft = SimpleNamespace(
+        id=42,
+        status="published",
+        error_message=None,
+        publication_results=[{
+            "slide_index": 0,
+            "platform": "facebook",
+            "media_id": "fb-story-1",
+            "permalink": "https://facebook.com/stories/1",
+        }],
+    )
+    _, service = make_service({
+        "kind": "story_slide_publish",
+        "draft_id": 42,
+        "slide_index": 0,
+        "platform": "facebook",
+        "expected_platforms": ["instagram", "facebook"],
+        "photo_id": 11,
+        "user_id": 1,
+    }, draft=draft)
+
+    result = await get_publish_job("job-1", service)
+
+    assert result["platform"] == "facebook"
+    assert result["media_id"] == "fb-story-1"
+    assert result["facebook_media_id"] == "fb-story-1"
+    assert result["instagram_media_id"] is None
+    assert result["facebook_permalink"].endswith("/stories/1")
+
+
+@pytest.mark.asyncio
 async def test_story_slide_job_reports_failure():
     draft = SimpleNamespace(
         id=42,

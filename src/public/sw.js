@@ -2,7 +2,7 @@
 
 /* Cache strictement limite aux ressources statiques (CSS/JS/icônes).
    Jamais l'API ni les pages HTML : aucune donnee utilisateur en cache. */
-const STATIC_CACHE = 'forgeai-static-v31';
+const STATIC_CACHE = 'forgeai-static-v33';
 const STATIC_PREFIXES = ['/css/', '/js/', '/icons/'];
 
 self.addEventListener('install', event => {
@@ -33,7 +33,7 @@ self.addEventListener('fetch', event => {
          en arriere-plan. `cache: 'reload'` est indispensable : le cache HTTP
          du navigateur renvoyait sinon un 304 (response.ok === false) et le
          cache du SW gardait indefiniment l'ancien bundle (ex. import
-         CommunityPublisherPage.js?v=26 alors que la source est en v33). */
+         CommunityPublisherPage.js?v=26 alors que la source est en v35). */
       const network = () => fetch(request, { cache: 'reload' });
       network().then(response => {
         if (response && response.ok) cache.put(request, response.clone());

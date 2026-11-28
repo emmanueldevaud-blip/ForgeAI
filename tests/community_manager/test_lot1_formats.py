@@ -1,8 +1,8 @@
 """Lot 1 — Programmation et formats (A04, A05, A06, A07).
 
 Correctifs « honnêtes » : désactiver ce qui n'est pas exécutable, bloquer le
-carrousel à la publication, aligner le contrat Story sur Instagram uniquement
-et documenter la musique Story comme brouillon créatif non publié.
+carrousel à la publication, publier les Stories sur Instagram, Facebook ou les
+deux, et documenter la musique Story comme brouillon créatif non publié.
 
 Ce fichier est additif : les 12 échecs A10 restent visibles tels quels.
 """
@@ -157,19 +157,22 @@ async def test_publish_endpoint_blocks_carousel_before_enqueue():
 
 
 # ============================================================
-# A06 — Une seule vérité : Stories Instagram uniquement
+# A06 — Publication Story : Instagram, Facebook ou les deux
 # ============================================================
 
 
-def test_story_publish_schema_accepts_instagram_only():
+def test_story_publish_schema_accepts_supported_platforms():
     assert StoryDraftPublishRequest().platforms == ["instagram"]
-    assert StoryDraftPublishRequest(platforms=["instagram"]).platforms == ["instagram"]
-    for invalid in (["facebook"], ["both"], ["instagram", "facebook"]):
-        with pytest.raises(ValidationError):
-            StoryDraftPublishRequest(platforms=invalid)
+    assert StoryDraftPublishRequest(platforms=["facebook"]).platforms == ["facebook"]
+    assert StoryDraftPublishRequest(platforms=["both"]).platforms == ["both"]
+    assert StoryDraftPublishRequest(platforms=["instagram", "facebook"]).platforms == [
+        "instagram", "facebook",
+    ]
+    with pytest.raises(ValidationError):
+        StoryDraftPublishRequest(platforms=["tiktok"])
 
 
-async def test_story_publish_handler_still_rejects_other_platforms(monkeypatch):
+async def test_story_publish_handler_rejects_empty_platforms(monkeypatch):
     """Défense en profondeur si un appelant contourne la validation Pydantic."""
     orchestrator = MagicMock()
     orchestrator.get_draft = AsyncMock(return_value=_story_draft())
@@ -180,7 +183,7 @@ async def test_story_publish_handler_still_rejects_other_platforms(monkeypatch):
     monkeypatch.setattr("app.services.photo.jobs.enqueue_job", enqueue)
     monkeypatch.setattr("app.services.photo.jobs.run_pending_jobs_now", MagicMock())
 
-    bad_request = StoryDraftPublishRequest.model_construct(platforms=["facebook"], confirm=True)
+    bad_request = StoryDraftPublishRequest.model_construct(platforms=[], confirm=True)
     with pytest.raises(HTTPException) as exc_info:
         await publish_story_draft(
             draft_id=7,
@@ -190,32 +193,38 @@ async def test_story_publish_handler_still_rejects_other_platforms(monkeypatch):
         )
 
     assert exc_info.value.status_code == 422
-    assert "Instagram uniquement" in exc_info.value.detail
+    assert "au moins une plateforme" in exc_info.value.detail
     enqueue.assert_not_awaited()
 
 
-async def test_story_publish_enqueues_instagram_job_without_multi_platform_payload(monkeypatch):
+async def test_story_publish_enqueues_one_job_per_slide_and_platform(monkeypatch):
     draft = _story_draft()
     orchestrator = MagicMock()
     orchestrator.get_draft = AsyncMock(return_value=draft)
     orchestrator.db.commit = AsyncMock()
     orchestrator.current_user.id = 1
 
-    enqueue = AsyncMock(return_value=SimpleNamespace(id="job-1"))
+    enqueue = AsyncMock(side_effect=[SimpleNamespace(id="job-1"), SimpleNamespace(id="job-2")])
     monkeypatch.setattr("app.services.photo.jobs.enqueue_job", enqueue)
     monkeypatch.setattr("app.services.photo.jobs.run_pending_jobs_now", MagicMock())
 
     result = await publish_story_draft(
         draft_id=7,
-        data=StoryDraftPublishRequest(platforms=["instagram"]),
+        data=StoryDraftPublishRequest(platforms=["both"]),
         background_tasks=BackgroundTasks(),
         orchestrator=orchestrator,
     )
 
-    payload = enqueue.await_args.kwargs["payload"]
-    assert payload["kind"] == "story_slide_publish"
-    assert "platforms" not in payload  # plus de contrat multi-plateforme mensonger
-    assert "Instagram uniquement" in result["message"] or "brouillon créatif" in result["message"]
+    assert enqueue.await_count == 2
+    first = enqueue.await_args_list[0].kwargs["payload"]
+    second = enqueue.await_args_list[1].kwargs["payload"]
+    assert first["kind"] == "story_slide_publish"
+    assert [first["platform"], second["platform"]] == ["instagram", "facebook"]
+    assert first["expected_platforms"] == ["instagram", "facebook"]
+    assert "audio_configuration" not in first
+    assert [item["platform"] for item in result["jobs"]] == ["instagram", "facebook"]
+    assert result["platforms"] == ["instagram", "facebook"]
+    assert "musique" not in result["message"] or "brouillon créatif" in result["message"]
 
 
 # ============================================================
@@ -268,3 +277,58 @@ async def test_story_job_does_not_forward_audio_configuration_to_meta(monkeypatc
     meta.publish_story.assert_awaited_once()
     assert "audio_configuration" not in meta.publish_story.await_args.kwargs
     assert draft.publication_results[0]["platform"] == "instagram"
+
+
+async def test_story_job_publishes_facebook_page_story(monkeypatch):
+    """Une slide ciblant Facebook utilise la Stories API des Pages, pas Instagram."""
+    from app.services.photo import jobs
+
+    user = SimpleNamespace(id=1)
+    draft = _story_draft()
+    db = AsyncMock()
+    db.get = AsyncMock(side_effect=[user, draft])
+    db.commit = AsyncMock()
+
+    meta = MagicMock()
+    meta.resolve_facebook_publish_context = AsyncMock(
+        return_value=SimpleNamespace(facebook_page_id="page-1")
+    )
+    meta.publish_story_to_facebook_page = AsyncMock(return_value="story-post-1")
+    meta.get_facebook_media_permalink = AsyncMock(return_value="https://facebook.com/stories/1")
+    meta.publish_story = AsyncMock()
+    meta.resolve_publish_context = AsyncMock()
+    monkeypatch.setattr(
+        "app.services.sport_instagram_publish.MetaPublishService", MagicMock(return_value=meta)
+    )
+
+    media = MagicMock()
+    media.prepare_media_for_publish = AsyncMock(
+        return_value=SimpleNamespace(
+            url="https://example.com/story.jpg",
+            mime_type="image/jpeg",
+            is_video=False,
+        )
+    )
+    monkeypatch.setattr(
+        "app.services.sport_media_publish.MediaPublishService", MagicMock(return_value=media)
+    )
+
+    await jobs._community_publish(
+        db,
+        None,
+        {
+            "kind": "story_slide_publish",
+            "draft_id": 7,
+            "slide_index": 0,
+            "photo_id": 11,
+            "user_id": 1,
+            "platform": "facebook",
+            "expected_platforms": ["facebook"],
+        },
+    )
+
+    meta.publish_story_to_facebook_page.assert_awaited_once()
+    meta.publish_story.assert_not_awaited()
+    assert draft.publication_results[0]["platform"] == "facebook"
+    assert draft.publication_results[0]["media_id"] == "story-post-1"
+    assert draft.status == "published"
